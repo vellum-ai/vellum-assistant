@@ -2,8 +2,7 @@
  * Shared motion-spring constants for the live-voice room surfaces.
  *
  * Kept here — inside the voice domain — so the room surface declares the spring
- * once instead of hand-copying it, without reaching into the constellation
- * domain for its `NODE_SPRING`.
+ * once instead of hand-copying it.
  */
 
 /**

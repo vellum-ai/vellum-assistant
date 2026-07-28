@@ -21,6 +21,14 @@ export interface BootstrapConversationOptions {
    * most recent retrospective for this source").
    */
   forkParentConversationId?: string;
+  /**
+   * When set, persisted as the new conversation's `parent_conversation_id` —
+   * the conversation that spawned this one (subagent spawns). Telemetry
+   * resolves it at flush time to attribute the child's LLM usage back to the
+   * parent's in-flight user turn. Unlike `forkParentConversationId` it
+   * implies no history inheritance.
+   */
+  parentConversationId?: string;
 }
 
 /**
@@ -52,6 +60,9 @@ export async function bootstrapConversation(
         ...(opts.groupId && { groupId: opts.groupId }),
         ...(opts.forkParentConversationId && {
           forkParentConversationId: opts.forkParentConversationId,
+        }),
+        ...(opts.parentConversationId && {
+          parentConversationId: opts.parentConversationId,
         }),
       }),
     { op: "bootstrapConversation" },

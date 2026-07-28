@@ -200,7 +200,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "vellum",
     {
       id: "vellum",
-      displayName: "Vellum Managed",
+      displayName: "Vellum",
       subtitle:
         "Speech-to-text through your Vellum account — billed to Vellum credits, no separate API key needed.",
       setupMode: "connection",
@@ -210,8 +210,8 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
         "daemon-batch",
         "daemon-streaming",
       ]),
-      telephonyMode: "batch-only",
-      conversationStreamingMode: "incremental-batch",
+      telephonyMode: "realtime-ws",
+      conversationStreamingMode: "realtime-ws",
       supportsDiarization: false,
     },
   ],

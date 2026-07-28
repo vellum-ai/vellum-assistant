@@ -3,25 +3,24 @@
  *
  * SPIKE — research-onboarding flow.
  *
- * Those steps paint the background with the chosen avatar's color, so UI drawn
- * on top (top bar, titles, labels) needs a foreground that contrasts. The
- * derivation itself is the shared `toneForBg` (see `@/utils/surface-tone`);
- * this module binds it to the onboarding picker's chosen character.
+ * The tone derivation itself is the shared `@/utils/avatar-tone` module
+ * (the About Assistant pages tint the same way); this module binds it to
+ * the onboarding picker pool — the tone follows whichever avatar the user
+ * has currently selected.
  *
- * The picker / first form sit on the dark app surface (not an avatar color) and
- * should stay white regardless — they pass an explicit tone rather than using
- * this hook.
+ * The picker / first form sit on the dark app surface (not an avatar
+ * color) and should stay white regardless — they pass an explicit tone
+ * rather than using this hook.
  */
 
 import { useMemo } from "react";
 
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import { toneForBg, type SurfaceTone } from "@/utils/surface-tone";
+import { toneForBg, type AvatarTone } from "@/utils/avatar-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
-export type OnboardingTone = SurfaceTone;
-
-export { toneForBg };
+export { darkenHex, toneForBg } from "@/utils/avatar-tone";
+export type OnboardingTone = AvatarTone;
 
 /** Tone derived from the currently-chosen avatar's color. */
 export function useOnboardingTone(): OnboardingTone {

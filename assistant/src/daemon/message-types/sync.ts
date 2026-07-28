@@ -59,5 +59,3 @@ export function buildSyncChangedMessage(
     ...(trimmedOrigin ? { originClientId: trimmedOrigin } : {}),
   });
 }
-
-export type _SyncInvalidationServerMessages = SyncChangedEvent;

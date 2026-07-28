@@ -54,12 +54,14 @@ mock.module("../security/credential-key.js", () => ({
 let mockConsultationTimeoutMs = 90_000;
 let mockSilenceTimeoutMs = 30_000;
 let mockEndCallListenWindowMs = 0;
+let mockEndCallDrainMaxWaitMs = 15_000;
 
 mock.module("../calls/call-constants.js", () => ({
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
   getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
   getEndCallListenWindowMs: () => mockEndCallListenWindowMs,
+  getEndCallDrainMaxWaitMs: () => mockEndCallDrainMaxWaitMs,
 }));
 
 // ── Voice session bridge mock ────────────────────────────────────────
@@ -246,6 +248,7 @@ interface MockTransport extends CallTransport {
   sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
+  cancelPendingSpeechCount: number;
 }
 
 function createMockTransport(): MockTransport {
@@ -254,6 +257,7 @@ function createMockTransport(): MockTransport {
     sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
+    _cancelPendingSpeechCount: 0,
   };
 
   return {
@@ -269,6 +273,9 @@ function createMockTransport(): MockTransport {
     get endReason() {
       return state._endReason;
     },
+    get cancelPendingSpeechCount() {
+      return state._cancelPendingSpeechCount;
+    },
     sendTextToken(token: string, last: boolean) {
       state.sentTokens.push({ token, last });
     },
@@ -278,6 +285,9 @@ function createMockTransport(): MockTransport {
     endSession(reason?: string) {
       state._endCalled = true;
       state._endReason = reason;
+    },
+    cancelPendingSpeech() {
+      state._cancelPendingSpeechCount++;
     },
   } as MockTransport;
 }
@@ -365,6 +375,8 @@ function setupController(
     trustContext?: import("../daemon/trust-context-types.js").TrustContext;
     /** Simulate the media-stream transport's PCM requirement. */
     requiresPcmAudio?: boolean;
+    /** Simulate a transport that gates teardown on playback drain. */
+    awaitPlaybackDrained?: () => Promise<void>;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -379,6 +391,9 @@ function setupController(
   const transport = createMockTransport();
   if (opts?.requiresPcmAudio) {
     Object.assign(transport, { requiresPcmAudio: true });
+  }
+  if (opts?.awaitPlaybackDrained) {
+    Object.assign(transport, { awaitPlaybackDrained: opts.awaitPlaybackDrained });
   }
   const controller = new CallController(session.id, transport, task ?? null, {
     assistantId: opts?.assistantId,
@@ -440,6 +455,7 @@ describe("call-controller", () => {
     mockConsultationTimeoutMs = 90_000;
     mockSilenceTimeoutMs = 30_000;
     mockEndCallListenWindowMs = 0;
+    mockEndCallDrainMaxWaitMs = 15_000;
     // Reset TTS config to defaults so per-test mutations don't leak.
     const cfg = loadConfig();
     cfg.services.tts.provider = "elevenlabs";
@@ -895,6 +911,281 @@ describe("call-controller", () => {
     expect(getCallSession(session.id)!.status).toBe("in_progress");
 
     controller.destroy();
+  });
+
+  // ── END_CALL playback-drain gating ───────────────────────────────
+
+  test("END_CALL does not end the session until playback drain resolves", async () => {
+    mockEndCallListenWindowMs = 0;
+    let resolveDrain!: () => void;
+    const drainPromise = new Promise<void>((r) => {
+      resolveDrain = r;
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Thank you for calling, goodbye! ", "[END_CALL]"]),
+    );
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => drainPromise,
+    });
+
+    await controller.handleCallerUtterance("That is all, thanks");
+
+    // Drain has not resolved — teardown must be blocked.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.endCalled).toBe(false);
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+
+    // Drain completes — teardown proceeds and ends the session.
+    resolveDrain();
+    await pollUntil(() => relay.endCalled);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+
+    controller.destroy();
+  });
+
+  test("END_CALL honors the listen window after drain resolves", async () => {
+    mockEndCallListenWindowMs = 30;
+    let resolveDrain!: () => void;
+    const drainPromise = new Promise<void>((r) => {
+      resolveDrain = r;
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Goodbye! ", "[END_CALL]"]),
+    );
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => drainPromise,
+    });
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    resolveDrain();
+
+    // Listen window still gates completion after drain.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(relay.endCalled).toBe(false);
+
+    await pollUntil(() => relay.endCalled);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+
+    controller.destroy();
+  });
+
+  test("END_CALL forces hangup after the drain safety cap when drain never resolves", async () => {
+    mockEndCallListenWindowMs = 0;
+    mockEndCallDrainMaxWaitMs = 25;
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Goodbye! ", "[END_CALL]"]),
+    );
+    // Drain that never resolves — only the safety cap can release teardown.
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => new Promise<void>(() => {}),
+    });
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    expect(relay.endCalled).toBe(false);
+
+    await pollUntil(() => relay.endCalled);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+
+    controller.destroy();
+  });
+
+  test("a second END_CALL teardown keeps its own safety cap after cancelling the first", async () => {
+    // Cancelling a mid-drain teardown then immediately starting another must
+    // not let the old teardown's continuation clear the new one's cap.
+    mockEndCallListenWindowMs = 30;
+    mockEndCallDrainMaxWaitMs = 40;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        opts.onTextDelta(
+          turnContents.length === 2 ? "Okay, bye. [END_CALL]" : "Goodbye! [END_CALL]",
+        );
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    // Both goodbyes' drains never echo — only each teardown's own safety cap
+    // can release it.
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => new Promise<void>(() => {}),
+    });
+
+    await controller.handleCallerUtterance("That is all"); // teardown A (mid-drain)
+    // Re-engage: cancels A and starts turn 2, which emits END_CALL → teardown B.
+    await controller.handleCallerUtterance("Actually, bye");
+
+    // B must still hang up via its own cap despite A's cancelled continuation.
+    await pollUntil(() => relay.endCalled);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+
+    controller.destroy();
+  });
+
+  test("caller re-engagement during the drain phase cancels teardown and defers", async () => {
+    mockEndCallListenWindowMs = 30;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        if (turnContents.length === 1) {
+          opts.onTextDelta("Goodbye! [END_CALL]");
+        } else {
+          opts.onTextDelta("Sure, I'm still here.");
+        }
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    // Drain never resolves during the test window; re-engagement must still
+    // cancel the pending teardown mid-drain.
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => new Promise<void>(() => {}),
+    });
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    expect(relay.endCalled).toBe(false);
+
+    // Caller re-engages while teardown is still waiting on drain.
+    await controller.handleCallerUtterance("Wait, one more thing");
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(relay.endCalled).toBe(false);
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+    expect(turnContents).toContain("Wait, one more thing");
+    const allText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allText).toContain("I'm still here.");
+    // The abandoned goodbye's queued speech must be cancelled so it can't
+    // play over the caller's follow-up.
+    expect(relay.cancelPendingSpeechCount).toBeGreaterThan(0);
+
+    controller.destroy();
+  });
+
+  test("repeat END_CALL still waits for drain but skips the listen window", async () => {
+    mockEndCallListenWindowMs = 30;
+    let resolveSecondDrain!: () => void;
+    let drainCalls = 0;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        if (turnContents.length === 1) {
+          opts.onTextDelta("Goodbye! [END_CALL]");
+        } else if (turnContents.length === 2) {
+          opts.onTextDelta("Okay, one quick thing.");
+        } else {
+          opts.onTextDelta("I have to go now. Goodbye! [END_CALL]");
+        }
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => {
+        drainCalls++;
+        // First END_CALL drain resolves immediately; the second one is held
+        // so we can assert teardown is gated on it, not on a 0ms timer.
+        if (drainCalls === 1) return Promise.resolve();
+        return new Promise<void>((r) => {
+          resolveSecondDrain = r;
+        });
+      },
+    });
+
+    // First END_CALL — listen window is armed; caller re-engages (deferral #1).
+    await controller.handleCallerUtterance("That is all, thanks");
+    await controller.handleCallerUtterance("Wait, one more thing");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(relay.endCalled).toBe(false);
+
+    // Second END_CALL after the deferral — must still block on drain.
+    await controller.handleCallerUtterance("Just kidding, keep going");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.endCalled).toBe(false);
+
+    // Drain resolves — teardown completes without any listen window.
+    resolveSecondDrain();
+    await pollUntil(() => relay.endCalled);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+
+    controller.destroy();
+  });
+
+  test("transport without awaitPlaybackDrained ends after listen window as before", async () => {
+    mockEndCallListenWindowMs = 25;
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Goodbye! ", "[END_CALL]"]),
+    );
+    // Default mock transport does not implement awaitPlaybackDrained.
+    const { session, relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    expect(relay.endCalled).toBe(false);
+
+    await pollUntil(() => relay.endCalled);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+
+    controller.destroy();
+  });
+
+  test("destroy cancels a pending end-call teardown mid-drain", async () => {
+    mockEndCallListenWindowMs = 0;
+    let resolveDrain!: () => void;
+    const drainPromise = new Promise<void>((r) => {
+      resolveDrain = r;
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Goodbye! ", "[END_CALL]"]),
+    );
+    const { session, relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => drainPromise,
+    });
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    expect(relay.endCalled).toBe(false);
+
+    controller.destroy();
+
+    // Drain resolves after destroy — teardown must not fire endSession.
+    resolveDrain();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.endCalled).toBe(false);
+    expect(getCallSession(session.id)!.status).toBe("in_progress");
+  });
+
+  test("destroy during the listen window settles the wait without hanging up", async () => {
+    // Long window so destroy lands while the listen-window wait is armed;
+    // the wait must settle (not leak) and teardown must not fire endSession.
+    mockEndCallListenWindowMs = 10_000;
+    const drainPromise = Promise.resolve();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["Goodbye! ", "[END_CALL]"]),
+    );
+    const { relay, controller } = setupController(undefined, {
+      awaitPlaybackDrained: () => drainPromise,
+    });
+
+    await controller.handleCallerUtterance("That is all, thanks");
+    // Let the drain phase resolve and the listen-window timer arm.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.endCalled).toBe(false);
+
+    controller.destroy();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(relay.endCalled).toBe(false);
   });
 
   // ── handleUserAnswer ──────────────────────────────────────────────

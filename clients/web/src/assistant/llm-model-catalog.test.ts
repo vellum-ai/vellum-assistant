@@ -24,6 +24,8 @@ import {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
+  getManagedUpstreamForModel,
+  VELLUM_SERVED_PROVIDERS,
   type LlmProviderId,
 } from "./llm-model-catalog";
 
@@ -97,6 +99,45 @@ describe("parity with meta/llm-provider-catalog.json", () => {
   const webProviderIds = (
     Object.keys(MODELS_BY_PROVIDER) as LlmProviderId[]
   ).filter((id) => id !== "openai-compatible");
+
+  test("vellum is a picker-only entry: absent from the catalogs by design", () => {
+    // The Vellum entry is the managed routing identity, not a provider with
+    // its own catalog — it must never gain a MODELS_BY_PROVIDER key or a
+    // meta-catalog entry. Its model list is the union of the providers it
+    // serves, exposed only through getModelsForProvider.
+    expect(Object.keys(MODELS_BY_PROVIDER)).not.toContain("vellum");
+    expect(metaProvidersById.has("vellum")).toBe(false);
+
+    const vellumModels = getModelsForProvider("vellum");
+    // Every entry comes from a served provider's catalog…
+    const servedIds = new Set<string>(
+      VELLUM_SERVED_PROVIDERS.flatMap((p) =>
+        MODELS_BY_PROVIDER[p].map((m) => m.id),
+      ),
+    );
+    for (const model of vellumModels) {
+      expect(servedIds.has(model.id)).toBe(true);
+    }
+    // …labels are unique (the picker renders labels only, so duplicates
+    // would be indistinguishable options)…
+    const labels = vellumModels.map((m) => m.displayName);
+    expect(new Set(labels).size).toBe(labels.length);
+    // …and no distinct label from any served catalog is missing.
+    const servedLabels = new Set(
+      VELLUM_SERVED_PROVIDERS.flatMap((p) =>
+        MODELS_BY_PROVIDER[p].map((m) => m.displayName),
+      ),
+    );
+    expect(new Set(labels)).toEqual(servedLabels);
+  });
+
+  test("getManagedUpstreamForModel derives the serving provider", () => {
+    expect(getManagedUpstreamForModel("claude-opus-4-8")).toBe("anthropic");
+    expect(
+      getManagedUpstreamForModel("accounts/fireworks/models/glm-5p2"),
+    ).toBe("fireworks");
+    expect(getManagedUpstreamForModel("not-a-real-model")).toBeUndefined();
+  });
 
   test("every meta provider exists in the web mirror", () => {
     // This is the original MiniMax bug: a provider added to the daemon

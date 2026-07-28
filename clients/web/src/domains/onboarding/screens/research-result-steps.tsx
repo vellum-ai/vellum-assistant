@@ -94,6 +94,11 @@ export function MiniAssistant({
   );
 }
 
+// Heading text shown beside the 64px avatar in the top-aligned rows below.
+// The top padding — (4rem avatar − 2.6rem line) / 2 — centers the first line
+// against the avatar while wrapped lines flow below without moving it.
+const AVATAR_HEADING_CLASS = "pt-[0.7rem] text-[2.6rem] leading-none";
+
 // ---------------------------------------------------------------------------
 // Meeting Created
 // ---------------------------------------------------------------------------
@@ -208,7 +213,7 @@ export function MeetingCreatedStep({
           )}
         </div>
         <motion.span
-          className="text-[2.6rem] leading-none"
+          className={AVATAR_HEADING_CLASS}
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
@@ -300,14 +305,18 @@ export function LookingYouUpStep({
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
-      {/* Top-align so the avatar stays put as messages change line count
-          (centering would bob it up and down between carousel lines). */}
-      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+      {/* True center of the viewport. The message reserves a fixed min-height
+          (two AVATAR_HEADING_CLASS lines) so the row's height — and therefore
+          its centered position — doesn't shift as messages change line count.
+          items-center keeps the avatar vertically centered against the text;
+          AVATAR_HEADING_CLASS's pt-[0.7rem] (a start-align baseline nudge) is
+          cancelled here since it isn't needed for a centered row. */}
+      <div className="absolute left-1/2 top-1/2 flex w-full max-w-xl -translate-x-1/2 -translate-y-1/2 items-center gap-3 px-6">
         <MiniAssistant isAssistantBusy />
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
-            className="text-[2.6rem] leading-none"
+            className={`${AVATAR_HEADING_CLASS} flex min-h-[4.4rem] items-center !pt-0 !text-[2.08rem]`}
             style={{ fontFamily: "var(--font-serif)" }}
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -373,7 +382,7 @@ export function FinishingUpStep({
         <AnimatePresence mode="wait">
           <motion.p
             key={index}
-            className="text-[2.6rem] leading-none"
+            className={AVATAR_HEADING_CLASS}
             style={{ fontFamily: "var(--font-serif)" }}
             initial={{ y: 12, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -438,8 +447,8 @@ export function ResearchResultsStep({
           footer; everything above it scrolls as one region (min-h-0 lets it
           shrink), so the claims stay reachable even when the window is shorter
           than the heading + button alone. */}
-      <div className="absolute bottom-0 left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6 pb-8">
-        <div className="flex min-h-0 flex-col overflow-y-auto">
+      <div className="absolute bottom-0 left-1/2 top-[11%] sm:top-[8%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6 pb-8">
+        <div className="flex min-h-0 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
           <div className="flex items-center gap-3">
             <MiniAssistant />
             <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
@@ -450,7 +459,7 @@ export function ResearchResultsStep({
             {hasClaims
               ? loading
                 ? "Still checking the rest. You can review these as they come in."
-                : "I searched the web. Feel free to remove anything that isn’t true"
+                : "I searched the web. Feel free to remove anything that isn’t true."
               : loading
                 ? "Still putting this together…"
                 : "I didn’t turn up much — we can fill it in as we chat."}
@@ -582,7 +591,7 @@ function joinPills(labels: string[], tone: OnboardingTone) {
 }
 
 /** Avatar box size — the same at the heading and where it lands by the note. */
-const HEADING_AVATAR = 64;
+const HEADING_AVATAR = 38;
 const NOTE_AVATAR = HEADING_AVATAR;
 
 type Anchor = { x: number; y: number };
@@ -876,8 +885,9 @@ export function SuggestionsStep({
 // ---------------------------------------------------------------------------
 
 /**
- * Terminal step for the personality-onboarding flow (replaces SuggestionsStep
- * when that flag is on). The suggestions idea is retired: instead this confirms
+ * Terminal step for the research-onboarding flow (replaces SuggestionsStep,
+ * now that the "Create my personality" step is always on). The suggestions idea
+ * is retired: instead this confirms
  * the capabilities already set up for the assistant — chosen from the user's
  * role, hobby, and what the web research surfaced — and offers a single "Let's
  * chat" button. Clicking primes a fresh chat with a hidden kickoff message so
@@ -894,6 +904,7 @@ export function LetsChatReadyStep({
   onStart,
   onBack,
   onForward,
+  disabled = false,
 }: {
   /**
    * Capabilities installed for the assistant this run (deterministic floor +
@@ -912,11 +923,19 @@ export function LetsChatReadyStep({
   onBack: () => void;
   /** Redo into this step — only set when the user has stepped back. */
   onForward?: () => void;
+  /**
+   * Externally hold the "Let's chat" CTA (e.g. a resumed completed journey
+   * still waiting on the established-assistant guard). Disables the button and
+   * no-ops the handoff until cleared, so the CTA can't fire before the verdict.
+   */
+  disabled?: boolean;
 }) {
   // Constant dark surface for the UI (the plugin cards match the facts cards).
   const tone = DARK_TONE;
   const reduce = useReducedMotion();
   const [starting, setStarting] = useState(false);
+  const { components, chosen } = useChosenAvatar();
+  const { h: vh } = useViewportSize();
 
   // Each installed plugin as a card: its display name + (when known) the
   // catalog description. Names without a display label are dropped.
@@ -930,9 +949,12 @@ export function LetsChatReadyStep({
   const hasPlugins = plugins.length > 0;
 
   // A single avatar starts over the heading slot and flies down to the note's
-  // landing slot — same choreography as SuggestionsStep. The note sits BELOW the
-  // plugin cards, so we re-measure when the card count changes to keep the
-  // flight landing on the real note position.
+  // landing slot — same choreography as SuggestionsStep. The note sits directly
+  // under the title now (cards render below it), so its position is stable —
+  // but we still re-measure on any layout change (not just a guessed dependency
+  // like card count) via ResizeObserver, since webfont swaps, the avatar's own
+  // async-loaded assets, or anything else that reflows the column could
+  // otherwise leave a stale anchor and land the flight in the wrong spot.
   const columnRef = useRef<HTMLDivElement>(null);
   const headSlotRef = useRef<HTMLDivElement>(null);
   const noteSlotRef = useRef<HTMLDivElement>(null);
@@ -941,12 +963,24 @@ export function LetsChatReadyStep({
   );
   const [flown, setFlown] = useState(false);
   const [landed, setLanded] = useState(false);
+  // Mirrors `flown` for the measure() closure below without needing it in the
+  // effect's dependency array — the observer should stay alive across the
+  // whole step, not get torn down and recreated the moment flight starts.
+  const flownRef = useRef(false);
+  useEffect(() => {
+    flownRef.current = flown;
+  }, [flown]);
 
   useLayoutEffect(() => {
+    const col = columnRef.current;
+    const head = headSlotRef.current;
+    if (!col || !head) return;
+
     const measure = () => {
-      const col = columnRef.current;
-      const head = headSlotRef.current;
-      if (!col || !head) return;
+      // Skip while the head slot is mid/post-collapse (`flown`): re-measuring
+      // then would capture its collapsed width-0 position instead of the
+      // pre-collapse anchor the flight already launched from.
+      if (flownRef.current) return;
       const c = col.getBoundingClientRect();
       const center = (r: DOMRect): Anchor => ({
         x: r.left - c.left + r.width / 2,
@@ -959,11 +993,15 @@ export function LetsChatReadyStep({
       });
     };
     measure();
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(col);
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-    // Intentionally not re-measuring on `flown`: the head anchor must stay at
-    // its pre-collapse position so the flight starts from where the avatar sat.
-  }, [plugins.length]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
 
   // Fly down the moment the note slot is measured (the note always renders).
   const noteY = anchors?.note?.y;
@@ -973,7 +1011,9 @@ export function LetsChatReadyStep({
   }, [noteY, flown]);
 
   const handleStart = () => {
-    if (starting) return;
+    if (starting || disabled) {
+      return;
+    }
     setStarting(true);
     // If the handoff rejects, re-enable the button so the user can retry.
     void Promise.resolve()
@@ -1012,10 +1052,43 @@ export function LetsChatReadyStep({
           </h1>
         </div>
 
+        {/* The avatar line, directly under the title. No avatar of its own — it
+            reserves a landing slot (`noteSlotRef`) for the single avatar that
+            flies down from the heading, mirroring SuggestionsStep. */}
+        <div className="mt-4 flex items-center gap-3">
+          {/* Reserves the flying avatar's landing target (measured for the
+              flight animation) until it lands, then renders the real avatar
+              as a normal flex child instead — letting flexbox center it
+              against the text natively rather than trusting the flight's
+              measured pixel coordinates to exactly match afterward. */}
+          {landed && components && chosen ? (
+            <div className="shrink-0">
+              <AnimatedAvatar components={components} traits={chosen} size={NOTE_AVATAR} />
+            </div>
+          ) : (
+            <div
+              ref={noteSlotRef}
+              className="shrink-0"
+              style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
+            />
+          )}
+          <motion.p
+            className="text-[15px]"
+            style={{ color: tone.fg }}
+            initial={false}
+            animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.35 }}
+          >
+            I&rsquo;ve set myself up with plugins around who you are.
+          </motion.p>
+        </div>
+
         {/* One card per installed plugin (name + description), themed to match
-            the "facts about you" cards. Directly under the title. */}
+            the "facts about you" cards. The margin is generous because the
+            flown 64px avatar overflows the note row above (~22px), so the
+            visual gap still matches the title→note gap. */}
         {hasPlugins && (
-          <div className="mt-4 flex flex-col gap-3">
+          <div className="flex flex-col gap-3" style={{ marginTop: Math.round(64 - vh * 0.02) }}>
             {plugins.map((p, i) => (
               <motion.div
                 key={p.name}
@@ -1045,35 +1118,10 @@ export function LetsChatReadyStep({
           </div>
         )}
 
-        {/* The avatar line below the cards. No avatar of its own — it reserves a
-            landing slot (`noteSlotRef`) for the single avatar that flies down
-            from the heading, mirroring SuggestionsStep. The margin is generous
-            because the flown 64px avatar overflows this collapsed row (~22px),
-            so the visual gap above/below it matches the title→first-card gap. */}
-        <div className="mt-16 flex items-center gap-3">
-          {/* Reserves the avatar's horizontal room but not its full height, so
-              the row is only as tall as the text and the flown avatar lands
-              vertically centered on the line (not within a 64px box). */}
-          <div
-            ref={noteSlotRef}
-            className="shrink-0"
-            style={{ width: NOTE_AVATAR }}
-          />
-          <motion.p
-            className="text-[15px]"
-            style={{ color: tone.fg }}
-            initial={false}
-            animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
-            transition={reduce ? { duration: 0 } : { duration: 0.35 }}
-          >
-            I&rsquo;ve set myself up with plugins around who you are.
-          </motion.p>
-        </div>
-
         <button
           type="button"
           onClick={handleStart}
-          disabled={starting}
+          disabled={starting || disabled}
           className="mt-16 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
@@ -1084,7 +1132,10 @@ export function LetsChatReadyStep({
           {!starting && <ArrowRight className="h-4 w-4" />}
         </button>
 
-        {anchors && (
+        {/* Hidden the instant it lands — the note row above then renders the
+            real, flex-centered avatar in its place (see the landed branch
+            there), so this overlay only needs to own the flight itself. */}
+        {anchors && !landed && (
           <FlyingHeadingAvatar
             head={anchors.head}
             note={anchors.note}

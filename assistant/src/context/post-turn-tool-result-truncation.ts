@@ -104,7 +104,9 @@ export function getToolResultFilePath(
 /**
  * Build the truncated stub that replaces a large tool result in context.
  * Preserves the first and last halves of TARGET_CHARS, with a middle marker
- * indicating how many tokens were omitted and where to find the full result.
+ * indicating how many tokens were omitted, where to find the full result, and
+ * how to page it back in — the marker is the model's only signal that the
+ * omitted content is recoverable at all.
  */
 export function buildTruncatedContent(
   original: string,
@@ -119,7 +121,7 @@ export function buildTruncatedContent(
   );
   const omittedChars = original.length - TARGET_CHARS;
   const estimatedTokens = Math.round(omittedChars / 4);
-  return `${prefix}\n\n...(${estimatedTokens} tokens omitted ${TRUNCATION_MARKER} ${filePath})\n\n${suffix}`;
+  return `${prefix}\n\n...(${estimatedTokens} tokens omitted ${TRUNCATION_MARKER} ${filePath} — use file_read to view)\n\n${suffix}`;
 }
 
 /**

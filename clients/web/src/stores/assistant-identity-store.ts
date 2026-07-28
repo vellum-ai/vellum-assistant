@@ -29,10 +29,26 @@ import { createSelectors } from "@/utils/create-selectors";
 interface AssistantIdentityState {
   name: string | null;
   version: string | null;
+  /**
+   * The assistant this identity was fetched for. Written in the same
+   * `set()` as `version`, so "whose version is this" is answerable from
+   * a single atomic store read. Gates that must scope a version check
+   * to a specific assistant (rather than "whatever identity is
+   * currently hydrated") compare against this instead of pairing the
+   * version with `activeAssistantId` from the resolved-assistants
+   * store — the two stores update at different times on assistant
+   * switch, so a cross-store pairing can read a stale version for one
+   * render until the clear effect runs.
+   */
+  assistantId: string | null;
 }
 
 interface AssistantIdentityActions {
-  setIdentity: (name: string | null, version: string | null) => void;
+  setIdentity: (
+    name: string | null,
+    version: string | null,
+    assistantId?: string | null,
+  ) => void;
   clearIdentity: () => void;
 }
 
@@ -42,11 +58,12 @@ const useAssistantIdentityStoreBase = create<AssistantIdentityStore>(
   (set) => ({
     name: null,
     version: null,
-    setIdentity: (name, version) => {
+    assistantId: null,
+    setIdentity: (name, version, assistantId = null) => {
       const impersonated = getImpersonatedAssistantVersion();
-      set({ name, version: impersonated ?? version });
+      set({ name, version: impersonated ?? version, assistantId });
     },
-    clearIdentity: () => set({ name: null, version: null }),
+    clearIdentity: () => set({ name: null, version: null, assistantId: null }),
   }),
 );
 

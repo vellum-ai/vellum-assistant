@@ -1964,7 +1964,6 @@ describe("Advisor role is tool-less", () => {
     const ctx = {
       skillProjectionState: new Map<string, string>(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set(toolDefs.map((d) => d.name)),
       toolsDisabledDepth: 0,
       // The advisor role applies `new Set(allowedTools)` — empty Set here.
       subagentAllowedTools: new Set<string>(advisorAllowed),
@@ -1985,5 +1984,69 @@ describe("Advisor role is tool-less", () => {
       (ctx as unknown as { allowedToolNames?: Set<string> }).allowedToolNames
         ?.size ?? 0,
     ).toBe(0);
+  });
+});
+
+// ── model-input schema validation (LUM-2855) ────────────────────────
+
+describe("subagent tools — model-input schema validation", () => {
+  test("spawn rejects a non-string label instead of spawning with it", async () => {
+    const result = await executeSubagentSpawn(
+      { label: 42, objective: "do something" },
+      makeContext("sess-schema", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_spawn"');
+    expect(result.content).toContain("label");
+  });
+
+  test("spawn treats explicit null label as missing (bespoke required error)", async () => {
+    const result = await executeSubagentSpawn(
+      { label: null, objective: "do something" },
+      makeContext("sess-schema", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("required");
+  });
+
+  test("status rejects a non-string subagent_id", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "subagent_status"',
+    );
+  });
+
+  test("message rejects a non-string content", async () => {
+    const result = await executeSubagentMessage(
+      { subagent_id: "some-id", content: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "subagent_message"',
+    );
+    expect(result.content).toContain("content");
+  });
+
+  test("read rejects a non-string label but passes malformed last_n through", async () => {
+    const bad = await executeSubagentRead(
+      { label: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('Invalid input for tool "subagent_read"');
+
+    // last_n is loose passthrough — a malformed value is ignored, so the call
+    // reaches the bespoke "required" check instead of failing validation.
+    const passthrough = await executeSubagentRead(
+      { last_n: "five" },
+      makeContext("sess-schema"),
+    );
+    expect(passthrough.isError).toBe(true);
+    expect(passthrough.content).toContain("required");
   });
 });

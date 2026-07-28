@@ -35,7 +35,10 @@ function nodeRadius(degree: number): number {
 }
 
 function toNodeKind(kind: string | undefined): ConceptNodeKind {
-  return kind === "concept" || kind === "skill" || kind === "capability"
+  return kind === "concept" ||
+    kind === "skill" ||
+    kind === "capability" ||
+    kind === "pending"
     ? kind
     : "other";
 }

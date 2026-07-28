@@ -11,7 +11,12 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/shared-ui";
+import {
+  ByoServiceCard,
+} from "@/domains/settings/ai/shared-ui";
+import {
+  SaveButton,
+} from "@/components/service-form-controls";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
@@ -28,7 +33,7 @@ import {
   useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useQuery } from "@tanstack/react-query";
 
 export function LanguageModelCard() {

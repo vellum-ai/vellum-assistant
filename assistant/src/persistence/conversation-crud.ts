@@ -45,7 +45,10 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
-import { withSqliteRetry } from "../util/sqlite-retry.js";
+import {
+  isRetryableSqliteError,
+  withSqliteRetry,
+} from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -129,18 +132,74 @@ function logsDb(): DrizzleDb {
   return db;
 }
 
+// ---------------------------------------------------------------------------
+// Dedicated-DB cleanup for conversation deletes.
+// ---------------------------------------------------------------------------
+//
+// `llm_request_logs` (logs DB) and pending `telemetry_events` (telemetry DB)
+// live in their own files. Both conversation-delete variants — the synchronous
+// `deleteConversation` and the off-loop `deleteConversationGently` — must clear
+// them, and both must tolerate the target table not existing yet. The memory
+// worker's startup orphan sweep runs as a separate process that can race ahead
+// of the daemon's async migrations, and a dedicated file accrues its tables
+// over several migrations — so the file can be absent, an empty create-on-open
+// shell, or present-with-other-tables (e.g. the telemetry file exists for an
+// earlier table before `telemetry_events` is created). In every one of those
+// states there are no rows to delete, so the helpers below skip when the table
+// is not yet present rather than fabricate/hit a table-less file and throw
+// `no such table` on every orphan the sweep processes.
+
 /**
- * The telemetry connection (`assistant-telemetry.db`), where the
- * `telemetry_events` outbox lives. Throws if the file cannot be opened — the
- * conversation-delete call sites must not report success while unshipped
- * events referencing the deleted conversation survive to be flushed.
+ * Whether `table` exists on the given dedicated connection. Cheap
+ * `sqlite_master` lookup that distinguishes "file present but this migration
+ * has not created the table yet" from "table ready" — checking file existence
+ * alone is not enough because the dedicated logs/telemetry files hold tables
+ * created across several migrations.
  */
-function telemetryDb(): DrizzleDb {
-  const db = getTelemetryDb();
-  if (!db) {
-    throw new Error("telemetry database unavailable");
+function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
+  return (
+    getSqliteFrom(db)
+      .query<
+        { name: string },
+        [string]
+      >(`SELECT name FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1`)
+      .get(table) != null
+  );
+}
+
+/**
+ * Delete a conversation's pending `telemetry_events` rows from the dedicated
+ * telemetry DB, or skip when that table does not exist yet. Telemetry redaction
+ * keys on `conversation_id` regardless of event name, so this covers every
+ * conversation-scoped pending event.
+ */
+function deletePendingTelemetryEventsForConversation(id: string): void {
+  const telemetry = getTelemetryDb({ createIfMissing: false });
+  if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
+    return;
   }
-  return db;
+  telemetry
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
+    .run();
+}
+
+/**
+ * Delete a conversation's `llm_request_logs` rows in-process from the dedicated
+ * logs DB, or skip when that table does not exist yet. Used by the synchronous
+ * delete path; {@link deleteConversationGently} drains the same table off the
+ * event loop in batches (guarded by the same table-existence check) because its
+ * rows can be bulky.
+ */
+function deleteRequestLogsForConversation(id: string): void {
+  const logs = getLogsDb({ createIfMissing: false });
+  if (!logs || !dedicatedTableExists(logs, "llm_request_logs")) {
+    return;
+  }
+  logs
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
 }
 
 // ── Message metadata Zod schema ──────────────────────────────────────
@@ -237,6 +296,14 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Discriminates daemon-authored rows from ordinary turns.
+     * `"system_card"` marks pre-composed status cards (the /compact, /clean,
+     * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
+     * Kept as a plain string so unknown future kinds never fail metadata
+     * validation.
+     */
+    messageKind: z.string().optional(),
+    /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.
@@ -289,6 +356,48 @@ export function isHiddenMessageMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): boolean {
   return metadata?.hidden === true;
+}
+
+/**
+ * `messageKind` value marking a daemon-authored system card — a pre-composed
+ * status reply (the /compact, /clean, and summarize-up-to result cards) that
+ * bypasses the agent loop. Cards render as standalone system notices, never
+ * as the assistant persona speaking, and never merge into adjacent assistant
+ * display turns.
+ */
+export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
+
+/**
+ * Shared predicate for the system-card marker on assistant-message metadata
+ * (see the `messageKind` field on {@link messageMetadataSchema}). One
+ * definition so display merging, transcript rendering, and turn grouping
+ * cannot drift.
+ */
+export function isSystemCardMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
+}
+
+/**
+ * Row-level variant of {@link isSystemCardMetadata} for callers holding the
+ * raw persisted `metadata` JSON string. The single place the parse lives so
+ * display merging and turn grouping agree on what a card is.
+ */
+export function isSystemCardMessage(
+  role: string,
+  metadata: string | null,
+): boolean {
+  if (role !== "assistant" || !metadata) {
+    return false;
+  }
+  try {
+    return isSystemCardMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -438,7 +547,10 @@ export const parseConversation = createRowMapper<
   title: "title",
   createdAt: "createdAt",
   updatedAt: "updatedAt",
-  totalInputTokens: "totalInputTokens",
+  totalInputTokens: {
+    from: "totalInputTokens",
+    transform: (v) => (v as number | null) ?? 0,
+  },
   totalOutputTokens: "totalOutputTokens",
   totalEstimatedCost: "totalEstimatedCost",
   contextSummary: "contextSummary",
@@ -565,6 +677,58 @@ interface InsertMessageCoreParams {
  * WAL contention. The timestamp is recomputed each attempt so a late
  * retry doesn't persist a stale `updatedAt`.
  */
+/**
+ * Guard: a message whose blocks are ALL `ui_surface` cards is invisible to
+ * the model — every provider drops cards when serializing history, and the
+ * contract (see `notifications/approval-card-builder.ts`) is that the
+ * producer pairs a card with a model-readable sibling block (for cards whose
+ * meaning the model needs, a `_surfaceFallback` text block; surfaces appended
+ * to a normal turn ride alongside its text/tool blocks and need nothing).
+ *
+ * Voice call summaries shipped without the sibling and the model silently
+ * lost those turns (LUM-2869) — nothing enforced the contract. In tests this
+ * throws, so a producer that forgets the pairing fails its own suite before
+ * merge; in production it only warns, per the daemon's never-block posture —
+ * a degraded card row beats a dropped guardian notification.
+ */
+function warnOnModelInvisibleContent(
+  content: string,
+  conversationId: string,
+): void {
+  // Fast path: the overwhelmingly common non-surface message never parses.
+  if (!content.includes('"ui_surface"')) {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return; // legacy plain-string content — not this guard's concern
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return;
+  }
+  const allCards = parsed.every(
+    (block) =>
+      typeof block === "object" &&
+      block !== null &&
+      (block as { type?: unknown }).type === "ui_surface",
+  );
+  if (!allCards) {
+    return;
+  }
+  const surfaceTypes = parsed
+    .map((block) => (block as { surfaceType?: unknown }).surfaceType)
+    .filter((t): t is string => typeof t === "string");
+  const message =
+    "Persisting a message whose only content is ui_surface blocks — the model cannot see it. " +
+    "Pair the card with a model-readable sibling (e.g. a _surfaceFallback text block).";
+  if (process.env.NODE_ENV === "test") {
+    throw new Error(`${message} (surfaceTypes: ${surfaceTypes.join(", ")})`);
+  }
+  log.warn({ conversationId, surfaceTypes }, message);
+}
+
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
@@ -577,6 +741,7 @@ async function insertMessageCore(
     clientMessageId,
     id,
   } = params;
+  warnOnModelInvisibleContent(content, conversationId);
   const db = getDb();
   // Time-ordered UUIDv7 so server-generated message ids append to the tail of
   // the WITHOUT ROWID `messages` primary key instead of scattering (v4).
@@ -741,6 +906,12 @@ export function createConversation(
         scheduleJobId?: string;
         groupId?: string;
         forkParentConversationId?: string;
+        /**
+         * Id of the conversation that spawned this one (subagent spawns).
+         * Persisted for telemetry attribution; unlike
+         * `forkParentConversationId` it implies no history inheritance.
+         */
+        parentConversationId?: string;
       },
 ) {
   const db = getDb();
@@ -783,6 +954,7 @@ export function createConversation(
     source,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    parentConversationId: opts.parentConversationId ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.
@@ -829,7 +1001,7 @@ export function createConversation(
  * web client's `crypto.randomUUID()` / `draft-<ts>-<hex>` drafts while
  * rejecting anything with path separators, `..`, or other traversal vectors.
  */
-const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+export const ADOPTABLE_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * Ensure a `conversations` row exists for `id`, creating one with default
@@ -1659,17 +1831,10 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   // llm_request_logs and pending telemetry_events rows live in the dedicated
   // logs and telemetry connections, so they are deleted there — separately
   // from (and before) the main-DB transaction below, so a failure leaves the
-  // conversation intact for a retried delete. Telemetry redaction keys on
-  // conversation_id regardless of event name, so every conversation-scoped
-  // pending event is covered.
-  logsDb()
-    .delete(llmRequestLogs)
-    .where(eq(llmRequestLogs.conversationId, id))
-    .run();
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  // conversation intact for a retried delete. Both helpers skip when their
+  // dedicated file does not exist yet (see the block comment on those helpers).
+  deleteRequestLogsForConversation(id);
+  deletePendingTelemetryEventsForConversation(id);
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -1788,26 +1953,37 @@ export async function deleteConversationGently(
     .map((r) => r.id);
 
   // Pending telemetry_events rows live in the dedicated telemetry connection;
-  // delete them there (by conversation_id, regardless of event name) before
-  // ANY destructive work so a telemetry failure leaves the conversation fully
+  // delete them (by conversation_id, regardless of event name) before ANY
+  // destructive work so a telemetry failure leaves the conversation fully
   // intact for a retried delete — a throw after the bulk drains below would
-  // strand unredacted rows that could still flush.
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  // strand unredacted rows that could still flush. Skips when the telemetry
+  // file does not exist yet.
+  deletePendingTelemetryEventsForConversation(id);
 
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
-  const logsDel = await deleteConversationRowsInBatches({
-    conversationId: id,
-    table: "llm_request_logs",
-    dbPath: getLogsDbPath(),
-  });
-  if (!logsDel.ok) {
-    throw new Error(
-      `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
-    );
+  // Skip entirely when the table does not exist yet: the batch runs a sqlite3
+  // subprocess (or in-process fallback) against getLogsDbPath(), which would
+  // otherwise hit (or create) a table-less file and fail with `no such table`
+  // on every orphan the worker's startup sweep processes before migration 297
+  // lands. The in-process connection sees the same committed schema as the
+  // subprocess, so it is the authority on whether the table is ready. No table,
+  // nothing to drain.
+  const logsDbForBatch = getLogsDb({ createIfMissing: false });
+  if (
+    logsDbForBatch &&
+    dedicatedTableExists(logsDbForBatch, "llm_request_logs")
+  ) {
+    const logsDel = await deleteConversationRowsInBatches({
+      conversationId: id,
+      table: "llm_request_logs",
+      dbPath: getLogsDbPath(),
+    });
+    if (!logsDel.ok) {
+      throw new Error(
+        `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
+      );
+    }
   }
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
@@ -2541,20 +2717,6 @@ export function setConversationProcessingStartedAt(
   );
 }
 
-/**
- * Clear the persisted processing flag on every conversation that still has one
- * set, returning the number of rows cleared. Called at daemon startup to reset
- * conversations whose `processing_started_at` was left non-NULL because the
- * previous process shut down mid-turn — the in-memory agent loop driving that
- * turn is gone, so the flag is stale.
- */
-export function clearStaleProcessingFlags(): number {
-  return rawRun(
-    "conversation:clearStaleProcessingFlags",
-    "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
-  );
-}
-
 export interface InterruptedConversationRow {
   id: string;
   /** Consecutive startup auto-resume attempts since the last clean turn end. */
@@ -2563,9 +2725,9 @@ export interface InterruptedConversationRow {
 
 /**
  * Conversations whose persisted processing flag is still set. Read at daemon
- * startup before {@link clearStaleProcessingFlags} so the interrupted-turn
- * reconciler knows which conversations were mid-turn when the previous
- * process exited.
+ * startup so the interrupted-turn reconciler knows which conversations were
+ * mid-turn when the previous process exited (the monitor's recovery pass
+ * clears the flags themselves out of process).
  */
 export function listInterruptedConversations(): InterruptedConversationRow[] {
   return rawAll<{ id: string; processing_resume_attempts: number }>(
@@ -2579,10 +2741,9 @@ export function listInterruptedConversations(): InterruptedConversationRow[] {
 
 /**
  * Bump the persisted auto-resume counter for a conversation the startup
- * reconciler is about to resume. Intentionally left set by
- * {@link clearStaleProcessingFlags} — the counter must survive the flag clear
- * so the resume cap holds across boots. Reset to 0 by the clean turn-end
- * write in {@link setConversationProcessingStartedAt}.
+ * reconciler is about to resume. The counter must survive the stale-flag clear
+ * so the resume cap holds across boots. Reset to 0 by the clean turn-end write
+ * in {@link setConversationProcessingStartedAt}.
  */
 export function incrementProcessingResumeAttempts(id: string): void {
   rawRun(
@@ -2614,6 +2775,42 @@ export function isConversationProcessing(id: string): boolean {
 }
 
 /**
+ * Conversations currently mid-turn, longest-running first. Throws on a read
+ * failure — drain callers must distinguish "nothing processing" from "could
+ * not read", so this does not degrade to an empty list.
+ */
+export function listProcessingConversations(limit = 20): Array<{
+  conversationId: string;
+  title: string | null;
+  originChannel: string | null;
+  originInterface: string | null;
+  processingStartedAt: number;
+}> {
+  const rows = rawAll<{
+    id: string;
+    title: string | null;
+    origin_channel: string | null;
+    origin_interface: string | null;
+    processing_started_at: number;
+  }>(
+    "conversation:listProcessing",
+    `SELECT id, title, origin_channel, origin_interface, processing_started_at
+     FROM conversations
+     WHERE processing_started_at IS NOT NULL
+     ORDER BY processing_started_at ASC
+     LIMIT ?`,
+    limit,
+  );
+  return rows.map((row) => ({
+    conversationId: row.id,
+    title: row.title,
+    originChannel: row.origin_channel,
+    originInterface: row.origin_interface,
+    processingStartedAt: row.processing_started_at,
+  }));
+}
+
+/**
  * Highest stream `seq` whose content is durably persisted to this
  * conversation's message rows, read from the `conversations.seq` column. This
  * is the snapshot↔stream alignment baseline `/messages` returns so a client
@@ -2642,18 +2839,59 @@ export function getConversationPersistedSeq(id: string): number | null {
  * Monotonic: the `WHERE seq IS NULL OR seq < ?` guard makes the update raise
  * the high-water mark only, so out-of-order async commits never regress it.
  * Non-positive or non-finite `seq` values are ignored.
+ *
+ * Transient SQLite write contention (`SQLITE_BUSY`/`SQLITE_IOERR`) is swallowed
+ * rather than thrown. This is a single, idempotent, monotonic UPDATE of a
+ * snapshot↔stream anchor that every subsequent flush re-records with an
+ * equal-or-higher seq, so a dropped write self-heals on the next flush — the
+ * same self-healing property that lets the paired content write
+ * (`persistLoopMessageContent`) swallow its final failure. `busy_timeout`
+ * already made the statement wait for the lock before surfacing `SQLITE_BUSY`,
+ * so this synchronous path cannot usefully back off and retry; it just must not
+ * throw. Several callers are fire-and-forget bookkeeping in the agent loop
+ * (`flushAccumulatedContent`, `handleMessageComplete`, tool events) where a
+ * raw throw is fatal: the debounced partial flush becomes an unhandled
+ * rejection, and `message_complete` is on `dispatchAgentEvent`'s re-throw
+ * allowlist — either one takes down the daemon on lock contention. A
+ * non-contention error (a genuine bug: bad SQL, missing column) still throws.
  */
 export function recordConversationPersistedSeq(id: string, seq: number): void {
   if (!Number.isFinite(seq) || seq <= 0) {
     return;
   }
-  rawRun(
-    "conversation:recordPersistedSeq",
-    "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
-    seq,
-    id,
-    seq,
+  try {
+    rawRun(
+      "conversation:recordPersistedSeq",
+      "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
+      seq,
+      id,
+      seq,
+    );
+  } catch (err) {
+    if (!isRetryableSqliteError(err)) {
+      throw err;
+    }
+    log.warn(
+      { err, conversationId: id, seq },
+      "recordConversationPersistedSeq: transient SQLite contention; dropping this anchor advance (self-heals on the next flush)",
+    );
+  }
+}
+
+/**
+ * Highest `conversations.seq` anchor across all conversations, or 0 when
+ * none is recorded. Every anchor is a `getCurrentSeq()` snapshot that has
+ * been served to clients on `/messages`, so at startup the stream seq
+ * counter is floored above this value (`floorSeqAbove` in
+ * `runtime/assistant-stream-state`) — resuming below it would re-issue
+ * seqs that clients already treat as applied.
+ */
+export function getMaxPersistedConversationSeq(): number {
+  const row = rawGet<{ maxSeq: number | null }>(
+    "conversation:maxPersistedSeq",
+    "SELECT MAX(seq) AS maxSeq FROM conversations",
   );
+  return row?.maxSeq ?? 0;
 }
 
 /**
@@ -3012,6 +3250,19 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
+  // Subagent lifecycle records reference conversations by id without an FK
+  // cascade; wipe them explicitly so labels/objectives don't survive (or
+  // rehydrate after) a clear-all.
+  await runOrThrow("DELETE FROM subagents");
+
+  // The memory feature's relocated conversation-keyed tables lost their main-DB
+  // cascade. Signal the wipe through the hook rather than reaching into the
+  // plugin from here — fired only after the main-DB deletes above succeed, so a
+  // failed clear-all never leaves memory wiped for conversations that still
+  // exist (and it honors the hook's "after the main tables are cleared"
+  // contract). When the plugin is disabled the hook is a no-op; the startup
+  // orphan sweep reclaims those rows on the next memory boot.
+  await runHook(HOOKS.CONVERSATIONS_CLEARED, {});
 
   // Record audit event into the telemetry_events outbox (consent-bypassing);
   // the trail persists platform-side once flushed. Best-effort: the
@@ -3830,6 +4081,12 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
     return [messageId];
   }
 
+  // A system card is its own single-row group — its linked calls (e.g. the
+  // summarize-up-to compaction call) never mix into a neighbouring turn.
+  if (isSystemCardMessage(target.role, target.metadata)) {
+    return [target.id];
+  }
+
   // Walk backward from the target message to find the turn boundary.
   // Limit to 50 rows — sufficient for even aggressive tool-use loops.
   const backwardRows = db
@@ -3838,6 +4095,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(
@@ -3855,6 +4113,12 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of backwardRows) {
     if (row.role === "assistant") {
+      if (isSystemCardMessage(row.role, row.metadata)) {
+        // A system card closes the groups on either side of it — rows
+        // before the card belong to an earlier display group.
+        boundaryCreatedAt = row.createdAt;
+        break;
+      }
       assistantIds.push(row.id);
     } else if (row.role === "user") {
       if (isToolResultMessage(row.role, row.content)) {
@@ -3876,6 +4140,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       role: messages.role,
       content: messages.content,
       createdAt: messages.createdAt,
+      metadata: messages.metadata,
     })
     .from(messages)
     .where(
@@ -3890,6 +4155,15 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   for (const row of forwardRows) {
     if (row.role === "assistant") {
+      if (isSystemCardMessage(row.role, row.metadata)) {
+        // A card that is the queried user message's only reply (e.g. the
+        // /compact result) IS the turn's response; otherwise the card
+        // closes the group.
+        if (assistantIds.length === 0) {
+          assistantIds.push(row.id);
+        }
+        break;
+      }
       if (!assistantIds.includes(row.id)) {
         assistantIds.push(row.id);
       }
@@ -3912,6 +4186,7 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
         id: messages.id,
         role: messages.role,
         createdAt: messages.createdAt,
+        metadata: messages.metadata,
       })
       .from(messages)
       .where(
@@ -3925,7 +4200,11 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
       .all();
 
     for (const row of gapRows) {
-      if (row.role === "assistant" && !assistantIds.includes(row.id)) {
+      if (
+        row.role === "assistant" &&
+        !isSystemCardMessage(row.role, row.metadata) &&
+        !assistantIds.includes(row.id)
+      ) {
         assistantIds.push(row.id);
       }
     }

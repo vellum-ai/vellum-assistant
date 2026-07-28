@@ -22,17 +22,26 @@ mock.module("../../../util/process-tree.js", () => ({
     pid: rootPid,
     name: "assistant.ts",
     command: "bun run assistant.ts",
+    origin: "workspace",
     children: [
-      { pid: 200, name: "qdrant", command: "qdrant", children: [] },
+      {
+        pid: 200,
+        name: "qdrant",
+        command: "qdrant",
+        origin: "workspace",
+        children: [],
+      },
       {
         pid: 300,
-        name: "jobs-worker",
-        command: "bun run /app/jobs/worker.ts",
+        name: "memory-worker",
+        command: "bun run /app/plugins/defaults/memory/worker.ts",
+        origin: "plugin:default-memory",
         children: [
           {
             pid: 400,
             name: "embed-helper",
             command: "embed-helper",
+            origin: "workspace",
             children: [],
           },
         ],
@@ -50,6 +59,7 @@ function getHandler() {
     processes: Array<{
       name: string;
       status: string;
+      origin: string;
       info?: string;
       children?: unknown[];
     }>;
@@ -58,7 +68,9 @@ function getHandler() {
 
 describe("ps route handler", () => {
   test("maps the process tree to running ProcessEntry nodes", async () => {
-    procsToReturn = [{ pid: process.pid, ppid: 1, command: "bun" }];
+    procsToReturn = [
+      { pid: process.pid, ppid: 1, command: "bun", origin: "workspace" },
+    ];
     listShouldThrow = false;
 
     const { processes } = await getHandler()();
@@ -78,8 +90,32 @@ describe("ps route handler", () => {
     const { processes } = await getHandler()();
     const names = JSON.stringify(processes);
 
-    expect(names).toContain("jobs-worker");
+    expect(names).toContain("memory-worker");
     expect(names).toContain("embed-helper");
+  });
+
+  test("carries each node's plugin/workspace origin onto the wire shape", async () => {
+    procsToReturn = [];
+    listShouldThrow = false;
+
+    const { processes } = await getHandler()();
+    const root = processes[0];
+    expect(root.origin).toBe("workspace");
+
+    const byName = new Map<string, string>();
+    const walk = (n: {
+      name: string;
+      origin: string;
+      children?: unknown[];
+    }) => {
+      byName.set(n.name, n.origin);
+      for (const c of (n.children ?? []) as Array<typeof n>) walk(c);
+    };
+    walk(root as never);
+
+    expect(byName.get("qdrant")).toBe("workspace");
+    expect(byName.get("memory-worker")).toBe("plugin:default-memory");
+    expect(byName.get("embed-helper")).toBe("workspace");
   });
 
   test("every node is reported as running with a pid info field", async () => {
@@ -108,6 +144,7 @@ describe("ps route handler", () => {
     expect(processes[0]).toEqual({
       name: "assistant",
       status: "running",
+      origin: "workspace",
       info: `pid ${process.pid}`,
     });
   });

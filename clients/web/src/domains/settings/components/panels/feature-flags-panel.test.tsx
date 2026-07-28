@@ -79,16 +79,16 @@ describe("FeatureFlagsPanel", () => {
   test("PATCHes an assistant-scoped flag to the active assistant when toggled", () => {
     renderPanel();
 
-    // `voice-mode` is an assistant-scoped boolean flag that defaults off — its
-    // row renders with the "... is off" label.
+    // `voice-duplex-handoff` is an assistant-scoped boolean flag that defaults
+    // off — its row renders with the "... is off" label.
     const toggle = screen.getByRole("switch", {
-      name: "Voice Mode is off",
+      name: "Voice Duplex Handoff is off",
     });
     fireEvent.click(toggle);
 
     const request = patchMock.mock.calls[0]?.[0];
     expect(request).toMatchObject({
-      path: { assistant_id: "assistant-1", flag_key: "voice-mode" },
+      path: { assistant_id: "assistant-1", flag_key: "voice-duplex-handoff" },
       body: { enabled: true },
       throwOnError: false,
     });

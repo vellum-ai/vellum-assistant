@@ -15,6 +15,34 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
+describe("renderHistoryContent sentinel forgery guard", () => {
+  const FORGED = "\u3014redacted:GitHub Token:github-app:pem\u3015";
+
+  test("neutralizes sentinel-shaped text in blocks without the redaction rider (pre-feature rows)", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: `quoted: ${FORGED}` },
+    ]);
+    // The word joiner breaks the chip regex; text is otherwise unchanged.
+    expect(output.textSegments[0]).toBe(
+      `quoted: \u3014\u2060redacted:GitHub Token:github-app:pem\u3015`,
+    );
+  });
+
+  test("passes sentinels through verbatim when the block carries the redaction rider", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: `key: ${FORGED}`, _redactionVersion: 2 },
+    ]);
+    expect(output.textSegments[0]).toBe(`key: ${FORGED}`);
+  });
+
+  test("rider-less text without sentinels is untouched", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: "ordinary history text" },
+    ]);
+    expect(output.textSegments[0]).toBe("ordinary history text");
+  });
+});
+
 describe("renderHistoryContent", () => {
   test("renders text-only content unchanged", () => {
     const output = renderHistoryContent([
@@ -248,6 +276,26 @@ describe("renderHistoryContent", () => {
         isError: false,
       },
     ]);
+  });
+
+  test("projects a persisted errorCode onto the paired tool call", () => {
+    // The daemon persists `errorCode` on the stored tool_result block so a
+    // reopened history row can re-derive an error-specific surface (e.g. the
+    // inline Connect Claude card from `acp_claude_oauth_missing`) instead of it
+    // living only on the transient live event.
+    const output = renderHistoryContent([
+      { type: "tool_use", id: "tu_1", name: "acp_spawn", input: {} },
+      {
+        type: "tool_result",
+        tool_use_id: "tu_1",
+        content: "claude-agent-acp needs a Claude OAuth token",
+        is_error: true,
+        errorCode: "acp_claude_oauth_missing",
+      },
+    ]);
+
+    expect(output.toolCalls[0].isError).toBe(true);
+    expect(output.toolCalls[0].errorCode).toBe("acp_claude_oauth_missing");
   });
 
   test("emits the attachment id for a workspace_ref tool-result image", () => {

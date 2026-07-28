@@ -28,6 +28,7 @@ const TIERS: CreditTier[] = [
     credits_usd: 10,
     price_cents: 1000,
     lookup_key: "credits_10",
+    legacy: false,
   },
   {
     tier: "credits_25",
@@ -35,6 +36,7 @@ const TIERS: CreditTier[] = [
     credits_usd: 25,
     price_cents: 2500,
     lookup_key: "credits_25",
+    legacy: false,
   },
   {
     tier: "credits_50",
@@ -42,6 +44,7 @@ const TIERS: CreditTier[] = [
     credits_usd: 50,
     price_cents: 5000,
     lookup_key: "credits_50",
+    legacy: false,
   },
   {
     tier: "credits_100",
@@ -49,6 +52,7 @@ const TIERS: CreditTier[] = [
     credits_usd: 100,
     price_cents: 10000,
     lookup_key: "credits_100",
+    legacy: false,
   },
   {
     tier: "credits_200",
@@ -56,6 +60,7 @@ const TIERS: CreditTier[] = [
     credits_usd: 200,
     price_cents: 20000,
     lookup_key: "credits_200",
+    legacy: false,
   },
 ];
 

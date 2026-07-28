@@ -35,6 +35,7 @@ import * as m0013 from "./m0013-verification-sessions-backfill.js";
 import * as m0014 from "./m0014-drop-assistant-verification-tables.js";
 import * as m0015 from "./m0015-guardian-requests-backfill.js";
 import * as m0016 from "./m0016-drop-assistant-guardian-tables.js";
+import * as m0017 from "./m0017-coerce-escalate-policy.js";
 
 const log = getLogger("data-migrations");
 
@@ -66,6 +67,7 @@ export const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
   { key: "m0015-guardian-requests-backfill", mod: m0015 },
   // m0016 must stay after m0015: it drops the assistant tables m0015 reads.
   { key: "m0016-drop-assistant-guardian-tables", mod: m0016 },
+  { key: "m0017-coerce-escalate-policy", mod: m0017 },
 ];
 
 /**

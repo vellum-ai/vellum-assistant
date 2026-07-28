@@ -10,6 +10,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
@@ -18,7 +19,6 @@ import {
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
   deleteSubagentRecord,
@@ -95,7 +95,7 @@ function extractFinalAssistantText(messages: Message[]): string {
  * other event type. Used by the synchronous `onText` tap to forward
  * `assistant_text_delta` / `assistant_thinking_delta` chunks to the caller.
  */
-function extractDeltaText(msg: ServerMessage): string | null {
+function extractDeltaText(msg: AssistantEvent): string | null {
   if (msg.type === "assistant_text_delta") {
     return msg.text;
   }
@@ -107,7 +107,7 @@ function extractDeltaText(msg: ServerMessage): string | null {
 
 // ── Default subagent system prompt ──────────────────────────────────────
 
-function buildSubagentSystemPrompt(
+export function buildSubagentSystemPrompt(
   config: SubagentConfig,
   role: SubagentRole,
 ): string {
@@ -126,7 +126,8 @@ function buildSubagentSystemPrompt(
     "## Constraints",
     `- Role: ${role}`,
     "- You cannot spawn nested subagents.",
-    "- Use notify_parent to report important findings or if you are blocked.",
+    "- Use notify_parent to report important findings, or if you are blocked.",
+    '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
   );
   return sections.join("\n");
 }
@@ -152,6 +153,8 @@ export function buildSubagentTerminalMessage(opts: {
   error?: string;
   /** A follow-up turn is still queued, so the current synthesis is a snapshot. */
   deferred?: boolean;
+  /** Tools the subagent attempted but that its role allowlist denied. */
+  deniedTools?: string[];
 }): string {
   const {
     label,
@@ -162,8 +165,18 @@ export function buildSubagentTerminalMessage(opts: {
     finalText,
     error,
     deferred,
+    deniedTools,
   } = opts;
   const prefix = isFork ? "Fork" : "Subagent";
+
+  // When the subagent reached for tools its role does not permit, tell the
+  // parent so it re-spawns with a capable role instead of blindly retrying (a
+  // read-only role produces nothing). Only attached to completed outcomes.
+  const many = (deniedTools?.length ?? 0) > 1;
+  const deniedNote =
+    deniedTools && deniedTools.length > 0
+      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`coder\`).`
+      : "";
 
   if (outcome === "failed") {
     return (
@@ -180,7 +193,8 @@ export function buildSubagentTerminalMessage(opts: {
       `${trimmed}\n\n` +
       (silent
         ? `(Use these findings internally; do not relay the raw ${prefix.toLowerCase()} output to the user.)`
-        : `(Incorporate this into your reply to the user as appropriate.)`)
+        : `(Incorporate this into your reply to the user as appropriate.)`) +
+      deniedNote
     );
   }
 
@@ -194,7 +208,8 @@ export function buildSubagentTerminalMessage(opts: {
   return (
     `[${prefix} "${label}" completed]\n\n` +
     `${reason}. Use subagent_read with subagent_id "${subagentId}"${lastN} for the latest output.` +
-    (silent ? ` Keep the result internal.` : ``)
+    (silent ? ` Keep the result internal.` : ``) +
+    deniedNote
   );
 }
 
@@ -205,7 +220,7 @@ interface ManagedSubagent {
   conversation: Conversation | null;
   state: SubagentState;
   /** Mutable reference to the parent's current sendToClient. Updated on reconnect. */
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
   /** Epoch ms after which this terminal entry can be removed by the TTL sweep. */
   retainedUntil?: number;
   /**
@@ -293,7 +308,7 @@ export class SubagentManager {
    */
   async spawn(
     config: Omit<SubagentConfig, "id">,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
   ): Promise<string> {
     const { subagentId } = await this.setUpSubagent(config, parentSendToClient);
 
@@ -316,7 +331,7 @@ export class SubagentManager {
    */
   private async setUpSubagent(
     config: Omit<SubagentConfig, "id">,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
     opts?: { synchronous?: boolean; onText?: (chunk: string) => void },
   ): Promise<{ subagentId: string; managed: ManagedSubagent }> {
     // ── Limit checks ────────────────────────────────────────────────
@@ -362,13 +377,15 @@ export class SubagentManager {
       source: "subagent",
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
+      parentConversationId: config.parentConversationId,
     });
 
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
     // Connection-aware default-provider resolution. Throws
-    // `ConnectionResolutionError` if `llm.default.provider_connection` is
-    // unset or the connection row is missing/mismatched (config bugs).
+    // `ConnectionResolutionError` if the resolved default config carries no
+    // provider_connection or the connection row is missing/mismatched
+    // (config bugs).
     // Returns null on soft credential failures (missing credential,
     // platform auth unavailable).
     const baseProvider = await resolveDefaultProvider(appConfig);
@@ -376,7 +393,7 @@ export class SubagentManager {
       throw await mainAgentResolutionError(appConfig.llm, listProviders());
     }
     // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
-    // to a profile that differs from `llm.default`. The shared wrapper
+    // to a profile that differs from the default's. The shared wrapper
     // threads `appConfig` through so per-call alternate-profile routing is
     // also connection-aware (matches the canonical dispatch path).
     let provider = wrapWithCallSiteRouting(baseProvider, appConfig);
@@ -461,7 +478,7 @@ export class SubagentManager {
 
     // Wrap sendToClient to envelope all events with the subagent ID.
     // Reads from managed.parentSendToClient so reconnects are picked up.
-    const wrappedSendToClient = (msg: ServerMessage): void => {
+    const wrappedSendToClient = (msg: AssistantEvent): void => {
       // Tap streaming text/thinking deltas for the synchronous caller (if any),
       // in addition to the normal envelope below. Reads from managed.onText so
       // the synchronous path can forward chunks without altering event routing.
@@ -476,7 +493,7 @@ export class SubagentManager {
         subagentId,
         conversationId: config.parentConversationId,
         event: msg,
-      } as ServerMessage);
+      } as AssistantEvent);
     };
 
     const conversation = new Conversation(
@@ -511,8 +528,13 @@ export class SubagentManager {
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without
     // this, tool execution falls back to `unknown` trust and guardian-owned
-    // desktop turns get denied as unverified.
-    if (parentConversation?.trustContext) {
+    // desktop turns get denied as unverified. An explicit config trust context
+    // wins over parent inheritance: a parent that stamps trust per-turn (the
+    // live-voice bridge) has already cleared it by the time a detached spawn
+    // reads it, so its spawner resolves trust itself.
+    if (config.trustContext) {
+      conversation.setTrustContext({ ...config.trustContext });
+    } else if (parentConversation?.trustContext) {
       conversation.setTrustContext({ ...parentConversation.trustContext });
     }
     const parentAuthContext = parentConversation?.getAuthContext();
@@ -548,6 +570,22 @@ export class SubagentManager {
     // allowlist applied like any other subagent.
     if (roleConfig.allowedTools) {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
+    }
+
+    // A read-only subagent refuses side-effecting tools regardless of trust
+    // class; the executor gate rejects
+    // any such dispatch and they are kept off the model's tool surface.
+    if (config.denySideEffectTools) {
+      conversation.setSubagentDenySideEffects(true);
+    }
+
+    // A synchronous child's only parent channel is the awaiting caller: a
+    // mid-run notify_parent would inject a user-role turn into the live
+    // parent conversation (starting an unsolicited parent run) instead of
+    // reaching that caller, so suppress it — the same reason runSubagent
+    // skips the terminal parent-injection on this path.
+    if (opts?.synchronous) {
+      conversation.setSubagentSuppressParentNotifications(true);
     }
 
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
@@ -597,7 +635,7 @@ export class SubagentManager {
       objective: config.objective,
       isFork: config.fork ?? false,
       parentToolUseId: config.parentToolUseId,
-    } as ServerMessage);
+    } as AssistantEvent);
 
     log.info(
       {
@@ -625,7 +663,7 @@ export class SubagentManager {
    */
   async spawnAndAwait(
     config: Omit<SubagentConfig, "id">,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
     opts?: { signal?: AbortSignal; onText?: (chunk: string) => void },
   ): Promise<string> {
     const { subagentId, managed } = await this.setUpSubagent(
@@ -771,6 +809,9 @@ export class SubagentManager {
       // Capture the trailing assistant text before any release nulls the
       // conversation reference. The fire-and-forget caller ignores the return.
       finalText = extractFinalAssistantText(conversation.messages);
+      // Capture any tools the subagent reached for but its role denied, before a
+      // release nulls the conversation reference, so we can tell the parent.
+      const deniedTools = [...conversation.subagentDeniedToolNames];
       // Copy usage stats from the conversation before sending status (which includes usage).
       managed.state.usage = { ...conversation.usageStats };
       // Only update state + notify if still non-terminal (guards against abort race).
@@ -785,7 +826,12 @@ export class SubagentManager {
         // round-trip. Skipped on the synchronous path — the awaiting caller
         // receives the final text directly.
         if (!managed.synchronous) {
-          this.notifyParentTerminal(managed, "completed", finalText);
+          this.notifyParentTerminal(
+            managed,
+            "completed",
+            finalText,
+            deniedTools,
+          );
         }
       }
     } catch (err) {
@@ -846,7 +892,7 @@ export class SubagentManager {
 
   abort(
     subagentId: string,
-    parentSendToClient?: (msg: ServerMessage) => void,
+    parentSendToClient?: (msg: AssistantEvent) => void,
     callerConversationId?: string,
     options?: { suppressNotification?: boolean },
   ): boolean {
@@ -928,12 +974,18 @@ export class SubagentManager {
   }
 
   /**
-   * Abort all subagents belonging to a parent conversation.
-   * Called when the parent conversation is aborted or evicted.
+   * Abort all in-flight subagents belonging to a parent conversation, keeping
+   * every child's metadata (and durable record) readable for the normal
+   * terminal-retention window. Called when the parent conversation stops or is
+   * released from memory but its id lives on — user cancel, idle eviction,
+   * config-reload rebuild — so a completed child's result stays retrievable via
+   * `subagent_read` afterwards. Aborted children release their live
+   * conversations through the run's own teardown and are swept on the TTL like
+   * any other terminal entry.
    */
   abortAllForParent(
     parentConversationId: string,
-    parentSendToClient?: (msg: ServerMessage) => void,
+    parentSendToClient?: (msg: AssistantEvent) => void,
   ): number {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
@@ -947,10 +999,41 @@ export class SubagentManager {
       }
     }
 
-    // Dispose all children — the parent conversation is going away so nobody
-    // will call subagent_read.  Use snapshot since dispose mutates the set.
-    for (const childId of [...children]) {
-      this.dispose(childId);
+    return count;
+  }
+
+  /**
+   * Abort and fully dispose every subagent across all parents, deleting their
+   * durable records. For clear-all: every conversation's data is going away,
+   * including retained children of parents that are no longer in the in-memory
+   * conversation store.
+   */
+  disposeAllForAllParents(): void {
+    for (const parentId of [...this.parentToChildren.keys()]) {
+      this.disposeAllForParent(parentId);
+    }
+  }
+
+  /**
+   * Abort and fully dispose all subagents belonging to a parent conversation,
+   * deleting their durable records. Only for parents whose conversation data is
+   * going away (deletion, clear-all) — nobody will call subagent_read.
+   */
+  disposeAllForParent(
+    parentConversationId: string,
+    parentSendToClient?: (msg: AssistantEvent) => void,
+  ): number {
+    const count = this.abortAllForParent(
+      parentConversationId,
+      parentSendToClient,
+    );
+
+    const children = this.parentToChildren.get(parentConversationId);
+    if (children) {
+      // Use snapshot since dispose mutates the set.
+      for (const childId of [...children]) {
+        this.dispose(childId);
+      }
     }
 
     return count;
@@ -1049,7 +1132,7 @@ export class SubagentManager {
    */
   updateParentSender(
     parentConversationId: string,
-    newSendToClient: (msg: ServerMessage) => void,
+    newSendToClient: (msg: AssistantEvent) => void,
   ): void {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
@@ -1072,7 +1155,7 @@ export class SubagentManager {
         status: managed.state.status,
         error: managed.state.error,
         usage: managed.state.usage,
-      } as ServerMessage);
+      } as AssistantEvent);
     }
   }
 
@@ -1351,7 +1434,7 @@ export class SubagentManager {
   private setStatus(
     subagentId: string,
     status: SubagentStatus,
-    parentSendToClient: (msg: ServerMessage) => void,
+    parentSendToClient: (msg: AssistantEvent) => void,
     error?: string,
   ): void {
     const managed = this.subagents.get(subagentId);
@@ -1378,7 +1461,7 @@ export class SubagentManager {
       status,
       error,
       usage: managed.state.usage,
-    } as ServerMessage);
+    } as AssistantEvent);
 
     // Mirror the transition to the durable record.
     this.persistState(managed.state);
@@ -1396,6 +1479,7 @@ export class SubagentManager {
     managed: ManagedSubagent,
     outcome: "completed" | "failed",
     finalText?: string,
+    deniedTools?: string[],
   ): void {
     const { config } = managed.state;
     const isFork = managed.state.isFork;
@@ -1416,6 +1500,7 @@ export class SubagentManager {
       // A queued follow-up turn means the snapshot we hold is stale; defer to a
       // read pointer so the parent picks up the queued turn's output instead.
       deferred: managed.hadEnqueuedMessages === true,
+      deniedTools,
     });
 
     const notification: SubagentNotificationInfo = {

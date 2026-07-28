@@ -29,7 +29,6 @@ import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-gro
 interface ToolStepPillBaseProps {
   /** Truncating pill label. */
   label: string;
-  tone?: "default" | "error";
   /** Accessible label for the pill. Defaults per-variant. */
   ariaLabel?: string;
 }
@@ -81,12 +80,8 @@ const BASE_CLASSES =
 const INTERACTIVE_BASE =
   "transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]";
 
-/** Resting / hover fill for a non-active pill in the given tone. */
-function idleColorClasses(tone: "default" | "error"): string {
-  return tone === "error"
-    ? "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-    : "bg-[var(--surface-overlay)] text-[var(--content-default)]";
-}
+/** Resting / hover fill for a non-active pill. */
+const IDLE_COLOR_CLASSES = "bg-[var(--surface-overlay)] text-[var(--content-default)]";
 
 /**
  * 14px favicon glyph occupying the same slot as the tool variant's lucide icon.
@@ -136,7 +131,6 @@ function WebStepPill({
   url,
   faviconUrl,
   domain,
-  tone = "default",
   ariaLabel,
 }: ToolStepPillWebProps) {
   return (
@@ -147,7 +141,7 @@ function WebStepPill({
       data-testid="tool-step-pill"
       data-variant="web"
       aria-label={ariaLabel ?? `Open ${label}`}
-      className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${idleColorClasses(tone)}`}
+      className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${IDLE_COLOR_CLASSES}`}
     >
       <PillFavicon faviconUrl={faviconUrl} domain={domain} label={label} />
       <Typography
@@ -164,40 +158,22 @@ export function ToolStepPill(props: ToolStepPillProps) {
   if (props.variant === "web") {
     return <WebStepPill {...props} />;
   }
-  const {
-    iconName,
-    label,
-    onClick,
-    tone = "default",
-    active = false,
-    ariaLabel,
-  } = props;
+  const { iconName, label, onClick, active = false, ariaLabel } = props;
   // Active = a filled `--surface-active` background with the resting border /
-  // text kept neutral (the colored border read poorly against the card). Active
-  // overrides tone's background wholesale so we never emit conflicting
-  // arbitrary-value classes — Tailwind resolves equal-specificity collisions by
-  // stylesheet order, not class-attribute order.
+  // text kept neutral (the colored border read poorly against the card).
   // No outline. Idle pills carry a `--surface-overlay` fill; the open pill
   // (its drawer showing) reads as active via the stronger `--surface-active`.
   const colorClasses = active
-    ? tone === "error"
-      ? "bg-[var(--surface-active)] text-[var(--system-negative-strong)]"
-      : "bg-[var(--surface-active)] text-[var(--content-default)]"
-    : tone === "error"
-      ? "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-      : "bg-[var(--surface-overlay)] text-[var(--content-default)]";
+    ? "bg-[var(--surface-active)] text-[var(--content-default)]"
+    : IDLE_COLOR_CLASSES;
 
   const Glyph = ICON_MAP[iconName] ?? Bolt;
-  const iconColor =
-    tone === "error"
-      ? "text-[var(--system-negative-strong)]"
-      : "text-[var(--content-tertiary)]";
 
   const labelContent = (
     <>
       <Glyph
         aria-hidden="true"
-        className={`h-3.5 w-3.5 shrink-0 ${iconColor}`}
+        className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
       />
       <Typography
         variant="body-small-default"

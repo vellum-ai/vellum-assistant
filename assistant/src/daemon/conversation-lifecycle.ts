@@ -9,6 +9,7 @@ import {
   formatStoredPathAnnotation,
 } from "../agent/attachments.js";
 import { getConfig } from "../config/loader.js";
+import { usesConceptPageMemory } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
@@ -16,7 +17,6 @@ import {
   isMemoryEnabled,
 } from "../persistence/jobs-store.js";
 import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
-import { enqueueMemoryRetrospectiveIfEnabled } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
@@ -182,6 +182,24 @@ export function abortConversation(
       });
     }
     ctx.queue.clear();
+  } else {
+    // The in-memory flag reads idle, but a cancel must still clear a persisted
+    // `processing_started_at` that outlived the turn that set it. This is the
+    // divergence a conversation carries after its owning turn was interrupted
+    // out-of-process (daemon crash / restart mid-turn): the row is reloaded
+    // with a fresh in-memory flag (`false`) while the persisted column stays
+    // non-NULL, and no agent-loop `finally` will ever run to clear it. Without
+    // this the user's Stop is a silent no-op — the first `if` is skipped
+    // because in-memory reads idle — and the conversation stays wedged for cold
+    // readers (`isConversationProcessing`) and the next reload.
+    //
+    // `setProcessing(false)` is idempotent — it nulls the persisted column —
+    // so clear unconditionally rather than reading the column first; a
+    // genuinely-idle conversation just rewrites NULL. It also skips the
+    // metadata sync-invalidation (its `wasProcessing && !value` guard is
+    // already false here), which is correct: the resident conversation already
+    // reports idle in-memory to clients, so no refetch needs to be pushed.
+    ctx.setProcessing(false);
   }
 }
 
@@ -206,18 +224,18 @@ export function disposeConversation(ctx: DisposeContext): void {
       // Best-effort — don't block conversation disposal
     }
     if (!isAutoAnalysis) {
-      // Suppress v1 graph extraction when memory v2 is active — v2 reads
-      // from buffer.md and concept pages, so the v1 graph would be stale
-      // data nobody consumes. Mirrors the gate applied in `indexer.ts`
+      // Suppress v1 graph extraction when concept-page memory is active —
+      // it reads from buffer.md and concept pages, so the v1 graph would be
+      // stale data nobody consumes. Mirrors the gate applied in `indexer.ts`
       // for the per-message indexing path. Fail open to v1 if config
       // can't load, since the worker handler also short-circuits.
-      let v2Enabled = false;
+      let conceptPagesActive = false;
       try {
-        v2Enabled = getConfig().memory.v2.enabled;
+        conceptPagesActive = usesConceptPageMemory(getConfig().memory);
       } catch {
         // Best-effort — fall through to legacy v1 enqueue
       }
-      if (!v2Enabled && isMemoryEnabled()) {
+      if (!conceptPagesActive && isMemoryEnabled()) {
         try {
           enqueueMemoryJob("graph_extract", {
             conversationId: ctx.conversationId,
@@ -228,23 +246,6 @@ export function disposeConversation(ctx: DisposeContext): void {
         } catch {
           // Best-effort — don't block conversation disposal
         }
-      }
-
-      try {
-        // Memory-retrospective lifecycle safety-net. The periodic triggers
-        // (interval / message_count / pre-compaction) handle the common
-        // path; lifecycle catches the gap between the last interval fire
-        // and conversation eviction. The job's `no_new_messages` early
-        // return makes this a cheap no-op when the periodic path already
-        // covered things. Lives inside the `!isAutoAnalysis` guard so
-        // auto-analysis conversations don't trigger retrospective enqueues
-        // on disposal — mirrors the indexer-time gate in `indexer.ts`.
-        enqueueMemoryRetrospectiveIfEnabled({
-          conversationId: ctx.conversationId,
-          trigger: "lifecycle",
-        });
-      } catch {
-        // Best-effort — don't block conversation disposal
       }
     }
   }

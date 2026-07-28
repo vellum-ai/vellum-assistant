@@ -19,8 +19,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
  *   (`conversationType === "background"` or `groupId === "system:background"`),
- *   including auto-analysis (reflections). Sub-grouping by `source` is
- *   handled downstream by `backgroundSubGroups.ts`.
+ *   including auto-analysis (reflections).
  * - `recents` — everything else (foreground, non-pinned), sorted by
  *   `lastMessageAt` descending. Background/scheduled conversations with a
  *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
@@ -136,8 +135,38 @@ function compareByDisplayOrder(a: Conversation, b: Conversation): number {
  * True when a `groupId` refers to a non-system (custom) group.
  * System groups use a `"system:"` prefix (e.g. `"system:pinned"`).
  */
-function isCustomGroupId(groupId: string | undefined): groupId is string {
+export function isCustomGroupId(groupId: string | undefined): groupId is string {
   return !!groupId && !groupId.startsWith("system:");
+}
+
+// ---------------------------------------------------------------------------
+// Move-to-group helpers
+// ---------------------------------------------------------------------------
+
+/** A custom group a conversation can be filed into via the "Move to group" menu. */
+export type MoveToGroupTarget = Pick<ConversationGroup, "id" | "name">;
+
+/** True when a conversation currently belongs to a custom (non-system) group. */
+export function isInCustomGroup(conversation: Conversation): boolean {
+  return isCustomGroupId(conversation.groupId);
+}
+
+/**
+ * Build the "Move to group" targets for a conversation: every custom
+ * (non-system) group except the one it already belongs to.
+ *
+ * System buckets (Pinned, Recents, channel sections) are intentionally
+ * excluded — Pinning has its own menu item, and the rest are derived sections,
+ * not folders an arbitrary conversation can be filed into.
+ */
+export function buildMoveToGroupTargets(
+  conversation: Conversation,
+  groups?: ConversationGroup[],
+): MoveToGroupTarget[] {
+  const currentGroupId = conversation.groupId;
+  return (groups ?? [])
+    .filter((g) => !g.isSystemGroup && g.id !== currentGroupId)
+    .map((g) => ({ id: g.id, name: g.name }));
 }
 
 export function groupConversations(

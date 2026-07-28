@@ -8,6 +8,7 @@ import {
 } from "../plugins/defaults/history-repair/terminal.js";
 import {
   isImageDimensionsTooLargeError,
+  isImageMediaTypeMismatchError,
   isImageUnprocessableError,
 } from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
@@ -20,7 +21,7 @@ import {
 } from "../util/errors.js";
 import {
   INSUFFICIENT_CREDITS_PATTERNS,
-  VISION_NOT_SUPPORTED_PATTERNS,
+  isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
 
 /**
@@ -198,13 +199,21 @@ export interface ErrorContext {
  * recognized as cancellation too.
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
-  if (!ctx.aborted) return false;
-  if (error instanceof DOMException && error.name === "AbortError") return true;
-  if (error instanceof Error && error.name === "AbortError") return true;
+  if (!ctx.aborted) {
+    return false;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return true;
+  }
   if (error instanceof ProviderError && isAbortReason(error.abortReason)) {
     return true;
   }
-  if (isAbortReason(error)) return true;
+  if (isAbortReason(error)) {
+    return true;
+  }
   return false;
 }
 
@@ -215,7 +224,9 @@ const MAX_DEBUG_DETAIL_LENGTH = 4000;
  * Truncate debug details to a reasonable size for transport.
  */
 function truncateDebugDetails(details: string): string {
-  if (details.length <= MAX_DEBUG_DETAIL_LENGTH) return details;
+  if (details.length <= MAX_DEBUG_DETAIL_LENGTH) {
+    return details;
+  }
   return details.slice(0, MAX_DEBUG_DETAIL_LENGTH) + "\n… (truncated)";
 }
 
@@ -287,7 +298,7 @@ export function classifyConversationError(
 }
 
 /**
- * Internal throw sites use sentinel pseudo-names (`<llm.default>`,
+ * Internal throw sites use sentinel pseudo-names (`<default>`,
  * `<resolved-callsite>`) when no real connection row is involved; those must
  * not render as literal connection names.
  */
@@ -314,6 +325,8 @@ function connectionResolutionUserMessage(
       return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
     case "missing_connection":
       return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+    case "unroutable_managed_model":
+      return `The model "${error.model ?? "<unset>"}"${usedBy} isn't served by the Vellum managed route. Pick a model from the Vellum catalog, or choose a concrete provider in ${fixPath}.`;
     case "missing_credential":
       // Provider-neutral: api_key connections store keys, oauth_subscription
       // connections store login tokens — the fix differs but the location
@@ -351,7 +364,9 @@ function classifyCore(
       attribution,
       message,
     });
-    if (c) return c;
+    if (c) {
+      return c;
+    }
   }
 
   // Reason-less (or bad_request/unknown) ProviderError with a status — the
@@ -461,7 +476,20 @@ function classifyCore(
           errorCategory: "image_unprocessable",
         };
       }
-      if (isVisionNotSupported(message)) {
+      if (isImageMediaTypeMismatchError(message)) {
+        // Same wire-code reuse as image_unprocessable above. This surfaces only
+        // when auto-correction could not resolve the mismatch — a recognized
+        // format is relabeled and the retry succeeds without ever reaching here,
+        // so the copy must not claim a fix that didn't happen.
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An image in this conversation is in a format the AI provider can't read, and it couldn't be converted automatically. Re-save it as PNG or JPEG and upload it again.",
+          retryable: false,
+          errorCategory: "image_media_type_mismatch",
+        };
+      }
+      if (isVisionNotSupportedError(message)) {
         return visionNotSupportedClassification();
       }
       // Extract the provider detail after "API error (NNN): " prefix
@@ -493,9 +521,13 @@ function extractProviderDetail(message: string): string | undefined {
   detail = detail.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
   if (!detail || detail === message.trim()) {
     // No recognizable prefix — only surface prose that isn't the whole raw line.
-    if (/API error \(\d+\)/i.test(message)) return undefined;
+    if (/API error \(\d+\)/i.test(message)) {
+      return undefined;
+    }
   }
-  if (!detail) return undefined;
+  if (!detail) {
+    return undefined;
+  }
   return detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
 }
 
@@ -532,6 +564,12 @@ function reasonToClassification(
       return managed
         ? managedBalanceClassification()
         : providerBillingClassification();
+    case "daily_limit_reached":
+      // The reason is stamped only from the platform proxy's
+      // `"code":"daily_limit_reached"` body, so it is authoritative on its
+      // own — the global routing map can lag per-connection platform-auth
+      // routes and must not downgrade this to the generic billing surface.
+      return dailyLimitClassification();
     case "overloaded":
       return providerOverloadedClassification();
     case "server_error":
@@ -600,10 +638,6 @@ function emptyRequestMessagesClassification(): Omit<
   };
 }
 
-function isVisionNotSupported(message: string): boolean {
-  return VISION_NOT_SUPPORTED_PATTERNS.some((p) => p.test(message));
-}
-
 /** Check whether an error message indicates a web-search-specific ordering failure. */
 function isWebSearchOrderingError(message: string): boolean {
   return WEB_SEARCH_ORDERING_PATTERNS.some((p) => p.test(message));
@@ -669,6 +703,19 @@ function providerBillingClassification(): Omit<
       "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings → Models & Services.",
     retryable: false,
     errorCategory: "provider_billing",
+  };
+}
+
+function dailyLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+    retryable: false,
+    errorCategory: "daily_limit_reached",
   };
 }
 
@@ -768,19 +815,25 @@ function visionNotSupportedClassification(): Omit<
  * Build a user-facing message that names the exact profile / connection
  * to fix when one is known, falling back to a generic phrase otherwise.
  * Profile is preferred because that's the entity the user picks in the
- * chat picker; connection is shown when no profile is in play (e.g.
- * `llm.default` direct dispatch) or as a parenthetical when both differ.
+ * chat picker; connection is shown when no profile is in play (e.g. the
+ * profileless anchor dispatch) or as a parenthetical when both differ.
  */
 function describeAttribution(
   attribution: ConversationErrorAttribution | undefined,
 ): string {
-  if (!attribution) return "";
+  if (!attribution) {
+    return "";
+  }
   const { profileName, connectionName } = attribution;
   if (profileName && connectionName && profileName !== connectionName) {
     return ` for profile "${profileName}" (connection "${connectionName}")`;
   }
-  if (profileName) return ` for profile "${profileName}"`;
-  if (connectionName) return ` for connection "${connectionName}"`;
+  if (profileName) {
+    return ` for profile "${profileName}"`;
+  }
+  if (connectionName) {
+    return ` for connection "${connectionName}"`;
+  }
   return "";
 }
 

@@ -13,6 +13,11 @@ import type {
   OrganizationsBillingUsageSeriesRetrieveData,
   OrganizationsBillingUsageTotalsRetrieveData,
 } from "@/generated/api/types.gen";
+import {
+  type PlatformGateState,
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
@@ -89,20 +94,60 @@ export function buildBillingUsageTotalsQuery(
   };
 }
 
+/**
+ * Whether the organization-scoped platform billing queries may fire.
+ *
+ * These fetches only make sense when three things hold:
+ *   - the active assistant is platform-hosted (`platformHostedOnly` gate is
+ *     "full"),
+ *   - the platform API is reachable (the default reachability gate is not
+ *     "gated" — i.e. the app is not in local mode with
+ *     `VELLUM_DISABLE_PLATFORM` set, where `platformFeaturesGate` aborts the
+ *     request), and
+ *   - the assistant is positively resolved as platform-hosted.
+ *
+ * The `platformHostedOnly` gate deliberately ignores `VELLUM_DISABLE_PLATFORM`
+ * and reports "full" during the lifecycle loading window, so neither of the
+ * other two checks is redundant: without the reachability gate a local-mode
+ * app driving a platform-hosted assistant with the platform API disabled would
+ * fire two doomed requests, and without `isPlatformHosted` a fetch could kick
+ * off before hosting is resolved.
+ */
+export function isBillingUsageDataEnabled(
+  platformGate: PlatformGateState,
+  reachabilityGate: PlatformGateState,
+  isPlatformHosted: boolean,
+): boolean {
+  return (
+    platformGate === "full" && reachabilityGate !== "gated" && isPlatformHosted
+  );
+}
+
 export function useBillingUsageData(state: UsageChartState) {
   const tz = useEffectiveTimezone();
 
-  const seriesQuery = useQuery(
-    organizationsBillingUsageSeriesRetrieveOptions({
-      query: buildBillingUsageSeriesQuery(state, tz),
-    }),
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  const reachabilityGate = usePlatformGate();
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  const enabled = isBillingUsageDataEnabled(
+    platformGate,
+    reachabilityGate,
+    isPlatformHosted,
   );
 
-  const totalsQuery = useQuery(
-    organizationsBillingUsageTotalsRetrieveOptions({
+  const seriesQuery = useQuery({
+    ...organizationsBillingUsageSeriesRetrieveOptions({
+      query: buildBillingUsageSeriesQuery(state, tz),
+    }),
+    enabled,
+  });
+
+  const totalsQuery = useQuery({
+    ...organizationsBillingUsageTotalsRetrieveOptions({
       query: buildBillingUsageTotalsQuery(state, tz),
     }),
-  );
+    enabled,
+  });
 
   return {
     series: seriesQuery.data,

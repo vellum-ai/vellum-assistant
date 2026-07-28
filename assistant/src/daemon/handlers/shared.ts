@@ -1,3 +1,7 @@
+import {
+  neutralizeRedactedSentinels,
+  SENTINEL_REDACTION_VERSION,
+} from "@vellumai/service-contracts/redacted-credential";
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -11,6 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
+import type { ConversationCreateType } from "../../persistence/conversation-types.js";
 import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import type { MediaSource } from "../../providers/types.js";
@@ -94,6 +99,26 @@ export interface RenderedHistoryContent {
 }
 
 /**
+ * One entry from Slack's `app_context` — an object the sender had open in
+ * Slack when they sent the message. `value` is an id string for the channel /
+ * canvas / list entity types and an object for `slack#/types/message_context`,
+ * which points at a specific message. Mirrors `sourceMetadata.appContext` on
+ * the gateway inbound contract; the values arrive unvalidated, so every
+ * consumer shape-checks before use.
+ */
+export interface SlackAppContextEntity {
+  type: string;
+  value: string | { messageTs?: string; channelId?: string };
+  teamId?: string;
+  enterpriseId?: string;
+}
+
+/** The sender's active Slack context for a single inbound message. */
+export interface SlackAppContext {
+  entities: SlackAppContextEntity[];
+}
+
+/**
  * Slack-specific metadata extracted at the inbound HTTP boundary and threaded
  * through to user-message persistence so the row can be tagged with a
  * `slackMeta` envelope for the chronological renderer.
@@ -125,6 +150,15 @@ export interface SlackInboundMessageMetadata {
   timestampTimezoneLabel?: string;
   /** Compact timezone label appended to the rendered speaker name. */
   speakerTimezoneLabel?: string;
+  /**
+   * What the sender had open in Slack when they sent this message. Carried
+   * here so it lands on the stored ingress payload alongside the rest of
+   * `slackInbound`, letting the retry sweep render a replayed turn with the
+   * same context the live turn saw. Not projected into `slackMeta`: the
+   * context is baked into the message content at ingress, so the transcript
+   * renderer already has it.
+   */
+  appContext?: SlackAppContext;
 }
 
 /**
@@ -142,6 +176,14 @@ export interface ConversationCreateOptions {
    * task permissions do not leak into later turns on a reused conversation.
    */
   taskRunId?: string;
+  /**
+   * Skip persisting a `conversations` row for this call. The in-memory
+   * {@link Conversation} is still built and hydrated from whatever rows
+   * already exist, but no sidebar-visible row is created — used by ephemeral
+   * side-chains (e.g. the empty-state greeting) whose contract persists
+   * nothing. Per-call only: never merged into stored conversation metadata.
+   */
+  ephemeral?: boolean;
   /** Normalized auth context for the conversation. */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
@@ -180,6 +222,13 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Conversation type for newly created conversations. When omitted,
+   * defaults to `"standard"` (visible in the sidebar). Set to
+   * `"background"` for plugin-driven conversations that should not
+   * appear in the sidebar's Recents grouping.
+   */
+  conversationType?: ConversationCreateType;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -315,6 +364,10 @@ export function renderHistoryContent(
     } else {
       text = unwrapExternalContentForDisplay(String(content));
     }
+    // Raw-string rows predate the block-shaped persist path entirely, so
+    // they can never carry the `_redactionVersion` rider — always run the
+    // sentinel forgery guard (see the rider check in the block walk below).
+    text = neutralizeRedactedSentinels(text);
     return {
       text,
       toolCalls: [],
@@ -445,7 +498,22 @@ export function renderHistoryContent(
     }
 
     if (block.type === "text" && typeof block.text === "string") {
-      const displayText = unwrapExternalContentForDisplay(block.text);
+      // Forgery guard for pre-feature history: blocks persisted before the
+      // chat-credential sentinel work never had sentinel-shaped strings
+      // neutralized at write, so a forged `〔redacted:…〕` in an old row could
+      // manufacture a reveal chip on a chip-enabled client surface. Blocks
+      // written by the neutralization-aware persist path carry the
+      // `_redactionVersion` rider (internal, never shipped on the wire) and
+      // pass through verbatim — their surviving sentinels are
+      // redactor-authored. Everything else is neutralized here at the read
+      // boundary, the same belt-and-suspenders posture as the
+      // `<no_response/>` and placeholder-sentinel strips below.
+      const rawText =
+        typeof block._redactionVersion === "number" &&
+        block._redactionVersion >= SENTINEL_REDACTION_VERSION
+          ? block.text
+          : neutralizeRedactedSentinels(block.text);
+      const displayText = unwrapExternalContentForDisplay(rawText);
       // Skip empty/whitespace-only text blocks. During streaming the client
       // discards empty text deltas (guard !text.isEmpty), so including them
       // here produces a contentOrder that differs from the live streaming
@@ -673,7 +741,9 @@ export function renderHistoryContent(
               continue;
             }
             const resolved = resolveMediaSourceData(source);
-            if (resolved) imageDataList.push(resolved.data);
+            if (resolved) {
+              imageDataList.push(resolved.data);
+            }
           }
         }
       }
@@ -681,6 +751,13 @@ export function renderHistoryContent(
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
+        // Carry the persisted error classification onto the history row so a
+        // client can re-derive an error-specific surface after a reload (e.g.
+        // `acp_claude_oauth_missing` re-raising the inline Connect card),
+        // rather than it living only on the live `tool_result` event.
+        if (typeof block.errorCode === "string") {
+          matched.errorCode = block.errorCode;
+        }
         if (imageDataList.length > 0) {
           matched.imageData = imageDataList[0];
           matched.imageDataList = imageDataList;

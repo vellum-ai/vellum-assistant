@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { resolveRoutingIdentity } from "../../providers/connection-resolution.js";
 import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
@@ -38,10 +38,28 @@ describe("getEffectiveProfiles", () => {
       const body = CODE_DEFAULT_PROFILE_ENTRIES[key];
       expect(body).toBeDefined();
       expect(typeof body.model).toBe("string");
-      expect(body.provider).toBeDefined();
-      expect(body.provider_connection).toBe("vellum");
+      expect(body.provider).toBe("vellum");
+      expect(body.provider_connection).toBeUndefined();
       expect(body.source).toBe("managed");
     }
+  });
+
+  test("every vellum-column body translates to a managed dispatch target", () => {
+    for (const key of [...DEFAULT_PROFILE_KEYS, OS_BETA_PROFILE_KEY]) {
+      const body = CODE_DEFAULT_PROFILE_ENTRIES[key];
+      const identity = resolveRoutingIdentity(body.provider, body.model);
+      expect(identity?.connectionName).toBe("vellum");
+      expect(typeof identity?.expectedProvider).toBe("string");
+    }
+  });
+
+  test("the managed Quality profile routes GPT-5.6 Sol through OpenAI", () => {
+    const quality = CODE_DEFAULT_PROFILE_ENTRIES["quality-optimized"];
+    expect(quality.model).toBe("gpt-5.6-sol");
+    expect(resolveRoutingIdentity(quality.provider, quality.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "openai",
+    });
   });
 
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
@@ -138,10 +156,8 @@ describe("resolver integration", () => {
     expect(resolved.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
-    expect(String(resolved.provider)).toBe(
-      String(CODE_DEFAULT_PROFILE_ENTRIES.balanced.provider),
-    );
-    expect(resolved.provider_connection).toBe("vellum");
+    expect(String(resolved.provider)).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("an empty workspace resolves every call-site default from the catalog", () => {
@@ -152,7 +168,8 @@ describe("resolver integration", () => {
       }
       const expected = CODE_DEFAULT_PROFILE_ENTRIES[dflt.profile];
       const resolved = resolveCallSiteConfig(callSite as LLMCallSite, llm);
-      expect(resolved.model).toBe(expected.model as string);
+      // A site-level model pin legitimately overrides the profile's model.
+      expect(resolved.model).toBe((dflt.model ?? expected.model) as string);
     }
   });
 
@@ -177,7 +194,7 @@ describe("resolver integration", () => {
     }
   });
 
-  test("a disabled managed default falls through to the custom-* profile", () => {
+  test("a disabled managed default does not divert resolution to the custom-* clone", () => {
     const llm = LLMSchema.parse({
       profiles: {
         balanced: { source: "managed", status: "disabled" },
@@ -189,18 +206,53 @@ describe("resolver integration", () => {
         },
       },
     });
-    // Legacy cascade: the disabled stub falls through to the custom-* hop.
-    setOverridesForTesting({ "override-or-default-resolution": false });
-    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("custom-balanced");
-    const resolved = resolveCallSiteConfig("mainAgent", llm);
-    expect(resolved.model).toBe("claude-sonnet-4-6");
-    // Override-or-default: the hop is gone — the fallback anchor is the
-    // code-owned intent, and a legacy disabled stub does not suppress it.
-    setOverridesForTesting({});
+    // The fallback anchor is the code-owned intent: a legacy disabled stub
+    // does not suppress it, and the user-mutable custom-* clone never
+    // captures the call site.
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
-    expect(resolveCallSiteConfig("mainAgent", llm).model).not.toBe(
-      "claude-sonnet-4-6",
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.model).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
+    expect(resolved.model).not.toBe("claude-sonnet-4-6");
+  });
+
+  test("a pre-existing user profile cannot shadow an internal profile's call sites", () => {
+    // `latency-optimized` was a legal custom profile name before it was
+    // reserved, so a workspace can already hold one. The user-shadow rule
+    // that lets a user replace a default they can select must not apply to a
+    // name they were never able to select: the voice front model would
+    // silently run on an arbitrary user model.
+    const llm = LLMSchema.parse({
+      profiles: {
+        "latency-optimized": {
+          source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+          provider_connection: "anthropic-personal",
+          maxTokens: 32000,
+          effort: "high",
+        },
+      },
+    });
+    const body = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"];
+    for (const callSite of ["voiceFrontDoor", "voiceFrontDecision"] as const) {
+      const resolved = resolveCallSiteConfig(callSite, llm);
+      expect(resolved.model).toBe(body.model as string);
+      expect(resolved.model).not.toBe("claude-opus-4-6");
+      expect(String(resolved.provider)).toBe("vellum");
+    }
+    // The entry itself is untouched — still on disk, still listed, and still
+    // a valid `activeProfile` reference for the user who created it.
+    expect(getEffectiveProfiles(llm.profiles)["latency-optimized"]?.model).toBe(
+      "claude-opus-4-6",
+    );
+    expect(() =>
+      LLMSchema.parse({
+        activeProfile: "latency-optimized",
+        profiles: llm.profiles,
+      }),
+    ).not.toThrow();
   });
 });
 
@@ -248,7 +300,12 @@ describe("resolveDefaultProfileForProvider", () => {
         expect(entry).toBeDefined();
         expect(typeof entry?.model).toBe("string");
         expect(entry?.provider).toBeDefined();
-        expect(entry?.provider_connection).toBeDefined();
+        // Identity columns stamp no connection; BYOK columns always do.
+        if (entry?.provider === "vellum") {
+          expect(entry?.provider_connection).toBeUndefined();
+        } else {
+          expect(entry?.provider_connection).toBeDefined();
+        }
         expect(entry?.source).toBe("managed");
       }
     }

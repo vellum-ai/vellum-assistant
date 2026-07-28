@@ -94,6 +94,7 @@ export async function buildConversationSummaryJob(
     existing?.summary ?? null,
     segmentTexts,
     "conversation",
+    conversationId,
   );
 
   const now = Date.now();
@@ -153,6 +154,7 @@ async function summarizeWithLLM(
   existingSummary: string | null,
   newContent: string,
   label: string,
+  conversationId: string,
 ): Promise<string> {
   const summarizationConfig = config.memory.summarization;
   if (!summarizationConfig.useLLM) {
@@ -188,6 +190,7 @@ async function summarizeWithLLM(
           systemPrompt,
           config: {
             callSite: "conversationSummarization" as const,
+            conversationId,
             max_tokens: SUMMARY_MAX_TOKENS,
           },
           signal,

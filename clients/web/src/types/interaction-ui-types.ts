@@ -69,6 +69,12 @@ export interface PendingQuestionState {
   toolUseId?: string;
 }
 
+export interface PendingAcpConnectState {
+  /** The failed `acp_spawn` tool call this Connect prompt is anchored to, so
+   *  the inline affordance renders under the right activity group. */
+  toolUseId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Subagent event types — canonical types now live in
 // `@vellumai/assistant-api` (see `subagent-event.ts` /

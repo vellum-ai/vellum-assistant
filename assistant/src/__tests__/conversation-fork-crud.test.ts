@@ -21,7 +21,12 @@ import {
   getMessages,
 } from "../persistence/conversation-crud.js";
 import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
-import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
+import {
+  getDb,
+  getLogsDb,
+  getMemoryDb,
+  getMemorySqlite,
+} from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { getRequestLogsByMessageId } from "../persistence/llm-request-log-store.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
@@ -63,14 +68,16 @@ function resetTables(): void {
   db.delete(channelInboundEvents).run();
   db.delete(externalConversationBindings).run();
   db.delete(conversationAssistantAttentionState).run();
-  db.delete(activationState).run();
+  getMemoryDb()!.delete(activationState).run();
   db.delete(conversationCompactionEvents).run();
-  db.delete(conversationGraphMemoryState).run();
-  db.delete(memoryRetrospectiveState).run();
+  // conversation_graph_memory_state, memory_retrospective_state, and
+  // memory_v3_ever_injected all live on the memory connection now.
+  getMemoryDb()!.delete(conversationGraphMemoryState).run();
+  getMemoryDb()!.delete(memoryRetrospectiveState).run();
   getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   getMemoryDb()!.delete(memoryJobs).run();
-  db.run("DELETE FROM memory_v3_ever_injected");
+  getMemorySqlite()!.exec("DELETE FROM memory_v3_ever_injected");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
   db.run("DELETE FROM messages");
@@ -904,8 +911,8 @@ describe("forkConversation", () => {
       { skipIndexing: true },
     );
 
-    const db = getDb();
-    db.insert(activationState)
+    getMemoryDb()!
+      .insert(activationState)
       .values({
         conversationId: source.id,
         messageId: sourceMessage.id,
@@ -924,7 +931,7 @@ describe("forkConversation", () => {
 
     const fork = forkConversation({ conversationId: source.id });
 
-    const childState = await hydrateActivationState(db, fork.id);
+    const childState = await hydrateActivationState(fork.id);
     expect(childState).toEqual({
       messageId: sourceMessage.id,
       state: {
@@ -940,7 +947,7 @@ describe("forkConversation", () => {
     });
 
     // Parent state is untouched.
-    const parentState = await hydrateActivationState(db, source.id);
+    const parentState = await hydrateActivationState(source.id);
     expect(parentState?.currentTurn).toBe(2);
   });
 
@@ -977,8 +984,7 @@ describe("forkConversation", () => {
 
     const fork = forkConversation({ conversationId: source.id });
 
-    const db = getDb();
-    expect(await hydrateActivationState(db, fork.id)).toBeNull();
+    expect(await hydrateActivationState(fork.id)).toBeNull();
     expect(loadGraphMemoryState(fork.id)).toBeNull();
   });
 
@@ -994,8 +1000,8 @@ describe("forkConversation", () => {
       skipIndexing: true,
     });
 
-    const db = getDb();
-    db.insert(activationState)
+    getMemoryDb()!
+      .insert(activationState)
       .values({
         conversationId: source.id,
         messageId: lastMessage.id,
@@ -1021,7 +1027,7 @@ describe("forkConversation", () => {
       throughMessageId: firstMessage.id,
     });
 
-    expect(await hydrateActivationState(db, fork.id)).toBeNull();
+    expect(await hydrateActivationState(fork.id)).toBeNull();
     expect(loadGraphMemoryState(fork.id)).toBeNull();
   });
 
@@ -1054,8 +1060,8 @@ describe("forkConversation", () => {
       skipIndexing: true,
     });
 
-    const db = getDb();
-    db.insert(activationState)
+    getMemoryDb()!
+      .insert(activationState)
       .values({
         conversationId: source.id,
         messageId: "parent-msg",
@@ -1076,7 +1082,7 @@ describe("forkConversation", () => {
       throughMessageId: boundaryMessage.id,
     });
 
-    const childState = await hydrateActivationState(db, fork.id);
+    const childState = await hydrateActivationState(fork.id);
     expect(childState).not.toBeNull();
     // Exactly the slugs whose attachments live in the copied history —
     // page-d (injected past the boundary) stays re-injectable.
@@ -1164,7 +1170,7 @@ describe("forkConversation", () => {
       throughMessageId: boundaryMessage.id,
     });
 
-    const childState = await hydrateActivationState(getDb(), fork.id);
+    const childState = await hydrateActivationState(fork.id);
     expect(childState?.everInjected.map((e) => e.slug)).toEqual([
       "topics/page-live",
     ]);
@@ -1261,7 +1267,7 @@ describe("forkConversation", () => {
       ]),
     );
     // The v2 seed picked up only the v2 block, not the v3 cards.
-    const childState = await hydrateActivationState(getDb(), fork.id);
+    const childState = await hydrateActivationState(fork.id);
     expect(childState?.everInjected.map((e) => e.slug)).toEqual([
       "topics/page-v2",
     ]);
@@ -1373,8 +1379,8 @@ describe("forkConversation", () => {
       skipIndexing: true,
     });
 
-    const db = getDb();
-    db.insert(activationState)
+    getMemoryDb()!
+      .insert(activationState)
       .values({
         conversationId: source.id,
         messageId: lastMessage.id,
@@ -1390,7 +1396,7 @@ describe("forkConversation", () => {
       throughMessageId: lastMessage.id,
     });
 
-    const childState = await hydrateActivationState(db, fork.id);
+    const childState = await hydrateActivationState(fork.id);
     expect(childState?.currentTurn).toBe(1);
   });
 

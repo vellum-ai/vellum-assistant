@@ -11,11 +11,26 @@
  * jobs alongside fast jobs and asserts that every fast job completes before
  * any slow job's promise resolves — proving the lanes are truly independent.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
 import { setConfig } from "./helpers/set-config.js";
+
+// beforeAll runs initializeDb(), which can exceed bun's 5s default hook
+// timeout when the CI runner is saturated (one bun process per test file,
+// workers = CPU count). Raise the file-level default so DB setup isn't
+// killed mid-flight. Each test file runs in its own process, so this
+// doesn't leak.
+setDefaultTimeout(30_000);
 
 // ── Config seed (before the tested module reads config) ────────────
 
@@ -25,8 +40,13 @@ import { setConfig } from "./helpers/set-config.js";
 // claimed jobs without lane awareness and ran them through a single
 // workerConcurrency-sized pool — would pin its slots on the first claimed
 // slow jobs and force the fast jobs to queue behind a 200ms LLM call.
+// `memory.v2.enabled` is off so v1 is the active memory tier: the slow-lane
+// job here is `graph_consolidate`, whose handler completes v1 graph rows as
+// a no-op while concept-page memory is active — this test needs it to
+// genuinely run.
 // Everything else (including `memory.enabled: true`) is the schema default.
 setConfig("memory", {
+  v2: { enabled: false },
   jobs: {
     slowLlmConcurrency: 1,
     fastConcurrency: 5,
@@ -48,7 +68,7 @@ const completions: CompletionRecord[] = [];
 // job completes before any slow job — a single 200ms window is plenty.
 const SLOW_DELAY_MS = 200;
 
-mock.module("../plugins/defaults/memory/graph/consolidation.js", () => ({
+mock.module("../plugins/defaults/memory/v1/graph/consolidation.js", () => ({
   runConsolidation: async (
     scopeId: string,
   ): Promise<{
@@ -80,6 +100,9 @@ mock.module("../plugins/defaults/memory/v2/backfill-jobs.js", () => ({
     return 0;
   },
   memoryV2MigrateJob: async (): Promise<void> => {},
+}));
+
+mock.module("../plugins/defaults/memory/substrate/reembed-job.js", () => ({
   memoryV2ReembedJob: async (): Promise<void> => {},
 }));
 

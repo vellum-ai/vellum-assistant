@@ -26,6 +26,9 @@ mock.module("../suggested-prompts.js", () => ({
 const publishSpy = mock<(event: unknown) => Promise<void>>(async () => {});
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: publishSpy },
+  broadcastMessage: (message: unknown) => {
+    void publishSpy(message);
+  },
 }));
 
 mock.module("../../runtime/assistant-event.js", () => ({

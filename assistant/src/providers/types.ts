@@ -128,6 +128,36 @@ export interface WebSearchToolResultContent {
   content: unknown; // Opaque — encrypted_content in search results is provider-specific
 }
 
+/**
+ * A client-rendered UI card persisted into conversation history: call
+ * summaries, guardian approval cards, skill cards, wake notices, document
+ * previews.
+ *
+ * This is a rendering instruction, not model context — providers drop it when
+ * serializing history. Producers therefore pair the surface with a sibling
+ * `text` block flagged `_surfaceFallback` (see
+ * `notifications/approval-card-builder.ts`); that text is what feeds the model,
+ * search indexing, CLI display, and channel replies.
+ *
+ * `data` is deliberately opaque: its concrete shape is selected by
+ * `surfaceType` and owned by `daemon/message-types/surfaces.ts`.
+ */
+export interface UiSurfaceContent {
+  type: "ui_surface";
+  surfaceId: string;
+  surfaceType: string;
+  title?: string;
+  data?: Record<string, unknown>;
+  actions?: unknown[];
+  /**
+   * Free-form, matching `CurrentTurnSurface.display` — NOT the `inline` /
+   * `panel` enum of the `ui_surface_show` wire event. Persisted surfaces carry
+   * whatever the `ui_show` tool wrote, so this must not narrow.
+   */
+  display?: string;
+  completed?: boolean;
+}
+
 export type ContentBlock =
   | TextContent
   | ThinkingContent
@@ -137,7 +167,8 @@ export type ContentBlock =
   | ToolUseContent
   | ToolResultContent
   | ServerToolUseContent
-  | WebSearchToolResultContent;
+  | WebSearchToolResultContent
+  | UiSurfaceContent;
 
 export interface Message {
   role: "user" | "assistant";
@@ -155,6 +186,13 @@ export interface ProviderResponse {
   model: string;
   /** Provider that actually produced this response, which may differ from a wrapper provider name. */
   actualProvider?: string;
+  /**
+   * Base URL the provider's HTTP client actually resolved to for this request,
+   * read from the live SDK client instance rather than re-derived from config.
+   * Lets diagnostics observe the true routing target (e.g. a misrouted host)
+   * instead of inferring it. Absent for providers that don't surface it.
+   */
+  resolvedEndpoint?: string;
   usage: {
     /** Total input tokens (input_tokens + cache_creation + cache_read). */
     inputTokens: number;
@@ -215,7 +253,8 @@ export interface SendMessageConfig {
    * LLM call-site identifier. `RetryProvider` resolves
    * provider/model/maxTokens/effort/speed/verbosity/temperature/thinking/
    * contextWindow via `resolveCallSiteConfig(callSite, config.llm)`, falling
-   * back to `llm.default` when no callSite-specific entry is present.
+   * back to the shipped call-site defaults when no callSite-specific entry
+   * is present.
    */
   callSite?: LLMCallSite;
   /**
@@ -246,6 +285,13 @@ export interface SendMessageConfig {
    * stripped before any provider wire request.
    */
   selectionSeed?: string;
+  /**
+   * Id of the user conversation that causally triggered this call, stamped by
+   * call sites so `UsageTrackingProvider` can attribute the usage-ledger event
+   * to the conversation (and, at flush time, its turn). A resolution/routing-
+   * time concern only; stripped before any provider wire request.
+   */
+  conversationId?: string;
   /**
    * Per-conversation prompt-cache key for providers with explicit prompt
    * caching (sent as the OpenAI `prompt_cache_key` request param). Set by
@@ -322,6 +368,13 @@ export interface Provider {
    * Falls back to `name` when unset.
    */
   tokenEstimationProvider?: string;
+  /**
+   * Model id this instance dispatches when a call carries no per-call model
+   * override. Consumed by the local token estimator for model-keyed rules
+   * (e.g. audio-capable OpenAI-compatible models). Optional: providers whose
+   * estimation rules are provider-wide need not expose it.
+   */
+  defaultModel?: string;
   /**
    * True when this provider instance was constructed to run web search
    * server-side (provider-native). The native search only activates when a
@@ -433,11 +486,17 @@ export function extractOverflowTokensFromMessage(message: string): {
   maxTokens?: number;
 } {
   const match = message.match(/(\d[\d,]*)\s*(?:tokens?\s*)?[>≥]\s*(\d[\d,]*)/i);
-  if (!match) return {};
+  if (!match) {
+    return {};
+  }
   const actual = parseInt(match[1].replace(/,/g, ""), 10);
   const max = parseInt(match[2].replace(/,/g, ""), 10);
   const out: { actualTokens?: number; maxTokens?: number } = {};
-  if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
-  if (!isNaN(max) && max > 0) out.maxTokens = max;
+  if (!isNaN(actual) && actual > 0) {
+    out.actualTokens = actual;
+  }
+  if (!isNaN(max) && max > 0) {
+    out.maxTokens = max;
+  }
   return out;
 }

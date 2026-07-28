@@ -35,7 +35,8 @@ describe("createSchedule route — script mode", () => {
     const { schedule } = await create({
       name: "wt-script-create",
       mode: "script",
-      script: 'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
+      script:
+        'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
       expression: "*/15 * * * *",
       description: "polls github",
       timeoutMs: 120000,

@@ -16,15 +16,19 @@
  *    per `eyePlacement`) with a settle dip, then a double blink and idle-blink
  *    from there (with a slight cursor parallax).
  *
- * Per-state treatments (driven by `visual`, cross-faded so nothing pops):
- * while the user speaks (`listening`) the mic-amplitude waveform swells behind
- * the eyes — centered by default so it reads as the voice gathering around them
- * rather than rising from the floor — and the eyes drop to a low hold. When the
- * turn passes to the assistant they ride back up to center: `thinking`
- * dissolves the waves out and a quiet dot triad in just above the eyes, then
- * `responding` keeps them centered while the assistant's voice radiates outward
- * from behind them (see {@link VoiceRespondingStyle}). `reconnecting` fades the
- * eyes back — presence dimmed while away.
+ * Per-state treatments (driven by `visual`, cross-faded so nothing pops): the
+ * eyes stay centered throughout and express the state by *size* — a smooth
+ * scale tween, no vertical travel. While the user speaks (`listening`) the
+ * mic-amplitude waveform sweeps in from the top edge (clear of the centered
+ * eyes) and the eyes open wide (large — all ears). When the turn passes to the
+ * assistant, `thinking` shrinks them small and a quiet dot triad works away
+ * just above them, then `responding` settles them to a medium size while the
+ * assistant's voice radiates outward from behind them (see
+ * {@link VoiceRespondingStyle}). A soft state caption ("Listening" / "Thinking"
+ * / "Speaking") fades in down in the room's lower text zone (see
+ * `voice-room-layout.ts`), naming the beat from the same baseline the
+ * assistant's own speech would occupy. `reconnecting` fades the eyes back —
+ * presence dimmed while away.
  *
  * Geometry and timing mirror onboarding's `IntroductionScreen` +
  * `OnboardingPeekingEyes`. Traits default like `ChatAvatar` does (first
@@ -40,10 +44,15 @@
  * box — unless a `viewport` override is passed (Storybook renders in a box).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AnimatePresence,
+  motion,
+  useAnimationControls,
+  useReducedMotion,
+} from "motion/react";
 
-import { pathBBox, unionBBox, type BBox } from "@/components/avatar/eye-bbox";
+import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 import {
@@ -54,34 +63,56 @@ import {
 } from "./voice-listening-waves";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import { createAmplitudeSmoother } from "./voice-motion";
+import {
+  VOICE_ROOM_CAPTION_TEXT,
+  VOICE_ROOM_LOWER_ZONE_BOTTOM,
+} from "./voice-room-layout";
 
 /** Where the eyes come to rest: cut off at the bottom edge, or centered. */
 export type VoiceEyePlacement = "bottom" | "center";
 
 /** How much of the bottom-placed eyes sits below the edge at rest. */
 const EYE_REST_CUTOFF = 0.25;
-/** Eye sizing: height at most 30% of the smaller viewport dimension, capped
- *  so width stays on-screen. */
-const EYE_TARGET_HEIGHT = 0.3;
-const EYE_MAX_WIDTH = 0.85;
-/** Slight whole-eye cursor parallax. */
-const CURSOR_MAX_X = 14;
-const CURSOR_MAX_Y = 8;
+/** Eye sizing: height at most 22% of the smaller viewport dimension, clamped so
+ *  width stays on-screen (≤60% of viewport width) and — so the eyes don't loom
+ *  large enough to feel intimidating on big displays — capped at an absolute
+ *  `EYE_MAX_HEIGHT_PX` ceiling. Scale with the screen, up to a maximum. */
+const EYE_TARGET_HEIGHT = 0.22;
+const EYE_MAX_WIDTH = 0.6;
+const EYE_MAX_HEIGHT_PX = 240;
 /**
- * How far down the centered eyes hold while listening, as a fraction of the
- * sink travel to the bottom rest — they settle low (clear of the centered
- * waveform) the moment the user starts, and the remaining fraction is the
- * live bob driven by mic amplitude, so they never float back up between words.
+ * Slight whole-eye cursor parallax — a trace of life, not gaze tracking. Kept
+ * small, and smaller on X than on Y: the eyes are the room's vertical spine and
+ * every other centered element (the state caption, the thinking triad, both
+ * transcript zones) shares that axis, so horizontal drift reads as the eyes
+ * sitting *misaligned* with the text rather than as them following the cursor.
  */
-const EYE_LISTEN_SINK_BASE = 0.85;
+const CURSOR_MAX_X = 4;
+const CURSOR_MAX_Y = 3;
 /**
- * How long the eyes travel between center and the low listening hold — a
- * motion tween on the hold wrapper (the same animation system as the entrance
- * keyframes; see {@link VoiceRoomEyes}). The drop is quicker than the rise:
- * getting out of the waveform's way is urgent, coming back up is composed.
+ * Per-state eye size, as a scale of the rest geometry (which is authored at the
+ * largest, `listening`, size). The eyes never move — they open wide when the
+ * user speaks (all ears), shrink small while the assistant thinks (withdrawn,
+ * working), and settle to a medium size while it speaks (engaged). `idle` /
+ * `reconnecting` rest a touch under full. Retargeted by a scale tween, so the
+ * state change reads as the eyes breathing rather than sliding.
  */
-const EYE_SINK_MS = 450;
-const EYE_RISE_MS = 700;
+const EYE_STATE_SCALE: Record<VoiceAvatarVisual, number> = {
+  idle: 0.9,
+  listening: 1,
+  thinking: 0.62,
+  responding: 0.8,
+  reconnecting: 0.9,
+};
+/** How long the eyes take to resize between states. */
+const EYE_RESIZE_MS = 500;
+/** State caption shown below the eyes, per visual (none for idle / connecting-
+ *  side states, which the room's own connect label covers). */
+const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
+  listening: "Listening",
+  thinking: "Thinking",
+  responding: "Speaking",
+};
 /** The entrance grows the body from this "avatar on the screen" size and the
  *  eyes from this vertical center — onboarding's picker geometry. */
 const ENTER_FROM_SIZE = 200;
@@ -151,15 +182,18 @@ export function resolveVoiceRoomLook(
 
 /**
  * The on-screen height of the eyes in a `w`×`h` room — capped at
- * `EYE_TARGET_HEIGHT` of the smaller dimension, then clamped so the width stays
- * within `EYE_MAX_WIDTH`. Shared so the thinking dots can sit just above the
- * centered eyes without re-deriving the sizing from the art bbox.
+ * `EYE_TARGET_HEIGHT` of the smaller dimension, clamped so the width stays
+ * within `EYE_MAX_WIDTH`, and finally bounded by the absolute
+ * `EYE_MAX_HEIGHT_PX` ceiling so the eyes stop growing on large displays.
+ * Shared so the thinking dots can sit just above the centered eyes without
+ * re-deriving the sizing from the art bbox.
  */
 function eyeDisplayHeight(art: VoiceRoomEyeArt, w: number, h: number): number {
   const maxEyesW = w * EYE_MAX_WIDTH;
   return Math.min(
     Math.min(w, h) * EYE_TARGET_HEIGHT,
     (maxEyesW * art.bbox.h) / art.bbox.w,
+    EYE_MAX_HEIGHT_PX,
   );
 }
 
@@ -190,9 +224,10 @@ export function VoiceRoomColorLook({
   getResponseAmplitude,
   respondingStyle = "rings",
   eyePlacement = "center",
-  wavePlacement = "center",
+  wavePlacement = "top",
   wavePalette = "tone",
   waveStyle = "fill",
+  showStateCaption = true,
   entryOrigin = null,
   viewport,
 }: {
@@ -210,6 +245,9 @@ export function VoiceRoomColorLook({
   wavePlacement?: VoiceWavePlacement;
   wavePalette?: VoiceWavePalette;
   waveStyle?: VoiceWaveStyle;
+  /** Show the state caption below the eyes. Off when the room's live captions
+   *  are on — the transcript already names/fills that space. */
+  showStateCaption?: boolean;
   /** Viewport point the entrance grows from (the tapped control). Null → the
    *  fixed screen-center origin. */
   entryOrigin?: { x: number; y: number } | null;
@@ -225,16 +263,22 @@ export function VoiceRoomColorLook({
   const origin = entryOrigin ?? { x: w / 2, y: (ENTER_FROM_CENTER_VH / 100) * h };
 
   // Per-state treatments. The waveform is the user's live voice (listening
-  // only); the eyes sink low only while listening, then ride back up to center
-  // the moment the turn passes to the assistant (thinking + responding), so the
-  // rise doubles as the "over to you" beat. The centered eye top is where they
-  // come to rest — the thinking dots hang just above it.
+  // only). The eyes never move — they stay centered and express the state by
+  // size (`EYE_STATE_SCALE`): wide while the user speaks, small while thinking,
+  // medium while speaking. The centered eyes are framed at the full (listening)
+  // size; `centeredEyeTop` is that frame's top edge.
   const showWaves = visual === "listening";
-  const sinkEyes = visual === "listening";
-  const centeredEyeTop = useMemo(
-    () => (h - eyeDisplayHeight(look.art, w, h)) / 2,
-    [look.art, w, h],
-  );
+  const sizeScale = EYE_STATE_SCALE[visual];
+  const eyeH = eyeDisplayHeight(look.art, w, h);
+  const centeredEyeTop = (h - eyeH) / 2;
+  // Spatial model (shared with both text zones — see `voice-room-layout.ts`):
+  // above the eyes is the user's space (the user transcript), below is the
+  // assistant's (its speech + status). The thinking dots are assistant
+  // activity, so they hang just *below* the shrunken thinking eyes — clear of
+  // the user transcript above, and pairing with the state caption further down
+  // the lower zone. (Centered scaling, so the small eyes' bottom sits above the
+  // full-size bottom by half the size loss.)
+  const thinkingEyeBottom = centeredEyeTop + eyeH - (eyeH * (1 - EYE_STATE_SCALE.thinking)) / 2;
 
   // Body grows to cover the screen end to end, from the small avatar size at
   // the entry origin — onboarding's Introduction grow, re-anchored to where the
@@ -264,12 +308,19 @@ export function VoiceRoomColorLook({
       />
 
       {/* The avatar color fills in behind the body so coverage is end-to-end
-          even where the body shape has gaps/spikes. */}
+          even where the body shape has gaps/spikes. On close it clears early so
+          the shrinking body silhouette — not the full-screen rectangle — is what
+          collapses into the origin. */}
       <motion.div
         className="absolute inset-0"
         style={{ backgroundColor: look.bgHex }}
         initial={reduce ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
+        exit={
+          reduce
+            ? { opacity: 0 }
+            : { opacity: 0, transition: { duration: 0.2, ease: "easeIn" } }
+        }
         transition={reduce ? { duration: 0 } : { duration: 0.6, delay: 0.35 }}
       />
 
@@ -296,6 +347,18 @@ export function VoiceRoomColorLook({
                 }
           }
           animate={{ scale: 1, x: 0, y: 0 }}
+          // Close reverses the grow: the body shrinks back to its "avatar on the
+          // screen" size at the entry origin.
+          exit={
+            reduce
+              ? { opacity: 0 }
+              : {
+                  scale: bodyGeometry.startScale,
+                  x: bodyGeometry.startX,
+                  y: bodyGeometry.startY,
+                  transition: { duration: 0.4, ease: "easeIn" },
+                }
+          }
           transition={
             reduce
               ? { duration: 0 }
@@ -344,7 +407,7 @@ export function VoiceRoomColorLook({
           >
             <VoiceThinkingIndicator
               viewport={{ w, h }}
-              eyesTop={centeredEyeTop}
+              eyesBottom={thinkingEyeBottom}
             />
           </motion.div>
         ) : null}
@@ -378,53 +441,106 @@ export function VoiceRoomColorLook({
         placement={eyePlacement}
         viewport={{ w, h }}
         entranceOrigin={origin}
-        getAmplitude={getAmplitude}
-        // The centered eyes drop low only while the user speaks (`listening`),
-        // sinking with the voice, then ride back up to center for the
-        // assistant's turn (see `VoiceRoomEyes`).
-        sink={sinkEyes}
+        // The centered eyes never move — they express the state by size.
+        sizeScale={sizeScale}
         // Reconnecting: fade the eyes back — presence dimmed while away.
         dimmed={visual === "reconnecting"}
       />
+
+      {/* State caption in the room's lower zone (unless the live captions are
+          on — the assistant transcript occupies that zone instead). */}
+      {showStateCaption ? <VoiceStateCaption visual={visual} /> : null}
     </>
   );
 }
 
 /**
- * Thinking indicator — a soft triad of dots pulsing in sequence just above the
- * centered eyes, in the room's foreground tone so it reads on any avatar color.
- * `eyesTop` is the top of the centered eyes; the triad hangs a short gap above
- * it (both scaled against the room box) so it stays clear of the eyes in any
- * frame. A first-pass "the assistant is working" motif.
+ * Soft state caption ("Listening" / "Thinking" / "Speaking") in the room's
+ * lower text zone, in the room's foreground tone. Cross-fades on state change
+ * and simply isn't there for states without a caption
+ * ({@link EYE_STATE_CAPTION}) — idle and the connecting-side states, which the
+ * room's own connect label already covers.
+ *
+ * Anchored to {@link VOICE_ROOM_LOWER_ZONE_BOTTOM}, the assistant's zone, so
+ * the caption names the assistant's beat from the same baseline the
+ * assistant's own speech occupies — the two never coexist (the caption stands
+ * down when live captions are on), so one baseline serves both rather than
+ * splitting the room's text across two regions. Holding it clear of the
+ * centerpiece also keeps it from reading as a facial feature: a caption sat
+ * just under the eyes reads as a mouth, which suits "Speaking" and contradicts
+ * "Listening", where the *user* is the one talking.
+ *
+ * Both looks share this anchor, so the caption reads in the same place
+ * regardless of avatar type.
+ */
+export function VoiceStateCaption({ visual }: { visual: VoiceAvatarVisual }) {
+  const reduce = useReducedMotion();
+  const label = EYE_STATE_CAPTION[visual];
+  return (
+    <AnimatePresence mode="wait">
+      {label ? (
+        <motion.div
+          key={label}
+          data-testid="voice-state-caption"
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 text-center font-medium tracking-wide text-[var(--room-fg-muted,rgba(255,255,255,0.7))]"
+          style={{
+            bottom: VOICE_ROOM_LOWER_ZONE_BOTTOM,
+            fontSize: VOICE_ROOM_CAPTION_TEXT,
+          }}
+          initial={reduce ? false : { opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6 }}
+          transition={{ duration: reduce ? 0 : 0.28, ease: "easeOut" }}
+        >
+          {label}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * Thinking indicator — a soft triad of dots pulsing in sequence just below the
+ * centered eyes (the lower "assistant status" zone, clear of the user
+ * transcript above), in the room's foreground tone so it reads on any avatar
+ * color. `eyesBottom` is the bottom of the shrunken thinking eyes; the triad
+ * hangs a short gap below it (scaled against the room box) so it stays clear of
+ * the eyes in any frame, while the dots themselves are scaled against the state
+ * caption's type size. A first-pass "the assistant is working" motif.
  */
 function VoiceThinkingIndicator({
   viewport,
-  eyesTop,
+  eyesBottom,
 }: {
   viewport: { w: number; h: number };
-  /** Top edge (px) of the centered eyes — the triad hangs above this. */
-  eyesTop: number;
+  /** Bottom edge (px) of the centered eyes — the triad hangs below this. */
+  eyesBottom: number;
 }) {
   const reduce = useReducedMotion();
-  // Size against the room box (not fixed px) so the dots keep the same
-  // proportion in a small Storybook frame and the full-window app.
-  const dot = Math.max(8, Math.round(0.04 * Math.min(viewport.w, viewport.h)));
-  // Hang the triad's center a short gap above the eyes' top edge, clamped so it
-  // never rides off the top of a short frame.
-  const top = Math.max(dot * 1.5, eyesTop - dot * 2.5);
+  // Hang the triad's center a short gap below the eyes' bottom edge. The gap
+  // scales with the room box, NOT with the dot size, so the two stay
+  // independent. Clamped so it never rides off the bottom of a short frame.
+  const top = Math.min(
+    viewport.h - 24,
+    eyesBottom + 0.06 * Math.min(viewport.w, viewport.h),
+  );
   return (
     <div
       aria-hidden="true"
       className="pointer-events-none absolute left-1/2 z-[1] flex -translate-x-1/2 -translate-y-1/2 items-center"
-      style={{ top, gap: dot }}
+      // Dots are sized in `em` off the caption's own type size, so the triad
+      // reads as a peer of the "Thinking" caption below it and the two stay
+      // locked to each other at every viewport.
+      style={{ top, fontSize: VOICE_ROOM_CAPTION_TEXT, gap: "0.45em" }}
     >
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
           className="block rounded-full"
           style={{
-            width: dot,
-            height: dot,
+            width: "0.5em",
+            height: "0.5em",
             backgroundColor: "var(--room-fg, #ffffff)",
           }}
           initial={reduce ? false : { opacity: 0.3, scale: 0.75 }}
@@ -463,7 +579,7 @@ export type VoiceRespondingStyle = "rings" | "halo" | "waveform" | "pulse";
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding
  * treatments to read in CSS. Imperative rAF (never React state), mirroring the
- * waveform / eye-sink loops.
+ * listening waveform's amplitude loop.
  */
 function useRespondingAmp(getAmplitude?: () => number) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -553,12 +669,13 @@ function VoiceRespondingTreatment({
         className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
       >
         <div
+          // Tint (with iOS-15 rgba fallback) lives in `.voice-responding-halo`;
+          // the amplitude-driven size/scale/opacity stay inline.
+          className="voice-responding-halo"
           style={{
             width: Math.round(0.9 * M),
             height: Math.round(0.9 * M),
             borderRadius: "9999px",
-            background:
-              "radial-gradient(circle, color-mix(in srgb, var(--room-fg, #ffffff) 24%, transparent) 0%, transparent 66%)",
             transform: "scale(calc(0.8 + var(--resp-amp, 0) * 0.5))",
             opacity: "calc(0.35 + var(--resp-amp, 0) * 0.65)",
             transformOrigin: "center",
@@ -574,18 +691,19 @@ function VoiceRespondingTreatment({
     <div
       ref={ampRef}
       aria-hidden="true"
+      data-testid="voice-responding-rings"
       className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center"
       style={{ opacity: "calc(0.25 + var(--resp-amp, 0) * 0.75)" }}
     >
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
-          className="absolute rounded-full border-2"
+          // Border tint (with iOS-15 rgba fallback) lives in
+          // `.voice-responding-ring`; the amplitude-driven size stays inline.
+          className="voice-responding-ring absolute rounded-full border-2"
           style={{
             width: Math.round(0.5 * M),
             height: Math.round(0.5 * M),
-            borderColor:
-              "color-mix(in srgb, var(--room-fg, #ffffff) 55%, transparent)",
           }}
           initial={reduce ? false : { scale: 0.4, opacity: 0.55 }}
           animate={
@@ -603,11 +721,38 @@ function VoiceRespondingTreatment({
 }
 
 /**
+ * The `rings` responding treatment as a self-contained layer: the concentric
+ * rings radiating outward from screen center on the TTS-output amplitude, sized
+ * against the live window (pass `viewport` to size against a box instead —
+ * Storybook). Exported for the void look, which renders it behind the centered
+ * avatar so a custom avatar emits the same rings the eyes do in the color look.
+ */
+export function VoiceRespondingRings({
+  getAmplitude,
+  viewport,
+}: {
+  /** TTS (output) amplitude source (0–1) — drives the rings' presence. */
+  getAmplitude?: () => number;
+  /** Override the room box (Storybook renders in a box, not the full window). */
+  viewport?: { w: number; h: number };
+}) {
+  const measured = useViewportSize();
+  return (
+    <VoiceRespondingTreatment
+      style="rings"
+      getAmplitude={getAmplitude}
+      // waveStyle/wavePlacement are only read by the `waveform` style; inert here.
+      waveStyle="fill"
+      wavePlacement="top"
+      viewport={viewport ?? measured}
+    />
+  );
+}
+
+/**
  * Rest position + entrance geometry for the eyes, per placement. The eyes grow
  * from the entry origin (start offset by `origin − restCenter`, scaled down)
- * and settle at rest with a small dip. `sinkTravel` is how far the centered
- * eyes can slide toward the bottom rest while the user speaks (0 for the
- * bottom placement — nowhere lower).
+ * and settle at rest with a small dip.
  */
 function eyeLayout(
   placement: VoiceEyePlacement,
@@ -621,7 +766,6 @@ function eyeLayout(
   startX: number;
   startY: number;
   dipY: number;
-  sinkTravel: number;
 } {
   const bottomRestTop = h - (1 - EYE_REST_CUTOFF) * eyesH;
   const restTop = placement === "center" ? (h - eyesH) / 2 : bottomRestTop;
@@ -634,8 +778,6 @@ function eyeLayout(
     startY: origin.y - restCenterY,
     // A small settle dip below rest as they land.
     dipY: eyesH * 0.12,
-    sinkTravel:
-      placement === "center" ? Math.max(0, bottomRestTop - restTop) : 0,
   };
 }
 
@@ -644,8 +786,7 @@ export function VoiceRoomEyes({
   viewport,
   placement = "center",
   entranceOrigin,
-  getAmplitude,
-  sink = false,
+  sizeScale = 1,
   dimmed = false,
 }: {
   art: VoiceRoomEyeArt;
@@ -654,10 +795,9 @@ export function VoiceRoomEyes({
   placement?: VoiceEyePlacement;
   /** Viewport point the eyes grow from on entrance. Defaults to screen center. */
   entranceOrigin?: { x: number; y: number };
-  /** Mic amplitude source (0–1); drives the live bob while the eyes are sunk. */
-  getAmplitude?: () => number;
-  /** Hold the eyes at the low rest (while the user speaks — `listening`). */
-  sink?: boolean;
+  /** Per-state size, as a scale of the rest geometry — tweened on change so the
+   *  eyes resize smoothly (they never move). See {@link EYE_STATE_SCALE}. */
+  sizeScale?: number;
   /** Fade the eyes back (the reconnecting state — presence dimmed while away). */
   dimmed?: boolean;
 }) {
@@ -705,12 +845,45 @@ export function VoiceRoomEyes({
     };
   }, [reduce, entranceDone]);
 
+  // Poke-the-eyes delight: clicking the eyes fires a single blink and a quick
+  // springy wobble that settles back. The blink drives the same `blinking`
+  // state the idle loop uses (its own timeout is tracked so rapid clicks don't
+  // leak), and the wobble rides a dedicated controls-driven layer so it can't
+  // fight the entrance keyframes or the per-state scale tween. Reduced motion
+  // keeps the discrete blink and skips the wobble.
+  const wobble = useAnimationControls();
+  const manualBlinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (manualBlinkTimeout.current) {
+        clearTimeout(manualBlinkTimeout.current);
+      }
+    },
+    [],
+  );
+  const reactToClick = useCallback(() => {
+    setBlinking(true);
+    if (manualBlinkTimeout.current) {
+      clearTimeout(manualBlinkTimeout.current);
+    }
+    manualBlinkTimeout.current = setTimeout(() => setBlinking(false), 140);
+    if (reduce) {
+      return;
+    }
+    void wobble.start({
+      scaleX: [1, 1.06, 0.96, 1],
+      scaleY: [1, 0.92, 1.04, 1],
+      rotate: [0, -2.5, 1.5, 0],
+      transition: { duration: 0.5, ease: "easeOut" },
+    });
+  }, [reduce, wobble]);
+
   const originX = entranceOrigin?.x ?? w / 2;
   const originY = entranceOrigin?.y ?? (ENTER_FROM_CENTER_VH / 100) * h;
   const geometry = useMemo(() => {
     const eyesH = eyeDisplayHeight(art, w, h);
     const eyesW = (eyesH * art.bbox.w) / art.bbox.h;
-    const { restTop, startX, startY, dipY, sinkTravel } = eyeLayout(
+    const { restTop, startX, startY, dipY } = eyeLayout(
       placement,
       eyesW,
       eyesH,
@@ -718,72 +891,8 @@ export function VoiceRoomEyes({
       h,
       { x: originX, y: originY },
     );
-    return {
-      eyesW,
-      eyesH,
-      left: (w - eyesW) / 2,
-      restTop,
-      startX,
-      startY,
-      dipY,
-      sinkTravel,
-    };
+    return { eyesW, eyesH, left: (w - eyesW) / 2, restTop, startX, startY, dipY };
   }, [art, w, h, placement, originX, originY]);
-
-  // Sink: while the user speaks (`listening`) the centered eyes drop to a low
-  // hold near the bottom rest (`EYE_LISTEN_SINK_BASE` of the travel) so they
-  // sit clear of the centered waveform; when the turn passes to the assistant
-  // they sweep back up to center. Two nested wrappers so the parts compose:
-  // - The big center↔low-hold travel is a motion tween on the hold wrapper
-  //   below — the same animation system as the entrance keyframes (per-frame
-  //   imperative writes of the full travel fought the entrance's transforms
-  //   and read as stutter). `sink` retargets the tween; a mid-flight reversal
-  //   continues from wherever the eyes are.
-  // - The residual mic bob (≤15% of the travel) stays an imperative smoothed
-  //   rAF writing `translateY` on the inner wrapper — a live noisy signal has
-  //   no place in React state or tween retargets. It releases to 0 the moment
-  //   the sink lifts, so the rise is the motion tween alone.
-  const sinkRef = useRef<HTMLDivElement | null>(null);
-  const getAmplitudeRef = useRef(getAmplitude);
-  const sinkActiveRef = useRef(sink);
-  const sinkTravelRef = useRef(geometry.sinkTravel);
-  useEffect(() => {
-    getAmplitudeRef.current = getAmplitude;
-  }, [getAmplitude]);
-  useEffect(() => {
-    sinkActiveRef.current = sink;
-  }, [sink]);
-  useEffect(() => {
-    sinkTravelRef.current = geometry.sinkTravel;
-  }, [geometry.sinkTravel]);
-  useEffect(() => {
-    if (reduce) return;
-    const node = sinkRef.current;
-    if (!node) return;
-    const bobSmoother = createAmplitudeSmoother({ attackMs: 160, releaseMs: 380 });
-    let raf = 0;
-    let lastTime = performance.now();
-    let lastWritten = "";
-    const tick = (now: number) => {
-      const dt = now - lastTime;
-      lastTime = now;
-      const get = getAmplitudeRef.current;
-      const amp = get ? Math.min(1, Math.max(0, get())) : 0;
-      const bob = bobSmoother.step(sinkActiveRef.current ? amp : 0, dt);
-      const shift = (bob * (1 - EYE_LISTEN_SINK_BASE) * sinkTravelRef.current).toFixed(1);
-      if (shift !== lastWritten) {
-        lastWritten = shift;
-        node.style.transform = `translateY(${shift}px)`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [reduce]);
-
-  // The low-hold offset the hold wrapper tweens to while sunk (0 for the
-  // bottom placement — nowhere lower to go).
-  const holdY = geometry.sinkTravel * EYE_LISTEN_SINK_BASE;
 
   const cx = art.bbox.x + art.bbox.w / 2;
   const cy = art.bbox.y + art.bbox.h / 2;
@@ -806,10 +915,10 @@ export function VoiceRoomEyes({
           : false
       }
       // Play the grow-in keyframes only until the entrance lands, then hold a
-      // stable static target. Otherwise every re-render (a `visual`/`sink`
+      // stable static target. Otherwise every re-render (a `visual`/`sizeScale`
       // change) hands Motion a fresh keyframe array and it replays part of the
       // entrance — the eyes lurch toward the origin and snap back, fighting the
-      // smooth sink-rise on the listening→thinking hand-off.
+      // smooth per-state resize.
       animate={
         playEntrance && !entranceDone
           ? {
@@ -819,6 +928,19 @@ export function VoiceRoomEyes({
             }
           : { x: 0, y: 0, scale: 1 }
       }
+      // Close reverses the grow: the eyes shrink back to the entry origin
+      // alongside the body, so the whole avatar shape collapses to the point.
+      exit={
+        reduce
+          ? { opacity: 0 }
+          : {
+              x: geometry.startX,
+              y: geometry.startY,
+              scale: 0.35,
+              opacity: 0,
+              transition: { duration: 0.4, ease: "easeIn" },
+            }
+      }
       transition={
         playEntrance && !entranceDone
           ? { duration: 1, times: [0, 0.7, 1], ease: "easeInOut" }
@@ -826,56 +948,66 @@ export function VoiceRoomEyes({
       }
       onAnimationComplete={() => setEntranceDone(true)}
     >
-      {/* Turn hold: the big center↔low-hold travel, on the same motion tween
-          system as the entrance. `sink` retargets `y`; a mid-flight reversal
-          continues smoothly from wherever the eyes are. */}
+      {/* Per-state size: the eyes stay put and resize, on the same motion tween
+          system as the entrance. `sizeScale` retargets `scale`; a mid-flight
+          state change continues smoothly from wherever the eyes are. Reduced
+          motion still targets `sizeScale` (size carries the state) — it just
+          snaps there instantly rather than tweening. */}
       <motion.div
-        animate={reduce ? { y: 0 } : { y: sink ? holdY : 0 }}
+        style={{ transformOrigin: "center" }}
+        animate={{ scale: sizeScale }}
         transition={
-          reduce
-            ? { duration: 0 }
-            : {
-                duration: (sink ? EYE_SINK_MS : EYE_RISE_MS) / 1000,
-                ease: "easeInOut",
-              }
+          reduce ? { duration: 0 } : { duration: EYE_RESIZE_MS / 1000, ease: "easeInOut" }
         }
       >
-        {/* Speak-to-sink bob: rAF writes translateY here as the voice rises.
-            The opacity fades the eyes back while reconnecting (rAF only
-            touches `transform`, so it never clobbers this). */}
+        {/* The opacity fades the eyes back while reconnecting. */}
         <div
-          ref={sinkRef}
           style={{
             opacity: dimmed ? 0.4 : 1,
             transition: "opacity 0.5s ease",
           }}
         >
-          {/* Slight parallax: the whole eyes drift smoothly toward the cursor. */}
-          <div
-            style={{
-              transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
-              transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
-            }}
+          {/* Poke-the-eyes hit target + wobble layer. `pointer-events-auto`
+              re-enables clicks (the outer wrapper is `pointer-events-none`);
+              the wobble rides its own controls so it composes with — rather
+              than fights — the per-state scale on the ancestor. Still
+              `aria-hidden` on the wrapper: this is decorative delight, not a
+              control. */}
+          <motion.div
+            className="pointer-events-auto cursor-pointer"
+            style={{ transformOrigin: "center" }}
+            animate={wobble}
+            onClick={reactToClick}
           >
-            <svg
-              viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
-              width={geometry.eyesW}
-              height={geometry.eyesH}
-              style={{ overflow: "visible", display: "block" }}
+            {/* Slight parallax: the whole eyes drift smoothly toward the
+                cursor — a few px only, so they stay visually centered on the
+                room's spine (see CURSOR_MAX_X / CURSOR_MAX_Y). */}
+            <div
+              style={{
+                transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
+                transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
             >
-              <g
-                style={{
-                  transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
-                  transformOrigin: `${cx}px ${cy}px`,
-                  transition: "transform 0.14s ease-in-out",
-                }}
+              <svg
+                viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
+                width={geometry.eyesW}
+                height={geometry.eyesH}
+                style={{ overflow: "visible", display: "block" }}
               >
-                {art.paths.map((p, i) => (
-                  <path key={i} d={p.svgPath} fill={p.color} />
-                ))}
-              </g>
-            </svg>
-          </div>
+                <g
+                  style={{
+                    transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
+                    transformOrigin: `${cx}px ${cy}px`,
+                    transition: "transform 0.14s ease-in-out",
+                  }}
+                >
+                  {art.paths.map((p, i) => (
+                    <path key={i} d={p.svgPath} fill={p.color} />
+                  ))}
+                </g>
+              </svg>
+            </div>
+          </motion.div>
         </div>
       </motion.div>
     </motion.div>

@@ -98,6 +98,7 @@ RUN apt-get update && apt-get install -y \
     openssl \
     procps \
     python3 \
+    python3-pip \
     sqlite3 \
     sudo \
     util-linux \
@@ -128,6 +129,14 @@ COPY packages/slack-text /app/packages/slack-text
 COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
+
+# Materialize the git-ignored offline plugin manifest from its canonical source.
+# `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON
+# (loaded even when platform features are enabled), so it must exist in the image
+# — the build installs with --ignore-scripts, so the postinstall sync that
+# regenerates it in dev never runs here. Mirrors how CI materializes the
+# feature-flag registry before building.
+COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.json
 
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
@@ -224,6 +233,30 @@ RUN printf '%s\n' \
     > /usr/local/bin/dpkg && \
     chmod +x /usr/local/bin/dpkg
 
+# pip must persist like apt: on Kata-family runtimes the wrapper routes root
+# installs into the persistent apt chroot.
+RUN ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip && \
+    ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip3
+
+# .pth files (pip install -e) are only processed for site directories, not
+# PYTHONPATH entries — register the persistent chroot dirs as site dirs.
+RUN cp /app/assistant/docker-sitecustomize.py /usr/lib/python3/dist-packages/sitecustomize.py
+
+# Reword Debian's stock externally-managed refusal (shipped with python3, so
+# this refusal exists on every runtime regardless): `python3 -m pip install`
+# bypasses the pip wrappers, so its error must steer users to paths that
+# actually work. Venv advice is correct everywhere; the bare `pip install`
+# route only persists on kata-family machines, so it is worded conditionally.
+RUN printf '%s\n' \
+    '[externally-managed]' \
+    'Error=This Python environment is part of the container image and does not' \
+    ' persist. Create a virtualenv under a persistent directory instead, e.g.' \
+    ' `python3 -m venv /workspace/.venv`. On managed machines with a' \
+    ' persistent system root, `sudo pip install <pkg>` (not `python3 -m pip`)' \
+    ' also persists. Passing --break-system-packages installs into the image' \
+    ' rootfs and will NOT survive a machine save or container restart.' \
+    > "/usr/lib/python$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')/EXTERNALLY-MANAGED"
+
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
@@ -240,6 +273,8 @@ RUN chmod +x \
     /app/assistant/docker-entrypoint.sh \
     /app/assistant/docker-init-apt-root.sh \
     /app/assistant/docker-kata-apt-env.sh \
+    /app/assistant/docker-kata-pip.sh \
+    /app/assistant/docker-kata-pip-chroot.sh \
     /app/assistant/docker-kata-runtime-family.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \

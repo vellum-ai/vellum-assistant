@@ -6,13 +6,21 @@ mock.module(
   () => ({
     AttachmentPreviewModal: ({
       attachment,
+      siblingAttachments,
     }: {
       attachment: { id: string; previewUrl: string | null };
+      siblingAttachments?: Array<{ id: string; previewUrl: string | null }>;
     }) => (
       <div
         data-testid="preview-modal"
         data-attachment-id={attachment.id}
         data-preview-url={String(attachment.previewUrl)}
+        data-sibling-preview-urls={JSON.stringify(
+          (siblingAttachments ?? []).map((a) => ({
+            id: a.id,
+            previewUrl: a.previewUrl,
+          })),
+        )}
       />
     ),
   }),
@@ -154,5 +162,36 @@ describe("BubbleAttachments", () => {
     const modal = getByTestId("preview-modal");
     expect(modal.getAttribute("data-attachment-id")).toBe("img-4");
     expect(modal.getAttribute("data-preview-url")).toBe("null");
+  });
+
+  test("strips a failed sibling's previewUrl in the gallery array so arrow navigation refetches stored bytes", () => {
+    const undecodable: DisplayAttachment = {
+      id: "img-5",
+      filename: "IMG_1234.HEIC",
+      mimeType: "image/heic",
+      sizeBytes: 3_072,
+      previewUrl: "blob:undecodable-heic",
+    };
+    const { getByRole, getByTestId } = render(
+      <BubbleAttachments attachments={[undecodable, imageWithPreview]} />,
+    );
+
+    // The HEIC renders inline first; its decode fails and it's marked failed.
+    fireEvent.error(getByRole("button", { name: "IMG_1234.HEIC" }));
+
+    // Open the preview from the still-good sibling. The modal's gallery array
+    // (siblingAttachments) must carry the failed image with a null previewUrl,
+    // so arrowing back to it fetches stored bytes instead of the dead blob.
+    fireEvent.click(getByRole("button", { name: "photo.png" }));
+
+    const siblings = JSON.parse(
+      getByTestId("preview-modal").getAttribute("data-sibling-preview-urls") ??
+        "[]",
+    ) as Array<{ id: string; previewUrl: string | null }>;
+    expect(siblings.find((a) => a.id === "img-5")?.previewUrl).toBeNull();
+    // The healthy sibling keeps its previewUrl for inline rendering.
+    expect(siblings.find((a) => a.id === "img-1")?.previewUrl).toBe(
+      "https://example.com/photo.png",
+    );
   });
 });

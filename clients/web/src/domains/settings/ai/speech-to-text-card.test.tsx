@@ -78,7 +78,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 const { SpeechToTextCard } =
   await import("@/domains/settings/ai/speech-to-text-card");
 const { LS_STT_PROVIDER } =
-  await import("@/domains/settings/ai/local-storage-keys");
+  await import("@/utils/local-settings-keys");
 
 function renderCard() {
   const queryClient = new QueryClient({
@@ -228,17 +228,100 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     expect(sttBody?.services?.stt ?? {}).not.toHaveProperty("provider");
   });
 
-  test("saving a key switches a managed-mode daemon back to your-own", async () => {
-    // Managed speech was auto-defaulted on connection; saving a BYOK key from
-    // this card is explicit intent to use it, so the mode must flip too —
-    // otherwise the key appears to save but the daemon stays on managed.
+  test("selecting a provider from a Vellum daemon writes that provider", async () => {
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("OpenAI");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "openai-whisper" } },
+    });
+    expect(credentialsSetCalls).toHaveLength(0);
+  });
+});
+
+describe("SpeechToTextCard — Vellum provider", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    nativeDictationSupported = false;
+    credentialsSetCalls.length = 0;
+    configPatchCalls.length = 0;
+    daemonConfigData = { services: {} };
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  test("Vellum is offered in the provider dropdown", () => {
+    renderCard();
+
+    openProviderDropdown();
+    expect(visibleOptions()).toContain("Vellum");
+  });
+
+  test("a vellum daemon provider renders as the selected option with no API key field", () => {
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    renderCard();
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="STT provider"]',
+    );
+    expect(trigger?.textContent).toContain("Vellum");
+    // Vellum authenticates via the platform connection — there is no key.
+    expect(screen.queryByText("API Key")).toBeNull();
+    expect(
+      screen.getByText(/Transcription runs through your Vellum account/),
+    ).toBeTruthy();
+  });
+
+  test("selecting Vellum saves provider vellum and stores no credential", async () => {
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("Vellum");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    // Written as a pair so the save stays valid on daemons whose schema
+    // still couples provider "vellum" to mode "managed".
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "vellum", mode: "managed" } },
+    });
+    expect(credentialsSetCalls).toHaveLength(0);
+    expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("vellum");
+  });
+
+  // A config written by the legacy mode toggle marks managed via `mode` while
+  // `provider` holds the BYOK restore value.
+  test("a legacy managed-mode daemon renders as Vellum", () => {
     daemonConfigData = {
-      services: { stt: { provider: "deepgram", mode: "managed" } },
+      services: { stt: { mode: "managed", provider: "deepgram" } },
     };
     renderCard();
 
-    const keyInput = screen.getByPlaceholderText(/Enter your Deepgram API key/);
-    fireEvent.change(keyInput, { target: { value: "dg-secret" } });
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="STT provider"]',
+    );
+    expect(trigger?.textContent).toContain("Vellum");
+    expect(screen.queryByText("API Key")).toBeNull();
+  });
+
+  test("escaping a legacy managed-mode daemon resets mode alongside the provider", async () => {
+    // Without the mode reset, the stale `mode: "managed"` would win over the
+    // BYOK provider choice and the user would silently stay on Vellum.
+    daemonConfigData = {
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    };
+    renderCard();
+
+    openProviderDropdown();
+    selectOption("Deepgram");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
@@ -247,23 +330,23 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     });
   });
 
-  test("a provider change with no key keeps managed mode", async () => {
-    // Switching the BYOK preference without supplying a credential must not
-    // trade a working managed setup for a credential-less provider.
-    daemonConfigData = {
-      services: { stt: { provider: "deepgram", mode: "managed" } },
-    };
+  test("leaving Vellum for native dictation writes a daemon-backed fallback", async () => {
+    // Native is client-only (no daemon mapping), so without an explicit write
+    // the daemon would stay on Vellum and a refetch would snap the dropdown
+    // back to it.
+    nativeDictationSupported = true;
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
     renderCard();
 
     openProviderDropdown();
-    selectOption("OpenAI");
+    selectOption("macOS Native Dictation");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(configPatchCalls.length).toBe(1));
-    const sttBody = configPatchCalls[0]!.body as {
-      services: { stt: Record<string, unknown> };
-    };
-    expect(sttBody.services.stt.mode).toBeUndefined();
-    expect(credentialsSetCalls).toHaveLength(0);
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { provider: "deepgram" } },
+    });
+    // The client keeps routing dictation locally.
+    expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("macos-native");
   });
 });

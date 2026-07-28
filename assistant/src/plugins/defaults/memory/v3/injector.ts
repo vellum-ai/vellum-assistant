@@ -59,7 +59,10 @@
  */
 
 import { getConfig } from "../../../../config/loader.js";
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
+import {
+  isMemoryEnabled,
+  isMemoryV3Live,
+} from "../../../../config/memory-v3-gate.js";
 import {
   type PendingConversationNotice,
   queueConversationNotice,
@@ -194,6 +197,10 @@ function computeSpotlightEntries(
   for (const candidate of result.lanes.finder) {
     if (entries.length >= n) break;
     if (!selected.has(candidate.slug)) continue;
+    // Capability slugs never spotlight: their card already carries the whole
+    // injection form, and their index "sections" are slices of the full-help
+    // body the injection layer deliberately keeps out of context.
+    if (isCapabilitySlug(candidate.slug)) continue;
     const section = result.matchedSections.get(candidate.slug);
     if (!section) continue;
     entries.push({
@@ -253,7 +260,9 @@ export const memoryV3Injector: Injector = {
   order: 1000,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
-    if (config.memory.enabled === false) return null;
+    if (!isMemoryEnabled(config)) {
+      return null;
+    }
     const live = isMemoryV3Live(config);
     if (!live) return null;
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
@@ -366,7 +375,9 @@ export const memoryV3SpotlightInjector: Injector = {
   order: 1001,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
-    if (config.memory.enabled === false) return null;
+    if (!isMemoryEnabled(config)) {
+      return null;
+    }
     // The spotlight rides the live `<memory>` layer; with `memory.v3.live` off
     // it produces nothing and keeps no ring state.
     if (!isMemoryV3Live(config)) return null;

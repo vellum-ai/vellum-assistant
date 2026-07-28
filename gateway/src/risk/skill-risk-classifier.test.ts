@@ -145,6 +145,10 @@ describe("allowlistOptions", () => {
       skillSelector: "dynamic-skill",
       resolvedMetadata: metadata,
     });
+    expect(result.riskLevel).toBe("high");
+    expect(result.reason).toBe(
+      "Skill load with inline command expansions (executes shell commands at load time)",
+    );
     expect(result.allowlistOptions).toEqual([
       {
         label: "dynamic-skill@trans789",

@@ -150,6 +150,7 @@ export const INTERFACE_IDS = [
   "email",
   "chrome-extension",
   "a2a",
+  "discord",
   // Turns injected by workspace custom routes (webhook receivers, cron jobs,
   // device/service callbacks). Non-interactive — permission prompts route
   // through the guardian system, not an interactive client — and non-host-proxy.
@@ -234,13 +235,16 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
  * supports all of them; the chrome-extension interface only supports
  * host_browser (via the Chrome DevTools Protocol proxy).
  */
-export type HostProxyCapability =
-  | "host_bash"
-  | "host_file"
-  | "host_cu"
-  | "host_browser"
-  | "host_app_control"
-  | "host_ui_snapshot";
+export const HOST_PROXY_CAPABILITIES = [
+  "host_bash",
+  "host_file",
+  "host_cu",
+  "host_browser",
+  "host_app_control",
+  "host_ui_snapshot",
+] as const;
+
+export type HostProxyCapability = (typeof HOST_PROXY_CAPABILITIES)[number];
 
 /**
  * Interfaces that support the full desktop host-proxy set (every

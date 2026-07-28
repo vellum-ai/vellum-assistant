@@ -945,10 +945,14 @@ export async function executeWebFetch(
     }
     // Detect likely JS-rendered SPAs: text is absolutely tiny, or a non-trivial
     // HTML payload compresses to almost nothing (a shell page whose meaningful
-    // content is painted after fetch + document.body rewrite).
+    // content is painted after fetch + document.body rewrite). The ratio arm
+    // also requires a small absolute yield — markup-heavy pages (e.g. GitHub)
+    // extract at <5% while still producing thousands of chars of complete text.
     const lowAbsolute = processed.length < 200;
     const lowRatio =
-      body.bytesRead >= 10_000 && processed.length / body.bytesRead < 0.05;
+      processed.length < 5_000 &&
+      body.bytesRead >= 10_000 &&
+      processed.length / body.bytesRead < 0.05;
     const mayRequireJavaScript = html && !rawMode && (lowAbsolute || lowRatio);
     if (mayRequireJavaScript) {
       const pct =

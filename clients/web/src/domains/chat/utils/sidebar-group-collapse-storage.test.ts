@@ -3,12 +3,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import {
   channelSectionKey,
   loadOpenCategories,
+  loadOpenPrimary,
   saveOpenCategories,
+  saveOpenPrimary,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 
 const ASSISTANT_ID = "asst_123";
 const STORAGE_KEY = `vellum:sidebar-open-categories:${ASSISTANT_ID}`;
+const PRIMARY_STORAGE_KEY = `vellum:sidebar-open-primary:${ASSISTANT_ID}`;
 
 const memoryStorage = installMemoryStorage({ beforeAll, afterAll, beforeEach, afterEach });
 
@@ -102,5 +105,46 @@ describe("saveOpenCategories", () => {
     saveOpenCategories("other_assistant", ["scheduled"]);
     expect(loadOpenCategories(ASSISTANT_ID)).toEqual(["background"]);
     expect(loadOpenCategories("other_assistant")).toEqual(["scheduled"]);
+  });
+});
+
+describe("loadOpenPrimary", () => {
+  test("defaults to both Pinned and Chats open when nothing is stored", () => {
+    expect(loadOpenPrimary(ASSISTANT_ID)).toEqual(["pinned", "recents"]);
+  });
+
+  test("returns an empty array when the user has collapsed both", () => {
+    // A stored empty array is distinct from an absent key — it means the user
+    // explicitly collapsed both sections, so we must NOT fall back to open.
+    memoryStorage.setItem(PRIMARY_STORAGE_KEY, JSON.stringify([]));
+    expect(loadOpenPrimary(ASSISTANT_ID)).toEqual([]);
+  });
+
+  test("returns the stored subset when only one is open", () => {
+    memoryStorage.setItem(PRIMARY_STORAGE_KEY, JSON.stringify(["pinned"]));
+    expect(loadOpenPrimary(ASSISTANT_ID)).toEqual(["pinned"]);
+  });
+
+  test("filters unknown keys", () => {
+    memoryStorage.setItem(
+      PRIMARY_STORAGE_KEY,
+      JSON.stringify(["pinned", "recents", "scheduled", "bogus"]),
+    );
+    expect(loadOpenPrimary(ASSISTANT_ID)).toEqual(["pinned", "recents"]);
+  });
+});
+
+describe("saveOpenPrimary", () => {
+  test("writes under the assistant-scoped primary storage key", () => {
+    saveOpenPrimary(ASSISTANT_ID, ["recents"]);
+    expect(memoryStorage.getItem(PRIMARY_STORAGE_KEY)).toBe(
+      JSON.stringify(["recents"]),
+    );
+    expect(loadOpenPrimary(ASSISTANT_ID)).toEqual(["recents"]);
+  });
+
+  test("persists the collapsed-both state across a reload", () => {
+    saveOpenPrimary(ASSISTANT_ID, []);
+    expect(loadOpenPrimary(ASSISTANT_ID)).toEqual([]);
   });
 });

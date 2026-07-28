@@ -8,6 +8,7 @@
  */
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 // ---------------------------------------------------------------------------
@@ -91,9 +92,13 @@ export function withMergedAlias(
   row: DisplayMessage,
   messageId: string | undefined,
 ): DisplayMessage {
-  if (!messageId || row.id === messageId) return row;
+  if (!messageId || row.id === messageId) {
+    return row;
+  }
   const existing = row.mergedMessageIds ?? [];
-  if (existing.includes(messageId)) return row;
+  if (existing.includes(messageId)) {
+    return row;
+  }
   return { ...row, mergedMessageIds: [...existing, messageId] };
 }
 
@@ -139,22 +144,52 @@ export function setQueuePosition(
   return prev.map((m) => (m.id === id ? { ...m, queuePosition: position } : m));
 }
 
-/** Clear queue status on a message by id. */
+/** Clear queue status by server id or client correlation id. */
 export function clearQueueStatus(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
   return prev.map((m) =>
-    m.id === id
+    messageMatchesKey(m, id)
       ? { ...m, queueStatus: undefined, queuePosition: undefined }
       : m,
   );
 }
 
-/** Remove a queued message by id. */
+export function applyQueuedMessageDequeue(
+  prev: DisplayMessage[],
+  id: string,
+): DisplayMessage[] {
+  return prev.map((message) => {
+    if (!messageMatchesKey(message, id)) {
+      return message;
+    }
+    return {
+      ...message,
+      ...(!message.clientMessageId ? { isOptimistic: true } : {}),
+      queueStatus: undefined,
+      queuePosition: undefined,
+    };
+  });
+}
+
+/** Mark a message as queued by server id or client correlation id. */
+export function markMessageQueued(
+  prev: DisplayMessage[],
+  id: string,
+  position: number | undefined,
+): DisplayMessage[] {
+  return prev.map((m) =>
+    messageMatchesKey(m, id)
+      ? { ...m, queueStatus: "queued" as const, queuePosition: position }
+      : m,
+  );
+}
+
+/** Remove a queued message by server id or client correlation id. */
 export function removeQueuedMessage(
   prev: DisplayMessage[],
   id: string,
 ): DisplayMessage[] {
-  return prev.filter((m) => m.id !== id);
+  return prev.filter((m) => !messageMatchesKey(m, id));
 }

@@ -1,25 +1,33 @@
 // ---------------------------------------------------------------------------
 // Memory Tool handlers
 //
-// remember: save facts to the PKB (buffer.md + daily archive) under the v1
-// path, or to memory/buffer.md + memory/archive/<today>.md when memory v2 is
-// active.
+// remember: save facts to the concept-page memory buffer
+// (memory/buffer.md + memory/archive/<today>.md); consolidation files them
+// into concept pages.
 // ---------------------------------------------------------------------------
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  isMemoryEnabled,
+  usesConceptPageMemory,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
-import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { deleteNode, queryNodes, recordNodeEdit, updateNode } from "./store.js";
-
-const log = getLogger("graph-tool-handlers");
+import type { GraphStats } from "./store.js";
+import {
+  computeGraphStats,
+  deleteNode,
+  queryNodes,
+  recordNodeEdit,
+  updateNode,
+} from "./store.js";
+import { type CapabilityKind, capabilityKind } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// remember handler — writes to PKB (v1) or memory/ (v2) buffer + daily archive
+// remember handler — appends to the memory/ buffer + daily archive
 // ---------------------------------------------------------------------------
 
 export interface RememberInput {
@@ -66,7 +74,7 @@ export function handleRemember(
   if (facts.length === 0) {
     return { success: false, message: "content is required" };
   }
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     return { success: false, message: "Memory is disabled." };
   }
 
@@ -77,26 +85,15 @@ export function handleRemember(
   const entry = facts.map((fact) => formatRememberEntry(fact, now)).join("");
   const message = rememberSuccessMessage(facts.length);
 
-  if (config.memory.v2.enabled) {
-    appendBufferAndArchive({
-      rootDir: join(workspaceDir, "memory"),
-      entry,
-      now,
-    });
-    // v2 path skips the PKB re-index queue — embedding for memory v2 happens
-    // via the dedicated `embed_concept_page` job after consolidation, not on
-    // every remember() write.
-    return { success: true, message };
-  }
-
-  const pkbDir = join(workspaceDir, "pkb");
-  const { bufferPath, archivePath } = appendBufferAndArchive({
-    rootDir: pkbDir,
+  // The buffer is the concept-page substrate's intake regardless of which
+  // injection engine is live: consolidation files the entries into concept
+  // pages, and embedding happens via the dedicated `embed_concept_page` job
+  // after consolidation, not on every remember() write.
+  appendBufferAndArchive({
+    rootDir: join(workspaceDir, "memory"),
     entry,
     now,
   });
-  enqueuePkbReindex(pkbDir, bufferPath);
-  enqueuePkbReindex(pkbDir, archivePath);
 
   return { success: true, message };
 }
@@ -136,12 +133,12 @@ export function formatRememberEntry(content: string, now: Date): string {
  * creating the archive directory and seeding the archive header if missing.
  *
  * Returns the absolute paths of both files so callers can fan out follow-up
- * work (e.g. PKB re-indexing in the v1 path).
+ * work.
  *
- * Exported so memory v2 background jobs (`sweep`, future LLM-driven
- * extractors) can append to `memory/buffer.md` + `memory/archive/<today>.md`
- * with exactly the same format `remember()` produces, keeping the two write
- * paths byte-compatible for downstream consumers (consolidation, search).
+ * Exported so background jobs (`sweep`, future LLM-driven extractors) can
+ * append to `memory/buffer.md` + `memory/archive/<today>.md` with exactly the
+ * same format `remember()` produces, keeping the two write paths
+ * byte-compatible for downstream consumers (consolidation, search).
  */
 export function appendBufferAndArchive(args: {
   rootDir: string;
@@ -172,24 +169,6 @@ export function appendBufferAndArchive(args: {
   return { bufferPath, archivePath };
 }
 
-/**
- * Fire-and-forget enqueue of a PKB re-index job for a file we just wrote.
- *
- * Wrapped in try/catch so an enqueue failure (e.g. DB hiccup) cannot break
- * the remember call — the write has already succeeded and the user's fact
- * is safe on disk.
- */
-function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
-  try {
-    enqueuePkbIndexJob({
-      pkbRoot,
-      absPath,
-    });
-  } catch (err) {
-    log.warn({ err, absPath }, "Failed to enqueue PKB re-index job");
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Shared helpers for delete / update / list
 // ---------------------------------------------------------------------------
@@ -217,11 +196,11 @@ export function handleDeleteMemory(
     return { success: false, message: "content is required" };
   }
 
-  if (!config.memory.v2.enabled) {
+  if (!usesConceptPageMemory(config.memory)) {
     return {
       success: false,
       message:
-        "delete requires memory v2. Use remember() to record a correction instead.",
+        "delete requires concept-page memory. Use remember() to record a correction instead.",
     };
   }
 
@@ -242,7 +221,7 @@ export function handleDeleteMemory(
     return {
       success: false,
       message:
-        "No memory found matching that content. Use `vellum memory list` to find the exact text first.",
+        "No memory found matching that content. Use `assistant memory nodes list` to find the exact text first.",
     };
   }
 
@@ -291,11 +270,11 @@ export function handleUpdateMemory(
     };
   }
 
-  if (!config.memory.v2.enabled) {
+  if (!usesConceptPageMemory(config.memory)) {
     return {
       success: false,
       message:
-        "update requires memory v2. Use remember() to record a correction instead.",
+        "update requires concept-page memory. Use remember() to record a correction instead.",
     };
   }
 
@@ -317,7 +296,7 @@ export function handleUpdateMemory(
     return {
       success: false,
       message:
-        "No memory found matching old_content. Use `vellum memory list` to find the exact text first.",
+        "No memory found matching old_content. Use `assistant memory nodes list` to find the exact text first.",
     };
   }
 
@@ -369,6 +348,12 @@ export function handleUpdateMemory(
 export interface ListMemoryInput {
   search?: string;
   limit?: number;
+  /**
+   * Restrict results to auto-seeded capability nodes of a given flavor:
+   * `skill` (one node per enabled/catalog skill) or `cli` (one per CLI
+   * command). Omit to list every kind of node.
+   */
+  kind?: CapabilityKind;
 }
 
 export interface ListMemoryItem {
@@ -390,10 +375,10 @@ export function handleListMemory(
   input: ListMemoryInput,
   config: AssistantConfig,
 ): ListMemoryResult {
-  if (!config.memory.v2.enabled) {
+  if (!usesConceptPageMemory(config.memory)) {
     return {
       success: false,
-      message: "list requires memory v2.",
+      message: "list requires concept-page memory.",
       nodes: [],
       total: 0,
     };
@@ -401,20 +386,26 @@ export function handleListMemory(
 
   const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
   const search = input.search?.trim().toLowerCase();
+  const kind = input.kind;
 
-  // When searching, fetch all active nodes (no limit) so content filtering is
-  // exhaustive regardless of graph size. Without a limit the DB still orders by
-  // significance DESC, so the most relevant matches surface first after slicing.
+  // When a filter (search or kind) is active, fetch all active nodes (no
+  // limit) so filtering is exhaustive regardless of graph size — capability
+  // nodes carry only middling significance and would otherwise fall outside a
+  // significance-capped page. The DB still orders by significance DESC, so the
+  // most relevant matches surface first after slicing.
   const allNodes = queryNodes({
     fidelityNot: ["gone"],
-    ...(search ? {} : { limit }),
+    ...(search || kind ? {} : { limit }),
   });
 
-  const filtered = search
-    ? allNodes
-        .filter((n) => n.content.toLowerCase().includes(search))
-        .slice(0, limit)
-    : allNodes.slice(0, limit);
+  let matches = allNodes;
+  if (kind) {
+    matches = matches.filter((n) => capabilityKind(n) === kind);
+  }
+  if (search) {
+    matches = matches.filter((n) => n.content.toLowerCase().includes(search));
+  }
+  const filtered = matches.slice(0, limit);
 
   return {
     success: true,
@@ -427,5 +418,33 @@ export function handleListMemory(
       created: n.created,
     })),
     total: filtered.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleStatsMemory
+// ---------------------------------------------------------------------------
+
+export interface StatsMemoryResult {
+  success: boolean;
+  message: string;
+  stats: GraphStats | null;
+}
+
+export function handleStatsMemory(config: AssistantConfig): StatsMemoryResult {
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message: "stats requires concept-page memory.",
+      stats: null,
+    };
+  }
+  const stats = computeGraphStats();
+  const n = stats.total;
+  const e = stats.edgeCount;
+  return {
+    success: true,
+    message: `${n} active node${n === 1 ? "" : "s"}, ${e} edge${e === 1 ? "" : "s"}.`,
+    stats,
   };
 }

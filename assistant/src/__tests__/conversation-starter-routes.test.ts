@@ -58,7 +58,7 @@ function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
 
 function clearTables() {
   getSqlite().run("DELETE FROM conversation_starters");
-  getSqlite().run("DELETE FROM memory_graph_nodes");
+  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");
   getSqlite().run("DELETE FROM memory_checkpoints");
 }
@@ -92,7 +92,7 @@ function insertStarter(overrides: {
 
 function insertMemoryItem(scopeId = "default") {
   const now = Date.now();
-  getSqlite().run(
+  getMemorySqlite()!.run(
     `INSERT INTO memory_graph_nodes (
       id, content, type, created, last_accessed, last_consolidated,
       emotional_charge, fidelity, confidence, significance,

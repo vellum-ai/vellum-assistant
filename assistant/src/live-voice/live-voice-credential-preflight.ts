@@ -6,17 +6,23 @@
  * assistant audio. This resolver combines the two checks into a single
  * ready / not-ready verdict with a user-facing message suitable for the
  * client `error` frame, so a session fails at the `start` frame instead of
- * mid-conversation. It opens no live connections and performs no session
- * wiring — the session gates startup on the verdict. Mirrors
- * `calls/telephony-credential-preflight.ts` for the phone-call transport.
+ * mid-conversation. It opens no live connections, performs no session
+ * wiring, and writes no config — the session gates startup on the verdict.
+ * Mirrors `calls/telephony-credential-preflight.ts` for the phone-call
+ * transport.
+ *
+ * Both legs are checked against the effective providers
+ * (`resolveEffectiveSpeechProviders`), which is what the transcriber and
+ * synthesis paths resolve too — so a `ready` verdict earned on managed
+ * speech is a verdict the runtime can honour.
  */
 
 import {
   fishAudioReferenceIdConfigured,
   ttsSecretResolves,
 } from "../calls/telephony-tts-capability.js";
-import { getConfig } from "../config/loader.js";
-import { effectiveSttProvider } from "../config/schemas/stt.js";
+import { resolveEffectiveSpeechProviders } from "../config/managed-speech-defaults.js";
+import { managedSpeechAvailable } from "../platform/managed-speech.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
   resolveStreamingTranscriber,
@@ -26,7 +32,7 @@ import {
 import type { SttProviderId } from "../stt/types.js";
 import type { TtsProviderCatalogEntry } from "../tts/provider-catalog.js";
 import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
-import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import type { TtsProviderId } from "../tts/types.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -61,18 +67,22 @@ export type LiveVoiceCredentialReadiness =
  * session.
  *
  * Readiness requires:
- * - STT: the configured `services.stt.provider` resolves a streaming
- *   transcriber (the session arms one per utterance — there is no batch
- *   fallback on the live-voice transport).
- * - TTS: the configured `services.tts.provider` supports streaming
- *   synthesis (`synthesizeStream`), all of its required secrets resolve,
- *   and provider-specific config invariants hold (fish-audio requires a
+ * - STT: the effective STT provider resolves a streaming transcriber (the
+ *   session arms one per utterance — there is no batch fallback on the
+ *   live-voice transport).
+ * - TTS: the effective TTS provider supports streaming synthesis
+ *   (`synthesizeStream`), all of its required secrets resolve, and
+ *   provider-specific config invariants hold (fish-audio requires a
  *   configured `referenceId` — live voice supplies no per-request voiceId).
  */
 export async function resolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCredentialReadiness> {
-  const gaps = (await Promise.all([resolveSttGap(), resolveTtsGap()])).filter(
-    (gap) => gap !== null,
-  );
+  const effective = await resolveEffectiveSpeechProviders();
+  const gaps = (
+    await Promise.all([
+      resolveSttGap(effective.stt),
+      resolveTtsGap(effective.tts),
+    ])
+  ).filter((gap) => gap !== null);
 
   if (gaps.length === 0) {
     return { status: "ready" };
@@ -98,17 +108,18 @@ interface GapWithClause {
 }
 
 /**
- * Resolve the STT leg: no gap when the configured provider yields a
- * streaming transcriber. When none resolves, classify why so the gap
- * names the missing piece.
+ * Resolve the STT leg: no gap when the given provider yields a streaming
+ * transcriber. When none resolves, classify why so the gap names the
+ * missing piece.
  */
-async function resolveSttGap(): Promise<GapWithClause | null> {
-  if ((await resolveStreamingTranscriber()) !== null) {
+async function resolveSttGap(
+  providerId: SttProviderId,
+): Promise<GapWithClause | null> {
+  if ((await resolveStreamingTranscriber({ providerId })) !== null) {
     return null;
   }
 
-  const providerId = effectiveSttProvider(getConfig().services.stt);
-  const entry = getProviderEntry(providerId as SttProviderId);
+  const entry = getProviderEntry(providerId);
   if (!entry) {
     return {
       gap: {
@@ -145,14 +156,14 @@ async function resolveSttGap(): Promise<GapWithClause | null> {
 }
 
 /**
- * Resolve the TTS leg: no gap when the configured provider supports
- * streaming synthesis, every secret its catalog entry requires resolves
- * to a value, and fish-audio (which live voice drives without a
- * per-request voiceId) has a configured `referenceId`.
+ * Resolve the TTS leg: no gap when the given provider supports streaming
+ * synthesis, every secret its catalog entry requires resolves to a value,
+ * and fish-audio (which live voice drives without a per-request voiceId)
+ * has a configured `referenceId`.
  */
-async function resolveTtsGap(): Promise<GapWithClause | null> {
-  const { provider: providerId } = resolveTtsConfig(getConfig());
-
+async function resolveTtsGap(
+  providerId: TtsProviderId,
+): Promise<GapWithClause | null> {
   let entry: TtsProviderCatalogEntry;
   try {
     entry = getCatalogProvider(providerId);
@@ -180,6 +191,24 @@ async function resolveTtsGap(): Promise<GapWithClause | null> {
       },
       clause: `a text-to-speech provider that supports streaming synthesis (the configured "${entry.id}" does not)`,
     };
+  }
+
+  // Managed speech authenticates via the platform connection — full
+  // availability (API key + assistant ID) is the credential, so the
+  // stored-secret loop below would pass half-connected states that
+  // synthesis rejects.
+  if (entry.id === "vellum") {
+    if (!(await managedSpeechAvailable())) {
+      return {
+        gap: {
+          kind: "tts",
+          providerId: entry.id,
+          reason: `TTS provider "${entry.id}" needs a Vellum platform connection for managed speech`,
+        },
+        clause: `a Vellum platform connection for managed speech (run 'assistant platform connect')`,
+      };
+    }
+    return null;
   }
 
   for (const secret of entry.secretRequirements) {

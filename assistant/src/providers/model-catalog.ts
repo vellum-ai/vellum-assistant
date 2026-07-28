@@ -52,6 +52,13 @@ export interface CatalogModel {
   adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
+  /**
+   * The model's serving surface accepts OpenAI chat-completions `input_audio`
+   * content parts (base64 wav/mp3), so eligible audio attachments are sent
+   * inline instead of as a text placeholder. Daemon-only: not projected into
+   * the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
   /**
@@ -177,6 +184,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 50,
           cacheWritePer1mTokens: 12.5,
           cacheReadPer1mTokens: 1,
+        },
+      },
+      {
+        id: "claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
         },
       },
       {
@@ -562,6 +586,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "gemini-3.6-flash",
+        displayName: "Gemini 3.6 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.5,
+          outputPer1mTokens: 7.5,
+          cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
         id: "gemini-3.5-flash",
         displayName: "Gemini 3.5 Flash",
         contextWindowTokens: 1048576,
@@ -574,6 +613,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 9.0,
           cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
+        id: "gemini-3.5-flash-lite",
+        displayName: "Gemini 3.5 Flash-Lite",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.03,
         },
       },
       {
@@ -779,6 +833,22 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p6",
         displayName: "Kimi K2.6",
         contextWindowTokens: 262144,
@@ -968,6 +1038,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 50,
           cacheWritePer1mTokens: 12.5,
           cacheReadPer1mTokens: 1,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
         },
       },
       {
@@ -1299,6 +1386,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
+        // xAI's Grok 4.5 API accepts only low|medium|high reasoning effort;
+        // clamp Vellum's xhigh/max tiers down so inherited efforts don't 4xx.
+        maxEffort: "high",
         pricing: {
           inputPer1mTokens: 2,
           outputPer1mTokens: 6,
@@ -1437,6 +1527,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 0.5, outputPer1mTokens: 1.5 },
       },
       // Moonshot
+      {
+        id: "moonshotai/kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+      },
       {
         id: "moonshotai/kimi-k2.6",
         displayName: "Kimi K2.6",
@@ -1689,6 +1791,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "anthropic/claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
         id: "anthropic/claude-opus-4.8",
         displayName: "Claude Opus 4.8",
         contextWindowTokens: 1000000,
@@ -1867,6 +1986,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "vck_...",
   },
   {
+    id: "litellm",
+    displayName: "LiteLLM",
+    subtitle:
+      "AI gateway proxy for 100+ LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, etc.).",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your LiteLLM proxy base URL and API key. Models are auto-discovered from the proxy.",
+    envVar: "LITELLM_API_KEY",
+    credentialsGuide: {
+      description:
+        "Set up a LiteLLM proxy, then use the master key or a virtual key.",
+      url: "https://docs.litellm.ai/docs/proxy/quick_start",
+      linkLabel: "LiteLLM Proxy Quick Start",
+    },
+    apiKeyPlaceholder: "sk-...",
+    models: [],
+    defaultModel: "",
+  },
+  {
     id: "openai-compatible",
     displayName: "OpenAI-compatible",
     subtitle:
@@ -1945,6 +2083,85 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyUrl: "https://www.atlascloud.ai/console",
     apiKeyPlaceholder: "apikey-...",
   },
+  {
+    id: "baseten",
+    displayName: "Baseten",
+    subtitle: "Open models served by Baseten. Requires a Baseten API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Baseten API key to enable Baseten models.",
+    envVar: "BASETEN_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Baseten dashboard and create an API key.",
+      url: "https://app.baseten.co/settings/api_keys",
+      linkLabel: "Open Baseten Dashboard",
+    },
+    models: [
+      {
+        id: "thinkingmachines/inkling",
+        displayName: "Inkling",
+        // Baseten serves Inkling with a 256K-token (262,144) input window.
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        // Inkling ingests audio natively (dMel tokens); Baseten's serving
+        // surface accepts `input_audio` parts for it.
+        supportsAudioInput: true,
+        supportsToolUse: true,
+        // Baseten's reasoning_effort for Inkling tops out at "xhigh" (no
+        // "max"), matching the chat-completions client's default ceiling.
+        maxEffort: "xhigh",
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 4.05,
+          cacheReadPer1mTokens: 0.17,
+        },
+      },
+    ],
+    defaultModel: "thinkingmachines/inkling",
+    apiKeyUrl: "https://app.baseten.co/settings/api_keys",
+    apiKeyPlaceholder: "Your Baseten API key",
+  },
+  {
+    id: "poolside",
+    displayName: "Poolside",
+    subtitle:
+      "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Poolside API key to enable Laguna models.",
+    envVar: "POOLSIDE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to Poolside and create an API key.",
+      url: "https://poolside.ai",
+      linkLabel: "Open Poolside",
+    },
+    models: [
+      {
+        id: "poolside/laguna-s-2.1",
+        displayName: "Laguna S 2.1",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "poolside/laguna-xs-2.1",
+        displayName: "Laguna XS 2.1",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "poolside/laguna-s-2.1",
+    apiKeyUrl: "https://poolside.ai",
+    apiKeyPlaceholder: "Your Poolside API key",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
@@ -1979,6 +2196,23 @@ export const PROMPT_CACHE_BREAKPOINT_MODEL_IDS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Per-model `reasoning_effort` ceilings for a provider, keyed by model ID and
+ * derived from each model's `maxEffort`. Providers whose per-model APIs accept
+ * a narrower effort range than the provider default (e.g. Fireworks, OpenRouter)
+ * consult this in `resolveMaxReasoningEffort` to clamp Vellum's xhigh/max tiers
+ * down. Models without `maxEffort` are absent and inherit the provider default.
+ */
+export function modelEffortCeilings(
+  providerId: string,
+): ReadonlyMap<string, "high" | "xhigh" | "max"> {
+  return new Map(
+    PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
+      m.maxEffort ? ([[m.id, m.maxEffort]] as const) : [],
+    ) ?? [],
+  );
+}
+
+/**
  * Return the catalog provider that owns a model ID, if known. When multiple
  * providers list the same ID (e.g. OpenRouter and the Vercel AI Gateway share
  * `anthropic/*` IDs), the earliest entry in PROVIDER_CATALOG order wins.
@@ -1999,5 +2233,17 @@ export function getCatalogProviderForModel(
 export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
   return PROVIDER_CATALOG.some((p) =>
     p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
+}
+
+/**
+ * Whether a model's serving surface accepts OpenAI chat-completions
+ * `input_audio` content parts, driven by the `supportsAudioInput` capability
+ * in the catalog. Matches the model ID across every provider (same pattern as
+ * {@link isAdaptiveThinkingOnlyModel}).
+ */
+export function modelSupportsAudioInput(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some((m) => m.id === modelId && m.supportsAudioInput === true),
   );
 }

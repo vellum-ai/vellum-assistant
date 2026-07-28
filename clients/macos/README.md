@@ -90,9 +90,12 @@ proxy) with a 1.5s timeout and picks one of two paths:
      local Vite (8.x) and plugin tree, not whatever older Vite happens
      to live in `clients/macos/node_modules`. Pinning the port via the
      Vite CLI overrides `clients/web/.env` if `PORT` is set there.
-   - `dev:electron` → [`wait-on`](https://github.com/jeffbski/wait-on)
-     polls `:5173` (30s timeout), then runs `electron-vite dev` against
-     it. The wait avoids Electron racing the renderer.
+   - `dev:electron` → `scripts/wait-for-web.ts` polls `:5173` (180s
+     timeout), then runs `electron-vite dev` against it. The wait avoids
+     Electron racing the renderer. On timeout the script captures stack
+     samples of the Vite processes plus the port state to `/tmp` before
+     exiting — a hung Vite gets un-wedged by the ensuing teardown, so
+     that capture is the only record of where it was stuck.
 
    `concurrently --kill-others` tears both down on Ctrl+C or on either
    child exiting. Logs are prefixed and color-coded (`[web]` blue,
@@ -141,6 +144,29 @@ whichever Swift channel you have around.
   `View > Toggle Developer Tools` is gated to dev builds only so the
   packaged build doesn't expose devtools to end users.
 
+- **Share Sheet** (`src/main/share.ts`). The renderer's `saveFile`
+  (`clients/web/src/runtime/native-file.ts`) hands file bytes over the
+  `vellum:share:file` channel; the main process writes them to a temp file and
+  presents the native `NSSharingServicePicker` via Electron's `ShareMenu`. Two
+  gotchas here were verified against the pinned `electron@42` source and types,
+  **not** the published API docs (which are wrong):
+  - **Anchor with `window`, not `browserWindow`.** `ShareMenu.popup` forwards to
+    `Menu.popup`, whose options are read as `options.window` (a `BrowserWindow`
+    — in Electron that _is_ the native app window). The upstream `share-menu.md`
+    doc says `browserWindow`, but that key is silently ignored at runtime and
+    the sheet falls back to the focused window; the typed `PopupOptions` only
+    has `window`, so `browserWindow` wouldn't even compile. The same
+    `menu.popup({ window })` shape is used in `image-context-menu.ts` and
+    `text-context-menu.ts`.
+  - **Don't tear down the shared temp file on picker close.** The `popup`
+    callback fires on menu _close_ (a service was selected), not when that
+    service has finished reading the file — an in-flight AirDrop transfer or a
+    pasteboard/file-promise reference can still need it. Instead `share.ts`
+    reclaims only _stale_ temp dirs (older than an hour — long past any
+    transfer), sweeping at startup and before each new share, so it never
+    deletes a file still in use, including one from a second Vellum build
+    sharing at the same time.
+
 ## Scripts
 
 ```sh
@@ -149,7 +175,7 @@ bun run dev:standalone     # explicit: spawn our Vite (:5173) + electron-vite de
 bun run dev:electron-only  # explicit: electron-vite dev only, honors $VELLUM_DEV_URL (default :5173)
 bun run install:all        # bun install in clients/macos and clients/web (called automatically by dev)
 bun run dev:web            # clients/web Vite (port 5173, strict) — invoked by dev:standalone
-bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
+bun run dev:electron       # wait for :5173 (hang capture on timeout) then electron-vite dev — invoked by dev:standalone
 bun run build              # electron-vite build — bundles main + preload to out/
 bun run typecheck          # tsc --noEmit
 bun run test               # bun test — single Bun process (fastest for local iteration)

@@ -1,4 +1,4 @@
-import { recordTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
+import { recordTelemetryEvent } from "../telemetry/telemetry-events-outbox.js";
 import type { LifecycleTelemetryEvent } from "../telemetry/types.js";
 import { APP_VERSION } from "../version.js";
 
@@ -9,8 +9,10 @@ export interface LifecycleEvent {
 }
 
 /**
- * Wire shape of one lifecycle event, stamped with the record-time binary's
- * `APP_VERSION` (the outbox stores the full wire payload at record time).
+ * Wire shape of one lifecycle event, for callers that insert outbox rows via
+ * raw SQL (conversation-crud's clearAll audit path). Mirrors the shape
+ * `recordTelemetryEvent` stamps — the shared `LifecycleTelemetryEvent` type
+ * keeps them in sync.
  */
 export function buildLifecycleTelemetryEvent(
   id: string,
@@ -28,12 +30,11 @@ export function buildLifecycleTelemetryEvent(
 
 /**
  * Record a lifecycle event (e.g. app_open, hatch) into the `telemetry_events`
- * outbox. Returns null when usage data collection is disabled or the
- * telemetry database is unavailable (degraded mode).
+ * outbox. Consent gating and degraded-mode `null` are `recordTelemetryEvent`'s.
  */
 export function recordLifecycleEvent(eventName: string): LifecycleEvent | null {
-  const recorded = recordTelemetryOutboxEvent("lifecycle", (id, createdAt) =>
-    buildLifecycleTelemetryEvent(id, eventName, createdAt),
-  );
+  const recorded = recordTelemetryEvent("lifecycle", {
+    event_name: eventName,
+  });
   return recorded ? { ...recorded, eventName } : null;
 }

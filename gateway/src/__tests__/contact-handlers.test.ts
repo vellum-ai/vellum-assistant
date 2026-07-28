@@ -8,7 +8,15 @@
  * running daemon.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  mock,
+} from "bun:test";
 
 import "./test-preload.js";
 
@@ -80,10 +88,7 @@ const mirrorIpcCalls: { method: string; body: unknown }[] = [];
 mock.module("../ipc/assistant-client.js", () => ({
   IpcHandlerError: class extends Error {},
   IpcTransportError: class extends Error {},
-  ipcCallAssistant: async (
-    method: string,
-    params?: { body?: unknown },
-  ) => {
+  ipcCallAssistant: async (method: string, params?: { body?: unknown }) => {
     mirrorIpcCalls.push({ method, body: params?.body });
     return { ok: true };
   },
@@ -164,7 +169,13 @@ function seedContact(id: string, role: "guardian" | "contact" = "guardian") {
     .run();
 }
 
-function seedChannel(opts: { id: string; contactId: string; status?: string }) {
+function seedChannel(opts: {
+  id: string;
+  contactId: string;
+  status?: string;
+  verifiedVia?: string | null;
+  verifiedAt?: number | null;
+}) {
   const now = Date.now();
   getGatewayDb()
     .insert(contactChannels)
@@ -176,6 +187,8 @@ function seedChannel(opts: { id: string; contactId: string; status?: string }) {
       isPrimary: false,
       status: opts.status ?? "unverified",
       policy: "allow",
+      verifiedAt: opts.verifiedAt ?? null,
+      verifiedVia: opts.verifiedVia ?? null,
       interactionCount: 0,
       createdAt: now,
       updatedAt: now,
@@ -457,7 +470,7 @@ describe("upsert_verified_channel IPC handler", () => {
     expect(row!.status).toBe("blocked");
   });
 
-  test("round-trips verifiedVia=\"invite\" (free string, not the restricted enum)", async () => {
+  test('round-trips verifiedVia="invite" (free string, not the restricted enum)', async () => {
     const res = (await upsertVerifiedChannelHandler({
       type: "vellum",
       address: "addr-invite",
@@ -475,5 +488,94 @@ describe("upsert_verified_channel IPC handler", () => {
       .where(eq(contactChannels.address, "addr-invite"))
       .get();
     expect(row!.verifiedVia).toBe("invite");
+  });
+});
+
+describe("upsert_verified_channel binding-strength guard (LUM-2505)", () => {
+  test("refuses to demote an active challenge binding to a manual_channel_claim", async () => {
+    seedContact("c1", "contact");
+    seedChannel({
+      id: "ch1",
+      contactId: "c1",
+      status: "active",
+      verifiedVia: "challenge",
+      verifiedAt: 500,
+    });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+      verifiedVia: "manual_channel_claim",
+    })) as { ok: boolean; verified: boolean; channel: { verifiedVia: string } };
+
+    // The write still succeeds, but the stronger provenance is preserved.
+    expect(res.ok).toBe(true);
+    expect(res.verified).toBe(true);
+    expect(res.channel.verifiedVia).toBe("challenge");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.verifiedVia).toBe("challenge");
+    expect(row!.verifiedAt).toBe(500);
+    expect(row!.status).toBe("active");
+  });
+
+  test("refuses to demote an active challenge binding to a manual attest", async () => {
+    seedContact("c1", "contact");
+    seedChannel({
+      id: "ch1",
+      contactId: "c1",
+      status: "active",
+      verifiedVia: "challenge",
+      verifiedAt: 500,
+    });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+      verifiedVia: "manual",
+    })) as { ok: boolean; channel: { verifiedVia: string } };
+
+    expect(res.channel.verifiedVia).toBe("challenge");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.verifiedVia).toBe("challenge");
+  });
+
+  test("still applies an upgrade (manual_channel_claim -> challenge)", async () => {
+    seedContact("c1", "contact");
+    seedChannel({
+      id: "ch1",
+      contactId: "c1",
+      status: "active",
+      verifiedVia: "manual_channel_claim",
+      verifiedAt: 500,
+    });
+
+    const res = (await upsertVerifiedChannelHandler({
+      type: "vellum",
+      address: "addr-ch1",
+      externalChatId: "chat-1",
+      verifiedVia: "challenge",
+    })) as { ok: boolean; verified: boolean; channel: { verifiedVia: string } };
+
+    expect(res.verified).toBe(true);
+    expect(res.channel.verifiedVia).toBe("challenge");
+
+    const row = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.id, "ch1"))
+      .get();
+    expect(row!.verifiedVia).toBe("challenge");
   });
 });

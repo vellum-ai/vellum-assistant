@@ -2,9 +2,9 @@
  * Listening-state waves for the voice room: layered sine waves that swell as
  * the user speaks — the visual language of energy coming *in* (the user's
  * voice arriving), the counterpart to the assistant's outward `responding`
- * pulse on the avatar. `placement` anchors the band: `bottom` rises from the
- * floor edge (the void look), `center` is a symmetric band around the middle
- * (the color look, gathering behind the centered eyes).
+ * pulse on the avatar. `placement` anchors the band: `top` sweeps in from the
+ * ceiling edge (both looks — above the centerpiece, leaving it clear), `bottom`
+ * rises from the floor edge, `center` is a symmetric band around the middle.
  *
  * The waves always drift horizontally (a slow CSS loop); the user's live mic
  * amplitude drives how high they rise and how bright they are, written
@@ -60,6 +60,16 @@ const WAVE_LAYERS = [
   { modifier: "front" as const, amplitude: 22, cycles: 8, phase: 2.3 },
 ];
 
+// Inline strips squeeze the 200-unit viewBox into a couple dozen pixels, so
+// the room amplitudes flatten into hairlines; this set roughly doubles them
+// to keep the ripple legible at strip height. Same layer order, cycle counts,
+// and phases — the strip is the room's band, only steeper.
+const WAVE_LAYERS_INLINE = [
+  { modifier: "back" as const, amplitude: 56, cycles: 4, phase: 0 },
+  { modifier: "mid" as const, amplitude: 74, cycles: 6, phase: 1.1 },
+  { modifier: "front" as const, amplitude: 48, cycles: 8, phase: 2.3 },
+];
+
 /** Style of the listening waves: filled "water" areas or stroked "ribbon" lines. */
 export type VoiceWaveStyle = "fill" | "line";
 
@@ -72,11 +82,29 @@ export type VoiceWaveStyle = "fill" | "line";
 export type VoiceWavePalette = "aurora" | "accent" | "tone";
 
 /**
- * Where the wave band sits: `bottom` rises from the floor edge (the void
- * look), `center` swells symmetrically around the middle of the screen (the
- * color look — the voice gathering around the centered eyes).
+ * Where the wave band sits: `top` sweeps in from the ceiling edge (both room
+ * looks — the voice arriving above the centered eyes / avatar, leaving the
+ * centerpiece clear), `bottom` rises from the floor edge, `center` swells
+ * symmetrically around the middle of the screen. `inline` fills a small
+ * positioned container (the composer's voice-session bar strip) instead of
+ * anchoring to a screen edge: the same mirrored center band, with steeper
+ * wave geometry so the ripple stays legible at strip height.
  */
-export type VoiceWavePlacement = "bottom" | "center";
+export type VoiceWavePlacement = "bottom" | "top" | "center" | "inline";
+
+/**
+ * Edge fade for the inline wave strips (composer bar, title-bar pill).
+ *
+ * Those strips clip the drifting layers with `overflow-hidden`, which ends
+ * the band on a hard vertical edge mid-wave. Masking the container instead
+ * lets the band dissolve into the surface at both ends, so the strip reads as
+ * a window onto a continuous wave rather than a cropped rectangle.
+ *
+ * `-webkit-mask-image` is not optional: the iOS client is a WKWebView, which
+ * still needs the prefixed property.
+ */
+export const VOICE_WAVE_EDGE_FADE_CLASS =
+  "[mask-image:linear-gradient(to_right,transparent_0%,black_12%,black_88%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,black_12%,black_88%,transparent_100%)]";
 
 export function VoiceListeningWaves({
   getAmplitude,
@@ -123,9 +151,10 @@ export function VoiceListeningWaves({
   }, []);
 
   const buildPath = waveStyle === "line" ? wavePathLine : wavePathFill;
+  const waveLayers = placement === "inline" ? WAVE_LAYERS_INLINE : WAVE_LAYERS;
 
   const layers = () =>
-    WAVE_LAYERS.map((layer) => (
+    waveLayers.map((layer) => (
       <svg
         key={layer.modifier}
         className={`voice-wave voice-wave--${layer.modifier}`}
@@ -138,11 +167,11 @@ export function VoiceListeningWaves({
 
   const className = `voice-listening-waves voice-listening-waves--${waveStyle} voice-listening-waves--${palette} voice-listening-waves--${placement}`;
 
-  // Center: the wave fill hugs the bottom edge of its box, so a merely
+  // Center/inline: the wave fill hugs the bottom edge of its box, so a merely
   // centered box would still read low. Mirror the band into two halves that
   // meet at the midline — the fill hugs the center line from above and below,
   // its wavy edges rippling outward — for a waveform that is visually centered.
-  if (placement === "center") {
+  if (placement === "center" || placement === "inline") {
     return (
       <div ref={ref} className={className} aria-hidden>
         <div className="voice-listening-waves__half voice-listening-waves__half--top">

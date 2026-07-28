@@ -39,6 +39,10 @@ mock.module("../../../../oauth/connection-resolver.js", () => ({
 }));
 mock.module("../../../../oauth/oauth-store.js", () => ({
   isProviderConnected: async () => false,
+  // A stored connection row exists so resolveSlackAuth's OAuth-path guard
+  // passes through to the resolveOAuthConnection stub above (bot-token cases
+  // return before this is consulted).
+  getConnectionByProvider: () => ({ id: "conn-oauth" }),
 }));
 
 // Stub contact DB access so the adapter doesn't touch SQLite during the test.

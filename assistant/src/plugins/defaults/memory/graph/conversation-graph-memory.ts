@@ -1,18 +1,29 @@
 // ---------------------------------------------------------------------------
 // Memory Graph — Conversation-level memory integration
 //
-// Replaces the old `prepareMemoryContext` from conversation-memory.ts.
-// Manages the InContextTracker lifecycle and dispatches to the correct
-// retrieval mode based on conversation state.
+// `graph/` is the all-tier legacy-graph store + tier dispatcher: `store.ts`,
+// `capability-seed.ts`, and `tool-handlers.ts` are written on every tier
+// (capability nodes feed `list_memory`), while the read ENGINE lives in
+// `../v1/graph/`. This class manages the InContextTracker lifecycle,
+// dispatches retrieval to the active tier's engine, and owns compaction
+// eviction of v2/v3 per-conversation state.
 // ---------------------------------------------------------------------------
 
-import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
+import type {
+  AssistantEvent,
+  ContentBlock,
+  ImageContent,
+  Message,
+} from "@vellumai/plugin-api";
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  isMemoryEnabled,
+  isV2InjectionEngineActive,
+} from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { estimateTextTokens } from "../../../../context/token-estimator.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { embedWithRetry } from "../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
@@ -22,6 +33,19 @@ import { memorySummaries } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
+// V1 — delete with v1. The v1 read engine: legacy-graph retrieval and block
+// assembly, feeding the v1 fallback arms of `loadContextMemory` /
+// `retrieveForTurn` below.
+import {
+  assembleContextBlock,
+  assembleInjectionBlock,
+  MAX_CONTEXT_LOAD_IMAGES,
+  MAX_PER_TURN_IMAGES,
+  type ResolvedImage,
+  resolveInjectionImages,
+} from "../v1/graph/injection.js";
+import { loadContextMemory, retrieveForTurn } from "../v1/graph/retriever.js";
+// v2 injection engine — turn-time selection over the concept-page substrate
 import {
   clearEverInjected as clearV2EverInjected,
   hydrate as hydrateV2State,
@@ -33,22 +57,16 @@ import {
 } from "../v2/injection.js";
 import { loadNowText } from "../v2/now-text.js";
 import type { RouterTurnPair } from "../v2/router.js";
+// v3 per-conversation state — evicted here on compaction
 import { clearConversation as clearV3EverInjected } from "../v3/ever-injected-store.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "./graph-memory-state-store.js";
 import {
-  assembleContextBlock,
-  assembleInjectionBlock,
   InContextTracker,
   type InContextTrackerSnapshot,
-  MAX_CONTEXT_LOAD_IMAGES,
-  MAX_PER_TURN_IMAGES,
-  type ResolvedImage,
-  resolveInjectionImages,
-} from "./injection.js";
-import { loadContextMemory, retrieveForTurn } from "./retriever.js";
+} from "./in-context-tracker.js";
 import type { RetrievalMetrics } from "./types.js";
 
 const log = getLogger("graph-conversation-memory");
@@ -80,7 +98,9 @@ const liveByConversation = new Map<string, ConversationGraphMemory>();
 export function getLiveGraphMemory(
   conversationId: string | undefined,
 ): ConversationGraphMemory | undefined {
-  if (!conversationId) return undefined;
+  if (!conversationId) {
+    return undefined;
+  }
   return liveByConversation.get(conversationId);
 }
 
@@ -132,7 +152,9 @@ export class ConversationGraphMemory {
    * Called during conversation disposal.
    */
   persistState(): void {
-    if (!this.initialized) return;
+    if (!this.initialized) {
+      return;
+    }
     try {
       const snapshot: InContextTrackerSnapshot & {
         initialized: boolean;
@@ -156,10 +178,14 @@ export class ConversationGraphMemory {
    * On failure or missing row, silently falls back to full context-load.
    */
   restoreState(): void {
-    if (this.stateRestored) return;
+    if (this.stateRestored) {
+      return;
+    }
     try {
       const json = loadGraphMemoryState(this.conversationId);
-      if (!json) return;
+      if (!json) {
+        return;
+      }
 
       const snapshot = JSON.parse(json) as InContextTrackerSnapshot & {
         initialized: boolean;
@@ -279,10 +305,9 @@ export class ConversationGraphMemory {
     // leave entries with `turn > tracker.currentTurn` that a turn-bounded
     // filter would skip.
     try {
-      const db = getDb();
-      const state = await hydrateV2State(db, this.conversationId);
+      const state = await hydrateV2State(this.conversationId);
       if (state) {
-        await saveV2State(db, this.conversationId, clearV2EverInjected(state));
+        await saveV2State(this.conversationId, clearV2EverInjected(state));
       }
     } catch (err) {
       log.warn(
@@ -361,7 +386,9 @@ export class ConversationGraphMemory {
    * not the original user message.
    */
   retrackCachedNodes(): void {
-    if (this.lastInjectedNodeIds.length === 0) return;
+    if (this.lastInjectedNodeIds.length === 0) {
+      return;
+    }
     this.tracker.add(this.lastInjectedNodeIds);
   }
 
@@ -420,7 +447,7 @@ export class ConversationGraphMemory {
     messages: Message[],
     config: AssistantConfig,
     abortSignal: AbortSignal,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent: (msg: AssistantEvent) => void,
   ): Promise<{
     runMessages: Message[];
     injectedTokens: number;
@@ -468,7 +495,7 @@ export class ConversationGraphMemory {
       metrics: null as RetrievalMetrics | null,
     };
 
-    if (config.memory.enabled === false) {
+    if (!isMemoryEnabled(config)) {
       // Clear any cached injection so a later overflow-reduction
       // re-injection via `reinjectCachedMemory()` cannot reintroduce a
       // stale <memory> block after the user disables memory.
@@ -481,12 +508,15 @@ export class ConversationGraphMemory {
     // Gate: skip for empty/tool-result-only messages — unless we need to
     // reload after compaction (needsReload) or haven't initialized yet.
     const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== "user") return noopResult;
+    if (!lastMessage || lastMessage.role !== "user") {
+      return noopResult;
+    }
     const hasUserContent = lastMessage.content.some(
       (block) => block.type === "text" && block.text.trim().length > 0,
     );
-    if (!hasUserContent && this.initialized && !this.needsReload)
+    if (!hasUserContent && this.initialized && !this.needsReload) {
       return noopResult;
+    }
 
     try {
       // Decide which retrieval mode to use
@@ -531,7 +561,7 @@ export class ConversationGraphMemory {
     recentSummaries: string[],
     userQuery: string | undefined,
     signal: AbortSignal,
-    onEvent: (msg: ServerMessage) => void,
+    onEvent: (msg: AssistantEvent) => void,
   ) {
     // Use the raw user text (no >10-char filter) so even short greetings
     // ("hi") get a fresh top-K activation dump on the first user message.
@@ -582,10 +612,13 @@ export class ConversationGraphMemory {
       };
     }
 
-    // v1 fallback — only reached when the v2 flag or workspace config is off.
+    // v1 fallback — only reached when the v2 engine is not the live tier (v2
+    // disabled, memory off, or v3 live; under the concept-page substrate the
+    // retriever short-circuits to zero nodes).
     const result = await loadContextMemory({
       recentSummaries,
       userQuery,
+      conversationId: this.conversationId,
       config,
       signal,
     });
@@ -650,7 +683,7 @@ export class ConversationGraphMemory {
       type: "memory_status",
       enabled: true,
       degraded: false,
-    } as ServerMessage);
+    } as AssistantEvent);
 
     this.lastInjectedBlock = contextBlock;
     this.lastInjectedNodeIds = [
@@ -700,11 +733,13 @@ export class ConversationGraphMemory {
       } else if (msg.role === "assistant" && !assistantLast) {
         assistantLast = text;
       }
-      if (userLastBlocks.length > 0 && assistantLast) break;
+      if (userLastBlocks.length > 0 && assistantLast) {
+        break;
+      }
     }
 
-    // v2 path — skip v1 retrieval entirely when v2 is enabled. See the
-    // matching comment in `runContextLoad` for rationale.
+    // v2 path — skip v1 retrieval entirely when the v2 engine is the live
+    // tier. See the matching comment in `runContextLoad` for rationale.
     const startedAt = Date.now();
     const v2 = await this.maybeRouteV2Injection(
       messages,
@@ -747,11 +782,14 @@ export class ConversationGraphMemory {
       };
     }
 
-    // v1 path (only reached when the v2 flag or workspace config is off).
+    // v1 path (only reached when the v2 engine is not the live tier — v2
+    // disabled, memory off, or v3 live; under the concept-page substrate the
+    // retriever short-circuits to zero nodes).
     const result = await retrieveForTurn({
       assistantLastMessage: assistantLast,
       userLastMessage: userLast,
       userLastMessageBlocks: userLastBlocks,
+      conversationId: this.conversationId,
       config,
       tracker: this.tracker,
       signal,
@@ -850,11 +888,16 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Run the v2 activation pipeline when the workspace config
-   * (`memory.v2.enabled`) is on.
+   * Run the v2 activation pipeline when the v2 injection engine is the live
+   * tier ({@link isV2InjectionEngineActive}) — memory on, `memory.v2.enabled`
+   * set, and v3 not live. Every `prepareMemory` entry point shares this gate,
+   * including callers without their own v3 guard (e.g. the persona
+   * workflow-leaf runner), so a v3-live assistant never runs the v2
+   * router/activation pipeline or writes its activation/injection logs.
    *
    * The two outcomes the caller distinguishes via `routed`:
-   *   - `routed: false` — v2 disabled; caller falls through to the legacy v1
+   *   - `routed: false` — v2 engine not active (disabled, memory off, or v3
+   *                        live); caller falls through to the legacy v1
    *                        retrieval path.
    *   - `routed: true`  — v2 ran. `runMessages` is either the v2-prepended
    *                        message list (block was non-null) or the input
@@ -879,7 +922,7 @@ export class ConversationGraphMemory {
     runMessages: Message[];
     injectedBlockText: string | null;
   }> {
-    if (!config.memory.v2.enabled) {
+    if (!isV2InjectionEngineActive(config)) {
       return { routed: false, runMessages: messages, injectedBlockText: null };
     }
 
@@ -892,7 +935,6 @@ export class ConversationGraphMemory {
         : extractRecentTurnPairs(messages, historicalPairs);
 
     const result = await injectMemoryV2Block({
-      database: getDb(),
       conversationId: this.conversationId,
       currentTurn,
       recentTurnPairs,
@@ -991,12 +1033,18 @@ export function countMemoryPrefixBlocks(content: ContentBlock[]): number {
  * `reinjectCachedMemory` is idempotent — no duplicate images after compaction.
  */
 export function stripExistingMemoryInjections(messages: Message[]): Message[] {
-  if (messages.length === 0) return messages;
+  if (messages.length === 0) {
+    return messages;
+  }
   const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return messages;
+  if (!last || last.role !== "user") {
+    return messages;
+  }
 
   const stripped = stripMemoryPrefixFromUserMessage(last);
-  if (stripped === last) return messages;
+  if (stripped === last) {
+    return messages;
+  }
 
   return [...messages.slice(0, -1), stripped];
 }
@@ -1011,9 +1059,13 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
  * assembly strips only the TAIL's fresh v2 prefix when v3 supersedes it.
  */
 function stripMemoryPrefixFromUserMessage(message: Message): Message {
-  if (message.role !== "user") return message;
+  if (message.role !== "user") {
+    return message;
+  }
   const firstNonMemory = countMemoryPrefixBlocks(message.content);
-  if (firstNonMemory === 0) return message;
+  if (firstNonMemory === 0) {
+    return message;
+  }
   return { ...message, content: message.content.slice(firstNonMemory) };
 }
 
@@ -1024,21 +1076,31 @@ function stripMemoryPrefixFromUserMessage(message: Message): Message {
  * rendering) that otherwise discard the prepended content.
  */
 export function extractMemoryPrefixBlocks(messages: Message[]): ContentBlock[] {
-  if (messages.length === 0) return [];
+  if (messages.length === 0) {
+    return [];
+  }
   const last = messages[messages.length - 1];
-  if (!last || last.role !== "user") return [];
+  if (!last || last.role !== "user") {
+    return [];
+  }
   const count = countMemoryPrefixBlocks(last.content);
   return count === 0 ? [] : last.content.slice(0, count);
 }
 
 function injectTextBlock(messages: Message[], text: string): Message[] {
-  if (text.trim().length === 0) return messages;
-  if (messages.length === 0) return messages;
+  if (text.trim().length === 0) {
+    return messages;
+  }
+  if (messages.length === 0) {
+    return messages;
+  }
   // Strip existing memory blocks from the last user message first to prevent
   // duplicates when the message was loaded from DB with a persisted block.
   const cleaned = stripExistingMemoryInjections(messages);
   const userTail = cleaned[cleaned.length - 1];
-  if (!userTail || userTail.role !== "user") return messages;
+  if (!userTail || userTail.role !== "user") {
+    return messages;
+  }
   return [
     ...cleaned.slice(0, -1),
     {
@@ -1059,13 +1121,19 @@ function injectMemoryBlock(
   text: string,
   images: Map<string, ResolvedImage>,
 ): Message[] {
-  if (text.trim().length === 0 && images.size === 0) return messages;
-  if (messages.length === 0) return messages;
+  if (text.trim().length === 0 && images.size === 0) {
+    return messages;
+  }
+  if (messages.length === 0) {
+    return messages;
+  }
   // Strip existing memory blocks from the last user message first to prevent
   // duplicates when the message was loaded from DB with a persisted block.
   const cleaned = stripExistingMemoryInjections(messages);
   const userTail = cleaned[cleaned.length - 1];
-  if (!userTail || userTail.role !== "user") return messages;
+  if (!userTail || userTail.role !== "user") {
+    return messages;
+  }
 
   const blocks: ContentBlock[] = [];
 
@@ -1106,7 +1174,9 @@ function injectMemoryBlock(
  */
 function extractUserText(message: Message): string | null {
   const joined = readRawUserText(message);
-  if (!joined) return null;
+  if (!joined) {
+    return null;
+  }
   return joined.length > 10 ? joined : null;
 }
 
@@ -1117,12 +1187,16 @@ function extractUserText(message: Message): string | null {
  * v1 needs would unnecessarily starve v2 on short greetings.
  */
 function readRawUserText(message: Message | undefined): string | null {
-  if (!message) return null;
+  if (!message) {
+    return null;
+  }
   const texts = message.content
     .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
     .map((b) => b.text.trim())
     .filter((t) => t.length > 0);
-  if (texts.length === 0) return null;
+  if (texts.length === 0) {
+    return null;
+  }
   return texts.join(" ");
 }
 

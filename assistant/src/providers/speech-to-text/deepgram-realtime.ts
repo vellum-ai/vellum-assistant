@@ -24,7 +24,8 @@
  * - Provider WebSocket errors and unexpected closes are mapped to
  *   {@link SttStreamServerErrorEvent} with appropriate categories.
  * - A configurable inactivity timeout fires a `closed` event if the
- *   provider stops sending data mid-session.
+ *   provider stops responding to audio mid-session; an idle stream with
+ *   no audio owed a response never times out.
  * - All timers and listeners are cleaned up on close to prevent leaks.
  */
 
@@ -50,9 +51,11 @@ const DEFAULT_MODEL = "nova-2";
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
 /**
- * Default inactivity timeout (ms). If no message is received from Deepgram
- * for this duration after the session is open, the adapter closes with a
- * timeout error. This guards against provider-side hangs.
+ * Default inactivity timeout (ms). If audio has been sent but no message
+ * comes back from Deepgram for this long, the adapter closes with a
+ * timeout error. This guards against provider-side hangs. A stream with
+ * no audio awaiting a response (e.g. mic gated while the assistant
+ * speaks) is legitimately silent and never times out.
  */
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
@@ -105,6 +108,29 @@ export interface DeepgramRealtimeOptions {
   utteranceEndMs?: number;
   /** Override the Deepgram WebSocket base URL (useful for proxies or on-prem). */
   baseUrl?: string;
+  /**
+   * Override the WebSocket path (default: "/v1/listen"). Relays expose the
+   * same wire protocol on their own routes.
+   */
+  path?: string;
+  /**
+   * Send the API key as a `?key=` query parameter instead of the
+   * `Authorization: Token` header. The velay speech relay accepts query
+   * auth; it does not accept Deepgram's `Token` scheme. Default: false.
+   */
+  queryAuth?: boolean;
+  /**
+   * Omit the `model` query parameter. The velay relay pins the model
+   * server-side and rejects requests that try to choose one. Default: false.
+   */
+  omitModelParam?: boolean;
+  /**
+   * Called with parsed JSON frames the adapter does not handle itself
+   * (anything other than `Results`/`UtteranceEnd`, e.g. `Metadata` or a
+   * relay's own control frames). Lets a wrapping adapter react to
+   * relay-specific frames without duplicating the frame pipeline.
+   */
+  onUnhandledFrame?: (frame: Record<string, unknown>) => void;
   /** Connect timeout in milliseconds. Default: 10_000. */
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
@@ -295,6 +321,13 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    */
   private readonly utteranceBoundaryFinals: boolean;
 
+  private readonly path: string;
+  private readonly queryAuth: boolean;
+  private readonly omitModelParam: boolean;
+  private readonly onUnhandledFrame:
+    | ((frame: Record<string, unknown>) => void)
+    | undefined;
+
   /**
    * Committed (`is_final`) segment texts withheld until the next
    * utterance boundary. Only populated when
@@ -352,6 +385,15 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   /** Inactivity timer handle. */
   private inactivityTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * When the first audio frame went out after the last inbound provider
+   * message; null while nothing is owed a response. The inactivity
+   * watchdog only rules "hung" while this is set — Deepgram sends nothing
+   * for silence-only stretches (KeepAlives get no reply), so inbound
+   * quiet alone is not evidence of a hang.
+   */
+  private awaitingResponseSinceMs: number | null = null;
+
   /** Close grace timer handle. */
   private closeGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -381,6 +423,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.sampleRate = options.sampleRate ?? 16_000;
     this.diarize = options.diarize ?? false;
     this.utteranceBoundaryFinals = options.utteranceBoundaryFinals ?? false;
+    this.path = options.path ?? "/v1/listen";
+    this.queryAuth = options.queryAuth ?? false;
+    this.omitModelParam = options.omitModelParam ?? false;
+    this.onUnhandledFrame = options.onUnhandledFrame;
   }
 
   // ── StreamingTranscriber interface ──────────────────────────────────
@@ -392,7 +438,8 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.onEvent = onEvent;
 
     const url = this.buildWebSocketUrl();
-    log.info({ url }, "Opening Deepgram realtime session");
+    // Query auth carries the API key in the URL — never log it.
+    log.info({ url: this.redact(url) }, "Opening Deepgram realtime session");
 
     const ws = this.createWebSocket(url);
     this.ws = ws;
@@ -402,21 +449,27 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       let settled = false;
 
       const connectTimer = setTimeout(() => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         this.forceClose();
         reject(new Error("Deepgram realtime connect timeout"));
       }, this.connectTimeoutMs);
 
       const onOpen = () => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(connectTimer);
         resolve();
       };
 
       const onError = (ev: unknown) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(connectTimer);
         const msg =
@@ -425,16 +478,20 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
             : typeof ev === "object" && ev !== null && "message" in ev
               ? String((ev as { message: unknown }).message)
               : "WebSocket error during connect";
-        reject(new Error(`Deepgram realtime connect error: ${msg}`));
+        reject(
+          new Error(`Deepgram realtime connect error: ${this.redact(msg)}`),
+        );
       };
 
       const onClose = (ev: { code: number; reason: string }) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(connectTimer);
         reject(
           new Error(
-            `Deepgram WebSocket closed before open (code=${ev.code}, reason=${ev.reason})`,
+            `Deepgram WebSocket closed before open (code=${ev.code}, reason=${this.redact(ev.reason)})`,
           ),
         );
       };
@@ -454,10 +511,14 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   }
 
   sendAudio(audio: Buffer, _mimeType: string): void {
-    if (this.closed || this.stopping) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
 
     const ws = this.ws;
-    if (!ws || ws.readyState !== WS_OPEN) return;
+    if (!ws || ws.readyState !== WS_OPEN) {
+      return;
+    }
 
     // Backpressure check — drop frames if the outbound buffer is too full
     // to prevent unbounded memory growth.
@@ -471,6 +532,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 
     // Deepgram's live endpoint accepts raw audio bytes on the WebSocket.
     ws.send(new Uint8Array(audio));
+    this.awaitingResponseSinceMs ??= Date.now();
   }
 
   /**
@@ -524,7 +586,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   }
 
   stop(): void {
-    if (this.closed || this.stopping) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
     this.stopping = true;
 
     log.info("Stopping Deepgram realtime session");
@@ -574,6 +638,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     if (typeof WebSocketCtor !== "function") {
       throw new Error("global WebSocket is not available in this runtime");
     }
+    // Query auth carries the key in the URL instead (see buildWebSocketUrl).
+    if (this.queryAuth) {
+      return new WebSocketCtor(url);
+    }
     return new WebSocketCtor(url, {
       headers: {
         Authorization: `Token ${this.apiKey}`,
@@ -606,7 +674,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * Parse and normalize a Deepgram streaming response into daemon events.
    */
   private handleProviderMessage(data: unknown): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
 
     this.resetInactivityTimer();
 
@@ -628,7 +698,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    if (!frame || typeof frame !== "object") return;
+    if (!frame || typeof frame !== "object") {
+      return;
+    }
 
     // Deepgram uses `type: "Results"` for transcript frames.
     if (frame.type === "Results") {
@@ -646,7 +718,10 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       return;
     }
 
-    // Metadata and other frame types are informational — no action needed.
+    // Metadata and other frame types are informational for this adapter;
+    // surface them to a wrapping adapter that may care (e.g. relay control
+    // frames).
+    this.onUnhandledFrame?.(frame as Record<string, unknown>);
   }
 
   /**
@@ -748,17 +823,29 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * Handle provider-side WebSocket close.
    */
   private handleProviderClose(code: number, reason: string): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
+
+    // Close reasons can echo the dialed URL (query auth carries the key
+    // there) — redact before logging, not just before emitting.
+    const safeReason = this.redact(reason);
 
     // Normal close (1000) or going-away (1001) after stop() is expected.
     if (this.stopping && (code === 1000 || code === 1001)) {
-      log.info({ code, reason }, "Deepgram realtime session closed normally");
+      log.info(
+        { code, reason: safeReason },
+        "Deepgram realtime session closed normally",
+      );
       this.emitClosedAndCleanup();
       return;
     }
 
     // Unexpected close — map to an error event.
-    log.warn({ code, reason }, "Deepgram realtime session closed unexpectedly");
+    log.warn(
+      { code, reason: safeReason },
+      "Deepgram realtime session closed unexpectedly",
+    );
 
     const category =
       code === 1008 || code === 4001
@@ -770,7 +857,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     this.emitEvent({
       type: "error",
       category,
-      message: `Deepgram WebSocket closed (code=${code}, reason=${reason})`,
+      message: `Deepgram WebSocket closed (code=${code}, reason=${safeReason})`,
     });
     this.emitClosedAndCleanup();
   }
@@ -779,16 +866,21 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * Handle provider-side WebSocket error.
    */
   private handleProviderError(ev: unknown): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
 
-    const message =
+    const message = this.redact(
       ev instanceof Error
         ? ev.message
         : typeof ev === "object" && ev !== null && "message" in ev
           ? String((ev as { message: unknown }).message)
-          : "WebSocket error";
+          : "WebSocket error",
+    );
 
-    log.error({ error: ev }, "Deepgram realtime WebSocket error");
+    // The raw event can embed the dialed URL (query auth carries the key
+    // there), so log the redacted message rather than the event object.
+    log.error({ error: message }, "Deepgram realtime WebSocket error");
 
     this.emitEvent({
       type: "error",
@@ -805,7 +897,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * errors to prevent tearing down the adapter.
    */
   private emitEvent(event: SttStreamServerEvent): void {
-    if (!this.onEvent) return;
+    if (!this.onEvent) {
+      return;
+    }
     try {
       this.onEvent(event);
     } catch (err) {
@@ -865,6 +959,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         // handleTranscriptFrame.
         this.fallbackSettledFinalizes += 1;
       }
+      // The settled request covers all audio sent so far — Deepgram had
+      // nothing significant buffered, so no response is owed anymore.
+      // Leaving the debt set would let the inactivity watchdog kill the
+      // now-idle stream ~30s after a short/noisy utterance that elicited
+      // no provider frames at all.
+      this.awaitingResponseSinceMs = null;
       this.settleOneFinalize();
     }, this.finalizeFallbackMs);
   }
@@ -883,7 +983,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * multiple times.
    */
   private emitClosedAndCleanup(): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     this.closed = true;
 
     this.clearTimers();
@@ -910,7 +1012,9 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private forceClose(): void {
     const ws = this.ws;
     this.ws = null;
-    if (!ws) return;
+    if (!ws) {
+      return;
+    }
 
     try {
       ws.close();
@@ -948,12 +1052,20 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * adapter is already closed/stopping.
    */
   private startKeepaliveTimer(): void {
-    if (this.closed || this.stopping) return;
-    if (this.keepaliveIntervalMs <= 0) return;
+    if (this.closed || this.stopping) {
+      return;
+    }
+    if (this.keepaliveIntervalMs <= 0) {
+      return;
+    }
     this.keepaliveTimer = setInterval(() => {
-      if (this.closed || this.stopping) return;
+      if (this.closed || this.stopping) {
+        return;
+      }
       const ws = this.ws;
-      if (!ws || ws.readyState !== WS_OPEN) return;
+      if (!ws || ws.readyState !== WS_OPEN) {
+        return;
+      }
       try {
         ws.send(JSON.stringify({ type: "KeepAlive" }));
       } catch (err) {
@@ -968,14 +1080,40 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    * continuous audio from the caller must not mask a silent provider.
    */
   private resetInactivityTimer(): void {
-    if (this.closed || this.stopping) return;
+    this.awaitingResponseSinceMs = null;
+    this.armInactivityTimer(this.inactivityTimeoutMs);
+  }
+
+  /**
+   * (Re)arm the inactivity watchdog. On fire it only rules "hung" when
+   * audio has been awaiting a response for a full timeout window;
+   * otherwise the stream is just idle (or the audio is too fresh) and the
+   * timer re-arms for the remainder.
+   */
+  private armInactivityTimer(delayMs: number): void {
+    if (this.closed || this.stopping) {
+      return;
+    }
 
     if (this.inactivityTimer !== null) {
       clearTimeout(this.inactivityTimer);
     }
 
     this.inactivityTimer = setTimeout(() => {
-      if (this.closed) return;
+      if (this.closed) {
+        return;
+      }
+
+      const since = this.awaitingResponseSinceMs;
+      if (since === null) {
+        this.armInactivityTimer(this.inactivityTimeoutMs);
+        return;
+      }
+      const waitedMs = Date.now() - since;
+      if (waitedMs < this.inactivityTimeoutMs) {
+        this.armInactivityTimer(this.inactivityTimeoutMs - waitedMs);
+        return;
+      }
 
       log.warn("Deepgram realtime inactivity timeout");
       this.emitEvent({
@@ -984,7 +1122,25 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
         message: "Deepgram realtime session timed out due to inactivity",
       });
       this.emitClosedAndCleanup();
-    }, this.inactivityTimeoutMs);
+    }, delayMs);
+  }
+
+  /**
+   * Strip the API key from text destined for logs, error messages, or
+   * emitted events. Under query auth the key rides in the dialed URL, and
+   * runtimes embed that URL in connection-failure messages and close
+   * reasons; both the raw and URL-encoded forms are removed.
+   */
+  private redact(text: string): string {
+    if (!this.queryAuth || !text) {
+      return text;
+    }
+    return text
+      .split(this.apiKey)
+      .join("***")
+      .split(encodeURIComponent(this.apiKey))
+      .join("***")
+      .replace(/([?&]key=)[^&\s"']*/g, "$1***");
   }
 
   // ── URL construction ────────────────────────────────────────────────
@@ -998,7 +1154,12 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
    */
   private buildWebSocketUrl(): string {
     const params = new URLSearchParams();
-    params.set("model", this.model);
+    if (!this.omitModelParam) {
+      params.set("model", this.model);
+    }
+    if (this.queryAuth) {
+      params.set("key", this.apiKey);
+    }
 
     if (this.language) {
       params.set("language", this.language);
@@ -1024,7 +1185,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     params.set("sample_rate", String(this.sampleRate));
     params.set("channels", "1");
 
-    return `${this.baseUrl}/v1/listen?${params.toString()}`;
+    return `${this.baseUrl}${this.path}?${params.toString()}`;
   }
 }
 
@@ -1056,20 +1217,30 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
 function extractSpeakerLabel(
   alternative: DeepgramStreamAlternative | undefined,
 ): string | undefined {
-  if (!alternative) return undefined;
+  if (!alternative) {
+    return undefined;
+  }
   if (typeof alternative.speaker === "number") {
     return String(alternative.speaker);
   }
   const words = alternative.words;
-  if (!Array.isArray(words) || words.length === 0) return undefined;
+  if (!Array.isArray(words) || words.length === 0) {
+    return undefined;
+  }
   const counts = new Map<number, number>();
   let firstSpeaker: number | undefined;
   for (const word of words) {
-    if (typeof word.speaker !== "number") continue;
-    if (firstSpeaker === undefined) firstSpeaker = word.speaker;
+    if (typeof word.speaker !== "number") {
+      continue;
+    }
+    if (firstSpeaker === undefined) {
+      firstSpeaker = word.speaker;
+    }
     counts.set(word.speaker, (counts.get(word.speaker) ?? 0) + 1);
   }
-  if (counts.size === 0 || firstSpeaker === undefined) return undefined;
+  if (counts.size === 0 || firstSpeaker === undefined) {
+    return undefined;
+  }
   // Pick the most common speaker; on ties, prefer the first-word speaker.
   let bestSpeaker = firstSpeaker;
   let bestCount = counts.get(firstSpeaker) ?? 0;

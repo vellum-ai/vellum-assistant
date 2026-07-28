@@ -89,15 +89,18 @@ If the user declines, stop — no snapshot, no work. If `assistant ui confirm` i
 
 Consolidation is the **only** process that writes `memory/concepts/`. If it fires mid-migration it adds pages absent from your snapshot (never reformed) that the cutover then clobbers. Freeze it in two parts — disable the triggers, then wait out any run already in flight — before you snapshot. This leaves v2 retrieval live (unlike disabling `memory.v2.enabled` wholesale).
 
-**(a) Record, then disable, both triggers.** Consolidation fires on a size trigger (`consolidation_max_buffer_lines`) and a time trigger (`consolidation_interval_hours`) — those are the only two paths. Capture the current values first so you can restore them at cutover:
+**(a) Record, then disable, both triggers.** Consolidation fires on a size trigger (`consolidation_max_buffer_lines`) and a time trigger (`consolidation_interval_hours`) — those are the only two paths. Each lives in **two namespaces**: `memory.substrate.X` overrides `memory.v2.X`, and the substrate key wins whenever it is present. Freeze in the winning namespace, and record the whole substrate override object first — that object, verbatim, is what Step 9 restores:
 
 ```
 cd "$VELLUM_WORKSPACE_DIR"   # the workspace root — NOT /workspace on local installs
-assistant config get memory.v2.consolidation_max_buffer_lines   # record (default 100)
-assistant config get memory.v2.consolidation_interval_hours     # record (default 4)
-assistant config set memory.v2.consolidation_max_buffer_lines null     # size trigger off
-assistant config set memory.v2.consolidation_interval_hours 876000     # time trigger off (~100y)
+assistant config get memory.substrate                           # record VERBATIM — may print "(not set)"
+assistant config get memory.v2.consolidation_max_buffer_lines   # record (shipped default 100)
+assistant config get memory.v2.consolidation_interval_hours     # record (shipped default 8)
+assistant config set memory.substrate.consolidation_max_buffer_lines null     # size trigger off
+assistant config set memory.substrate.consolidation_interval_hours 876000     # time trigger off (~100y)
 ```
+
+Freezing via `memory.v2.*` is **not** enough: on a workspace whose substrate twins are already set, a `memory.v2` write persists but changes no behavior. `config set` prints a `Warning:` naming the winning key when that happens, and `config get` on a shadowed `memory.v2` key prints a `Shadowed:` line with the value actually in effect — treat either as a signal that you are editing the wrong namespace.
 
 **(b) Wait out any in-flight run.** A run holds `memory/.v2-state/consolidation.lock` (`<pid> <ms>`) while working (hard-capped at 15 min) and removes it when done. The triggers are off now, so no new run can start — just wait for the lock to clear:
 
@@ -206,13 +209,18 @@ rsync -a --delete .mv3/staging/ memory/concepts/                     # deploy th
 assistant memory v3 backfill-sections                                # seed section embeddings; verify non-zero
 assistant memory v3 rebuild-index                                    # invalidate lanes so next turn rebuilds
 assistant config set memory.v3.live true                             # v3 becomes the live injected source
-# restore the two triggers to the values you recorded in Step 1 (defaults shown — use YOUR recorded values):
-assistant config set memory.v2.consolidation_max_buffer_lines 100    # re-enable size trigger
-assistant config set memory.v2.consolidation_interval_hours 4        # re-enable time trigger
+# Restore consolidation in the namespace that wins: replace memory.substrate
+# with the object you recorded in Step 1 (use '{}' if it printed "(not set)").
+# Re-read memory.substrate first if the assistant was upgraded mid-migration —
+# an upgrade can copy memory.v2 overrides into it, and those must survive.
+assistant config set memory.substrate '<the object recorded in Step 1>'
+# Verify each trigger's EFFECTIVE value against what Step 1 recorded:
+assistant config get memory.v2.consolidation_max_buffer_lines
+assistant config get memory.v2.consolidation_interval_hours
 assistant config get memory.v3.live                                  # expect: true
 ```
 
-`memory.v3.live` is plain workspace config the assistant owns — no feature flag, no operator hand-off. **Order matters:** set `memory.v3.live true` _before_ restoring the triggers, so the next consolidation is v3-shape, not v2. (`memory.v2.enabled` stayed `true` throughout — retrieval was never interrupted; only the triggers were paused.) Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good. **Rollback:** `rsync -a --delete` from the backup over `memory/concepts/`, then `assistant config set memory.v3.live false` (the restored triggers then run v2-shape consolidation on the restored corpus).
+`memory.v3.live` is plain workspace config the assistant owns — no feature flag, no operator hand-off. **Order matters:** set `memory.v3.live true` _before_ restoring the triggers, so the next consolidation is v3-shape, not v2. (`memory.v2.enabled` stayed `true` throughout — retrieval was never interrupted; only the triggers were paused.) Read each verify line against the object Step 1 recorded, because a `Shadowed:` line is only a failure signal when the recorded object did **not** carry that key. If Step 1 recorded no twin for a trigger, expect your `memory.v2` value and no `Shadowed:` line. If Step 1 recorded one — the workspace was already tuned in the substrate namespace — expect a `Shadowed:` line reporting exactly that recorded value; that is a correct restore. The restore has failed only when the effective value is neither: a `Shadowed:` line still showing the Step 1 freeze values (`null` / `876000`), or a trigger missing a twin you recorded. Fix the substrate object only in that case, and only by restoring recorded keys — never by deleting them, which discards the workspace's pre-migration tuning. Keep `.mv3/backup-concepts.*` and `.mv3/snapshot/` until the user confirms the live wiki is good. **Rollback:** `rsync -a --delete` from the backup over `memory/concepts/`, then `assistant config set memory.v3.live false` (the restored triggers then run v2-shape consolidation on the restored corpus).
 
 ```
 git add -A && git commit -m "memory-v3-migration: complete (wiki deployed, sections backfilled)" --allow-empty
@@ -231,7 +239,7 @@ Close the inference session if you opened one (`assistant inference session clos
 - **Editorial judgment is the assistant's.** Taxonomy (Step 3) and final review (Step 7) are the assistant's calls; fan-out leaves draft, they never mark an article final.
 - **Cluster-grain authoring.** One agent per topic cluster, not per page — keeps the run under the engine's 500-agent cap and keeps topical judgment coherent.
 - **No eval, no cutover.** The wiki ships only after `assistant memory v3 eval-tally` returns `gate: pass` (wiki wins or ties) on a pinned, reproducible turn set — never on a hand tally. A `fail`, a low-confidence verdict, or an unrun gate blocks cutover.
-- **Freeze consolidation, then go live by config.** Before the snapshot (Step 1) disable both consolidation triggers (`consolidation_max_buffer_lines: null`, `consolidation_interval_hours` huge) and wait out any in-flight run via `memory/.v2-state/consolidation.lock` — consolidation is the only live-corpus writer. At cutover (Step 9) set `memory.v3.live true` _then_ restore the triggers; the order keeps the next consolidation in v3 shape.
+- **Freeze consolidation in `memory.substrate`, then go live by config.** Before the snapshot (Step 1) disable both consolidation triggers under `memory.substrate` (`consolidation_max_buffer_lines: null`, `consolidation_interval_hours` huge) — that namespace overrides `memory.v2`, so a `memory.v2` write is inert wherever a substrate twin exists — and wait out any in-flight run via `memory/.v2-state/consolidation.lock`; consolidation is the only live-corpus writer. Restore by replacing `memory.substrate` with the object recorded in Step 1, and verify each trigger's effective value against that recorded object — a `Shadowed:` line is correct whenever Step 1 recorded a twin for that key (see Step 9), so never treat one as failure on its own, and never resolve one by deleting a recorded key. At cutover (Step 9) set `memory.v3.live true` _then_ restore the triggers; the order keeps the next consolidation in v3 shape.
 - **Lowercase, dash-separated flat slugs.** `the-cutover.md`, not `Arcs/The-Cutover.md`. v3 slugs are flat; hubs organize via `main:`/`links:`, not folders.
 - **Three sentinel commits**, all prefixed `memory-v3-migration:` — start / staged+audited / complete.
 

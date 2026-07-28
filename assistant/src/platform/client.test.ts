@@ -265,7 +265,7 @@ describe("VellumPlatformClient", () => {
       expect(await client!.getOwnerConsent()).toBeNull();
     });
 
-    test("null share_analytics (owner never chose) maps to false, keeping diagnostics intact", async () => {
+    test("null share_analytics (owner never chose) maps to true — telemetry is opt-out", async () => {
       globalThis.fetch = mock(
         async () =>
           new Response(
@@ -281,9 +281,54 @@ describe("VellumPlatformClient", () => {
       const client = await VellumPlatformClient.create();
       const consent = await client!.getOwnerConsent();
       expect(consent).toEqual({
-        shareAnalytics: false,
+        shareAnalytics: true,
         shareDiagnostics: true,
         shareDiagnosticsAcceptedVersion: "2026-06-18",
+      });
+    });
+
+    test("explicit false is an opt-out", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              share_analytics: false,
+              share_diagnostics: false,
+              share_diagnostics_accepted_version: "2026-06-18",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: false,
+        shareDiagnostics: false,
+        shareDiagnosticsAcceptedVersion: "2026-06-18",
+      });
+    });
+
+    test("null share_diagnostics (owner never chose) maps to true with the version gate still closed", async () => {
+      globalThis.fetch = mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              share_analytics: null,
+              share_diagnostics: null,
+              share_diagnostics_accepted_version: "",
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof globalThis.fetch;
+
+      const client = await VellumPlatformClient.create();
+      const consent = await client!.getOwnerConsent();
+      expect(consent).toEqual({
+        shareAnalytics: true,
+        shareDiagnostics: true,
+        // "" keeps the PII trace-collection version gate fail-closed.
+        shareDiagnosticsAcceptedVersion: "",
       });
     });
 

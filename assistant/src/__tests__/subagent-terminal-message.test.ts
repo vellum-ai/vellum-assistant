@@ -96,4 +96,54 @@ describe("buildSubagentTerminalMessage", () => {
     expect(msg).toContain("Error: boom");
     expect(msg).toContain("Do NOT re-spawn or retry");
   });
+
+  test("appends a denied-tools note to an inlined completion", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "write-report",
+      subagentId: "sa-7",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "Here is what I found.",
+      deniedTools: ["file_write"],
+    });
+
+    expect(msg).toContain("Here is what I found.");
+    expect(msg).toContain("attempted file_write");
+    expect(msg).toContain("does not permit it");
+    expect(msg).toContain("re-spawn with a role that includes it");
+    expect(msg).toContain("coder");
+  });
+
+  test("appends a pluralized denied-tools note to a read-pointer completion", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "empty-write",
+      subagentId: "sa-8",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "   ",
+      deniedTools: ["file_write", "file_edit"],
+    });
+
+    expect(msg).toContain('subagent_read with subagent_id "sa-8"');
+    expect(msg).toContain("attempted file_write, file_edit");
+    expect(msg).toContain("does not permit them");
+    expect(msg).toContain("re-spawn with a role that includes them");
+  });
+
+  test("omits the denied-tools note when none were denied", () => {
+    const msg = buildSubagentTerminalMessage({
+      label: "clean",
+      subagentId: "sa-9",
+      isFork: false,
+      outcome: "completed",
+      silent: false,
+      finalText: "All done.",
+      deniedTools: [],
+    });
+
+    expect(msg).not.toContain("does not permit");
+    expect(msg).not.toContain("re-spawn");
+  });
 });

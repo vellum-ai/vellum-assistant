@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import {
   disposeToolProfiler,
@@ -99,6 +99,55 @@ describe("ToolProfiler", () => {
   });
 });
 
+/**
+ * A `process.memoryUsage` replacement that reproduces the Bun 1.3.11
+ * `SystemError: Failed to get memory usage, errno: 2` syscall failure. Cast to
+ * the real signature because an always-throwing arrow infers a `never` return.
+ */
+const throwingMemoryUsage = (() => {
+  throw new Error("Failed to get memory usage, errno: 2");
+}) as unknown as typeof process.memoryUsage;
+
+describe("ToolProfiler RSS sampling failures", () => {
+  let profiler: ToolProfiler;
+
+  beforeEach(() => {
+    profiler = new ToolProfiler();
+  });
+
+  afterEach(() => {
+    // Restore the real implementation between cases.
+    spyOn(process, "memoryUsage").mockRestore();
+  });
+
+  test("startRequest tolerates a throwing memoryUsage syscall", () => {
+    // Simulate the Bun 1.3.11 `SystemError: Failed to get memory usage` bug.
+    spyOn(process, "memoryUsage").mockImplementation(throwingMemoryUsage);
+
+    expect(() => profiler.startRequest()).not.toThrow();
+  });
+
+  test("recordToolCompletion still records stats when memoryUsage throws", () => {
+    profiler.startRequest();
+    spyOn(process, "memoryUsage").mockImplementation(throwingMemoryUsage);
+
+    // The RSS sample fails, but the tool's timing stats are still recorded and
+    // no exception escapes to the caller (the agent loop).
+    expect(() =>
+      profiler.recordToolCompletion("bash", 123, false),
+    ).not.toThrow();
+
+    const summary = profiler.getSummary();
+    expect(summary.toolCount).toBe(1);
+    expect(summary.tools["bash"]).toEqual({
+      count: 1,
+      totalMs: 123,
+      maxMs: 123,
+      errors: 0,
+    });
+  });
+});
+
 describe("conversation-keyed profiler registry", () => {
   test("recording before a request window is a silent no-op", () => {
     expect(() =>
@@ -123,6 +172,28 @@ describe("conversation-keyed profiler registry", () => {
     expect(() =>
       recordToolCompletion("conv-a", "bash", 1, false),
     ).not.toThrow();
+  });
+
+  test("recordToolCompletion swallows profiler failures instead of throwing", () => {
+    startToolProfilingRequest("conv-throwing");
+    const spy = spyOn(process, "memoryUsage").mockImplementation(
+      throwingMemoryUsage,
+    );
+
+    try {
+      // A throwing RSS syscall must never propagate to the executor/agent loop.
+      expect(() =>
+        recordToolCompletion("conv-throwing", "bash", 42, false),
+      ).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The turn's timing stats survived even though the RSS sample failed.
+    expect(() =>
+      emitToolProfilingSummary("conv-throwing", "req-throwing"),
+    ).not.toThrow();
+    disposeToolProfiler("conv-throwing");
   });
 
   test("startToolProfilingRequest resets a conversation's prior window", () => {

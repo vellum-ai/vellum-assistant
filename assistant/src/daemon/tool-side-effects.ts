@@ -9,12 +9,14 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 
-import { addAppConversationId } from "../apps/app-store.js";
+import type { AssistantEvent } from "../api/index.js";
+import { addAppConversationId, getApp } from "../apps/app-store.js";
 import { findActiveSession } from "../channels/gateway-verification-sessions.js";
+import { getConfig } from "../config/loader.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import { invalidateEdgeIndex } from "../plugins/defaults/memory/v2/edge-index.js";
-import { invalidatePageIndex } from "../plugins/defaults/memory/v2/page-index.js";
-import { getConceptsDir } from "../plugins/defaults/memory/v2/page-store.js";
+import { invalidateEdgeIndex } from "../plugins/defaults/memory/substrate/edge-index.js";
+import { invalidatePageIndex } from "../plugins/defaults/memory/substrate/page-index.js";
+import { getConceptsDir } from "../plugins/defaults/memory/substrate/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
@@ -25,7 +27,6 @@ import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
-import type { ServerMessage } from "./message-protocol.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 
 const log = getLogger("tool-side-effects");
@@ -70,6 +71,29 @@ function broadcastAppFilesChanged(appId: string): void {
   publishAppsChanged();
 }
 
+/**
+ * Resolve the app id a post-execution hook should act on.
+ *
+ * `app_id` is optional for the app-builder fallback tools (`app_update`,
+ * `app_refresh`, `app_generate_icon`): when the model omits it, the skill
+ * script resolves the conversation's active app and the executor operates on
+ * that id. Prefer the explicit tool input; otherwise use the id the executor
+ * reports through the typed `resolvedAppId` side channel, so an omitted-id call
+ * still refreshes surfaces, rebroadcasts, and re-deploys instead of silently
+ * no-op'ing. The hook must not infer the id by re-parsing the LLM-facing
+ * `result.content` (see assistant/AGENTS.md § Post-execution hooks).
+ */
+function resolveHookAppId(
+  input: Record<string, unknown>,
+  result: ToolExecutionResult,
+): string | undefined {
+  const explicit = input.app_id;
+  if (typeof explicit === "string" && explicit.trim().length > 0) {
+    return explicit;
+  }
+  return result.resolvedAppId;
+}
+
 // ── Registry ─────────────────────────────────────────────────────────
 
 /**
@@ -92,46 +116,36 @@ function registerHook(
 // (e.g. macOS "Things" sidebar) refresh their app list immediately.
 // Also kicks off async icon generation via Gemini.
 registerHook("app_create", (_name, _input, result, { ctx }) => {
+  const appId = result.resolvedAppId;
+  if (!appId) {
+    return;
+  }
   try {
-    const parsed = JSON.parse(result.content) as {
-      id?: string;
-      name?: string;
-      description?: string;
-    };
-    if (parsed.id) {
-      try {
-        addAppConversationId(parsed.id, ctx.conversationId);
-      } catch (err) {
-        log.warn(
-          { err, appId: parsed.id },
-          "Failed to track conversation ID on app_create",
-        );
-      }
+    addAppConversationId(appId, ctx.conversationId);
+  } catch (err) {
+    log.warn({ err, appId }, "Failed to track conversation ID on app_create");
+  }
 
-      ensureAppSourceWatcher();
+  ensureAppSourceWatcher();
 
-      notifyAppChanged(ctx, parsed.id);
+  notifyAppChanged(ctx, appId);
 
-      if (parsed.name) {
-        void generateAppIcon(parsed.id, parsed.name, parsed.description)
-          .then(() => {
-            broadcastAppFilesChanged(parsed.id!);
-          })
-          .catch((err) => {
-            log.warn(
-              { err, appId: parsed.id },
-              "Background icon generation failed",
-            );
-          });
-      }
-    }
-  } catch {
-    // Result wasn't valid JSON — skip the broadcast.
+  // Seed background icon generation from the created app's canonical record
+  // (its name/description) rather than the LLM-facing result payload.
+  const app = getApp(appId);
+  if (app?.name) {
+    void generateAppIcon(appId, app.name, app.description)
+      .then(() => {
+        broadcastAppFilesChanged(appId);
+      })
+      .catch((err) => {
+        log.warn({ err, appId }, "Background icon generation failed");
+      });
   }
 });
 
-registerHook("app_generate_icon", (_name, input) => {
-  const appId = input.app_id as string | undefined;
+registerHook("app_generate_icon", (_name, input, result) => {
+  const appId = resolveHookAppId(input, result);
   if (appId) {
     broadcastAppFilesChanged(appId);
   }
@@ -144,35 +158,30 @@ registerHook("app_delete", (_name, input) => {
   }
 });
 
-registerHook("app_refresh", (_name, input, _result, { ctx }) => {
-  const appId = input.app_id as string | undefined;
-  if (!appId) return;
-  try {
-    addAppConversationId(appId, ctx.conversationId);
-  } catch (err) {
-    log.warn({ err, appId }, "Failed to track conversation ID on app_refresh");
-  }
-  notifyAppChanged(ctx, appId, { fileChange: true });
-});
-
-// app_update compiles internally (like app_refresh) but emits no events of its
-// own, so without this hook an updated app leaves open surfaces rendering the
-// stale dist and never re-deploys or invalidates the Library. The executor owns
-// the compile; notifyAppChanged only refreshes surfaces and broadcasts.
-registerHook("app_update", (_name, input, _result, { ctx }) => {
-  const appId = input.app_id as string | undefined;
-  if (!appId) return;
-  try {
-    addAppConversationId(appId, ctx.conversationId);
-  } catch (err) {
-    log.warn({ err, appId }, "Failed to track conversation ID on app_update");
-  }
-  notifyAppChanged(ctx, appId, { fileChange: true });
-});
+// app_refresh and app_update mutate an app's source but emit no events of their
+// own, so without a hook an updated app leaves open surfaces rendering the stale
+// dist and never re-deploys or invalidates the Library. The executor owns the
+// compile; notifyAppChanged only refreshes surfaces and broadcasts.
+function registerAppSurfaceRefreshHook(toolName: string): void {
+  registerHook(toolName, (name, input, result, { ctx }) => {
+    const appId = resolveHookAppId(input, result);
+    if (!appId) {
+      return;
+    }
+    try {
+      addAppConversationId(appId, ctx.conversationId);
+    } catch (err) {
+      log.warn({ err, appId }, `Failed to track conversation ID on ${name}`);
+    }
+    notifyAppChanged(ctx, appId, { fileChange: true });
+  });
+}
+registerAppSurfaceRefreshHook("app_refresh");
+registerAppSurfaceRefreshHook("app_update");
 
 registerHook("voice_config_update", (_name, input) => {
   const setting = input.setting as string | undefined;
-  if (!setting) return;
+  if (!setting) {return;}
 
   const SETTING_TO_KEY: Record<string, string> = {
     activation_key: "pttActivationKey",
@@ -182,7 +191,19 @@ registerHook("voice_config_update", (_name, input) => {
     fish_audio_reference_id: "fishAudioReferenceId",
   };
   const key = SETTING_TO_KEY[setting];
-  if (!key) return;
+  if (!key) {return;}
+
+  // `ttsVoiceId` is an ElevenLabs concept on the desktop client. When the
+  // active provider is managed (vellum) or anything else, the voice lives only
+  // in daemon config and hot-applies per turn — the tool skips the client
+  // broadcast in that case, so this hook must too, else it would pollute the
+  // client's ElevenLabs voice with, e.g., a Deepgram Aura model id.
+  if (
+    setting === "tts_voice_id" &&
+    getConfig().services.tts.provider !== "elevenlabs"
+  ) {
+    return;
+  }
 
   // Coerce the value to the correct type before broadcasting, matching
   // the validation logic in the tool's execute method.
@@ -201,7 +222,7 @@ registerHook("voice_config_update", (_name, input) => {
     type: "client_settings_update",
     key,
     value: coerced,
-  } as unknown as ServerMessage);
+  } as unknown as AssistantEvent);
 });
 
 // Dispatch pending Slack DM delivery when a CLI verification command
@@ -210,8 +231,8 @@ registerHook("voice_config_update", (_name, input) => {
 // This hook runs in the unsandboxed daemon process and delivers the DM.
 registerHook("bash", async (_name, input, result) => {
   const command = (input.command ?? "") as string;
-  if (!command.includes("channel-verification-sessions")) return;
-  if (!result.content.includes("_pendingSlackDm")) return;
+  if (!command.includes("channel-verification-sessions")) {return;}
+  if (!result.content.includes("_pendingSlackDm")) {return;}
 
   type PendingDm = { userId: string; text: string; assistantId: string };
   type Parsed = { _pendingSlackDm?: PendingDm };
@@ -267,18 +288,18 @@ registerHook("bash", async (_name, input, result) => {
     // multi-object output (e.g. cancel + create chained with &&).
   }
   if (singleObject !== undefined) {
-    if ((await dispatch(singleObject)) !== null) return;
+    if ((await dispatch(singleObject)) !== null) {return;}
   }
   for (const line of result.content.split("\n")) {
     const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
+    if (!trimmed.startsWith("{")) {continue;}
     let parsed: Parsed;
     try {
       parsed = JSON.parse(trimmed) as Parsed;
     } catch {
       continue;
     }
-    if ((await dispatch(parsed)) === "delivered") return;
+    if ((await dispatch(parsed)) === "delivered") {return;}
   }
 });
 
@@ -290,7 +311,7 @@ function invalidateEdgeIndexIfConceptPage(
   input: Record<string, unknown>,
 ): void {
   const rawPath = input.path;
-  if (typeof rawPath !== "string" || rawPath.length === 0) return;
+  if (typeof rawPath !== "string" || rawPath.length === 0) {return;}
   const workspaceDir = getWorkspaceDir();
   const conceptsRoot = getConceptsDir(workspaceDir);
   const absPath = isAbsolute(rawPath)

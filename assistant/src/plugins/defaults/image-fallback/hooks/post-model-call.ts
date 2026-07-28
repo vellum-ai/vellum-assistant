@@ -10,9 +10,11 @@
  * fallback to a text-only model after the sweep decided. The provider's
  * rejection is ground truth that image input cannot be sent, regardless of
  * what the catalog claims. This hook recognizes the rejection class, captions
- * every image block in the working history via the plugin's shared
- * substitution (fail-open placeholders when captioning fails), and asks the
- * loop to retry the call.
+ * the image blocks the retry would still send — top-level images plus
+ * current-turn tool-result media, the same set the host's outbound sanitizer
+ * keeps (stale tool-result media it strips to a marker is left alone) — via
+ * the plugin's shared substitution (fail-open placeholders when captioning
+ * fails), and asks the loop to retry the call.
  *
  * Unlike the image-recovery plugin's image-too-large flow, nothing is
  * persisted: the stored rows keep the raw image, which clients render and
@@ -31,15 +33,18 @@
  * provider rejection is this hook's to act on.
  */
 
-import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
+import {
+  type HookFunction,
+  isVisionNotSupportedError,
+  type PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import { captionImagesInMessages } from "../src/caption-blocks.js";
+import { captionOutboundImagesInMessages } from "../src/caption-blocks.js";
 import {
   isVisionRecoveryAttempted,
   markVisionRecoveryAttempted,
 } from "../src/recovery-state.js";
 import { findVisionProfile } from "../src/vision-caption.js";
-import { isVisionNotSupportedError } from "../src/vision-error.js";
 
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (
@@ -52,7 +57,7 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   markVisionRecoveryAttempted(ctx.conversationId);
 
   const visionProfileKey = findVisionProfile();
-  const captioned = await captionImagesInMessages(
+  const captioned = await captionOutboundImagesInMessages(
     ctx.messages,
     ctx.conversationId,
     visionProfileKey,
@@ -60,8 +65,9 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   );
 
   if (captioned === 0) {
-    // The rejection names image input but the working history holds no image
-    // blocks to caption — retrying the identical request would just re-reject,
+    // The rejection names image input but the outbound request carries no
+    // image blocks to caption (stale tool-result media is stripped to a marker
+    // before sending) — retrying the identical request would just re-reject,
     // so leave the error to surface.
     ctx.logger.warn(
       { plugin: "image-fallback" },

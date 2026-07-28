@@ -1,28 +1,47 @@
 /**
  * File-based route dispatcher for user-defined HTTP endpoints.
  *
- * Maps requests under the `/x/*` path prefix to handler modules in the
- * workspace routes directory (`$VELLUM_WORKSPACE_DIR/routes/`). Each handler file
- * exports named functions for HTTP methods (GET, POST, PUT, etc.) using
- * the standard Web API Request/Response signature.
+ * Maps requests under the `/x/*` path prefix to handler modules resolved from
+ * the filesystem at request time. Two locations back the surface:
+ *
+ * - `$VELLUM_WORKSPACE_DIR/routes/<path>` — workspace routes, served at
+ *   `/x/<path>`.
+ * - `$VELLUM_WORKSPACE_DIR/plugins/<name>/routes/<path>` — a plugin's routes,
+ *   served in that plugin's namespace at `/x/plugins/<name>/<path>`. The
+ *   `plugins/<name>/` prefix is reserved for this: a request there resolves
+ *   only against the named plugin's `routes/` directory (never the workspace
+ *   `routes/plugins/…` tree) so plugins can't collide with workspace routes or
+ *   each other.
+ *
+ * Each handler file exports named functions for HTTP methods (GET, POST, PUT,
+ * etc.) using the standard Web API Request/Response signature.
  *
  * Handlers receive a second `context` argument with runtime singletons
- * (event hub, assistant ID, etc.) that would otherwise be unreachable
- * from dynamically imported modules because Bun's cache-busting import
- * creates separate module instances.
+ * (event hub, etc.) that would otherwise be unreachable from dynamically
+ * imported modules because Bun's cache-busting import creates separate
+ * module instances.
  *
  * Modules are lazily loaded on first request and cached by file path +
  * mtime. When a file changes on disk, the next request reloads it via
- * Bun's dynamic `import()` with a cache-busting query parameter.
+ * Bun's dynamic `import()` with a cache-busting query parameter. A request
+ * whose file does not exist 404s — nothing is registered ahead of time.
  */
 
-import { existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { statSync } from "node:fs";
 
+import { isRouteHostEnabled } from "../../routes/control.js";
+import {
+  RouteHostClient,
+  RouteHostTimeoutError,
+  RouteHostUnavailableError,
+} from "../../routes/route-host-client.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceRoutesDir } from "../../util/platform.js";
 import type { AssistantEventHub } from "../assistant-event-hub.js";
 import { httpError } from "../http-errors.js";
+import {
+  resolveHandlerFile,
+  resolveRouteLocation,
+} from "./user-route-resolution.js";
 
 const log = getLogger("user-routes");
 
@@ -42,8 +61,6 @@ const log = getLogger("user-routes");
 export interface UserRouteContext {
   /** The daemon's event hub singleton — use this to publish events to connected SSE clients. */
   readonly assistantEventHub: AssistantEventHub;
-  /** The logical assistant ID used by the daemon (typically "self"). */
-  readonly assistantId: string;
   /** Conversation operations available to route handlers (e.g. posting integration events as turns). */
   readonly conversations: RouteConversationsApi;
 }
@@ -94,9 +111,9 @@ type HttpMethod = (typeof HTTP_METHODS)[number];
  * The function signature that user-defined route handlers must follow.
  *
  * Handlers may accept an optional second `context` argument with runtime
- * singletons (event hub, assistant ID). Legacy handlers that only accept
- * `request` continue to work — the context is passed positionally but
- * ignored if the handler doesn't declare the parameter.
+ * singletons (event hub). Legacy handlers that only accept `request`
+ * continue to work — the context is passed positionally but ignored if
+ * the handler doesn't declare the parameter.
  */
 type RouteHandler = (
   request: Request,
@@ -113,16 +130,19 @@ interface CachedModule {
   mtimeMs: number;
 }
 
-/** Default per-request timeout for user-defined route handlers (30 seconds). */
-const DEFAULT_HANDLER_TIMEOUT_MS = 30_000;
-
-/** Supported file extensions for handler modules. */
-const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
+/** Default per-request timeout for user-defined route handlers (2 minutes). */
+const DEFAULT_HANDLER_TIMEOUT_MS = 120_000;
 
 export class UserRouteDispatcher {
   private moduleCache = new Map<string, CachedModule>();
   private handlerTimeoutMs: number;
   private context: UserRouteContext;
+  /**
+   * The route host client. Constructing it is inert — the subprocess spawns
+   * lazily on the client's first `invoke` — so a dispatcher whose host is never
+   * enabled never spawns one.
+   */
+  private readonly routeHostClient: RouteHostClient;
 
   constructor(options: {
     handlerTimeoutMs?: number;
@@ -131,6 +151,13 @@ export class UserRouteDispatcher {
     this.handlerTimeoutMs =
       options.handlerTimeoutMs ?? DEFAULT_HANDLER_TIMEOUT_MS;
     this.context = Object.freeze({ ...options.context });
+    // Both execution paths — in-process ({@link executeHandler}) and the route
+    // host subprocess — must honor the same per-request timeout, so the host
+    // client's hard-kill deadline is driven by the dispatcher's timeout rather
+    // than its own independent default.
+    this.routeHostClient = new RouteHostClient({
+      invokeTimeoutMs: this.handlerTimeoutMs,
+    });
   }
 
   /**
@@ -145,8 +172,10 @@ export class UserRouteDispatcher {
       return httpError("BAD_REQUEST", "Path traversal is not allowed", 400);
     }
 
-    const routesDir = getWorkspaceRoutesDir();
-    const filePath = this.resolveHandlerFile(routesDir, routePath);
+    const location = resolveRouteLocation(routePath);
+    const filePath = location
+      ? resolveHandlerFile(location.routesDir, location.subPath)
+      : null;
 
     if (!filePath) {
       return httpError(
@@ -154,6 +183,10 @@ export class UserRouteDispatcher {
         `No route handler found for /x/${routePath}`,
         404,
       );
+    }
+
+    if (isRouteHostEnabled()) {
+      return this.dispatchViaHost(filePath, routePath, request);
     }
 
     const mod = await this.loadModule(filePath);
@@ -172,43 +205,70 @@ export class UserRouteDispatcher {
   }
 
   /**
-   * Resolve a route path to a handler file on disk.
-   *
-   * Checks for direct file matches first (`<path>.ts`, `<path>.js`),
-   * then falls back to index files (`<path>/index.ts`, `<path>/index.js`).
-   *
-   * Returns the absolute path to the handler file, or null if not found.
+   * Delegate execution to the route host subprocess. The main thread has
+   * already resolved `filePath` (and 404'd if missing); here it marshals the
+   * request, hands it to the host, and rebuilds a `Response` from the reply.
+   * Maps the host's typed failures to HTTP: timeout → 504, host unavailable →
+   * 503, and a handler that threw → 500 (matching the in-thread contract).
    */
-  private resolveHandlerFile(
-    routesDir: string,
+  private async dispatchViaHost(
+    filePath: string,
     routePath: string,
-  ): string | null {
-    const basePath = join(routesDir, routePath);
-    const resolved = resolve(basePath);
+    request: Request,
+  ): Promise<Response> {
+    const mtimeMs = statSync(filePath).mtimeMs;
 
-    // Ensure the resolved path is within the routes directory to prevent
-    // any path traversal that slipped through the initial check.
-    if (!resolved.startsWith(resolve(routesDir))) {
-      return null;
+    const headers: [string, string][] = [];
+    request.headers.forEach((value, name) => {
+      headers.push([name, value]);
+    });
+    let body: Uint8Array | null = null;
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      const buffer = new Uint8Array(await request.arrayBuffer());
+      body = buffer.byteLength > 0 ? buffer : null;
     }
 
-    // Direct file match: routes/<path>.ts or routes/<path>.js
-    for (const ext of HANDLER_EXTENSIONS) {
-      const candidate = `${resolved}${ext}`;
-      if (existsSync(candidate)) {
-        return candidate;
+    try {
+      const result = await this.routeHostClient.invoke(
+        {
+          filePath,
+          mtimeMs,
+          method: request.method,
+          url: request.url,
+          headers,
+        },
+        body,
+      );
+      const responseHeaders = new Headers();
+      for (const [name, value] of result.headers) {
+        responseHeaders.append(name, value);
       }
-    }
-
-    // Index file convention: routes/<path>/index.ts or routes/<path>/index.js
-    for (const ext of HANDLER_EXTENSIONS) {
-      const candidate = join(resolved, `index${ext}`);
-      if (existsSync(candidate)) {
-        return candidate;
+      // `Uint8Array` is a valid body at runtime; the cast placates the DOM lib's
+      // `Uint8Array<ArrayBuffer>` vs `ArrayBufferLike` generic mismatch.
+      return new Response(result.body as BodyInit | null, {
+        status: result.status,
+        headers: responseHeaders,
+      });
+    } catch (err) {
+      if (err instanceof RouteHostTimeoutError) {
+        return httpError(
+          "SERVICE_UNAVAILABLE",
+          `Route handler for /x/${routePath} timed out after ${err.timeoutMs}ms`,
+          504,
+        );
       }
+      if (err instanceof RouteHostUnavailableError) {
+        return httpError(
+          "SERVICE_UNAVAILABLE",
+          `Route host is unavailable; retry shortly`,
+          503,
+        );
+      }
+      log.error({ err, routePath }, "User route handler threw an error");
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
+      return httpError("INTERNAL_ERROR", message, 500);
     }
-
-    return null;
   }
 
   /**

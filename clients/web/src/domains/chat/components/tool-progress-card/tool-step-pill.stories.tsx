@@ -25,10 +25,6 @@ const meta: Meta<typeof ToolStepPill> = {
       ],
     },
     label: { control: "text" },
-    tone: {
-      control: "inline-radio",
-      options: ["default", "error"],
-    },
     active: { control: "boolean" },
   },
 };
@@ -68,14 +64,6 @@ export const Clickable: Story = {
     iconName: "plug",
     label: "linear.createIssue",
     onClick: () => {},
-  },
-};
-
-export const ErrorTone: Story = {
-  args: {
-    iconName: "bolt",
-    label: "Command failed with exit code 1",
-    tone: "error",
   },
 };
 
@@ -182,7 +170,6 @@ export const AllVariants: Story = {
       <ToolStepPill
         iconName="bolt"
         label="Command failed with exit code 1"
-        tone="error"
       />
       <ToolStepPill
         iconName="sparkle"

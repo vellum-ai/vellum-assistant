@@ -7,7 +7,15 @@
  * AudioContext is touched.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 // The default client factory in use-live-voice statically imports the real
@@ -37,12 +45,15 @@ import {
 // Import the controller + store *after* the connection mock is registered, so
 // the real connection.ts (which imports the generated SDK) never enters the
 // static import graph.
-const { useLiveVoice } = await import(
-  "@/domains/chat/voice/live-voice/use-live-voice"
-);
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
+const { useLiveVoice } =
+  await import("@/domains/chat/voice/live-voice/use-live-voice");
+const {
+  useLiveVoiceStore,
+  getLiveVoicePlaybackProgress,
+  minimizeVoiceRoom,
+  restoreVoiceRoom,
+} = await import("@/domains/chat/voice/live-voice/live-voice-store");
+const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -120,6 +131,13 @@ async function startListening(
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
+  // The voice-prefs store is a persisted singleton — reset the two turn-taking
+  // settings to unset (null) so a test that sets them can't leak into the
+  // connect-args assertions of the next.
+  useVoicePrefsStore.setState({
+    pauseBeforeReplyMs: null,
+    interruptSensitivity: null,
+  });
 });
 
 afterEach(() => {
@@ -212,6 +230,8 @@ describe("full turn", () => {
     });
     expect(h.view.result.current.state).toBe("speaking");
     expect(h.player.enqueued).toHaveLength(1);
+    // Audio is flowing, so the avatar reads `responding` (JARVIS-1279).
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
 
     // tts_done awaits playback drain, then ends the session (single-utterance):
     // the socket is closed and the mic is shut down, returning to idle.
@@ -223,6 +243,73 @@ describe("full turn", () => {
     expect(h.view.result.current.state).toBe("idle");
     expect(h.client.closed).toBe(true);
     expect(h.getCapture().shutdownCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Assistant-audio activity (mid-turn tool run) — JARVIS-1279
+// ---------------------------------------------------------------------------
+
+describe("assistant-audio activity", () => {
+  function emitTts(h: ReturnType<typeof renderController>, seq: number) {
+    h.client.emit("ttsAudio", {
+      type: "tts_audio",
+      seq,
+      mimeType: "audio/pcm",
+      sampleRate: 24000,
+      dataBase64: "AAAA",
+    });
+  }
+
+  test("stays `speaking` but marks audio inactive after the idle window when the player falls silent mid-turn", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitTts(h, 3);
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+
+    // The ack audio finishes but the turn stays open — the assistant is now
+    // running a tool, so no `tts_done` arrives.
+    act(() => {
+      h.player.finishPlayback();
+    });
+
+    // After the idle grace with a silent player, audio is marked inactive while
+    // the phase is still `speaking`, so the avatar can read `thinking`.
+    await act(async () => {
+      await sleep(650); // > ASSISTANT_AUDIO_IDLE_MS (500ms)
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(false);
+
+    // More TTS for the same turn re-activates it (back to `responding`).
+    act(() => {
+      emitTts(h, 4);
+    });
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
+  });
+
+  test("keeps audio active across the idle window while the player is still draining", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      emitTts(h, 3);
+    });
+    // FakePlayer.enqueue leaves isPlaying true; never finish playback here.
+    expect(h.player.isPlaying).toBe(true);
+
+    // The idle check fires but re-arms because audio is still playing out — the
+    // avatar must not blink to `thinking` over audible speech.
+    await act(async () => {
+      await sleep(650);
+    });
+    expect(useLiveVoiceStore.getState().assistantAudioActive).toBe(true);
   });
 });
 
@@ -403,7 +490,97 @@ describe("hands-free mode", () => {
     });
   }
 
-  test("connects with server_vad turn detection", async () => {
+  test("connects with server_vad turn detection, omitting the pause + interrupt overrides when unset", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // With no user preference set, the overrides are omitted so the daemon's
+    // configured VAD defaults govern (never clobbered by a client default).
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+    });
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("a final during a held pause (no utterance_end) stays listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Semantic endpointing held the utterance open: the daemon forwards the
+    // segment's final but suppresses `utterance_end`. The UI must keep
+    // reading as the user's turn, not flip to thinking.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "can you tell me about",
+      });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+    expect(h.view.result.current.state).toBe("listening");
+
+    // The real release closes the utterance, and the next final advances.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 4,
+        reason: "silence",
+      });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+    act(() => {
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 5,
+        text: "can you tell me about the weather",
+      });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+  });
+
+  test("speech resuming inside a held utterance keeps the finalized transcript", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // A held pause: speech started, a segment finalized, no utterance_end.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "can you tell me about",
+      });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+
+    // The user resumes: the daemon re-fires speech_started for the SAME
+    // utterance. The finalized prefix must survive — clearing belongs to
+    // the first onset after the utterance closed, not a hold resume.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 4 });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("can you tell me about");
+
+    // Once the utterance closes, the NEXT onset is a new turn and clears.
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 5,
+        reason: "silence",
+      });
+      h.client.emit("speechStarted", { type: "speech_started", seq: 6 });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("");
+  });
+
+  test("sends the user's pause + interrupt-sensitivity settings on a hands-free connect", async () => {
+    useVoicePrefsStore.setState({
+      pauseBeforeReplyMs: 1500,
+      interruptSensitivity: "low", // low sensitivity → 600 ms guard
+    });
     const h = renderController();
     await startListening(h, { handsFree: true });
 
@@ -411,8 +588,19 @@ describe("hands-free mode", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
+      silenceThresholdMs: 1500,
+      bargeInMinSpeechMs: 600,
     });
-    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("omits turn-detection + pause + interrupt settings for a manual (non-hands-free) connect", async () => {
+    const h = renderController();
+    await startListening(h); // manual
+
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+    });
   });
 
   test("runs two full turns on one socket without a second client or ptt_release", async () => {
@@ -693,6 +881,94 @@ describe("hands-free mode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// minimize_room (assistant-requested room dismissal)
+// ---------------------------------------------------------------------------
+
+describe("minimize_room", () => {
+  test("emitting minimizeRoom sets roomMinimized once local playback is idle", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+
+    // Nothing is playing, so the drain wait resolves on a microtask.
+    await act(async () => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 2,
+        turnId: "t1",
+      });
+      await Promise.resolve();
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    // Advisory frame: the session itself is untouched.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+  });
+
+  test("minimize defers until buffered TTS audio finishes playing", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Buffered audio is still audibly playing when the daemon's tts_done +
+    // minimize_room arrive (synthesis outruns real-time playback).
+    act(() => {
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 2,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.player.isPlaying).toBe(true);
+
+    await act(async () => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 3,
+        turnId: "t1",
+      });
+      await Promise.resolve();
+    });
+    // The room must stay up while the assistant is still audibly speaking.
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+  });
+
+  test("a repeat frame while already minimized stays minimized, and restore still works", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    await act(async () => {
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 2,
+        turnId: "t1",
+      });
+      h.client.emit("minimizeRoom", {
+        type: "minimize_room",
+        seq: 3,
+        turnId: "t2",
+      });
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+
+    // The user can still bring the room back after a server-driven minimize.
+    act(() => {
+      restoreVoiceRoom();
+    });
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Version skew: hands-free against an older daemon
 // ---------------------------------------------------------------------------
 
@@ -704,7 +980,10 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
   }
 
   /** Drive the session into `speaking` with one thinking + tts frame. */
-  function driveToSpeaking(h: ReturnType<typeof renderController>, turnId = "t1") {
+  function driveToSpeaking(
+    h: ReturnType<typeof renderController>,
+    turnId = "t1",
+  ) {
     act(() => {
       h.client.emit("thinking", { type: "thinking", seq: 2, turnId });
       h.client.emit("ttsAudio", {
@@ -911,6 +1190,37 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     });
     expect(h.view.result.current.state).toBe("listening");
     expect(useLiveVoiceStore.getState().muted).toBe(true);
+  });
+
+  test("a minimized room stays minimized across a retryable reconnect", async () => {
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    act(() => minimizeVoiceRoom());
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    // The same logical session is continuing — the room must not remount
+    // over whatever the user minimized it to look at.
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
   });
 
   test("publishes handsFree to the store, downgraded on the version-skew fallback", async () => {
@@ -1954,6 +2264,54 @@ describe("session context and controls", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Playback-progress provider — feeds the transcript's spoken-word cursor
+// ---------------------------------------------------------------------------
+
+describe("playback-progress provider", () => {
+  test("start() registers a provider that reads the active player's progress", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+
+    h.player.playbackProgress = { playedSeconds: 1.25, totalSeconds: 3.5 };
+    expect(getLiveVoicePlaybackProgress()).toEqual({
+      playedSeconds: 1.25,
+      totalSeconds: 3.5,
+    });
+  });
+
+  test("teardown clears the registered provider", async () => {
+    const h = renderController();
+    await startListening(h);
+    h.player.playbackProgress = { playedSeconds: 1, totalSeconds: 2 };
+    expect(getLiveVoicePlaybackProgress()).not.toBeNull();
+
+    act(() => {
+      h.view.unmount();
+    });
+
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+  });
+
+  test("a thinking frame resets the player's progress with the transcript clear", async () => {
+    const h = renderController();
+    await startListening(h);
+    expect(h.player.resetPlaybackProgressCount).toBe(0);
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+    });
+
+    expect(h.player.resetPlaybackProgressCount).toBe(1);
+    expect(useLiveVoiceStore.getState().assistantTranscript).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // observeAudioState — high-frequency subscription opt-out
 // ---------------------------------------------------------------------------
 
@@ -2005,7 +2363,11 @@ describe("observeAudioState", () => {
     const rendersBefore = h.getRenderCount();
     act(() => {
       h.client.emit("sttPartial", { type: "stt_partial", seq: 2, text: "hel" });
-      h.client.emit("sttPartial", { type: "stt_partial", seq: 3, text: "hello" });
+      h.client.emit("sttPartial", {
+        type: "stt_partial",
+        seq: 3,
+        text: "hello",
+      });
     });
     // Transcript writes reached the store but not the consumer.
     expect(useLiveVoiceStore.getState().partialTranscript).toBe("hello");
@@ -2239,7 +2601,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.view.result.current.state).toBe("connecting");
     expect(useLiveVoiceStore.getState().controls).not.toBeNull();
 
-    // Backoff elapses → a fresh connect to the SAME conversation.
+    // Backoff elapses → a fresh connect to the SAME conversation (no turn-taking
+    // overrides, since none were set).
     await act(async () => {
       await sleep(80);
     });
@@ -2388,7 +2751,8 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
 
 describe("reconnecting signal", () => {
   const FAST_BACKOFF = [20, 40, 60];
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
   test("a retryable close flips reconnecting true while connecting; ready clears it", async () => {
     const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
@@ -2471,5 +2835,183 @@ describe("reconnecting signal", () => {
     expect(h.view.result.current.state).toBe("failed");
     expect(h.view.result.current.error).toBe("kaboom");
     expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Initial-connect resilience (JARVIS-1282): a managed/hands-free session's
+// first connect must not flash `failed` for a transient pre-`ready` failure
+// (cold velay tunnel, token-mint blip) while the room's avatar animates in.
+// ---------------------------------------------------------------------------
+
+describe("initial-connect resilience (JARVIS-1282)", () => {
+  const FAST_BACKOFF = [20, 40, 60];
+
+  /** Start a hands-free session and stop at `connecting` (no `ready` emitted). */
+  async function startConnecting(
+    h: ReturnType<typeof renderController>,
+  ): Promise<void> {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    // Let the concurrently-started capture promise settle; state stays
+    // `connecting` until a `ready` (never emitted here).
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+  }
+
+  test("retries a transient pre-ready connection failure instead of flashing failed, then readies", async () => {
+    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+    await startConnecting(h);
+
+    // Cold velay tunnel rejects the first upgrade → a pre-`ready` connection
+    // failure surfaces via the transport's `error` event.
+    await act(async () => {
+      const err: LiveVoiceClientError = {
+        reason: "connection-failed",
+        message: "Live-voice WebSocket error",
+      };
+      h.client.emit("error", err);
+    });
+    // Held in `connecting` (avatar keeps animating), NOT `failed`; no error
+    // surfaced; a live stop control stays registered; and it reads as a first
+    // connect ("Connecting…"), not a reconnect ("Reconnecting…").
+    expect(h.view.result.current.state).toBe("connecting");
+    expect(h.view.result.current.error).toBeNull();
+    expect(useLiveVoiceStore.getState().reconnecting).toBe(false);
+    expect(useLiveVoiceStore.getState().controls).not.toBeNull();
+
+    // Backoff elapses → a fresh connect to the same conversation.
+    await act(async () => {
+      await sleep(30);
+    });
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+    });
+
+    // The retry readies → listening; the error never appeared.
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.view.result.current.error).toBeNull();
+  });
+
+  test("surfaces failed once the initial-connect retry budget is exhausted", async () => {
+    // A single-attempt budget: one retry, then the next failure surfaces.
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startConnecting(h);
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "cold tunnel",
+      });
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+
+    // The one scheduled retry fires…
+    await act(async () => {
+      await sleep(30);
+    });
+    // …and also fails pre-`ready`: budget spent → surface the failure.
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "still down",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("still down");
+  });
+
+  test("does not retry the initial connect for a manual (non-hands-free) session", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1"); // manual
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "boom",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("boom");
+  });
+
+  test("a non-connection pre-ready error (protocol-error) still fails immediately", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startConnecting(h);
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "bad frame",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("bad frame");
+  });
+
+  test("a connection failure after ready is not retried by the initial-connect path", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startListening(h, { handsFree: true });
+    expect(h.view.result.current.state).toBe("listening");
+
+    // Once connected, the initial-connect resilience is retired: a fatal
+    // connection error fails the session outright as before.
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "socket died",
+      });
+    });
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("socket died");
+  });
+
+  test("stop() during the initial-connect backoff cancels the pending retry", async () => {
+    const h = renderController({ reconnectBackoffMs: [20] });
+    await startConnecting(h);
+
+    await act(async () => {
+      h.client.emit("error", {
+        reason: "connection-failed",
+        message: "cold tunnel",
+      });
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+    const connectArgsBeforeStop = h.client.connectArgs;
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(h.view.result.current.state).toBe("idle");
+
+    // The backoff would have elapsed — but the timer was cancelled, so no
+    // retry connect fires.
+    await act(async () => {
+      await sleep(40);
+    });
+    expect(h.view.result.current.state).toBe("idle");
+    expect(h.client.connectArgs).toBe(connectArgsBeforeStop);
   });
 });

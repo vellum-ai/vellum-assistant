@@ -95,8 +95,8 @@ describe("reconcileFlagGatedProfiles", () => {
     // Through the effective view the stub resolves to the catalog body.
     const effective = getEffectiveProfile(raw.llm.profiles, "os-beta")!;
     expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(effective.provider_connection).toBe("vellum");
-    expect(effective.provider).toBe("together");
+    expect(effective.provider_connection).toBeUndefined();
+    expect(effective.provider).toBe("vellum");
     expect(effective.source).toBe("managed");
     expect(effective.label).toBe("OS Beta");
     expect(effective.effort).toBe("low");
@@ -157,7 +157,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(effective.label).toBe("My OS Beta");
     expect(effective.topP).toBe(0.8);
     expect(effective.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(effective.provider_connection).toBe("vellum");
+    expect(effective.provider_connection).toBeUndefined();
     expect(effective.effort).toBe("low");
   });
 

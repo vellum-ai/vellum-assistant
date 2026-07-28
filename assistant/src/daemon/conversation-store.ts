@@ -13,6 +13,12 @@
  */
 
 import { getConfig } from "../config/loader.js";
+import {
+  ADOPTABLE_CONVERSATION_ID_RE,
+  createConversation,
+  ensureConversationExists,
+  getConversation,
+} from "../persistence/conversation-crud.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import {
   mainAgentResolutionError,
@@ -95,7 +101,14 @@ export async function getOrCreateConversation(
   let conversation = findConversation(conversationId);
   const sendToClient = () => {};
 
-  const { taskRunId: _taskRunId, ...persistentOptions } = options ?? {};
+  // `taskRunId` and `ephemeral` are per-call scopes, not durable conversation
+  // metadata, so they are stripped before the remaining options are merged
+  // into the persisted `conversationOptions` map.
+  const {
+    taskRunId: _taskRunId,
+    ephemeral,
+    ...persistentOptions
+  } = options ?? {};
   if (Object.values(persistentOptions).some((v) => v !== undefined)) {
     mergeConversationOptions(conversationId, persistentOptions);
   }
@@ -105,6 +118,9 @@ export async function getOrCreateConversation(
     (conversation.isStale() && !conversation.isProcessing())
   ) {
     if (conversation) {
+      // Stale rebuild: the conversation id lives on, so abort in-flight
+      // children but keep terminal subagent results readable for the
+      // retention window.
       getSubagentManager().abortAllForParent(conversationId);
       conversation.dispose();
     }
@@ -157,6 +173,40 @@ export async function getOrCreateConversation(
         },
       );
       newConversation.updateClient(sendToClient, true);
+
+      // Ensure the conversations row exists before hydrating from DB.
+      // `getOrCreateConversation` builds the in-memory Conversation, but
+      // the persisted row is what `loadFromDb` reads for conversationType,
+      // source, and other metadata. If the row doesn't exist yet (brand-new
+      // conversation), create it now so hydration caches the right fields.
+      //
+      // When `conversationType` is provided (e.g. "background" for
+      // plugin-driven conversations), create the row with that type so it
+      // is hidden from the sidebar. The ID is validated against the same
+      // pattern as `ensureConversationExists` to prevent path traversal.
+      // Otherwise use `ensureConversationExists` directly, which validates
+      // and creates a standard row.
+      //
+      // Ephemeral calls skip row creation entirely: their contract persists
+      // nothing, so the in-memory Conversation hydrates from whatever rows
+      // already exist without leaking a sidebar-visible row. `loadFromDb`
+      // tolerates a missing row.
+      if (!ephemeral && !getConversation(conversationId)) {
+        if (storedOptions?.conversationType) {
+          if (!ADOPTABLE_CONVERSATION_ID_RE.test(conversationId)) {
+            throw new Error(
+              `Refusing to adopt unsafe conversation id: ${JSON.stringify(conversationId)}`,
+            );
+          }
+          createConversation({
+            id: conversationId,
+            conversationType: storedOptions.conversationType,
+          });
+        } else {
+          ensureConversationExists(conversationId);
+        }
+      }
+
       await newConversation.loadFromDb();
       if (storedOptions?.assistantId) {
         newConversation.setAssistantId(storedOptions.assistantId);
@@ -200,12 +250,15 @@ export async function getOrCreateConversation(
  * deleted conversation and trip FK constraints.
  */
 export function destroyActiveConversation(conversationId: string): void {
+  // Subagent teardown is keyed by parent id, not the live instance — an
+  // evicted parent still retains its terminal children, and deleting the
+  // conversation must take their records with it.
+  getSubagentManager().disposeAllForParent(conversationId);
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return;
   }
   removeFromEvictor(conversationId);
-  getSubagentManager().abortAllForParent(conversationId);
   conversation.dispose();
   deleteConversation(conversationId);
   deleteConversationOptions(conversationId);
@@ -230,10 +283,12 @@ export function stopConversations(): void {
  */
 export function clearAllActiveConversations(): number {
   const count = conversationCount();
-  const subagentManager = getSubagentManager();
+  // Dispose subagents across ALL parents, not just the in-memory ones — an
+  // evicted parent still retains its terminal children, and clear-all must
+  // take their records with it.
+  getSubagentManager().disposeAllForAllParents();
   for (const id of conversationIds()) {
     removeFromEvictor(id);
-    subagentManager.abortAllForParent(id);
   }
   for (const conversation of allConversations()) {
     conversation.dispose();

@@ -787,8 +787,19 @@ describe("streamCommitImport — memory ceiling", () => {
       // MB archive, RSS would spike by at least 100 MB; a streaming
       // importer's per-entry working set is bounded by ~one tar entry's
       // internal buffers (a few MB).
-      const baselineRss = process.memoryUsage().rss;
-      let peakRss = baselineRss;
+      //
+      // Bun 1.3.11 can throw `SystemError: Failed to get memory usage` from the
+      // underlying syscall; guard every sample so a spurious failure doesn't
+      // flake the run — a skipped sample just keeps the prior peak.
+      const sampleRss = (): number | null => {
+        try {
+          return process.memoryUsage().rss;
+        } catch {
+          return null;
+        }
+      };
+      const baselineRss = sampleRss();
+      let peakRss = baselineRss ?? 0;
       let progressCount = 0;
 
       const result = await streamCommitImport({
@@ -797,8 +808,8 @@ describe("streamCommitImport — memory ceiling", () => {
         workspaceDir,
         onProgress: () => {
           progressCount += 1;
-          const cur = process.memoryUsage().rss;
-          if (cur > peakRss) peakRss = cur;
+          const cur = sampleRss();
+          if (cur !== null && cur > peakRss) peakRss = cur;
         },
       });
 
@@ -810,7 +821,7 @@ describe("streamCommitImport — memory ceiling", () => {
       // The 64 MB delta bound is a rough guard proving "it doesn't buffer
       // the whole bundle" — if the importer were accumulating the 100 MB
       // archive in memory, RSS would jump well past this threshold.
-      const delta = peakRss - baselineRss;
+      const delta = peakRss - (baselineRss ?? 0);
       expect(delta).toBeLessThan(64 * 1024 * 1024);
     } finally {
       try {

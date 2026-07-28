@@ -1346,6 +1346,16 @@ jobs:
         run: |
           PKG_NAME=$(cat /tmp/npm-dist/name)
           PKG_VERSION=$(cat /tmp/npm-dist/version)
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Guard against a version desync: the tarball is packed straight from
+          # the branch's package.json, so if the release branch was never bumped
+          # to $EXPECTED_VERSION the "already published" check below matches the
+          # PREVIOUS release and silently skips publishing while the job still
+          # goes green. Fail loudly instead of reporting a false success.
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION — the release branch's package.json was not bumped to v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (treating as retry)."
             exit 0
@@ -1427,6 +1437,16 @@ jobs:
         run: |
           PKG_NAME=$(cat /tmp/npm-dist/name)
           PKG_VERSION=$(cat /tmp/npm-dist/version)
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Guard against a version desync: the tarball is packed straight from
+          # the branch's package.json, so if the release branch was never bumped
+          # to $EXPECTED_VERSION the "already published" check below matches the
+          # PREVIOUS release and silently skips publishing while the job still
+          # goes green. Fail loudly instead of reporting a false success.
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION — the release branch's package.json was not bumped to v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (treating as retry)."
             exit 0
@@ -1570,6 +1590,16 @@ jobs:
         run: |
           PKG_NAME=$(cat /tmp/npm-dist/name)
           PKG_VERSION=$(cat /tmp/npm-dist/version)
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Guard against a version desync: the tarball is packed straight from
+          # the branch's package.json, so if the release branch was never bumped
+          # to $EXPECTED_VERSION the "already published" check below matches the
+          # PREVIOUS release and silently skips publishing while the job still
+          # goes green. Fail loudly instead of reporting a false success.
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION — the release branch's package.json was not bumped to v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
@@ -1642,6 +1672,16 @@ jobs:
         run: |
           PKG_NAME=$(cat /tmp/npm-dist/name)
           PKG_VERSION=$(cat /tmp/npm-dist/version)
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Guard against a version desync: the tarball is packed straight from
+          # the branch's package.json, so if the release branch was never bumped
+          # to $EXPECTED_VERSION the "already published" check below matches the
+          # PREVIOUS release and silently skips publishing while the job still
+          # goes green. Fail loudly instead of reporting a false success.
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION — the release branch's package.json was not bumped to v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
@@ -1725,6 +1765,16 @@ jobs:
         run: |
           PKG_NAME=$(cat /tmp/npm-dist/name)
           PKG_VERSION=$(cat /tmp/npm-dist/version)
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Guard against a version desync: the tarball is packed straight from
+          # the branch's package.json, so if the release branch was never bumped
+          # to $EXPECTED_VERSION the "already published" check below matches the
+          # PREVIOUS release and silently skips publishing while the job still
+          # goes green. Fail loudly instead of reporting a false success.
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION — the release branch's package.json was not bumped to v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
@@ -1808,6 +1858,11 @@ jobs:
         run: |
           PKG_NAME=$(node -p "require('./package.json').name")
           PKG_VERSION=$(node -p "require('./package.json').version")
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
@@ -1965,6 +2020,16 @@ jobs:
         run: |
           PKG_NAME=$(cat /tmp/npm-dist/name)
           PKG_VERSION=$(cat /tmp/npm-dist/version)
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          # Guard against a version desync: the tarball is packed straight from
+          # the branch's package.json, so if the release branch was never bumped
+          # to $EXPECTED_VERSION the "already published" check below matches the
+          # PREVIOUS release and silently skips publishing while the job still
+          # goes green. Fail loudly instead of reporting a false success.
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION — the release branch's package.json was not bumped to v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (treating as retry)."
             exit 0
@@ -2039,6 +2104,11 @@ jobs:
           cd meta
           PKG_NAME=$(node -p "require('./package.json').name")
           PKG_VERSION=$(node -p "require('./package.json').version")
+          EXPECTED_VERSION="${{ needs.extract-version.outputs.version }}"
+          if [ "$PKG_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error::$PKG_NAME is packaged as v$PKG_VERSION but this release is v$EXPECTED_VERSION. Refusing to skip/succeed without publishing v$EXPECTED_VERSION."
+            exit 1
+          fi
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (treating as retry)."
             exit 0
@@ -2775,7 +2845,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, publish-npm-staging, publish-web-staging, publish-meta-staging, publish-plugin-api-staging, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2801,8 +2871,18 @@ jobs:
           # the release job (registration-first ordering), so its failure
           # must mark the release failed here — release.result no longer
           # covers it.
+          # npm publishes are gated here too: a version desync makes an
+          # individual publish job fail (or skip) while release.result can still
+          # be success, so keying only off release/deploy-web-spa would report a
+          # green release even though nothing reached npm.
           RELEASE_FAILED="false"
-          if [ "$IS_STAGING" != "true" ] && { [ "${{ needs.release.result }}" != "success" ] || [ "${{ needs.deploy-web-spa-production.result }}" != "success" ]; }; then
+          if [ "$IS_STAGING" != "true" ] && {
+            [ "${{ needs.release.result }}" != "success" ] \
+            || [ "${{ needs.deploy-web-spa-production.result }}" != "success" ] \
+            || [ "${{ needs.publish-npm-prod.result }}" != "success" ] \
+            || [ "${{ needs.publish-web-prod.result }}" != "success" ] \
+            || [ "${{ needs.publish-meta-prod.result }}" != "success" ] \
+            || [ "${{ needs.publish-plugin-api-prod.result }}" != "success" ]; }; then
             RELEASE_FAILED="true"
           fi
 
@@ -2825,6 +2905,20 @@ jobs:
               STAGING_READY="false"
             fi
             if [ "${{ needs.deploy-web-spa-staging.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            # Staging npm publishes must land too — a version desync here fails
+            # the publish job while the rest of the release stays green.
+            if [ "${{ needs.publish-npm-staging.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.publish-web-staging.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.publish-meta-staging.result }}" != "success" ]; then
+              STAGING_READY="false"
+            fi
+            if [ "${{ needs.publish-plugin-api-staging.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
           fi

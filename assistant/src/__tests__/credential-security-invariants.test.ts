@@ -149,6 +149,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
       "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
+      "daemon/chat-credential-redaction.ts", // chat sentinel enrichment — scoped read ONLY of credentials a `credentials reveal` command in the same turn already printed to stdout; value byte-compared at persist and discarded, never persisted or logged
+
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
       "tools/network/web-fetch.ts", // web fetch provider (Firecrawl) API key lookup
@@ -168,21 +170,26 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/slack/api.ts", // Slack Web API client (bot token for direct sends)
       "messaging/providers/telegram-bot/api.ts", // Telegram Bot API client (bot token for direct sends)
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
+      "telegram/webhook-health.ts", // Telegram webhook health sweep — reads bot_token to call getWebhookInfo (Bot API authenticates via the token in the URL path) and checks webhook_secret for existence only; neither value is logged, persisted, or returned
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "messaging/providers/whatsapp/api.ts", // WhatsApp Cloud API client (bot token for direct sends)
       "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
       "credential-health/credential-health-service.ts", // proactive credential health monitoring
+      "providers/inference/credential-slot-repair.ts", // boot repair: copies the shared openai-compatible slot value into per-connection slots (get/set of provider API keys only; values never logged or returned)
+      "runtime/routes/inference-provider-connection-routes.ts", // connection delete removes its dedicated per-connection key slot (deleteSecureKeyAsync only; no reads)
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
       "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
-      "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
+      "messaging/providers/slack/auth.ts", // canonical Slack auth resolver (bot/user token lookup for adapter + routes)
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers
       "oauth/connection-resolver.ts", // resolve OAuthConnection from oauth-store (access_token lookup)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "acp/acp-claude-oauth.ts", // Connect Claude OAuth token vault-store helper (stores sk-ant-oat token via setSecureKeyAsync)
+      "runtime/routes/acp-claude-auth-routes.ts", // Connect Claude Code daemon OAuth flow (stores OAuth token in vault)
       "runtime/routes/migration-routes.ts", // migration import credential restore
       "daemon/conversation-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
@@ -229,6 +236,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
       "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
       "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
+      "plugin-api/resolve-credential.ts", // plugin-facing resolveCredential — reveal-equivalent plaintext read, scoped to the in-context plugin's own field
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

@@ -157,7 +157,7 @@ function seedTestData(): void {
         isPrimary: true,
         externalChatId: null,
         status: "unverified",
-        policy: "escalate",
+        policy: "allow",
         interactionCount: 0,
         createdAt: now,
       },
@@ -465,7 +465,7 @@ describe("IPC contact routes", () => {
         address: "trusted@example.com",
         isPrimary: true,
         status: "active",
-        policy: "escalate",
+        policy: "deny",
         verifiedAt: now,
         verifiedVia: "manual",
         interactionCount: 3,
@@ -492,7 +492,7 @@ describe("IPC contact routes", () => {
     expect(channels).toHaveLength(1);
     // Status/policy/verification preserved — NOT overwritten to unverified/allow.
     expect(channels[0].status).toBe("active");
-    expect(channels[0].policy).toBe("escalate");
+    expect(channels[0].policy).toBe("deny");
     expect(channels[0].verifiedAt).toBe(now);
     expect(channels[0].verifiedVia).toBe("manual");
   });
@@ -880,6 +880,29 @@ describe("IPC contact routes", () => {
       expect(res.statusCode).toBe(400);
       expect(res.errorCode).toBe("BAD_REQUEST");
       expect(res.error).toMatch(/policy/);
+    });
+
+    test('rejects policy "escalate" as a 400', async () => {
+      seedTestData();
+      await startServerAndConnect();
+
+      const res = await sendRequest(client, "update_contact_channel", {
+        contactChannelId: "ch3",
+        policy: "escalate",
+      });
+
+      expect(res.error).toBeDefined();
+      expect(res.statusCode).toBe(400);
+      expect(res.errorCode).toBe("BAD_REQUEST");
+      expect(res.error).toMatch(/policy/);
+
+      // The row must be untouched.
+      const row = getGatewayDb()
+        .select()
+        .from(contactChannels)
+        .where(eq(contactChannels.id, "ch3"))
+        .get();
+      expect(row?.policy).toBe("allow");
     });
 
     test("revoking a blocked channel returns the conflict error", async () => {

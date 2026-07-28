@@ -446,14 +446,14 @@ function ScopeSubtitle({
         style={{ color: "var(--content-secondary)" }}
       >
         <span
-          className="inline-flex items-center gap-1"
+          className="inline-flex flex-wrap items-center gap-1"
           style={{ color: "var(--content-default)" }}
         >
           <MessageSquare size={12} aria-hidden />
           {turnPosition
             ? `Scoped to turn ${turnPosition.index} of ${turnPosition.count} · `
             : "Scoped to one message · "}
-          <code>{shortMessageId(messageId)}</code>
+          <code>{messageId}</code>
         </span>
       </p>
     );
@@ -492,7 +492,7 @@ function ScopeControls({
     if (messageId && !built.some((opt) => opt.value === messageId)) {
       built.push({
         value: messageId,
-        label: `Message ${shortMessageId(messageId)}`,
+        label: `Message ${messageId}`,
       });
     }
     return built;
@@ -579,10 +579,6 @@ function previewContent(content: string | undefined | null): string {
   const collapsed = content.replace(/\s+/g, " ").trim();
   if (collapsed.length <= 60) return collapsed;
   return `${collapsed.slice(0, 57)}…`;
-}
-
-function shortMessageId(messageId: string): string {
-  return messageId.length > 12 ? `${messageId.slice(0, 8)}…` : messageId;
 }
 
 interface TurnPosition {

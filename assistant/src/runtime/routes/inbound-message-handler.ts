@@ -55,6 +55,7 @@ import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   buildSlackTimezoneMetadata,
   formatSlackTimezoneLabel,
+  isSlackTs,
   mergeSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
@@ -80,6 +81,7 @@ import {
   updateMessageContent,
   updateMessageMetadata,
 } from "../../persistence/conversation-crud.js";
+import { applyDeterministicTitleIfReplaceable } from "../../persistence/conversation-title-service.js";
 import {
   clearPayload,
   findMessageBySourceId,
@@ -88,7 +90,6 @@ import {
 import { markProcessed } from "../../persistence/delivery-status.js";
 import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
-import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -111,9 +112,9 @@ import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
-import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
+import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
 import {
   handleSlackReactionIntercept,
   isSlackReactionEvent,
@@ -151,7 +152,9 @@ function trimMetadataString(
   key: string,
 ): string | undefined {
   const value = metadata?.[key];
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
@@ -160,7 +163,9 @@ function parseSlackActorTimezoneMetadata(
   sourceChannel: string,
   metadata: SourceMetadata | undefined,
 ): SlackActorTimezoneMetadata | undefined {
-  if (sourceChannel !== "slack") return undefined;
+  if (sourceChannel !== "slack") {
+    return undefined;
+  }
 
   const timezone = metadata?.timezone?.trim() || undefined;
   const timezoneLabel = metadata?.timezoneLabel?.trim() || undefined;
@@ -189,7 +194,9 @@ function attachSlackRequesterTimezone(
   trustCtx: TrustContext,
   timezone: SlackActorTimezoneMetadata | undefined,
 ): TrustContext {
-  if (!timezone) return trustCtx;
+  if (!timezone) {
+    return trustCtx;
+  }
   return {
     ...trustCtx,
     ...(timezone.timezone ? { requesterTimezone: timezone.timezone } : {}),
@@ -410,7 +417,9 @@ export async function handleChannelInbound({
     assistantId,
     externalMessageId,
   });
-  if (guardianActivationResponse) return guardianActivationResponse;
+  if (guardianActivationResponse) {
+    return guardianActivationResponse;
+  }
 
   // ── Slack reaction handling ──
   // Reactions are passive channel signals — not messages, and not access
@@ -487,7 +496,9 @@ export async function handleChannelInbound({
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
     isCallbackInteraction,
   });
-  if (aclResult.earlyResponse) return aclResult.earlyResponse;
+  if (aclResult.earlyResponse) {
+    return aclResult.earlyResponse;
+  }
   const { resolvedMember } = aclResult;
 
   // ── Slack delete propagation ──
@@ -530,7 +541,9 @@ export async function handleChannelInbound({
         conversationExternalId,
         deletedMessageTs,
       );
-      if (original) break;
+      if (original) {
+        break;
+      }
       if (attempt < deleteLookupRetries) {
         log.info(
           {
@@ -674,12 +687,15 @@ export async function handleChannelInbound({
     typeof sourceMetadata?.messageId === "string"
       ? sourceMetadata.messageId
       : undefined;
-  const slackThreadTs =
-    sourceChannel === "slack" &&
+  // Thread id of the inbound message's external container (Slack thread ts,
+  // Telegram topic id). Scopes conversation resolution and the persisted
+  // binding for thread-scoped channels.
+  const channelThreadId =
     typeof sourceMetadata?.threadId === "string" &&
     sourceMetadata.threadId.trim().length > 0
       ? sourceMetadata.threadId.trim()
       : undefined;
+  const slackThreadTs = sourceChannel === "slack" ? channelThreadId : undefined;
 
   if (isEdit && !sourceMessageId) {
     throw new BadRequestError("sourceMetadata.messageId is required for edits");
@@ -692,7 +708,7 @@ export async function handleChannelInbound({
       conversationExternalId,
       externalMessageId,
       sourceMessageId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
       canonicalAssistantId,
       assistantId,
       content,
@@ -708,7 +724,7 @@ export async function handleChannelInbound({
     {
       sourceMessageId,
       assistantId: canonicalAssistantId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
     },
   );
 
@@ -723,7 +739,7 @@ export async function handleChannelInbound({
       sourceChannel,
       externalChatId: conversationExternalId,
       externalChatName: slackChannelName,
-      externalThreadId: slackThreadTs ?? null,
+      externalThreadId: channelThreadId ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,
       username: body.actorUsername ?? null,
@@ -751,6 +767,10 @@ export async function handleChannelInbound({
         },
     slackActorTimezone,
   );
+  // Exact provenance for this turn's triggering message, read back by
+  // guardian-approval producers to link approval cards to their source.
+  trustCtx.sourceMessageId = sourceMessageId;
+  trustCtx.sourceThreadId = slackThreadTs;
 
   // ── Admission policy floor ──
   // Sits between trust resolution and the agent loop. The gateway attaches
@@ -838,6 +858,11 @@ export async function handleChannelInbound({
           actorExternalId: floorSenderId,
           actorDisplayName: body.actorDisplayName,
           actorUsername: body.actorUsername,
+          // The floor deny runs after recordInbound, so the originating
+          // conversation exists — attach the in-app card to it (instead of a
+          // standalone Chat) so the card lands in the originating Slack/Telegram
+          // conversation and its delivery row points there.
+          destinationConversationId: result.conversationId,
           ...(resolvedMember
             ? {
                 previousMemberStatus: channelStatusToMemberStatus(
@@ -871,6 +896,22 @@ export async function handleChannelInbound({
       }
     }
 
+    // recordInbound created this conversation, but a floor-denied inbound never
+    // runs an agent turn, so neither title-generation hook fires and the
+    // conversation would sit on the "Generating title…" placeholder forever.
+    // Give it a deterministic title (the access-request card is its content).
+    // Only for the access-request path — a callback interaction seeds no card.
+    if (!isCallbackInteraction) {
+      const requesterLabel =
+        body.actorDisplayName ?? body.actorUsername ?? floorSenderId;
+      applyDeterministicTitleIfReplaceable(
+        result.conversationId,
+        requesterLabel
+          ? `Access request — ${requesterLabel}`
+          : "Access request",
+      );
+    }
+
     // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
     // challenge text for `trusted_contacts` / `guardian_only` denials —
     // sender gets the standard "ask the guardian" copy.
@@ -901,7 +942,9 @@ export async function handleChannelInbound({
       }
     }
 
-    if (!result.duplicate) markProcessed(result.eventId);
+    if (!result.duplicate) {
+      markProcessed(result.eventId);
+    }
 
     return {
       accepted: true,
@@ -973,28 +1016,6 @@ export async function handleChannelInbound({
     };
   }
 
-  // ── Ingress escalation ──
-  const escalationResponse = await handleEscalationIntercept({
-    resolvedMember,
-    canonicalAssistantId,
-    sourceChannel,
-    sourceInterface,
-    conversationExternalId,
-    externalMessageId,
-    conversationId: result.conversationId,
-    eventId: result.eventId,
-    content: trimmedContent,
-    attachmentIds,
-    sourceMetadata: body.sourceMetadata,
-    actorDisplayName: body.actorDisplayName,
-    actorExternalId: body.actorExternalId,
-    actorUsername: body.actorUsername,
-    replyCallbackUrl: body.replyCallbackUrl,
-    canonicalSenderId,
-    rawSenderId,
-  });
-  if (escalationResponse) return escalationResponse;
-
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)
     ? metadataHintsRaw.filter(
@@ -1044,7 +1065,9 @@ export async function handleChannelInbound({
     eventId: result.eventId,
     validatedBootstrapSession: aclResult.validatedBootstrapSession,
   });
-  if (bootstrapResponse) return bootstrapResponse;
+  if (bootstrapResponse) {
+    return bootstrapResponse;
+  }
 
   // All guardian reply routing flows through the guardian reply router below
   // (routeGuardianReply), which handles request code matching, callback
@@ -1068,7 +1091,9 @@ export async function handleChannelInbound({
     guardianPrincipalId: trustCtx.guardianPrincipalId,
     approvalConversationGenerator,
   });
-  if (guardianReplyResult.response) return guardianReplyResult.response;
+  if (guardianReplyResult.response) {
+    return guardianReplyResult.response;
+  }
 
   // ── Approval interception ──
   // Keep this active whenever callback context is available.
@@ -1277,6 +1302,9 @@ export async function handleChannelInbound({
             actorExternalId: admittedSenderId,
             actorDisplayName: body.actorDisplayName,
             actorUsername: body.actorUsername,
+            // The nudge fires after recordInbound, so the originating
+            // conversation exists — attach the in-app card to it.
+            destinationConversationId: result.conversationId,
             messagePreview: truncate(
               trimmedContent,
               MESSAGE_PREVIEW_MAX_LENGTH,
@@ -1327,6 +1355,14 @@ export async function handleChannelInbound({
         sourceMetadata.actorTeamId.length > 0
           ? sourceMetadata.actorTeamId
           : undefined;
+      // What the sender had open in Slack when they sent this message. The
+      // entities themselves are validated where they are rendered; here we
+      // only confirm the envelope is the array shape the contract promises.
+      const slackAppContextEntities =
+        sourceChannel === "slack" &&
+        Array.isArray(sourceMetadata?.appContext?.entities)
+          ? sourceMetadata.appContext.entities
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1354,6 +1390,9 @@ export async function handleChannelInbound({
                   slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
                 speakerTimezoneLabel: slackSpeakerTimezoneLabel,
               }),
+              ...(slackAppContextEntities?.length
+                ? { appContext: { entities: slackAppContextEntities } }
+                : {}),
             }
           : undefined;
 
@@ -1422,19 +1461,21 @@ export async function handleChannelInbound({
         });
       }
 
-      // Wrap non-guardian inbound content in external_content boundaries so
+      // Fence non-guardian inbound content in external_content boundaries so
       // the model can distinguish external channel messages from instructions.
-      const contentForProcessing =
-        trustCtx.trustClass !== "guardian"
-          ? wrapUntrustedContent(trimmedContent, {
-              source: sourceChannel === "slack" ? "slack" : "webhook",
-              sourceDetail: trustCtx.requesterIdentifier,
-            })
-          : trimmedContent;
-      const displayContentForProcessing =
-        sourceChannel === "slack" && trustCtx.trustClass !== "guardian"
-          ? trimmedContent
-          : undefined;
+      // The retry sweep prepares replayed content through the same helper.
+      const {
+        content: contentForProcessing,
+        displayContent: displayContentForProcessing,
+      } = prepareChannelInboundContent({
+        trimmedContent,
+        trustClass: trustCtx.trustClass,
+        sourceChannel,
+        requesterIdentifier: trustCtx.requesterIdentifier,
+        ...(slackInbound?.appContext
+          ? { slackAppContext: slackInbound.appContext }
+          : {}),
+      });
 
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
@@ -1483,19 +1524,6 @@ export async function handleChannelInbound({
 const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
 
 /**
- * Shape-check for a Slack `ts` value. Slack IDs messages by `<seconds>.<micros>`
- * strings (e.g. `"1700000000.000100"`). The daemon also stores an
- * `externalMessageId` derived from the gateway's dedupe key which follows a
- * different format, so any path that feeds a ts to Slack's API
- * (`conversations.history`'s `latest`, etc.) must shape-check first — Slack
- * rejects non-ts arguments with `invalid_arguments`, and passing a malformed
- * bound silently disables the intended history window.
- */
-function isSlackTs(value: string | null | undefined): value is string {
-  return typeof value === "string" && /^\d+\.\d+$/.test(value);
-}
-
-/**
  * Batch size used when pulling candidate rows from SQL. A bare
  * `LIKE '%"slackMeta"%'` match can include rows whose metadata JSON is
  * malformed or carries the literal under an unrelated key, so we fetch in
@@ -1538,14 +1566,20 @@ function countSlackMetaMessages(conversationId: string): number {
       batchLimit,
       offset,
     );
-    if (candidates.length === 0) return count;
+    if (candidates.length === 0) {
+      return count;
+    }
     for (const raw of candidates) {
       if (readSlackMetadataFromMessageMetadata(raw)) {
         count++;
-        if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
+        if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) {
+          return count;
+        }
       }
     }
-    if (candidates.length < batchLimit) return count;
+    if (candidates.length < batchLimit) {
+      return count;
+    }
     offset += candidates.length;
   }
   return count;
@@ -1565,7 +1599,9 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
     // `channelTs` equal to the target message's ts, so including them would
     // make a reaction on a thread parent wrongly short-circuit thread
     // backfill (the parent itself may still be unseen).
-    if (meta && meta.eventKind === "message") seen.add(meta.channelTs);
+    if (meta && meta.eventKind === "message") {
+      seen.add(meta.channelTs);
+    }
   }
   return seen;
 }
@@ -1578,11 +1614,17 @@ interface ParsedSlackTimestamp {
 function parseSlackTimestamp(
   ts: string | undefined,
 ): ParsedSlackTimestamp | null {
-  if (!ts) return null;
+  if (!ts) {
+    return null;
+  }
   const match = /^(\d+)\.(\d{1,6})$/.exec(ts);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const micros = BigInt(match[2]);
-  if (micros > 999_999n) return null;
+  if (micros > 999_999n) {
+    return null;
+  }
   return {
     seconds: BigInt(match[1]),
     micros,
@@ -1592,11 +1634,21 @@ function parseSlackTimestamp(
 function compareSlackTimestamps(left: string, right: string): number | null {
   const parsedLeft = parseSlackTimestamp(left);
   const parsedRight = parseSlackTimestamp(right);
-  if (!parsedLeft || !parsedRight) return null;
-  if (parsedLeft.seconds < parsedRight.seconds) return -1;
-  if (parsedLeft.seconds > parsedRight.seconds) return 1;
-  if (parsedLeft.micros < parsedRight.micros) return -1;
-  if (parsedLeft.micros > parsedRight.micros) return 1;
+  if (!parsedLeft || !parsedRight) {
+    return null;
+  }
+  if (parsedLeft.seconds < parsedRight.seconds) {
+    return -1;
+  }
+  if (parsedLeft.seconds > parsedRight.seconds) {
+    return 1;
+  }
+  if (parsedLeft.micros < parsedRight.micros) {
+    return -1;
+  }
+  if (parsedLeft.micros > parsedRight.micros) {
+    return 1;
+  }
   return 0;
 }
 
@@ -1614,11 +1666,17 @@ function readStoredSlackThreadState(
 
   for (const row of getMessages(conversationId)) {
     const meta = readSlackMetadataFromMessageMetadata(row.metadata);
-    if (!meta || meta.eventKind !== "message") continue;
-    if (meta.channelTs !== threadTs && meta.threadTs !== threadTs) continue;
+    if (!meta || meta.eventKind !== "message") {
+      continue;
+    }
+    if (meta.channelTs !== threadTs && meta.threadTs !== threadTs) {
+      continue;
+    }
 
     storedChannelTs.add(meta.channelTs);
-    if (!parseSlackTimestamp(meta.channelTs)) continue;
+    if (!parseSlackTimestamp(meta.channelTs)) {
+      continue;
+    }
     if (
       latestStoredThreadTs === undefined ||
       compareSlackTimestamps(meta.channelTs, latestStoredThreadTs) === 1
@@ -1726,7 +1784,9 @@ async function persistBackfilledSlackMessage(params: {
       typeof f.mimetype === "string" &&
       f.mimetype.startsWith("image/"),
   );
-  if (imageFiles.length === 0) return;
+  if (imageFiles.length === 0) {
+    return;
+  }
 
   const hydratedAttachments = await withSlackBotToken(
     params.account,
@@ -1737,7 +1797,9 @@ async function persistBackfilledSlackMessage(params: {
         const file = imageFiles[i];
         try {
           const downloaded = await downloadSlackFile(file, token);
-          if (!downloaded) continue;
+          if (!downloaded) {
+            continue;
+          }
           const validation = validateAttachmentUpload(
             downloaded.filename,
             downloaded.mimeType,
@@ -1824,7 +1886,9 @@ function isBackfilledSlackGuardianMessage(
   guardianExternalUserId: string | undefined,
 ): boolean {
   const rawSenderId = message.sender?.id?.trim();
-  if (!rawSenderId || !guardianExternalUserId) return false;
+  if (!rawSenderId || !guardianExternalUserId) {
+    return false;
+  }
   const normalizedSender =
     canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
   const normalizedGuardian =
@@ -1839,7 +1903,9 @@ async function isSlackAssistantThreadPlaceholder(
   message: ProviderMessage,
   account: string | undefined,
 ): Promise<boolean> {
-  if (message.metadata?.isBot !== true) return false;
+  if (message.metadata?.isBot !== true) {
+    return false;
+  }
   const hasSlackFiles =
     Array.isArray(message.metadata.slackFiles) &&
     message.metadata.slackFiles.length > 0;
@@ -1857,19 +1923,27 @@ async function isBackfilledSlackAssistantMessage(
   message: ProviderMessage,
   account: string | undefined,
 ): Promise<boolean> {
-  if (message.metadata?.isBot !== true) return false;
+  if (message.metadata?.isBot !== true) {
+    return false;
+  }
 
   const botUserId = getConfig().slack.botUserId.trim();
   const rawSenderId = message.sender?.id?.trim();
-  if (!botUserId) return false;
+  if (!botUserId) {
+    return false;
+  }
 
-  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) return true;
+  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) {
+    return true;
+  }
 
   const rawBotId =
     typeof message.metadata.slackBotId === "string"
       ? message.metadata.slackBotId.trim()
       : "";
-  if (!rawBotId) return false;
+  if (!rawBotId) {
+    return false;
+  }
 
   try {
     const resolvedBotUserId = await resolveSlackBotUserId(account, rawBotId);
@@ -1909,7 +1983,9 @@ function readSlackFilesWithUrlsFromProviderMetadata(
   metadata: Record<string, unknown> | undefined,
 ): SlackFileWithUrls[] {
   const raw = metadata?.slackFiles;
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const files: SlackFileWithUrls[] = [];
   for (const item of raw) {
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
@@ -1917,7 +1993,9 @@ function readSlackFilesWithUrlsFromProviderMetadata(
     }
     const record = item as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name.trim() : "";
-    if (!name) continue;
+    if (!name) {
+      continue;
+    }
     files.push({
       ...(typeof record.id === "string" && record.id.length > 0
         ? { id: record.id }
@@ -2018,7 +2096,9 @@ async function runBackfillSlackDmIfCold(params: {
     // monotonic createdAt.
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
-      if (seen.has(message.id)) continue;
+      if (seen.has(message.id)) {
+        continue;
+      }
       if (await isSlackAssistantThreadPlaceholder(message, params.account)) {
         continue;
       }
@@ -2137,7 +2217,9 @@ function emptySlackThreadBackfillResult(): SlackThreadBackfillResult {
 }
 
 function pruneBackfillCacheIfNeeded(): void {
-  if (_backfillTriggerCache.size < BACKFILL_TRIGGER_CACHE_MAX) return;
+  if (_backfillTriggerCache.size < BACKFILL_TRIGGER_CACHE_MAX) {
+    return;
+  }
   const now = Date.now();
   for (const [key, ts] of _backfillTriggerCache) {
     if (now - ts >= BACKFILL_TRIGGER_TTL_MS) {
@@ -2161,7 +2243,9 @@ function pruneBackfillCacheIfNeeded(): void {
 
 function isBackfillRecentlyTriggered(cacheKey: string): boolean {
   const ts = _backfillTriggerCache.get(cacheKey);
-  if (ts === undefined) return false;
+  if (ts === undefined) {
+    return false;
+  }
   if (Date.now() - ts >= BACKFILL_TRIGGER_TTL_MS) {
     _backfillTriggerCache.delete(cacheKey);
     return false;
@@ -2195,12 +2279,16 @@ function maxSlackMessageTs(messages: ProviderMessage[]): string | undefined {
 
 function slackTimestampToMicros(ts: string | undefined): bigint | null {
   const parsed = parseSlackTimestamp(ts);
-  if (!parsed) return null;
+  if (!parsed) {
+    return null;
+  }
   return parsed.seconds * MICROS_PER_SECOND + parsed.micros;
 }
 
 function slackTimestampFromMicros(totalMicros: bigint): string | undefined {
-  if (totalMicros < 0n) return undefined;
+  if (totalMicros < 0n) {
+    return undefined;
+  }
   const seconds = totalMicros / MICROS_PER_SECOND;
   const micros = totalMicros % MICROS_PER_SECOND;
   return `${seconds.toString()}.${micros.toString().padStart(6, "0")}`;
@@ -2211,11 +2299,17 @@ function didInitialWindowsLeaveGap(params: {
   recent: SlackBackfillWindowPage;
   recentScanTruncated: boolean;
 }): boolean {
-  if (params.recentScanTruncated) return true;
-  if (!slackPageHasMore(params.early)) return false;
+  if (params.recentScanTruncated) {
+    return true;
+  }
+  if (!slackPageHasMore(params.early)) {
+    return false;
+  }
   const earlyMax = maxSlackMessageTs(params.early.messages);
   const recentMin = minSlackMessageTs(params.recent.messages);
-  if (!earlyMax || !recentMin) return false;
+  if (!earlyMax || !recentMin) {
+    return false;
+  }
   const compared = compareSlackTimestamps(earlyMax, recentMin);
   return compared !== null && compared < 0;
 }
@@ -2304,16 +2398,24 @@ async function fetchSlackThreadUpperAdjacentWindow(params: {
   };
 
   for (const windowMicros of SLACK_UPPER_ADJACENT_EXPANDING_WINDOWS_MICROS) {
-    if (attempts >= maxAttempts) break;
+    if (attempts >= maxAttempts) {
+      break;
+    }
     const shouldExpand = await considerWindow(windowMicros);
-    if (!shouldExpand) break;
+    if (!shouldExpand) {
+      break;
+    }
   }
 
   if (truncatedBeforeUpperBound && !safePage && attempts < maxAttempts) {
     for (const windowMicros of SLACK_UPPER_ADJACENT_SHRINKING_WINDOWS_MICROS) {
-      if (attempts >= maxAttempts) break;
+      if (attempts >= maxAttempts) {
+        break;
+      }
       await considerWindow(windowMicros);
-      if (safePage) break;
+      if (safePage) {
+        break;
+      }
     }
   }
 
@@ -2429,7 +2531,9 @@ function dedupeSlackProviderMessages(
 ): ProviderMessage[] {
   const byTs = new Map<string, ProviderMessage>();
   for (const message of messages) {
-    if (!message.id || byTs.has(message.id)) continue;
+    if (!message.id || byTs.has(message.id)) {
+      continue;
+    }
     byTs.set(message.id, message);
   }
   return [...byTs.values()];
@@ -2440,7 +2544,9 @@ function sortSlackProviderMessages(
 ): ProviderMessage[] {
   return [...messages].sort((left, right) => {
     const compared = compareSlackTimestamps(left.id, right.id);
-    if (compared !== null) return compared;
+    if (compared !== null) {
+      return compared;
+    }
     return left.id.localeCompare(right.id);
   });
 }
@@ -2517,7 +2623,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     // Pre-seed only after computing lowerBoundTs. The current inbound row
     // may not have reached the DB yet, and treating it as stored state would
     // hide the gap we need to fetch.
-    if (excludeChannelTs) threadState.storedChannelTs.add(excludeChannelTs);
+    if (excludeChannelTs) {
+      threadState.storedChannelTs.add(excludeChannelTs);
+    }
 
     if (upperBoundTs && lowerBoundTs) {
       const lowerVsUpper = compareSlackTimestamps(lowerBoundTs, upperBoundTs);
@@ -2583,8 +2691,12 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
 
     let persisted = 0;
     for (const message of fetched) {
-      if (!message.id) continue;
-      if (threadState.storedChannelTs.has(message.id)) continue;
+      if (!message.id) {
+        continue;
+      }
+      if (threadState.storedChannelTs.has(message.id)) {
+        continue;
+      }
       if (await isSlackAssistantThreadPlaceholder(message, account)) {
         continue;
       }

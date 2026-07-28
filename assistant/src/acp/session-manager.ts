@@ -8,9 +8,9 @@ import { basename } from "node:path";
 
 import { eq, inArray } from "drizzle-orm";
 
+import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
+import type { AssistantEvent } from "../api/index.js";
 import { findConversation } from "../daemon/conversation-registry.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -59,7 +59,7 @@ const MAX_BUFFER_BYTES = 256 * 1024;
 
 interface BufferedAcpUpdate {
   /** The wire-shaped update — exactly what was forwarded to clients. */
-  update: AcpSessionUpdate;
+  update: AcpSessionUpdateEvent;
   /** Cached UTF-8 byte length of `JSON.stringify(update)` for cap math. */
   byteSize: number;
 }
@@ -69,7 +69,7 @@ interface SessionEntry {
   state: AcpSessionState;
   clientHandler: VellumAcpClientHandler;
   /** Wrapped sender that also appends to the ring buffer. */
-  sendToVellum: (msg: ServerMessage) => void;
+  sendToVellum: (msg: AssistantEvent) => void;
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
   cwd: string;
@@ -195,7 +195,7 @@ export class AcpSessionManager {
     task: string,
     cwd: string,
     parentConversationId: string,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
     parentToolUseId?: string,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     this.assertCapacity();
@@ -275,7 +275,7 @@ export class AcpSessionManager {
     parentConversationId: string;
     cwd: string;
     startedAt: number;
-    sendToVellum: (msg: ServerMessage) => void;
+    sendToVellum: (msg: AssistantEvent) => void;
     parentToolUseId?: string;
     task?: string;
   }): SessionEntry {
@@ -287,7 +287,7 @@ export class AcpSessionManager {
     // Wrap the sender so every emitted message is mirrored into the buffer
     // when it's an `acp_session_update`. The wrapper preserves the original
     // call semantics: it forwards every message unchanged.
-    const wrappedSend = (msg: ServerMessage) => {
+    const wrappedSend = (msg: AssistantEvent) => {
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
       } else if (msg.type === "acp_session_usage") {
@@ -383,7 +383,7 @@ export class AcpSessionManager {
    */
   async resumeFromHistory(
     acpSessionId: string,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
   ): Promise<void> {
     if (
       this.sessions.has(acpSessionId) ||
@@ -448,7 +448,7 @@ export class AcpSessionManager {
   private async performResume(
     acpSessionId: string,
     row: ResumableHistoryRow,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
   ): Promise<void> {
     // Resolve the adapter, silently auto-installing a missing allowlisted
     // binary via the same sandboxed `bun` path as spawn (see
@@ -528,9 +528,11 @@ export class AcpSessionManager {
       const persisted = JSON.parse(row.eventLogJson) as unknown;
       if (Array.isArray(persisted)) {
         for (const update of persisted) {
-          this.appendToBuffer(acpSessionId, update as AcpSessionUpdate);
-          const seq = (update as AcpSessionUpdate)?.seq;
-          if (typeof seq === "number" && seq > maxSeq) maxSeq = seq;
+          this.appendToBuffer(acpSessionId, update as AcpSessionUpdateEvent);
+          const seq = (update as AcpSessionUpdateEvent)?.seq;
+          if (typeof seq === "number" && seq > maxSeq) {
+            maxSeq = seq;
+          }
         }
       }
     } catch (err) {
@@ -656,7 +658,7 @@ export class AcpSessionManager {
   async steerOrResume(
     acpSessionId: string,
     instruction: string,
-    sendToVellum: (msg: ServerMessage) => void,
+    sendToVellum: (msg: AssistantEvent) => void,
   ): Promise<{ resumed: boolean }> {
     try {
       await this.steer(acpSessionId, instruction);
@@ -700,7 +702,9 @@ export class AcpSessionManager {
       // A missing history row keeps its not-found shape; everything else
       // (legacy row without cwd, resolver failure, capability missing)
       // is a resume failure with an actionable message.
-      if (err instanceof AcpSessionNotFoundError) throw err;
+      if (err instanceof AcpSessionNotFoundError) {
+        throw err;
+      }
       throw new AcpResumeError(err);
     }
 
@@ -873,13 +877,15 @@ export class AcpSessionManager {
 
   /**
    * Returns the live ring buffer for an active session as wire-shaped
-   * `AcpSessionUpdate[]` (each carrying `seq`), matching exactly what
+   * `AcpSessionUpdateEvent[]` (each carrying `seq`), matching exactly what
    * `persistTerminal` serializes to `eventLogJson` on terminal transition.
    * Empty array for unknown/already-torn-down ids.
    */
-  getBufferedUpdates(acpSessionId: string): AcpSessionUpdate[] {
+  getBufferedUpdates(acpSessionId: string): AcpSessionUpdateEvent[] {
     const buffer = this.eventBuffers.get(acpSessionId);
-    if (!buffer) return [];
+    if (!buffer) {
+      return [];
+    }
     return buffer.map((b) => b.update);
   }
 
@@ -890,20 +896,29 @@ export class AcpSessionManager {
    * target (off by at most `buffer.length` for delimiters in the eventual
    * `JSON.stringify(buffer)` output).
    */
-  private appendToBuffer(acpSessionId: string, update: AcpSessionUpdate): void {
+  private appendToBuffer(
+    acpSessionId: string,
+    update: AcpSessionUpdateEvent,
+  ): void {
     const buffer = this.eventBuffers.get(acpSessionId);
-    if (!buffer) return; // Session already torn down.
+    if (!buffer) {
+      return;
+    } // Session already torn down.
     const byteSize = Buffer.byteLength(JSON.stringify(update), "utf8");
     buffer.push({ update, byteSize });
     let totalBytes = 0;
-    for (const entry of buffer) totalBytes += entry.byteSize;
+    for (const entry of buffer) {
+      totalBytes += entry.byteSize;
+    }
 
     while (
       buffer.length > 0 &&
       (buffer.length > MAX_BUFFER_EVENTS || totalBytes > MAX_BUFFER_BYTES)
     ) {
       const dropped = buffer.shift();
-      if (dropped !== undefined) totalBytes -= dropped.byteSize;
+      if (dropped !== undefined) {
+        totalBytes -= dropped.byteSize;
+      }
     }
   }
 
@@ -1147,7 +1162,9 @@ export class AcpSessionManager {
       content: message,
       metadata: { acpNotification },
     });
-    if (enqueueResult.queued || enqueueResult.rejected) return;
+    if (enqueueResult.queued || enqueueResult.rejected) {
+      return;
+    }
     parentConversation
       .persistUserMessage({ content: message, metadata: { acpNotification } })
       .then(({ id: messageId }) =>

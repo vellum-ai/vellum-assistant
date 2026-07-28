@@ -184,6 +184,39 @@ describe("maybeEnqueueScheduledCleanupJobs retention-derived cadence", () => {
     expect(llmCalls).toEqual([]);
   });
 
+  test("zero LLM-log retention disables pruning and never busy-loops", () => {
+    // A retention of 0 makes the cadence interval 0, so `isDue` would be true
+    // on every tick. Guard against the resulting runaway enqueue loop: 0 must
+    // enqueue nothing, on the first tick and on every subsequent one.
+    const config = makeConfig({ llmRequestLogRetentionMs: 0 });
+
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 1)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 60_000)).toBe(false);
+    expect(llmCalls).toEqual([]);
+  });
+
+  test("zero conversation retention disables pruning and never busy-loops", () => {
+    // Same 0-window cadence trap as LLM logs: interval 0 → `isDue` always
+    // true. The `> 0` guard must hold across ticks so nothing is enqueued.
+    const config = makeConfig({ conversationRetentionDays: 0 });
+
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 1)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 60_000)).toBe(false);
+    expect(convCalls).toEqual([]);
+  });
+
+  test("zero audit-log retention disables pruning and never busy-loops", () => {
+    // Same 0-window cadence trap for tool_invocations (auditLog.retentionDays).
+    const config = makeConfig({ auditLogRetentionDays: 0 });
+
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 1)).toBe(false);
+    expect(maybeEnqueueScheduledCleanupJobs(config, BASE + 60_000)).toBe(false);
+    expect(toolCalls).toEqual([]);
+  });
+
   test("resetCleanupScheduleThrottle makes every job due on the next tick", () => {
     const config = makeConfig({
       conversationRetentionDays: 30,

@@ -39,6 +39,9 @@ describe("plugin core types", () => {
       name: "sample-plugin",
       version: "0.1.0",
       config: { parse: (input: unknown) => input },
+      credentialKeyPatterns: [
+        { label: "Example API token", pattern: "^ex_tkn_[A-Za-z0-9]{24}$" },
+      ],
     };
 
     const sampleTool: Tool = {
@@ -68,13 +71,6 @@ describe("plugin core types", () => {
         },
       },
       tools: [sampleTool],
-      routes: [
-        {
-          pattern: /^\/sample$/,
-          methods: ["GET"],
-          handler: async () => new Response("ok", { status: 200 }),
-        },
-      ],
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.

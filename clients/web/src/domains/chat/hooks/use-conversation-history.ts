@@ -27,6 +27,7 @@ import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
+  extractWirePendingAcpConnect,
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
 } from "@/domains/chat/utils/chat";
@@ -34,6 +35,7 @@ import { mapMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordServerSeq } from "@/lib/streaming/server-seq";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
+import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -171,10 +173,17 @@ export function useConversationHistory({
       return;
     }
 
-    // Seq baseline (replay idempotency) + cold-start ring-replay anchor.
+    // Seq baseline (replay idempotency) + cold-start ring-replay anchor. Tag
+    // the frontier with the generation the page's `/messages` request was
+    // issued in (falling back to the current generation for pages that carry no
+    // stamped generation) so a page that raced a generation reset is recognised
+    // as a stale anchor by the stale-frontier guard rather than starving the
+    // stream.
     const latestPageSeq = pagination.latestPage?.seq ?? null;
+    const latestPageGeneration =
+      pagination.latestPage?.seqGeneration ?? getSeqGeneration();
     recordServerSeq(activeConversationId, latestPageSeq);
-    recordLocalSeq(activeConversationId, latestPageSeq);
+    recordLocalSeq(activeConversationId, latestPageSeq, latestPageGeneration);
     anchorColdStartReplay(latestPageSeq);
 
     // Seed (or reseed) the materialized snapshot from the committed history,
@@ -232,6 +241,22 @@ export function useConversationHistory({
     const wirePendingQuestion = extractWirePendingQuestion(pagination.messages);
     if (wirePendingQuestion && !useInteractionStore.getState().pendingQuestion) {
       useInteractionStore.getState().showQuestion(wirePendingQuestion);
+    }
+
+    // Restore the inline "Connect Claude Code" card the snapshot carries on a
+    // failed acp_spawn (persisted `acp_claude_oauth_missing` marker). Without
+    // this, a page reload or SSE reconnect wipes the in-memory prompt and the
+    // card silently disappears. Skipped when a prompt is already active;
+    // `showAcpConnect` additionally no-ops a failure the user already dismissed
+    // this session, so a reseed can't resurrect a card after dismiss-on-send.
+    const wirePendingAcpConnect = extractWirePendingAcpConnect(
+      pagination.messages,
+    );
+    if (
+      wirePendingAcpConnect &&
+      !useInteractionStore.getState().pendingAcpConnect
+    ) {
+      useInteractionStore.getState().showAcpConnect(wirePendingAcpConnect);
     }
 
     // Refresh embedded surface content into the history cache.

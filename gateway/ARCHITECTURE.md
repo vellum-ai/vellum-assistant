@@ -44,11 +44,11 @@ The request carries base64-encoded WAV audio and a MIME type. The daemon resolve
 
 **Key source files:**
 
-| File                                             | Purpose                                                                   |
-| ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `gateway/src/http/routes/runtime-proxy.ts`       | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
-| `assistant/src/runtime/routes/stt-routes.ts`     | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
-| `clients/web/src/domains/chat/voice/stt-api.ts`     | Web client: POSTs audio to the gateway, returns a typed result            |
+| File                                            | Purpose                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
+| `gateway/src/http/routes/runtime-proxy.ts`      | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
+| `assistant/src/runtime/routes/stt-routes.ts`    | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
+| `clients/web/src/domains/chat/voice/stt-api.ts` | Web client: POSTs audio to the gateway, returns a typed result            |
 
 ### STT Streaming WebSocket Proxy
 
@@ -73,13 +73,13 @@ Clients open WebSocket connections through the gateway to the daemon's real-time
 
 **Key source files:**
 
-| File                                              | Purpose                                                                                                            |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `gateway/src/http/routes/stt-stream-websocket.ts` | WebSocket upgrade handler (`createSttStreamWebsocketHandler`) and proxy handlers (`getSttStreamWebsocketHandlers`) |
-| `gateway/src/index.ts`                            | Route registration: wires upgrade handler to the gateway's Bun HTTP server                                         |
-| `assistant/src/runtime/http-server.ts`            | Daemon-side WebSocket upgrade at `/v1/stt/stream`, session creation and registry                                   |
-| `assistant/src/stt/stt-stream-session.ts`         | Runtime session orchestrator: drives the `StreamingTranscriber` from the WebSocket                                 |
-| `clients/web/src/domains/chat/voice/dictation-stream.ts` | Web client: opens the gateway WebSocket, parses transcript events, reports failures                            |
+| File                                                     | Purpose                                                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `gateway/src/http/routes/stt-stream-websocket.ts`        | WebSocket upgrade handler (`createSttStreamWebsocketHandler`) and proxy handlers (`getSttStreamWebsocketHandlers`) |
+| `gateway/src/index.ts`                                   | Route registration: wires upgrade handler to the gateway's Bun HTTP server                                         |
+| `assistant/src/runtime/http-server.ts`                   | Daemon-side WebSocket upgrade at `/v1/stt/stream`, session creation and registry                                   |
+| `assistant/src/stt/stt-stream-session.ts`                | Runtime session orchestrator: drives the `StreamingTranscriber` from the WebSocket                                 |
+| `clients/web/src/domains/chat/voice/dictation-stream.ts` | Web client: opens the gateway WebSocket, parses transcript events, reports failures                                |
 
 ### Assistant Feature Flags API
 
@@ -215,11 +215,11 @@ All contact paths are registered flat only (`/v1/contacts...`, `/v1/contact-chan
 
 **Key source files:**
 
-| File                                                      | Purpose                                                                                                       |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding                                                 |
+| File                                                      | Purpose                                                                                                                                  |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding                                                                            |
 | `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Gateway-native contact handlers (with runtime search relay) plus gateway-native invite handlers (mint, list, revoke, redeem, call relay) |
-| `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/contacts*`          |
+| `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/contacts*`                                     |
 
 ### Twilio Control-Plane Proxy
 
@@ -403,7 +403,7 @@ Runtime detects needs_confirmation
 
 **Stale callback blocking:** When inbound `callbackData` does not match any pending approval (e.g., a button from an old prompt), the runtime returns `stale_ignored` and does not process the payload as a regular message. This prevents stale button presses from triggering unrelated agent loops.
 
-**Conversational approval turn:** When a text message arrives while an approval is pending (e.g., non-Telegram channels or user typing a reply instead of clicking a button), a **conversational approval turn** is run via `runApprovalConversationTurn()` from `approval-conversation-turn.ts`. The conversational engine uses LLM structured output (native `tool_use`) to classify user intent as: `keep_pending` (reply without deciding), `approve_once`, `approve_always`, or `reject`. Non-decision messages receive a natural assistant reply and the run stays pending — no reminder spam. The engine fails closed: any model failure returns `keep_pending` with a deterministic fallback asking the user to try again. Callback/button handling remains deterministic and unchanged. The `channelSupportsRichApprovalUI()` function determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). Currently only `telegram` is classified as a rich channel.
+**Conversational approval turn:** When a text message arrives while an approval is pending (e.g., non-Telegram channels or user typing a reply instead of clicking a button), a **conversational approval turn** is run via `runApprovalConversationTurn()` from `approval-conversation-turn.ts`. The conversational engine uses LLM structured output (native `tool_use`) to classify user intent as: `keep_pending` (reply without deciding), `approve_once`, `approve_always`, or `reject`. Non-decision messages receive a natural assistant reply and the run stays pending — no reminder spam. The engine fails closed: any model failure returns `keep_pending` with a deterministic fallback asking the user to try again. Callback/button handling remains deterministic and unchanged. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) determines whether to send the structured `promptText` (for channels whose adapter renders inline buttons — Telegram, WhatsApp, Slack) or the `plainTextFallback` string (for all other channels).
 
 **Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forcePromptSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a guardian request (kind `tool_approval`) is recorded in the gateway-owned `guardian_requests` table via `guardian_requests_create`. When the guardian approves or denies, the decision commits through `guardian_requests_decide`, is applied to the underlying run, and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. Guardian approval follow-ups also use the conversational engine with role-specific context; `approve_always` is downgraded to `approve_once` for guardian approvals since permanent allow-rules require guardian authority. All guardian state (bindings, challenges, guardian requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeVerification`, `isGuardian`, and `getGuardianBinding`.
 
@@ -510,14 +510,8 @@ flowchart TD
 
     POLICY_CHECK -- deny --> DENY_POLICY["Deny: policy_deny"]
     POLICY_CHECK -- allow --> RECORD
-    POLICY_CHECK -- escalate --> RECORD
 
-    RECORD --> ESCALATE_CHECK{"Policy = escalate?"}
-    ESCALATE_CHECK -- Yes --> HAS_BINDING{"Guardian binding<br/>exists?"}
-    HAS_BINDING -- No --> DENY_ESCALATE["Deny: escalate_no_guardian"]
-    HAS_BINDING -- Yes --> CREATE_APPROVAL["Create approval request<br/>+ notify guardian (dual-surface)"]
-
-    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Guardian verify<br/>code?"}
+    RECORD --> VERIFY_CHECK{"Guardian verify<br/>code?"}
     VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
     VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(trust-context-resolver)"]
     ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
@@ -576,12 +570,12 @@ Approval state lives in the gateway's `guardian_requests` table (kind `tool_appr
 | `assistant/src/channels/gateway-verification-sessions.ts` | Guardian binding types and verification-session relay to the gateway store                                                   |
 | `assistant/src/runtime/channel-verification-service.ts`   | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
 | `assistant/src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity             |
-| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution                             |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, actor role resolution                                                  |
 | `assistant/src/runtime/routes/guardian-expiry-sweep.ts`   | Proactive 60s expiry sweep: gateway CAS-expiry plus card-withdrawal and requester-notice fan-out                             |
 | `assistant/src/calls/guardian-dispatch.ts`                | Cross-channel ASK_GUARDIAN dispatch: creates gateway guardian requests, fans out to mac/telegram, records deliveries         |
 | `assistant/src/calls/guardian-action-sweep.ts`            | Expiry notice delivery to guardian destinations (vellum conversation message or direct channel reply)                        |
 
-### Ingress Membership and Escalation
+### Ingress Membership
 
 The ingress membership system extends the guardian security model to support controlled cross-user access. External users interact with the assistant through channels (Telegram, WhatsApp) under an invite-based membership system with per-member access policies.
 
@@ -592,66 +586,27 @@ The channel inbound handler (`inbound-message-handler.ts`) enforces an access co
 1. When `actorExternalId` is present, the handler looks up the sender in the `contacts` table via `findContactChannel` by `(channelType, externalUserId)` or `(channelType, externalChatId)`.
 2. If no member record exists, the message is denied (`not_a_member`).
 3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
-4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
+4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing.
 
 **Invite-based onboarding:** Invite tokens are minted by the gateway via the invite HTTP API and stored SHA-256 hashed on the gateway DB's `ingress_invites` row -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
 
-**Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress contacts control who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
-
-#### Escalation Data Flow
-
-When a member's policy is `escalate`:
-
-```mermaid
-sequenceDiagram
-    participant Ext as External User
-    participant GW as Gateway
-    participant RT as Runtime (channel-routes)
-    participant DB as SQLite
-    participant Guardian as Guardian (Channel)
-
-    Ext->>GW: Send message via channel
-    GW->>RT: POST /channels/inbound
-    RT->>DB: Look up ingress member -> policy = escalate
-    RT->>DB: Store raw payload (delivery-crud)
-    RT->>GW: Create guardian_requests row (guardian_requests_create)
-    RT->>RT: emitNotificationSignal (escalation alert)
-    RT->>GW: Notify guardian via notification pipeline
-    GW->>Guardian: Deliver escalation notice (Telegram/desktop)
-
-    alt Guardian approves
-        Guardian->>RT: Approve decision
-        RT->>DB: Resolve approval request
-        RT->>DB: Recover stored payload
-        RT->>RT: Process message through agent pipeline
-        RT->>GW: Deliver assistant reply
-        GW->>Ext: Reply via channel
-    else Guardian denies
-        Guardian->>RT: Deny decision
-        RT->>GW: Deliver refusal message
-        GW->>Ext: Refusal via channel
-    end
-```
-
-Escalation alerts are routed through the shared notification pipeline (`emitNotificationSignal`), which delivers to all configured channels (Telegram push, desktop notification). The guardian can approve or deny from any channel. All decisions commit through the gateway's `guardian_requests_decide` route against the same `guardian_requests` row.
-
-If no guardian binding exists for the channel, escalation fails closed -- the message is denied with `escalate_no_guardian`.
+**Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals). Ingress contacts control who can interact with the assistant.
 
 #### SQLite Tables
 
 **Assistant DB** (`assistant.db` — owner of contact identity/info; ACL fields are a best-effort mirror of the gateway DB):
 
-| Table              | Purpose                                                                |
-| ------------------ | ---------------------------------------------------------------------- |
-| `contacts`         | Contact records with role, relationship, and per-contact metadata      |
-| `contact_channels` | Channel bindings per contact with access policy (allow/deny/escalate)  |
+| Table              | Purpose                                                           |
+| ------------------ | ----------------------------------------------------------------- |
+| `contacts`         | Contact records with role, relationship, and per-contact metadata |
+| `contact_channels` | Channel bindings per contact with access policy (allow/deny)      |
 
 **Gateway DB** (`gateway.sqlite` — canonical owner of invites and contact auth/authz):
 
-| Table              | Purpose                                                                 |
-| ------------------ | ----------------------------------------------------------------------- |
-| `contacts`         | Contact auth/authz: id, display_name, role, principal_id                |
-| `contact_channels` | Channel bindings with policy, status, external IDs, verification state  |
+| Table              | Purpose                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `contacts`         | Contact auth/authz: id, display_name, role, principal_id                             |
+| `contact_channels` | Channel bindings with policy, status, external IDs, verification state               |
 | `ingress_invites`  | Canonical invite store — token/code hashes, expiry, use counts, voice/display fields |
 
 The gateway's `ingress_invites` table is the sole invite store: mint, list, revoke, and redemption all run gateway-natively, and the daemon relays its invite surfaces here over IPC. The gateway data migrations `m0007`/`m0009` reference `assistant_ingress_invites` — a legacy assistant table absent from the current assistant schema — only as a one-time backfill source.
@@ -660,17 +615,17 @@ The gateway declares `contacts` and `contact_channels` tables and exposes them v
 
 #### Key Modules
 
-| Module                                                    | Purpose                                                                    |
-| --------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Gateway-native invite lifecycle (mint, list, revoke, redeem) shared by HTTP and IPC |
-| `gateway/src/ipc/invite-handlers.ts`                      | IPC routes relaying the daemon's invite surfaces to the native functions   |
-| `gateway/src/verification/invite-redemption.ts`           | Redemption engine — validation, atomic claim, ACL activation               |
-| `assistant/src/contacts/contact-store.ts`                 | Contact and channel lookups (findContactChannel, guardian bindings)        |
+| Module                                                    | Purpose                                                                                          |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Gateway-native invite lifecycle (mint, list, revoke, redeem) shared by HTTP and IPC              |
+| `gateway/src/ipc/invite-handlers.ts`                      | IPC routes relaying the daemon's invite surfaces to the native functions                         |
+| `gateway/src/verification/invite-redemption.ts`           | Redemption engine — validation, atomic claim, ACL activation                                     |
+| `assistant/src/contacts/contact-store.ts`                 | Contact and channel lookups (findContactChannel, guardian bindings)                              |
 | `assistant/src/contacts/contacts-write.ts`                | Contact and channel identity/info writes (upsert, redemption info mirror — ACL is gateway-owned) |
-| `assistant/src/ipc/routes/invite-ipc-routes.ts`           | `invite_redeemed` info mirror — local contact/channel identity upsert      |
-| `assistant/src/runtime/routes/inbound-message-handler.ts` | ACL enforcement point -- member lookup, policy check, escalation creation  |
-| `gateway/src/db/contact-store.ts`                         | Gateway-side ContactStore — contact/channel reads and invite CRUD          |
-| `gateway/src/ipc/contact-handlers.ts`                     | IPC route handlers for contact reads                                       |
+| `assistant/src/ipc/routes/invite-ipc-routes.ts`           | `invite_redeemed` info mirror — local contact/channel identity upsert                            |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | ACL enforcement point -- member lookup, policy check                                             |
+| `gateway/src/db/contact-store.ts`                         | Gateway-side ContactStore — contact/channel reads and invite CRUD                                |
+| `gateway/src/ipc/contact-handlers.ts`                     | IPC route handlers for contact reads                                                             |
 
 ### Telegram Credential Flow
 
@@ -1159,20 +1114,20 @@ Malformed or unprocessable provider callback payloads are logged as dead-letter 
 
 Call behavior is controlled via the `calls` config block in the assistant configuration (`config/schema.ts`). All values have sensible defaults and are validated via Zod:
 
-| Field                             | Type     | Default                                       | Description                                                                                                                                                                                     |
-| --------------------------------- | -------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `calls.enabled`                   | boolean  | `true`                                        | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                                                              |
-| `calls.provider`                  | enum     | `'twilio'`                                    | Voice provider to use (currently only Twilio is supported).                                                                                                                                     |
-| `calls.maxDurationSeconds`        | int      | `3600`                                        | Maximum allowed duration per call.                                                                                                                                                              |
-| `calls.userConsultTimeoutSeconds` | int      | `120`                                         | How long to wait for a user answer before timing out a pending question.                                                                                                                        |
-| `calls.disclosure.enabled`        | boolean  | `true`                                        | Whether the AI should disclose it is an AI at the start of the call.                                                                                                                            |
-| `calls.disclosure.text`           | string   | _(default disclosure prompt)_                 | The disclosure instruction included in the system prompt.                                                                                                                                       |
-| `calls.safety.denyCategories`     | string[] | `[]`                                          | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                                                             |
-| `llm.callSites.callAgent.model`   | string   | _(unset — falls back to `llm.default.model`)_ | Optional override for the LLM model used in voice call conversations.                                                                                                                           |
-| `calls.voice.language`            | string   | `'en-US'`                                     | Language code for TTS and transcription.                                                                                                                                                        |
-| `services.stt.provider`           | enum     | `'deepgram'`                                  | STT provider for all boundaries including telephony. The daemon transcribes media-stream call audio with this provider (streaming when supported, batch otherwise).                             |
-| `services.tts.provider`           | enum     | `'elevenlabs'`                                | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)).                                   |
-| `services.tts.providers.<id>.*`   | object   | _(per-provider defaults)_                     | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                                                                |
+| Field                             | Type     | Default                                                  | Description                                                                                                                                                         |
+| --------------------------------- | -------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calls.enabled`                   | boolean  | `true`                                                   | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                                  |
+| `calls.provider`                  | enum     | `'twilio'`                                               | Voice provider to use (currently only Twilio is supported).                                                                                                         |
+| `calls.maxDurationSeconds`        | int      | `3600`                                                   | Maximum allowed duration per call.                                                                                                                                  |
+| `calls.userConsultTimeoutSeconds` | int      | `120`                                                    | How long to wait for a user answer before timing out a pending question.                                                                                            |
+| `calls.disclosure.enabled`        | boolean  | `true`                                                   | Whether the AI should disclose it is an AI at the start of the call.                                                                                                |
+| `calls.disclosure.text`           | string   | _(default disclosure prompt)_                            | The disclosure instruction included in the system prompt.                                                                                                           |
+| `calls.safety.denyCategories`     | string[] | `[]`                                                     | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                                 |
+| `llm.callSites.callAgent.model`   | string   | _(unset — falls back to the resolved call-site default)_ | Optional override for the LLM model used in voice call conversations.                                                                                               |
+| `calls.voice.language`            | string   | `'en-US'`                                                | Language code for TTS and transcription.                                                                                                                            |
+| `services.stt.provider`           | enum     | `'deepgram'`                                             | STT provider for all boundaries including telephony. The daemon transcribes media-stream call audio with this provider (streaming when supported, batch otherwise). |
+| `services.tts.provider`           | enum     | `'elevenlabs'`                                           | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)).       |
+| `services.tts.providers.<id>.*`   | object   | _(per-provider defaults)_                                | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                                    |
 
 ### Caller Identity Resolution
 

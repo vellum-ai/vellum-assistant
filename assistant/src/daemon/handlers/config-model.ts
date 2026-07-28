@@ -98,13 +98,21 @@ export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
   // Keep the derived provider in sync with the selected model so downstream
   // routing never sends a Gemini request to an OpenAI model (or vice versa).
   // The prefix logic is shared with workspace migration 006-services-config
-  // via providerForImageModelPrefix().
-  setServiceField(
-    raw,
-    "image-generation",
-    "provider",
-    providerForImageModelPrefix(modelId),
-  );
+  // via providerForImageModelPrefix(). Provider "vellum" is exempt: it is
+  // managed for every model (the backend derives from the model at request
+  // time), and rewriting it here would silently move a managed user onto a
+  // BYOK provider they may hold no key for.
+  const services = raw.services as
+    | Record<string, { provider?: string }>
+    | undefined;
+  if (services?.["image-generation"]?.provider !== "vellum") {
+    setServiceField(
+      raw,
+      "image-generation",
+      "provider",
+      providerForImageModelPrefix(modelId),
+    );
+  }
 
   const wasSuppressed = ctx.suppressConfigReload;
   ctx.setSuppressConfigReload(true);

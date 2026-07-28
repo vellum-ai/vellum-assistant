@@ -30,6 +30,7 @@ import type {
   LiveVoiceAudioCaptureOptions,
   LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
   useLiveVoiceStore,
   type LiveVoiceSessionControls,
@@ -41,10 +42,16 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   } | null = null;
   sentAudio: ArrayBuffer[] = [];
   pttReleaseCount = 0;
   interruptCount = 0;
+  updateConfigCalls: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }[] = [];
   ended = false;
   closed = false;
 
@@ -70,6 +77,8 @@ export class FakeClient {
     assistantId: string;
     conversationId?: string;
     turnDetection?: "manual" | "server_vad";
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
   }): Promise<void> {
     this.connectArgs = args;
   }
@@ -82,6 +91,12 @@ export class FakeClient {
   }
   interrupt(): void {
     this.interruptCount++;
+  }
+  updateConfig(config: {
+    silenceThresholdMs?: number;
+    bargeInMinSpeechMs?: number;
+  }): void {
+    this.updateConfigCalls.push(config);
   }
   end(): void {
     this.ended = true;
@@ -108,6 +123,7 @@ export class FakeCapture {
   startCount = 0;
   stopCount = 0;
   shutdownCount = 0;
+  flushCount = 0;
   startResult: LiveVoiceCaptureResult = { ok: true };
   /**
    * When true, `start()` stays pending until {@link resolveStart} — lets tests
@@ -136,6 +152,9 @@ export class FakeCapture {
   async shutdown(): Promise<void> {
     this.shutdownCount++;
   }
+  flush(): void {
+    this.flushCount++;
+  }
 
   /** Resolve pending deferred `start()` calls with the current `startResult`. */
   resolveStart(): void {
@@ -161,11 +180,20 @@ export class FakePlayer {
   stopCount = 0;
   disposeCount = 0;
   prewarmCount = 0;
+  resetPlaybackProgressCount = 0;
   isPlaying = false;
+  /** Progress the fake reports; tests set it to drive the store's provider. */
+  playbackProgress: LiveVoicePlaybackProgress | null = null;
   private drainResolvers: Array<() => void> = [];
 
   prewarm(): void {
     this.prewarmCount++;
+  }
+  getPlaybackProgress(): LiveVoicePlaybackProgress | null {
+    return this.playbackProgress;
+  }
+  resetPlaybackProgress(): void {
+    this.resetPlaybackProgressCount++;
   }
   enqueue(chunk: unknown): void {
     this.enqueued.push(chunk);
@@ -214,6 +242,12 @@ export function makeControlsSpies() {
     release: mock(() => {}),
     interrupt: mock(() => {}),
     setMuted: mock((_muted: boolean) => {}),
+    updateConfig: mock(
+      (_config: {
+        silenceThresholdMs?: number;
+        bargeInMinSpeechMs?: number;
+      }) => {},
+    ),
   } satisfies LiveVoiceSessionControls;
 }
 
@@ -237,4 +271,11 @@ export function seedLiveVoiceSession(
     store.setControls(options.controls);
   }
   store.setState(state);
+  // Mirror the controller's first-`tts_audio` write: entering `speaking` means
+  // audio is flowing, so the avatar reads `responding`. (A silent mid-turn
+  // `speaking` pause is the exception, exercised directly against
+  // `toVoiceAvatarVisual`.)
+  if (state === "speaking") {
+    store.setAssistantAudioActive(true);
+  }
 }

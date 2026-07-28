@@ -8,6 +8,8 @@ import {
   WEB_REMOTE_INGRESS_FLAG,
 } from "../lib/feature-flags.js";
 import { runNgrokTunnel } from "../lib/ngrok";
+import { STALE_CLI_UPDATE_HINT } from "../lib/stale-cli-hint.js";
+import { runTailscaleTunnel } from "../lib/tailscale-tunnel.js";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
 type TunnelProvider = (typeof VALID_PROVIDERS)[number];
@@ -62,18 +64,33 @@ function parseArgs(): TunnelArgs {
       console.log(
         "               No Cloudflare account required for quick tunnels.",
       );
+      console.log(
+        "  tailscale    Tailscale serve — install: brew install tailscale, then `tailscale up`",
+      );
+      console.log(
+        "               Reachable only from your own tailnet (private; LetsEncrypt cert).",
+      );
       console.log("");
       console.log("Examples:");
       console.log("  $ vellum tunnel");
       console.log("  $ vellum tunnel --provider ngrok");
       console.log("  $ vellum tunnel --provider cloudflare");
-      console.log("  $ vellum tunnel my-assistant --provider cloudflare");
+      console.log("  $ vellum tunnel my-assistant --provider tailscale");
       process.exit(0);
     } else if (arg === "--provider") {
       const next = args[i + 1];
-      if (!next || !VALID_PROVIDERS.includes(next as TunnelProvider)) {
+      if (!next || next.startsWith("-")) {
         console.error(
           `Error: --provider requires one of: ${VALID_PROVIDERS.join(", ")}`,
+        );
+        process.exit(1);
+      }
+      if (!VALID_PROVIDERS.includes(next as TunnelProvider)) {
+        console.error(
+          `Error: unknown tunnel provider '${next}'. Valid providers: ${VALID_PROVIDERS.join(", ")}.`,
+        );
+        console.error(
+          `If this provider is documented, ${STALE_CLI_UPDATE_HINT}`,
         );
         process.exit(1);
       }
@@ -153,6 +170,7 @@ export async function tunnel(): Promise<void> {
   const gatewayPort = resolveEntryGatewayPort(entry);
   const baseTunnelOpts = {
     port: gatewayPort,
+    assistantId: entry.assistantId,
     ...(resources
       ? { workspaceDir: join(resources.instanceDir, ".vellum", "workspace") }
       : {}),
@@ -180,5 +198,19 @@ export async function tunnel(): Promise<void> {
     return;
   }
 
-  throw new Error(`Tunnel provider '${provider}' is not yet implemented.`);
+  if (provider === "tailscale") {
+    await runTailscaleTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(
+        entry.assistantId,
+        gatewayPort,
+      ),
+    });
+    return;
+  }
+
+  throw new Error(
+    `Tunnel provider '${provider}' is not yet implemented. ` +
+      `If this provider is documented, ${STALE_CLI_UPDATE_HINT}`,
+  );
 }

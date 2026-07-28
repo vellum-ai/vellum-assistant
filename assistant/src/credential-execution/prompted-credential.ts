@@ -12,7 +12,16 @@
  * collected through a secure prompt.
  */
 
+import {
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../acp/acp-credentials.js";
 import { getConfig } from "../config/loader.js";
+import {
+  isNonSecretPlatformField,
+  scrubStoredCredentialFromTranscripts,
+} from "../daemon/credential-transcript-scrub.js";
 import {
   setSlackChannelConfig,
   type SlackChannelConfigResult,
@@ -114,6 +123,19 @@ export async function persistPromptedCredential(args: {
 }): Promise<PersistPromptedCredentialResult> {
   const { service, field, value, delivery, policy } = args;
 
+  // Reject an Anthropic API key pasted into the ACP OAuth-token field before any
+  // persistence, surfacing the guard message through the existing error channel.
+  if (service === ACP_SERVICE) {
+    try {
+      assertAcpCredentialFormat(field, value);
+    } catch (err) {
+      if (err instanceof AcpCredentialFormatError) {
+        return { outcome: "error", message: err.message };
+      }
+      throw err;
+    }
+  }
+
   if (delivery === "transient_send") {
     if (isSlackChannelCredential(service, field)) {
       return {
@@ -179,6 +201,26 @@ export async function persistPromptedCredential(args: {
     const ok = await setSecureKeyAsync(key, value);
     if (!ok) {
       return { outcome: "error", message: "failed to store credential" };
+    }
+  }
+
+  // The prompt UI never puts the value in the transcript, but the flow is
+  // routinely used to RE-collect a secret the user already pasted into chat
+  // (the 06-credential-security rail promises that pasted message is
+  // scrubbed after storage). Run the scrub right after the store succeeds,
+  // best-effort and invisible to the caller, mirroring credentials_set.
+  if (!isNonSecretPlatformField(service, field)) {
+    try {
+      const scrubbed = await scrubStoredCredentialFromTranscripts(value);
+      log.info(
+        { service, field, ...scrubbed },
+        "Prompted credential stored; scrubbed value from recent transcripts",
+      );
+    } catch (err) {
+      log.warn(
+        { service, field, err },
+        "Prompted credential stored, but transcript scrub failed",
+      );
     }
   }
 

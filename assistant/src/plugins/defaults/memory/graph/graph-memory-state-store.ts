@@ -1,18 +1,21 @@
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../../../../persistence/db-connection.js";
-import { conversationGraphMemoryState } from "../../../../persistence/schema/index.js";
+import { conversationGraphMemoryState } from "../../../../persistence/schema/conversations.js";
+import { memoryDbOrNull } from "../memory-db.js";
 
 /**
- * Persist graph memory state for a conversation (upsert).
+ * Persist graph memory state for a conversation (upsert). Writes the dedicated
+ * memory connection; an unavailable memory database no-ops.
  */
 export function saveGraphMemoryState(
   conversationId: string,
   stateJson: string,
 ): void {
-  const db = getDb();
+  const mdb = memoryDbOrNull("saveGraphMemoryState");
+  if (!mdb) return;
   const now = Date.now();
-  db.insert(conversationGraphMemoryState)
+  mdb
+    .insert(conversationGraphMemoryState)
     .values({ conversationId, stateJson, createdAt: now, updatedAt: now })
     .onConflictDoUpdate({
       target: conversationGraphMemoryState.conversationId,
@@ -22,11 +25,13 @@ export function saveGraphMemoryState(
 }
 
 /**
- * Load graph memory state for a conversation, or null if none exists.
+ * Load graph memory state for a conversation, or null if none exists. Reads the
+ * dedicated memory connection; an unavailable memory database reports none.
  */
 export function loadGraphMemoryState(conversationId: string): string | null {
-  const db = getDb();
-  const row = db
+  const mdb = memoryDbOrNull("loadGraphMemoryState");
+  if (!mdb) return null;
+  const row = mdb
     .select({ stateJson: conversationGraphMemoryState.stateJson })
     .from(conversationGraphMemoryState)
     .where(eq(conversationGraphMemoryState.conversationId, conversationId))

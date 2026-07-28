@@ -517,6 +517,7 @@ function makeConfig(
 ): LiveVoiceTtsConfig {
   return {
     services: {
+      stt: { provider: "deepgram", providers: {} },
       tts: {
         provider: overrides.provider ?? "fish-audio",
         providers: {

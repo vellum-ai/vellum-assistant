@@ -11,8 +11,8 @@
  *   cached list resolves the skill — with the skill unresolved (no cached
  *   list, or a cached list that lacks it) the full-page error state renders
  *   instead of a false "Skill not found",
- * - the back button restores the Skills list's query string passed as
- *   router state (search/filter/category survive detail navigation).
+ * - the back button restores the My Superpowers list's query string passed
+ *   as router state (search/filter/category survive detail navigation).
  *
  * The generated SDK's `skillsGet` is mocked with a per-test deferred so a
  * case can hold the list refetch pending; the heavy `SkillDetail` /
@@ -138,9 +138,9 @@ function listQueryKey() {
 
 // Sentinel at the list route so tests can prove which query string the back
 // navigation landed on.
-function SkillsListLanding() {
+function SuperpowersListLanding() {
   const location = useLocation();
-  return <div>Skills list at: [{location.search}]</div>;
+  return <div>Superpowers list at: [{location.search}]</div>;
 }
 
 function renderDetail({
@@ -164,7 +164,10 @@ function renderDetail({
             path="/assistant/skills/:skillId"
             element={<SkillDetailPage />}
           />
-          <Route path="/assistant/skills" element={<SkillsListLanding />} />
+          <Route
+            path="/assistant/superpowers"
+            element={<SuperpowersListLanding />}
+          />
         </Routes>
       </QueryClientProvider>
     </MemoryRouter>,
@@ -319,7 +322,9 @@ describe("SkillDetailPage back navigation", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Skills list at: [?filter=installed&category=email]"),
+        screen.getByText(
+          "Superpowers list at: [?filter=installed&category=email]",
+        ),
       ).toBeTruthy();
     });
   });
@@ -334,7 +339,7 @@ describe("SkillDetailPage back navigation", () => {
     fireEvent.click(screen.getByText("Back to skills"));
 
     await waitFor(() => {
-      expect(screen.getByText("Skills list at: []")).toBeTruthy();
+      expect(screen.getByText("Superpowers list at: []")).toBeTruthy();
     });
   });
 });

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleMessageQueued,
@@ -7,6 +8,10 @@ import {
   handleMessageQueuedDeleted,
   handleMessageRequestComplete,
 } from "@/domains/chat/utils/stream-handlers/queue-handlers";
+
+afterEach(() => {
+  useChatSessionStore.setState({ snapshot: null });
+});
 
 describe("handleMessageQueued", () => {
   it("maps requestId to messageId and sets queue position", () => {
@@ -94,6 +99,39 @@ describe("handleMessageDequeued", () => {
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
+
+  it("marks an uncorrelated transcript row optimistic until its echo", () => {
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [
+          {
+            id: "req-1",
+            role: "user",
+            queueStatus: "queued",
+            queuePosition: 1,
+          },
+        ],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+    });
+
+    handleMessageDequeued(
+      {
+        type: "message_dequeued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      },
+      makeCtx(),
+    );
+
+    const message = useChatSessionStore.getState().snapshot?.messages[0];
+    expect(message?.isOptimistic).toBe(true);
+    expect(message?.queueStatus).toBeUndefined();
+    expect(message?.queuePosition).toBeUndefined();
+  });
 });
 
 describe("handleMessageQueuedDeleted", () => {
@@ -126,6 +164,36 @@ describe("handleMessageQueuedDeleted", () => {
     );
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
+
+  it("removes a server-backed queued transcript row", () => {
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [
+          {
+            id: "req-1",
+            role: "user",
+            queueStatus: "queued",
+            queuePosition: 1,
+          },
+        ],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+    });
+
+    handleMessageQueuedDeleted(
+      {
+        type: "message_queued_deleted",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      },
+      makeCtx(),
+    );
+
+    expect(useChatSessionStore.getState().snapshot?.messages).toEqual([]);
   });
 });
 

@@ -776,12 +776,12 @@ export async function sleepContainers(
   }
 }
 
-/** Start existing stopped containers, starting Colima first if it isn't running (macOS only). */
+/** Start existing stopped containers, ensuring a Docker daemon is up first (macOS only). */
 export async function wakeContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
   if (platform() !== "linux") {
-    await ensureColimaRunning();
+    await ensureDockerDaemonRunning();
   }
   for (const container of [
     res.assistantContainer,
@@ -793,16 +793,42 @@ export async function wakeContainers(
 }
 
 /**
- * Checks whether Colima is running and starts it if not.
- * Assumes the Docker/Colima toolchain is already installed (handled during hatch).
+ * Ensure a Docker daemon is reachable before waking an instance's containers
+ * (macOS only — on Linux the daemon runs natively).
+ *
+ * If a daemon is already reachable, reuse it and return: `hatch` created the
+ * containers under whatever `docker context` was active at the time (Docker
+ * Desktop, an already-running Colima, a remote context, …), and `docker start`
+ * targets the active context. Unconditionally starting Colima would switch the
+ * active context to `colima` and point `docker start` at a VM that never held
+ * those containers — so Colima is only started as a fallback when no daemon is
+ * reachable at all (the toolchain `hatch` installs on macOS when Docker Desktop
+ * isn't present). This mirrors {@link ensureDockerInstalled}, which likewise
+ * only starts Colima when `docker info` fails.
+ *
+ * `execFn` is injectable so unit tests can drive the probe outcomes without a
+ * real Docker/Colima toolchain; production callers use the real {@link exec}.
+ * Assumes the toolchain is already installed (handled during hatch).
  */
-async function ensureColimaRunning(): Promise<void> {
+export async function ensureDockerDaemonRunning(
+  execFn: typeof exec = exec,
+): Promise<void> {
   ensureLocalBinOnPath();
+
+  // A reachable daemon — Docker Desktop, a running Colima, or any other active
+  // context — is exactly what hatch used. Reuse it rather than forcing Colima.
   try {
-    await exec("colima", ["status"]);
+    await execFn("docker", ["info"]);
+    return;
   } catch {
-    console.log("🚀 Colima is not running. Starting Colima...");
-    await exec("colima", ["start"]);
+    // No daemon reachable — fall through to the Colima fallback below.
+  }
+
+  try {
+    await execFn("colima", ["status"]);
+  } catch {
+    console.log("🚀 Docker daemon not running. Starting Colima...");
+    await execFn("colima", ["start"]);
   }
 }
 

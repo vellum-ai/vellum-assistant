@@ -206,6 +206,15 @@ describe("AnthropicProvider — semantic reason stamping", () => {
       reason: "insufficient_credits",
     },
     {
+      name: "daily-limit body code → daily_limit_reached (before insufficient_credits)",
+      error: new FakeAPIError(
+        402,
+        '{"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        anthropicBody("invalid_request_error"),
+      ),
+      reason: "daily_limit_reached",
+    },
+    {
       name: "5xx → server_error",
       error: new FakeAPIError(503, "internal", anthropicBody("api_error")),
       reason: "server_error",

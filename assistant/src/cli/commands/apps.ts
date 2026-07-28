@@ -8,9 +8,6 @@ import { appsHelp } from "./apps.help.js";
 interface AppListEntry {
   name: string;
   source: string;
-  id: string;
-  formatVersion: number;
-  updatedAt: number;
 }
 
 export function registerAppsCommand(program: Command): void {
@@ -24,17 +21,10 @@ export function registerAppsCommand(program: Command): void {
       subcommand(apps, "list").action(async (opts: { json?: boolean }) => {
         // Lazy-import the app store so the daemon module graph loads only when
         // this command runs (cli/no-daemon-internals).
-        const { getAppDirPath, listApps } =
-          await import("../../apps/app-store.js");
+        const { listAllApps } = await import("../../apps/app-store.js");
 
-        const entries: AppListEntry[] = listApps()
-          .map((app) => ({
-            name: app.name,
-            source: getAppDirPath(app.id),
-            id: app.id,
-            formatVersion: app.formatVersion ?? 1,
-            updatedAt: app.updatedAt,
-          }))
+        const entries: AppListEntry[] = listAllApps()
+          .map(({ name, sourcePath }) => ({ name, source: sourcePath }))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         if (opts.json) {
@@ -48,7 +38,7 @@ export function registerAppsCommand(program: Command): void {
         }
 
         // Name and source lead; align the name into a column so the source
-        // path is scannable across rows.
+        // path (which also identifies the app's origin) stays scannable.
         const nameWidth = Math.max(4, ...entries.map((e) => e.name.length));
         log.info(`Apps (${entries.length}):\n`);
         log.info(`  ${"NAME".padEnd(nameWidth)}  SOURCE`);

@@ -139,9 +139,11 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
     return {};
   }
-  // `web-search.mode = managed` enables platform-backed app-executed search
-  // for non-native inference providers while preserving provider-native hosted
-  // search for providers/models that support it.
+  // Web-search carries no deployment default: `provider` is its only axis,
+  // the schema default (`inference-provider-native`) prefers native hosted
+  // search, and app-executed search falls back to the platform proxy when no
+  // BYOK key is configured. Filling a `mode` here would override BYOK
+  // configs on every load.
   const managed = { mode: "managed" as const };
   return {
     // Express platform intent that hosted assistants embed via the managed
@@ -154,8 +156,13 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
     // default (`gemini-embedding-2`).
     memory: { embeddings: { provider: "gemini" } },
     services: {
-      "image-generation": managed,
-      "web-search": managed,
+      // Image-generation is provider-only for the managed axis: `vellum`
+      // generates through the platform runtime proxy (the backend derives
+      // from the selected model's prefix at request time). Hosted assistants
+      // default to it here; fill-only, so an explicit on-disk BYOK provider
+      // (gemini/openai) always wins. Filling a `mode` instead would
+      // re-manage BYOK configs on every load.
+      "image-generation": { provider: "vellum" },
       "google-oauth": managed,
       "outlook-oauth": managed,
       "linear-oauth": managed,

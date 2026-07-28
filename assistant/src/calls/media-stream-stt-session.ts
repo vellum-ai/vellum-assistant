@@ -137,6 +137,12 @@ export interface MediaStreamSttSessionCallbacks {
   onDtmf?: (digit: string) => void;
 
   /**
+   * Called when Twilio echoes an outbound mark back — i.e. the caller's
+   * playback has reached that mark. Used to detect real playback drain.
+   */
+  onMark?: (name: string) => void;
+
+  /**
    * Called when the media stream stops.
    */
   onStop?: () => void;
@@ -264,7 +270,7 @@ export class MediaStreamSttSession {
         this.callbacks.onDtmf?.(event.dtmf.digit);
         break;
       case "mark":
-        // Marks are informational — no action needed in the STT session.
+        this.callbacks.onMark?.(event.mark.name);
         break;
       case "stop":
         this.handleStop();

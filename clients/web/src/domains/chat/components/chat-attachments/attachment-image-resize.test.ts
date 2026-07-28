@@ -72,4 +72,18 @@ describe("filenameForResizedImage", () => {
     expect(filenameForResizedImage("photo.jpg")).toBe("photo.jpg");
     expect(filenameForResizedImage("photo.JPEG")).toBe("photo.JPEG");
   });
+
+  test("follows the encoded type when the canvas fell back to PNG", () => {
+    expect(filenameForResizedImage("IMG_5487.HEIC", "image/png")).toBe("IMG_5487.png");
+    expect(filenameForResizedImage("photo.png", "image/png")).toBe("photo.png");
+  });
+
+  test("follows any well-formed image subtype", () => {
+    expect(filenameForResizedImage("photo.png", "image/webp")).toBe("photo.webp");
+  });
+
+  test("falls back to .jpg for a malformed encoded type", () => {
+    expect(filenameForResizedImage("photo.png", "image/svg+xml")).toBe("photo.jpg");
+    expect(filenameForResizedImage("photo.png", "")).toBe("photo.jpg");
+  });
 });

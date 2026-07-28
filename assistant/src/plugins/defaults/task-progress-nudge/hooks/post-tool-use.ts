@@ -71,14 +71,16 @@ export const TASK_PROGRESS_NUDGE_TEXT =
 export const TASK_PROGRESS_NUDGE_ROUND_THRESHOLD = 3;
 
 /**
- * Weaker open-weight model families (Kimi, DeepSeek, MiniMax, GLM) that tend to
+ * Weaker open-weight models (Kimi K2, DeepSeek, MiniMax, GLM) that tend to
  * disregard the static progress-card instruction and so benefit from the
- * mid-turn nudge. This is the plugin's own coaching policy, kept local and
- * matched against `ctx.model` rather than read off a shared context flag —
- * "weak" / "needs steering" is a judgement specific to this nudge, not a
- * general property of the turn, and the set is the plugin owner's to tune.
+ * mid-turn nudge. Kimi is scoped to the K2 generation — K3+ is frontier-class
+ * and follows static instructions. This is the plugin's own coaching policy,
+ * kept local and matched against `ctx.model` rather than read off a shared
+ * context flag — "weak" / "needs steering" is a judgement specific to this
+ * nudge, not a general property of the turn, and the set is the plugin
+ * owner's to tune.
  */
-const NUDGE_TARGET_MODEL_PATTERN = /kimi|deepseek|minimax|glm/i;
+const NUDGE_TARGET_MODEL_PATTERN = /kimi-k2|deepseek|minimax|glm/i;
 
 /**
  * Round count at the last nudge, per conversation. A non-zero entry means the

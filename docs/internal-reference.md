@@ -325,7 +325,7 @@ The assistant can attach files and images to its replies. Attachments flow throu
 
 #### Desktop (HTTP+SSE)
 
-Attachments are sent inline (base64) in `message_complete`, `generation_handoff`, and `history_response` SSE events. The macOS app renders thumbnails for images and displays file metadata for documents.
+Attachments are sent inline (base64) in `message_complete` and `generation_handoff` SSE events; historical attachments are returned by the HTTP conversation-history route. The macOS app renders thumbnails for images and displays file metadata for documents.
 
 #### Runtime HTTP API
 
@@ -618,7 +618,7 @@ Releases are cut using the `/release` Claude Code command and follow a two-step 
 Run `/release [patch|minor|major|hotfix]` in Claude Code. The command:
 
 1. Pulls the latest `main` branch and shows the commits the release will carry
-2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it — which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Fri 9am ET cut is this same step)
+2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it — which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Fri 8:52am ET cut is this same step)
 3. Waits for the staging bake to succeed — it is the CI bake for the exact release payload; a failure means fixing `main` and re-cutting
 4. Dispatches `release.yml` on `release/vX.Y.Z` — "manual dispatch on a release branch" is the **full production release**: tags `vX.Y.Z`, publishes npm packages, builds/signs/notarizes and publishes the macOS DMG, pushes Docker Hub images, uploads iOS to TestFlight, creates the GitHub Release, updates the `vellum-assistant-platform` dependency, and merges the release branch back to `main`
 

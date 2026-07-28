@@ -131,7 +131,7 @@ const skillState = {
   entries: new Map<string, SkillEntry>(),
 };
 
-mock.module("../skill-store.js", () => ({
+mock.module("../../substrate/skill-store.js", () => ({
   getSkillCapability: (idOrSlug: string) => {
     const id = idOrSlug.startsWith("skills/")
       ? idOrSlug.slice("skills/".length)
@@ -167,7 +167,7 @@ const cliCommandState = {
   entries: new Map<string, CliCommandEntryStub>(),
 };
 
-mock.module("../cli-command-store.js", () => ({
+mock.module("../../substrate/cli-command-store.js", () => ({
   getCliCommandCapability: (idOrSlug: string) => {
     const id = idOrSlug.startsWith("cli-commands/")
       ? idOrSlug.slice("cli-commands/".length)
@@ -184,8 +184,8 @@ mock.module("../cli-command-store.js", () => ({
 // Activation-log store mock
 // ---------------------------------------------------------------------------
 //
-// The real `recordMemoryV2ActivationLog` writes to the singleton
-// `getDb()` — but this test uses an isolated in-memory database, so we mock
+// The real `recordMemoryV2ActivationLog` writes to the memory-DB singleton
+// connection — but this test uses an isolated in-memory database, so we mock
 // the writer to capture calls in-process. `recordCalls` is the captured log
 // array; `recordShouldThrow` makes the next call throw to verify the caller
 // swallows the failure.
@@ -195,7 +195,7 @@ const telemetryState = {
   recordShouldThrow: false,
 };
 
-mock.module("../../memory-v2-activation-log-store.js", () => ({
+mock.module("../activation-log-store.js", () => ({
   recordMemoryV2ActivationLog: (params: Record<string, unknown>) => {
     if (telemetryState.recordShouldThrow) {
       throw new Error("simulated telemetry write failure");
@@ -220,16 +220,18 @@ mock.module("../../memory-v2-activation-log-store.js", () => ({
 // (not a property lookup) before installing the mock so the pass-through
 // path has a real reference to the underlying implementation.
 
-const realPageStoreModule = await import("../page-store.js");
+const realPageStoreModule = await import("../../substrate/page-store.js");
 const realReadPage = realPageStoreModule.readPage;
 const pageStoreState = {
   failingSlugs: new Map<string, Error>(),
 };
-mock.module("../page-store.js", () => ({
+mock.module("../../substrate/page-store.js", () => ({
   ...realPageStoreModule,
   readPage: async (workspaceDir: string, slug: string) => {
     const err = pageStoreState.failingSlugs.get(slug);
-    if (err) throw err;
+    if (err) {
+      throw err;
+    }
     return realReadPage(workspaceDir, slug);
   },
 }));
@@ -269,7 +271,9 @@ mock.module("../router.js", () => ({
     // the closest equivalent under the new model.
     if (!result.sourceBySlug) {
       const map = new Map<string, string>();
-      for (const slug of result.selectedSlugs) map.set(slug, "tier3:0");
+      for (const slug of result.selectedSlugs) {
+        map.set(slug, "tier3:0");
+      }
       result.sourceBySlug = map;
     }
     return result;
@@ -369,6 +373,9 @@ Long-form body content that should NOT appear in the injection block when the pa
 });
 
 afterAll(() => {
+  // Drop this file's in-memory memory-DB install so later test files reopen
+  // the connection from their own (restored) workspace path.
+  clearStoredDb("memory");
   if (previousWorkspaceEnv === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
@@ -380,10 +387,12 @@ afterAll(() => {
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
 import type { DrizzleDb } from "../../../../../persistence/db-connection.js";
-import type { SkillEntry } from "../types.js";
+import type { SkillEntry } from "../../substrate/types.js";
 
 const { getSqliteFrom } =
   await import("../../../../../persistence/db-connection.js");
+const { clearStoredDb, setStoredDb } =
+  await import("../../../../../persistence/db-singleton.js");
 const { migrateActivationState } =
   await import("../../../../../persistence/migrations/232-activation-state.js");
 const { migrateMemoryV2InjectionEvents } =
@@ -392,7 +401,8 @@ const schema = await import("../../../../../persistence/schema/index.js");
 const { clearEverInjected, hydrate, save } =
   await import("../activation-store.js");
 const { injectMemoryV2Block } = await import("../injection.js");
-const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
+const { _resetMemoryV2QdrantForTests } =
+  await import("../../substrate/qdrant.js");
 
 function createTestDb(): DrizzleDb {
   const sqlite = new Database(":memory:");
@@ -546,7 +556,11 @@ function stageCliCommands(entries: CliCommandEntryStub[]): void {
 
 let db: DrizzleDb;
 beforeEach(() => {
+  // The activation and injection-events stores resolve the dedicated memory
+  // connection through the `memory` singleton slot. Point it at this test's
+  // fresh handle, which carries both relocated schemas.
   db = createTestDb();
+  setStoredDb("memory", db, () => {});
   resetState();
 });
 afterEach(resetState);
@@ -562,7 +576,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -585,7 +598,7 @@ describe("injectMemoryV2Block", () => {
 
     // State persisted: alice's activation is above epsilon and recorded;
     // everInjected captured the new slug + currentTurn.
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted).not.toBeNull();
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
@@ -599,7 +612,6 @@ describe("injectMemoryV2Block", () => {
     // Turn 1 — seed alice as injected.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -614,7 +626,6 @@ describe("injectMemoryV2Block", () => {
     // everInjected, toInject is empty → block is null.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [
@@ -633,7 +644,7 @@ describe("injectMemoryV2Block", () => {
 
     // State still advanced (currentTurn moved forward) and the existing
     // everInjected entry is preserved (no duplicate added).
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.currentTurn).toBe(2);
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
@@ -645,7 +656,6 @@ describe("injectMemoryV2Block", () => {
     // Turn 1 — seed alice.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -664,7 +674,6 @@ describe("injectMemoryV2Block", () => {
       { slug: "carol-jazz", denseScore: 0.95 },
     ]);
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [
@@ -684,7 +693,7 @@ describe("injectMemoryV2Block", () => {
     // previous turn's user message.
     expect(result.block).not.toContain("# memory/concepts/alice-vscode.md");
 
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
       { slug: "carol-jazz", turn: 2 },
@@ -695,7 +704,6 @@ describe("injectMemoryV2Block", () => {
     // Turn 1 — seed alice.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -707,17 +715,16 @@ describe("injectMemoryV2Block", () => {
     });
 
     // Simulate compaction: clear the entire everInjected list.
-    const beforeEvict = await hydrate(db, "conv-1");
+    const beforeEvict = await hydrate("conv-1");
     expect(beforeEvict).not.toBeNull();
     const afterEvict = clearEverInjected(beforeEvict!);
     expect(afterEvict.everInjected).toEqual([]);
-    await save(db, "conv-1", afterEvict);
+    await save("conv-1", afterEvict);
 
     // Turn 2 — alice should now be re-injectable since eviction cleared the
     // everInjected entry. Same simulated relevance as before.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [
@@ -731,7 +738,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.toInject).toEqual(["alice-vscode"]);
     expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 2 },
     ]);
@@ -745,7 +752,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "summarized-page", denseScore: 0.9 }]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -783,7 +789,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -821,7 +826,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "frontmatter-demo", denseScore: 0.9 }]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -855,7 +859,6 @@ describe("injectMemoryV2Block", () => {
       { slug: "alice-vscode", denseScore: 0.5 },
     ]);
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -884,7 +887,6 @@ describe("injectMemoryV2Block", () => {
       { slug: "alice-vscode", denseScore: -1.0 },
     ]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "carol" }],
@@ -893,7 +895,7 @@ describe("injectMemoryV2Block", () => {
       config: makeConfig({ epsilon: 0.05 }),
     });
 
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.state["carol-jazz"]).toBeGreaterThan(0.05);
     expect(persisted!.state["alice-vscode"]).toBeUndefined();
   });
@@ -905,7 +907,6 @@ describe("injectMemoryV2Block", () => {
     // persisted so we don't keep re-attempting.
     stageTurn([{ slug: "phantom-slug", denseScore: 0.99 }]);
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "phantom" }],
@@ -919,7 +920,7 @@ describe("injectMemoryV2Block", () => {
 
     // everInjected still records the slug so future turns subtract it and
     // we don't infinite-loop on a missing page.
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "phantom-slug", turn: 1 },
     ]);
@@ -955,7 +956,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -996,7 +996,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1036,7 +1035,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "skills/example-skill-a", denseScore: 0.9 }]);
     stageSkills([skillEntry]);
     const result1 = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "examples" }],
@@ -1053,7 +1051,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "skills/example-skill-a", denseScore: 0.9 }]);
     stageSkills([skillEntry]);
     const result2 = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [
@@ -1066,7 +1063,7 @@ describe("injectMemoryV2Block", () => {
     expect(result2.toInject).toEqual([]);
     expect(result2.block).toBeNull();
 
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "skills/example-skill-a", turn: 1 },
     ]);
@@ -1083,7 +1080,6 @@ describe("injectMemoryV2Block", () => {
     // No `stageSkills` call — cache stays empty.
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "anything" }],
@@ -1100,7 +1096,7 @@ describe("injectMemoryV2Block", () => {
 
     // Persisted `everInjected` must not record the missing skill — that
     // would block retry on a later turn until compaction-driven eviction.
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([]);
   });
 
@@ -1108,7 +1104,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "anything" }],
@@ -1136,7 +1131,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1179,7 +1173,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "Help me" }],
@@ -1209,7 +1202,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "cli-commands/missing-command", denseScore: 0.9 }]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "anything" }],
@@ -1221,7 +1213,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.toInject).toEqual([]);
     expect(result.block).toBeNull();
 
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([]);
   });
 
@@ -1234,7 +1226,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "cli-commands/config", denseScore: 0.9 }]);
     stageCliCommands([entry]);
     const result1 = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "config" }],
@@ -1248,7 +1239,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "cli-commands/config", denseScore: 0.9 }]);
     stageCliCommands([entry]);
     const result2 = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [{ assistantMessage: "ok", userMessage: "more config" }],
@@ -1259,7 +1249,7 @@ describe("injectMemoryV2Block", () => {
     expect(result2.toInject).toEqual([]);
     expect(result2.block).toBeNull();
 
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "cli-commands/config", turn: 1 },
     ]);
@@ -1269,7 +1259,6 @@ describe("injectMemoryV2Block", () => {
     // Turn 1 (per-turn): seed alice as injected.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1286,7 +1275,6 @@ describe("injectMemoryV2Block", () => {
     // because cached attachments don't exist on a fresh load.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [
@@ -1305,7 +1293,7 @@ describe("injectMemoryV2Block", () => {
 
     // everInjected stays a single entry (alice was already there) — context-
     // load doesn't double-stamp.
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
     ]);
@@ -1323,7 +1311,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "hi" }],
@@ -1348,7 +1335,7 @@ describe("injectMemoryV2Block", () => {
 
     // All three slugs persisted to everInjected so the next per-turn doesn't
     // re-attach the same content.
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(new Set(persisted!.everInjected.map((e) => e.slug))).toEqual(
       new Set(["alice-vscode", "bob-coffee", "carol-jazz"]),
     );
@@ -1363,7 +1350,6 @@ describe("injectMemoryV2Block", () => {
     // Turn 1: seed alice as injected so turn 2 has an `in_context` candidate.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1383,7 +1369,6 @@ describe("injectMemoryV2Block", () => {
       { slug: "carol-jazz", denseScore: 0.95 },
     ]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [{ assistantMessage: "", userMessage: "Carol's music" }],
@@ -1445,7 +1430,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1472,7 +1456,6 @@ describe("injectMemoryV2Block", () => {
     // test uses, so the difference between modes is unambiguous.
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1496,7 +1479,6 @@ describe("injectMemoryV2Block", () => {
       { slug: "carol-jazz", denseScore: 0.95 },
     ]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [
@@ -1537,7 +1519,6 @@ describe("injectMemoryV2Block", () => {
       { slug: "bob-coffee", denseScore: 0.8 },
     ]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1559,7 +1540,6 @@ describe("injectMemoryV2Block", () => {
       { slug: "bob-coffee", denseScore: 0.05 },
     ]);
     await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 2,
       recentTurnPairs: [
@@ -1590,7 +1570,6 @@ describe("injectMemoryV2Block", () => {
 
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1608,7 +1587,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).not.toBeNull();
     expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 1 },
     ]);
@@ -1634,7 +1613,6 @@ describe("injectMemoryV2Block", () => {
     ]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-1",
       currentTurn: 1,
       recentTurnPairs: [
@@ -1671,7 +1649,7 @@ describe("injectMemoryV2Block", () => {
     expect(new Set(result.toInject)).toEqual(
       new Set(["alice-vscode", "carol-jazz"]),
     );
-    const persisted = await hydrate(db, "conv-1");
+    const persisted = await hydrate("conv-1");
     const everInjectedSlugs = persisted!.everInjected.map((e) => e.slug);
     expect(new Set(everInjectedSlugs)).toEqual(
       new Set(["alice-vscode", "carol-jazz"]),
@@ -1691,7 +1669,6 @@ describe("injectMemoryV2Block", () => {
     let threw: unknown = undefined;
     try {
       await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-1",
         currentTurn: 1,
         recentTurnPairs: [
@@ -1738,7 +1715,6 @@ describe("injectMemoryV2Block", () => {
     stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
 
     const result = await injectMemoryV2Block({
-      database: db,
       conversationId: "conv-finalize",
       currentTurn: 7,
       recentTurnPairs: [
@@ -1812,7 +1788,6 @@ describe("injectMemoryV2Block", () => {
       };
 
       const result = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-1",
         currentTurn: 1,
         recentTurnPairs: [
@@ -1828,7 +1803,7 @@ describe("injectMemoryV2Block", () => {
       expect(result.block).not.toBeNull();
       expect(result.block).toContain("# memory/concepts/alice-vscode.md");
 
-      const persisted = await hydrate(db, "conv-router-1");
+      const persisted = await hydrate("conv-router-1");
       expect(persisted!.everInjected).toEqual([
         { slug: "alice-vscode", turn: 1 },
       ]);
@@ -1867,7 +1842,6 @@ describe("injectMemoryV2Block", () => {
         failureReason: null,
       };
       await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-saturated",
         currentTurn: 1,
         recentTurnPairs: [
@@ -1880,10 +1854,10 @@ describe("injectMemoryV2Block", () => {
 
       // Mark every page in the index as already injected — the state a
       // small workspace reaches a few turns into any conversation.
-      const { getPageIndex } = await import("../page-index.js");
+      const { getPageIndex } = await import("../../substrate/page-index.js");
       const index = await getPageIndex(tmpWorkspace);
-      const seeded = await hydrate(db, "conv-router-saturated");
-      await save(db, "conv-router-saturated", {
+      const seeded = await hydrate("conv-router-saturated");
+      await save("conv-router-saturated", {
         ...seeded!,
         everInjected: index.entries.map((e) => ({ slug: e.slug, turn: 1 })),
       });
@@ -1896,7 +1870,6 @@ describe("injectMemoryV2Block", () => {
         failureReason: null,
       };
       const result = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-saturated",
         currentTurn: 2,
         recentTurnPairs: [{ assistantMessage: "ok", userMessage: "and Bob?" }],
@@ -1910,7 +1883,7 @@ describe("injectMemoryV2Block", () => {
       expect(result.toInject).toEqual([]);
 
       // State still advanced; everInjected preserved for future dedupe.
-      const persisted = await hydrate(db, "conv-router-saturated");
+      const persisted = await hydrate("conv-router-saturated");
       expect(persisted!.currentTurn).toBe(2);
       expect(persisted!.messageId).toBe("msg-2");
       expect(persisted!.everInjected.length).toBe(index.entries.length);
@@ -1937,7 +1910,6 @@ describe("injectMemoryV2Block", () => {
       };
 
       const result = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-fail",
         currentTurn: 3,
         recentTurnPairs: [{ assistantMessage: "ok", userMessage: "anything" }],
@@ -1950,7 +1922,7 @@ describe("injectMemoryV2Block", () => {
       expect(result.toInject).toEqual([]);
 
       // Stub state still advanced.
-      const persisted = await hydrate(db, "conv-router-fail");
+      const persisted = await hydrate("conv-router-fail");
       expect(persisted).not.toBeNull();
       expect(persisted!.currentTurn).toBe(3);
       expect(persisted!.messageId).toBe("msg-fail");
@@ -1992,7 +1964,6 @@ describe("injectMemoryV2Block", () => {
       let result: Awaited<ReturnType<typeof injectMemoryV2Block>> | undefined;
       try {
         result = await injectMemoryV2Block({
-          database: db,
           conversationId: "conv-router-fail-save-throws",
           currentTurn: 5,
           recentTurnPairs: [
@@ -2029,7 +2000,6 @@ describe("injectMemoryV2Block", () => {
       };
 
       const result = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-abstain",
         currentTurn: 1,
         recentTurnPairs: [{ assistantMessage: "", userMessage: "small talk" }],
@@ -2043,7 +2013,7 @@ describe("injectMemoryV2Block", () => {
 
       // No prior everInjected to dedup against, so toInject is empty and
       // nothing renders. State still advanced.
-      const persisted = await hydrate(db, "conv-router-abstain");
+      const persisted = await hydrate("conv-router-abstain");
       expect(persisted!.everInjected).toEqual([]);
       expect(persisted!.currentTurn).toBe(1);
 
@@ -2067,7 +2037,6 @@ describe("injectMemoryV2Block", () => {
       };
 
       const result = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-missing",
         currentTurn: 1,
         recentTurnPairs: [{ assistantMessage: "", userMessage: "phantom" }],
@@ -2087,7 +2056,7 @@ describe("injectMemoryV2Block", () => {
       // so we don't infinite-retry it. (This matches the behavior the
       // existing `returns null block when toInject slugs all reference
       // missing pages` test asserts for activation mode.)
-      const persisted = await hydrate(db, "conv-router-missing");
+      const persisted = await hydrate("conv-router-missing");
       expect(persisted!.everInjected).toEqual([
         { slug: "phantom-router-slug", turn: 1 },
       ]);
@@ -2114,7 +2083,6 @@ describe("injectMemoryV2Block", () => {
         failureReason: null,
       };
       const turn1 = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-dedup",
         currentTurn: 1,
         recentTurnPairs: [
@@ -2136,7 +2104,6 @@ describe("injectMemoryV2Block", () => {
         failureReason: null,
       };
       const turn2 = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-dedup",
         currentTurn: 2,
         recentTurnPairs: [
@@ -2156,7 +2123,7 @@ describe("injectMemoryV2Block", () => {
       expect(turn2.block).not.toContain("# memory/concepts/alice-vscode.md");
 
       // everInjected only gained bob — alice was already there.
-      const persisted = await hydrate(db, "conv-router-dedup");
+      const persisted = await hydrate("conv-router-dedup");
       expect(persisted!.everInjected).toEqual([
         { slug: "alice-vscode", turn: 1 },
         { slug: "bob-coffee", turn: 2 },
@@ -2170,7 +2137,6 @@ describe("injectMemoryV2Block", () => {
         failureReason: null,
       };
       await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-source",
         currentTurn: 1,
         recentTurnPairs: [{ assistantMessage: "", userMessage: "Alice" }],
@@ -2188,7 +2154,6 @@ describe("injectMemoryV2Block", () => {
         failureReason: null,
       };
       await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-router-source",
         currentTurn: 2,
         recentTurnPairs: [{ assistantMessage: "", userMessage: "Bob" }],
@@ -2224,7 +2189,6 @@ describe("injectMemoryV2Block", () => {
       };
 
       const result = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-flag-off",
         currentTurn: 1,
         recentTurnPairs: [
@@ -2261,7 +2225,6 @@ describe("injectMemoryV2Block", () => {
       };
 
       const result = await injectMemoryV2Block({
-        database: db,
         conversationId: "conv-context-load-router-on",
         currentTurn: 1,
         recentTurnPairs: [

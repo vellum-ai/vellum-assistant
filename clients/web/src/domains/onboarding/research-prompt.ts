@@ -24,7 +24,14 @@ export interface ResearchSubject {
   firstName: string;
   lastName: string;
   occupation: string;
-  hobby?: string;
+  /**
+   * The form's multi-select chips, verbatim. Kept as the array the user
+   * actually picked rather than a pre-joined string: this is the shape the
+   * onboarding-research telemetry event records, and chips are free-typed, so
+   * a hobby containing a comma could not be split back out of a join. The
+   * prompt's `", "` rendering is applied below, at the point of use.
+   */
+  hobbies?: string[];
   /**
    * IANA timezone of the user's browser (e.g. "America/Denver"). A soft
    * location signal the prompt's identity gate checks candidate matches
@@ -83,7 +90,7 @@ export interface BuildResearchPromptOptions {
   /**
    * Whether to ask the model for clickable follow-up `suggestions`. The
    * suggestions-based final step is being retired in favor of the "Let's chat"
-   * handoff (gated behind the personality-onboarding flag), which installs the
+   * handoff (now always on), which installs the
    * picked plugins and drops the user straight into a primed chat. When false,
    * the prompt asks for ONLY `plugins` + `claims` and omits all suggestion
    * guidance. Defaults to true so the legacy suggestions flow is unchanged.
@@ -92,7 +99,7 @@ export interface BuildResearchPromptOptions {
 }
 
 export function buildResearchPrompt(
-  { firstName, lastName, occupation, hobby, timezone }: ResearchSubject,
+  { firstName, lastName, occupation, hobbies, timezone }: ResearchSubject,
   availableCapabilities: AvailableCapability[] = [],
   { includeSuggestions = true }: BuildResearchPromptOptions = {},
 ): string {
@@ -100,7 +107,10 @@ export function buildResearchPrompt(
     .filter(Boolean)
     .join(" ");
   const role = occupation.trim();
-  const hobbyText = hobby?.trim() ?? "";
+  const hobbyText = (hobbies ?? [])
+    .map((h) => h.trim())
+    .filter(Boolean)
+    .join(", ");
   const timezoneText = timezone?.trim() ?? "";
   const capabilitiesBlock = renderCapabilitiesBlock(
     availableCapabilities,
@@ -129,7 +139,7 @@ export function buildResearchPrompt(
     : "I'd like you to get to know me before we start working together.";
 
   // The clickable-suggestions block is optional: the "Let's chat" final step
-  // (personality-onboarding flag) installs the picked plugins and drops the
+  // (now always on) installs the picked plugins and drops the
   // user into a primed chat instead, so it asks for only `plugins` + `claims`.
   const suggestionsArrayExample = includeSuggestions
     ? ` "suggestions": [ { "suggestion": "I'll find the 3 newest arXiv eval papers worth your time", "prompt": "Find me the 3 newest arXiv eval papers worth reading." }, { "suggestion": "I'll draft a crisp summary of the latest model-serving trade-offs", "prompt": "Draft me a short summary of the latest model-serving trade-offs." }, { "suggestion": "Connect GitHub and I'll triage your stalest issues", "prompt": "Connect to GitHub and triage my oldest open issues." }, { "suggestion": "I'll plan a weekend climbing trip near Boulder", "prompt": "Plan me a weekend climbing trip near Boulder." } ]`

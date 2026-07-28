@@ -36,7 +36,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -380,7 +382,9 @@ describe("loadConfig startup behavior", () => {
     }
     // Clear any leftover config-quarantine notice sentinel from prior runs.
     const noticePath = getConfigQuarantineNoticePath();
-    if (existsSync(noticePath)) rmSync(noticePath, { force: true });
+    if (existsSync(noticePath)) {
+      rmSync(noticePath, { force: true });
+    }
     ensureTestDir();
     setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
@@ -573,8 +577,9 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.default.provider).toBe("anthropic");
-    expect(config.llm.default.model).toBe("claude-opus-4-7");
+    // `llm.default` is not part of the schema — the overlay blob stays on
+    // disk as inert user intent but never reaches the parsed config.
+    expect((config.llm as Record<string, unknown>).default).toBeUndefined();
     // Off-platform: user profiles are active, backed by the user's API key.
     expect(config.llm.activeProfile).toBe("custom-balanced");
     expect(config.llm.profiles["custom-balanced"]?.provider).toBe("anthropic");
@@ -594,8 +599,8 @@ describe("loadConfig startup behavior", () => {
     // Default content resolves from the code catalog via the effective view.
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(effectiveBalanced?.provider).toBe("fireworks");
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
   });
 
   test("on-platform hatch writes no profile entries; defaults resolve from the catalog", () => {
@@ -630,8 +635,8 @@ describe("loadConfig startup behavior", () => {
     // Default content resolves from the code catalog via the effective view.
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(effectiveBalanced?.provider).toBe("fireworks");
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
   });
 
   test("re-hatch from openai to anthropic creates user anthropic profiles off-platform", () => {
@@ -674,8 +679,8 @@ describe("loadConfig startup behavior", () => {
     // code-owned and resolves from the catalog.
     expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.provider).toBe("fireworks");
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
   });
 
   test("on-platform re-hatch resets active profile to balanced", () => {
@@ -711,8 +716,8 @@ describe("loadConfig startup behavior", () => {
     // No managed entry is materialized; content resolves from the catalog.
     expect(raw.llm.profiles.balanced).toBeUndefined();
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.provider).toBe("fireworks");
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     // The old custom-balanced is preserved on disk but no longer active.
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
   });
@@ -845,16 +850,16 @@ describe("loadConfig startup behavior", () => {
     // Default content resolves from the code catalog via the effective view.
     // Balanced serves GLM 5.2 on Fireworks.
     const effective = getEffectiveProfiles(raw.llm.profiles);
-    expect(effective.balanced?.provider).toBe("fireworks");
-    expect(effective.balanced?.provider_connection).toBe("vellum");
+    expect(effective.balanced?.provider).toBe("vellum");
+    expect(effective.balanced?.provider_connection).toBeUndefined();
     expect(effective.balanced?.model).toBe("accounts/fireworks/models/glm-5p2");
     expect(effective.balanced?.effort).toBe("high");
     expect(effective.balanced?.source).toBe("managed");
-    // Quality serves Anthropic Fable, the most capable managed profile.
-    expect(effective["quality-optimized"]?.provider).toBe("anthropic");
-    expect(effective["quality-optimized"]?.model).toBe("claude-fable-5");
+    // Quality pins OpenAI Sol, the most capable managed model.
+    expect(effective["quality-optimized"]?.provider).toBe("vellum");
+    expect(effective["quality-optimized"]?.model).toBe("gpt-5.6-sol");
     // Speed is served by DeepSeek V4 Flash on Fireworks.
-    expect(effective["cost-optimized"]?.provider).toBe("fireworks");
+    expect(effective["cost-optimized"]?.provider).toBe("vellum");
     expect(effective["cost-optimized"]?.model).toBe(
       "accounts/fireworks/models/deepseek-v4-flash",
     );
@@ -887,7 +892,7 @@ describe("loadConfig startup behavior", () => {
     // only label/status/topP, everything else comes from the catalog.
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
   });
 
   test("boot leaves a source-less legacy canonical profile as a user-owned shadow", () => {
@@ -910,7 +915,7 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.profiles["quality-optimized"]).toEqual(legacy);
-    // The shadow wins over the catalog body (which serves claude-fable-5).
+    // The shadow wins over the catalog body (which serves gpt-5.6-sol).
     const effectiveQuality = getEffectiveProfile(
       raw.llm.profiles,
       "quality-optimized",
@@ -935,7 +940,7 @@ describe("loadConfig startup behavior", () => {
       "quality-optimized",
     );
     expect(effectiveQuality?.source).toBe("managed");
-    expect(effectiveQuality?.model).toBe("claude-fable-5");
+    expect(effectiveQuality?.model).toBe("gpt-5.6-sol");
   });
 
   test("platform boot leaves a drifted managed entry byte-identical; resolution serves catalog content", () => {
@@ -968,7 +973,7 @@ describe("loadConfig startup behavior", () => {
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
     expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
     expect(effectiveBalanced?.maxTokens).toBe(32000);
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     // The catalog body carries no topP and the entry has none, so the
     // effective profile has no topP override.
     expect("topP" in (effectiveBalanced ?? {})).toBe(false);
@@ -1202,7 +1207,7 @@ describe("loadConfig startup behavior", () => {
     // overlay's provider/model never reach the resolver — even on the
     // overlay boot. The overlay-set label is what shows through the
     // effective view.
-    expect(mainAgentConfig.provider).toBe("fireworks");
+    expect(mainAgentConfig.provider).toBe("vellum");
     expect(mainAgentConfig.model).toBe("accounts/fireworks/models/glm-5p2");
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
@@ -1232,8 +1237,8 @@ describe("loadConfig startup behavior", () => {
       afterRestart.llm.profiles,
       "balanced",
     );
-    expect(effectiveBalanced?.provider).toBe("fireworks");
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
     expect(effectiveBalanced?.maxTokens).toBe(32000);
     expect(effectiveBalanced?.thinking).toEqual({
@@ -1578,7 +1583,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(raw.llm.advisorProfile).toBe("quality-optimized");
     expect(raw.llm.profiles.balanced).toBeUndefined();
     const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.provider_connection).toBeUndefined();
     expect("status" in (effectiveBalanced ?? {})).toBe(false);
   });
 

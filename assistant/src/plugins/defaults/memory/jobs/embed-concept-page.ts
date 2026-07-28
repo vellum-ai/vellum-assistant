@@ -43,15 +43,16 @@ import { embedWithBackend } from "../embeddings.js";
 import { BackendUnavailableError } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import { readPage } from "../v2/page-store.js";
+import { readPage } from "../substrate/page-store.js";
 import {
   deleteConceptPageEmbedding,
   upsertConceptPageEmbedding,
-} from "../v2/qdrant.js";
+} from "../substrate/qdrant.js";
 import {
   generateBm25DocEmbedding,
   getConceptPageCorpusStats,
-} from "../v2/sparse-bm25.js";
+} from "../substrate/sparse-bm25.js";
+import { resolveSubstrateTuning } from "../substrate/tuning.js";
 
 const log = getLogger("memory-v2-embed-concept-page");
 
@@ -81,7 +82,9 @@ export async function embedConceptPageJob(
   config: AssistantConfig,
 ): Promise<void> {
   const slug = asString(job.payload.slug);
-  if (!slug) return;
+  if (!slug) {
+    return;
+  }
 
   const workspaceDir = getWorkspaceDir();
   const page = await readPage(workspaceDir, slug);
@@ -214,7 +217,9 @@ export async function embedConceptPageJob(
     writeModel = embedded.model;
     for (let i = 0; i < appliedSlots.length; i++) {
       const vector = embedded.vectors[i];
-      if (!vector) continue;
+      if (!vector) {
+        continue;
+      }
       if (appliedSlots[i] === "body") {
         bodyDense = vector;
         bodyFresh = true;
@@ -227,7 +232,9 @@ export async function embedConceptPageJob(
   // Body embedding is the ground truth — without it the page can't surface.
   // (Cache hit paths populate `bodyDense` above; a fresh embed that returned
   // no vectors short-circuits here too.)
-  if (!bodyDense) return;
+  if (!bodyDense) {
+    return;
+  }
 
   // Sparse is cheap (in-process tokenization) and changes any time the body
   // changes, so we always recompute it rather than caching alongside dense.
@@ -236,11 +243,12 @@ export async function embedConceptPageJob(
   // corpus for the first time), fall back to the legacy TF-only encoding —
   // the next reembed pass overwrites the page once stats are available.
   const corpusStats = getConceptPageCorpusStats();
+  const { bm25_k1, bm25_b } = resolveSubstrateTuning(config.memory);
   const encodeSparse = (input: string) =>
     corpusStats
       ? generateBm25DocEmbedding(input, corpusStats, {
-          k1: config.memory.v2.bm25_k1,
-          b: config.memory.v2.bm25_b,
+          k1: bm25_k1,
+          b: bm25_b,
         })
       : generateSparseEmbedding(input);
   const sparse = encodeSparse(text);
@@ -344,10 +352,14 @@ function readEmbeddingCache(
       ),
     )
     .get();
-  if (!row || row.dimensions !== expectedDim) return null;
+  if (!row || row.dimensions !== expectedDim) {
+    return null;
+  }
   // A row without a contentHash is a legacy/corrupt entry — treat as a miss
   // and force a re-embed rather than misalign the cache key.
-  if (row.contentHash === null) return null;
+  if (row.contentHash === null) {
+    return null;
+  }
   const dense = row.vectorBlob
     ? blobToVector(row.vectorBlob as Buffer)
     : (JSON.parse(row.vectorJson!) as number[]);

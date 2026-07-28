@@ -12,7 +12,10 @@ import { join } from "node:path";
 import { getAppDirPath } from "../apps/app-store.js";
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { resolveImageGenCredentials } from "./image-credentials.js";
+import {
+  resolveImageGenCredentials,
+  resolveImageGenRouting,
+} from "./image-credentials.js";
 import { generateImage, mapImageGenError } from "./image-service.js";
 
 const log = getLogger("app-icon-generator");
@@ -31,9 +34,10 @@ export async function generateAppIcon(
 ): Promise<void> {
   const config = getConfig();
   const svc = config.services["image-generation"];
+  const { backendProvider, managed } = resolveImageGenRouting(svc);
   const { credentials, errorHint } = await resolveImageGenCredentials({
-    provider: svc.provider,
-    mode: svc.mode,
+    provider: backendProvider,
+    managed,
   });
   if (!credentials) {
     log.debug(
@@ -64,9 +68,12 @@ export async function generateAppIcon(
     "- Modern aesthetic similar to Apple's design language";
 
   try {
-    log.info({ appId, appName, provider: svc.provider }, "Generating app icon");
+    log.info(
+      { appId, appName, provider: backendProvider },
+      "Generating app icon",
+    );
 
-    const result = await generateImage(svc.provider, credentials, {
+    const result = await generateImage(backendProvider, credentials, {
       prompt,
       mode: "generate",
       model: svc.model,
@@ -74,7 +81,7 @@ export async function generateAppIcon(
 
     if (result.images.length === 0) {
       log.warn(
-        { appId, provider: svc.provider },
+        { appId, provider: backendProvider },
         "Provider returned no image for app icon",
       );
       return;
@@ -88,9 +95,9 @@ export async function generateAppIcon(
 
     log.info({ appId, iconPath }, "App icon saved");
   } catch (error) {
-    const message = mapImageGenError(svc.provider, error);
+    const message = mapImageGenError(backendProvider, error);
     log.warn(
-      { appId, provider: svc.provider, error: message },
+      { appId, provider: backendProvider, error: message },
       "App icon generation failed — skipping",
     );
   }

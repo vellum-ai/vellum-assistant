@@ -12,13 +12,17 @@ import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
+  getLiveVoicePlaybackProgress,
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   liveVoiceStateLabel,
+  minimizeVoiceRoom,
   releaseLiveVoiceTurn,
+  restoreVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
+  updateLiveVoiceSessionConfig,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -134,10 +138,20 @@ describe("useLiveVoiceStore — mute + handsFree", () => {
     expect(controls.interrupt).toHaveBeenCalledTimes(1);
   });
 
+  test("updateLiveVoiceSessionConfig drives the registered updateConfig control", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+    updateLiveVoiceSessionConfig({ silenceThresholdMs: 1500 });
+    expect(controls.updateConfig).toHaveBeenCalledWith({
+      silenceThresholdMs: 1500,
+    });
+  });
+
   test("helpers are no-ops with no registered controls", () => {
     expect(() => {
       setLiveVoiceMuted(true);
       stopLiveVoiceResponse();
+      updateLiveVoiceSessionConfig({ silenceThresholdMs: 1500 });
     }).not.toThrow();
   });
 
@@ -151,6 +165,39 @@ describe("useLiveVoiceStore — mute + handsFree", () => {
     useLiveVoiceStore.getState().setMuted(true);
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
     expect(useLiveVoiceStore.getState().muted).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — room minimize", () => {
+  test("defaults to not minimized — a new session opens in the room", () => {
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("minimizeVoiceRoom sets the flag during an active session", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+  });
+
+  test("minimizeVoiceRoom no-ops when idle", () => {
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("restoreVoiceRoom clears the flag", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    restoreVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("reset restores roomMinimized to false — a new session always opens in the room", () => {
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
   });
 });
 
@@ -336,5 +383,38 @@ describe("getLiveVoiceInputAmplitude", () => {
     expect(getLiveVoiceInputAmplitude()).toBe(0);
     useLiveVoiceStore.getState().setInputAmplitude(0.42);
     expect(getLiveVoiceInputAmplitude()).toBe(0.42);
+  });
+});
+
+describe("useLiveVoiceStore — playback-progress provider", () => {
+  test("defaults to null when idle", () => {
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+  });
+
+  test("setPlaybackProgressProvider registers and deregisters the provider", () => {
+    const provider = mock(() => null);
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(provider);
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBe(provider);
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(null);
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+  });
+
+  test("reset clears the registered provider", () => {
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(() => null);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().playbackProgressProvider).toBeNull();
+  });
+
+  test("getLiveVoicePlaybackProgress returns null with no provider", () => {
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
+  });
+
+  test("getLiveVoicePlaybackProgress forwards the provider's value", () => {
+    const progress = { playedSeconds: 1.5, totalSeconds: 4 };
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(() => progress);
+    expect(getLiveVoicePlaybackProgress()).toBe(progress);
+
+    useLiveVoiceStore.getState().setPlaybackProgressProvider(() => null);
+    expect(getLiveVoicePlaybackProgress()).toBeNull();
   });
 });

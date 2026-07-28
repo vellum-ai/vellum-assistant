@@ -367,8 +367,8 @@ class AssistantLifecycleService {
   /**
    * Mark the chat surface as expecting an auto-greet. Called from
    * the vanilla auto-hatch inside this service, the onboarding
-   * hatching screen, pre-chat-flow, and the chat-page mount-time
-   * pre-chat sessionStorage detector externally.
+   * hatching screen, and the chat-page mount-time pre-chat
+   * sessionStorage detector externally.
    */
   markExpectingFirstMessage(): void {
     if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;

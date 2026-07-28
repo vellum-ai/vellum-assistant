@@ -106,7 +106,7 @@ const isMultiAssistantEnabled = (): boolean => {
 
 /**
  * Whether the developer-menu-items feature flag is currently enabled.
- * Gates developer/internal actions (Replay Onboarding, Preview PreChat,
+ * Gates developer/internal actions (Replay Onboarding, Replay Hatch Failure,
  * Component Gallery) in the tray and application menu.
  */
 const isDeveloperMenuEnabled = (): boolean => {
@@ -245,13 +245,6 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
             click: async () => {
               await handlers.ensureMainWindow();
               dispatchToMain({ kind: "replayOnboarding" as const });
-            },
-          },
-          {
-            label: "Preview PreChat",
-            click: async () => {
-              await handlers.ensureMainWindow();
-              dispatchToMain({ kind: "previewPrechat" as const });
             },
           },
           {

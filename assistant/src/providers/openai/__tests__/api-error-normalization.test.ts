@@ -322,7 +322,9 @@ describe("captureRawErrorBodyFetch", () => {
   });
 });
 
-function n(over: Partial<NormalizedOpenAIAPIError> = {}): NormalizedOpenAIAPIError {
+function n(
+  over: Partial<NormalizedOpenAIAPIError> = {},
+): NormalizedOpenAIAPIError {
   return { message: "boom", ...over };
 }
 
@@ -373,6 +375,17 @@ describe("deriveReason", () => {
     expect(deriveReason(n(), 402)).toBe("insufficient_credits");
   });
 
+  test("daily-limit body code → daily_limit_reached (before insufficient_credits)", () => {
+    // Both are 402s from the managed proxy; the specific daily-limit code must
+    // win over the generic status-402 → insufficient_credits mapping.
+    expect(
+      deriveReason(
+        n({ rawBody: '{"code":"daily_limit_reached","detail":"limit"}' }),
+        402,
+      ),
+    ).toBe("daily_limit_reached");
+  });
+
   test("billing prose → insufficient_credits", () => {
     expect(
       deriveReason(n({ message: "Your credit balance is too low" }), 400),
@@ -387,6 +400,24 @@ describe("deriveReason", () => {
     expect(deriveReason(n({ message: "Forbidden" }), 403)).toBe(
       "invalid_credentials",
     );
+  });
+
+  test("403 spend-cap 'Key limit exceeded' → insufficient_credits", () => {
+    // OpenRouter returns 403 with this body when a key's configured credit
+    // limit is reached — a billing condition, not a rejected key. The billing
+    // gate precedes the 401/403 credential branch, so it routes to credits.
+    expect(deriveReason(n({ message: "Key limit exceeded" }), 403)).toBe(
+      "insufficient_credits",
+    );
+    expect(
+      deriveReason(
+        n({
+          message: "Forbidden",
+          rawBody: '{"error":{"code":403,"message":"Key limit exceeded"}}',
+        }),
+        403,
+      ),
+    ).toBe("insufficient_credits");
   });
 
   test("429 → rate_limited", () => {
@@ -414,6 +445,8 @@ describe("deriveReason", () => {
   });
 
   test("no status, no signal → unknown", () => {
-    expect(deriveReason(n({ message: "who knows" }), undefined)).toBe("unknown");
+    expect(deriveReason(n({ message: "who knows" }), undefined)).toBe(
+      "unknown",
+    );
   });
 });

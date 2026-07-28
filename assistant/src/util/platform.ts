@@ -289,6 +289,42 @@ export function getMonitoringPidPath(): string {
 }
 
 /**
+ * Root holding every daemon-managed subprocess's runtime directory
+ * ($VELLUM_WORKSPACE_DIR/procs). Each managed subprocess keeps its IPC socket,
+ * PID file, and per-process scratch under `procs/<name>/`, so `ls procs` is a
+ * census of managed subprocesses and cleanup is one `rm -rf` of the subdir.
+ */
+export function getProcsDir(): string {
+  return join(getWorkspaceDir(), "procs");
+}
+
+/** The runtime directory for one managed subprocess: `procs/<name>/`. */
+export function getProcDir(name: string): string {
+  return join(getProcsDir(), name);
+}
+
+/** Create (if needed) and return a managed subprocess's runtime directory. */
+export function ensureProcDir(name: string): string {
+  const dir = getProcDir(name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * The IPC socket a managed subprocess binds and the daemon connects to
+ * (`procs/<name>/ipc.sock`). The basename is fixed — the directory already
+ * carries the subprocess name. Keep it short: Unix `sun_path` is ~104–108 bytes.
+ */
+export function getProcSocketPath(name: string): string {
+  return join(getProcDir(name), "ipc.sock");
+}
+
+/** The PID file a managed subprocess writes on readiness (`procs/<name>/<name>.pid`). */
+export function getProcPidPath(name: string): string {
+  return join(getProcDir(name), `${name}.pid`);
+}
+
+/**
  * Returns the workspace root for user-facing state.
  *
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in

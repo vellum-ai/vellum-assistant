@@ -122,6 +122,41 @@ export const ChannelsTabPhoneDisconnected: Story = {
 };
 
 /**
+ * Connected Telegram: the connection header (Connected chip, @handle,
+ * Disconnect) and the trust-floor control — and no credential form. Parity
+ * with Slack's connected card: the token field belongs to the connect flow.
+ */
+export const ChannelsTabTelegramConnected: Story = {
+  decorators: [withSelectedAdapter("telegram")],
+  args: {
+    channels: [
+      { key: "slack", status: "ready", address: "@example-assistant" },
+      { key: "telegram", status: "ready", address: "@example_bot" },
+      { key: "phone", status: "not_configured" },
+    ],
+    channelPolicies: { telegram: "trusted_contacts" },
+    onChannelPolicyChange: () => {},
+  },
+};
+
+/**
+ * Connected Phone: the connection header and trust-floor control, with no
+ * Twilio credential fields.
+ */
+export const ChannelsTabPhoneConnected: Story = {
+  decorators: [withSelectedAdapter("phone")],
+  args: {
+    channels: [
+      { key: "slack", status: "ready", address: "@example-assistant" },
+      { key: "telegram", status: "not_configured" },
+      { key: "phone", status: "ready", address: "+15550100" },
+    ],
+    channelPolicies: { phone: "trusted_contacts" },
+    onChannelPolicyChange: () => {},
+  },
+};
+
+/**
  * A `?setup=telegram` deep link (mobile chat handoff) selects Telegram and
  * lands on its manual credential form rather than the empty state.
  */

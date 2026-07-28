@@ -7,6 +7,7 @@
  */
 
 import type { UsageStats } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { Message } from "../providers/types.js";
 
 // ── Status ──────────────────────────────────────────────────────────────
@@ -48,6 +49,24 @@ export interface SubagentConfig {
   sendResultToUser?: boolean;
   /** Optional role for the subagent. Defaults handled by consumers. */
   role?: SubagentRole;
+  /**
+   * When true, side-effecting tools (send/write/delete/purchase, host commands)
+   * are refused for this subagent regardless of trust class — the executor
+   * rejects any such dispatch and the tool is kept off the model's tool surface.
+   * For unattended passes that must never take an unapproved action while the
+   * user isn't watching; the subagent surfaces the intended action for the
+   * user to approve instead.
+   */
+  denySideEffectTools?: boolean;
+  /**
+   * Explicit trust context for the subagent. When set, it wins over the
+   * default inheritance from the parent conversation's live `trustContext`.
+   * For spawners whose parent stamps trust per-turn and clears it at teardown
+   * (the live-voice bridge), inheritance reads the cleared window and the
+   * child would run fail-closed as `unknown`; the caller resolves trust
+   * itself and passes it here instead.
+   */
+  trustContext?: TrustContext;
   /**
    * When true, the sub-agent inherits the parent's full context instead of
    * receiving only the objective + context fields.

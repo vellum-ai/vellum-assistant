@@ -16,6 +16,7 @@ mock.module("./client.js", () => ({
 import {
   managedSpeechSynthesize,
   managedSpeechTranscribe,
+  managedSpeechVoices,
 } from "./managed-speech.js";
 
 const AUDIO = Buffer.from([0x01, 0x02, 0x03, 0xff]);
@@ -132,6 +133,84 @@ describe("managedSpeechTranscribe", () => {
   });
 });
 
+describe("managedSpeechVoices", () => {
+  const CATALOG = {
+    voices: [
+      {
+        model: "aura-2-thalia-en",
+        label: "Thalia",
+        description: "American · clear, confident, energetic",
+        sampleUrl: "https://static.deepgram.com/examples/Aura-2-thalia.wav",
+        source: "deepgram",
+      },
+    ],
+    defaultModel: "aura-2-thalia-en",
+  };
+
+  beforeEach(() => {
+    mockClient = {
+      platformAssistantId: "asst-123",
+      fetch: mock(async () => Response.json(CATALOG)),
+    };
+  });
+
+  afterEach(() => {
+    mockClient = null;
+  });
+
+  test("fetches and parses the platform voice catalog", async () => {
+    const result = await managedSpeechVoices();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toEqual(CATALOG);
+    }
+    const [path, init] = mockClient!.fetch.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
+    expect(path).toBe("/v1/assistants/asst-123/managed-speech/tts/voices/");
+    expect(init.method).toBe("GET");
+  });
+
+  test("drops malformed voice entries and tolerates a null default", async () => {
+    mockClient!.fetch = mock(async () =>
+      Response.json({
+        voices: [CATALOG.voices[0], { model: "missing-fields" }],
+        defaultModel: null,
+      }),
+    );
+    const result = await managedSpeechVoices();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.voices).toEqual(CATALOG.voices);
+      expect(result.value.defaultModel).toBeNull();
+    }
+  });
+
+  test("treats a malformed body as a platform error", async () => {
+    mockClient!.fetch = mock(async () => Response.json({ nope: true }));
+    const result = await managedSpeechVoices();
+    expect(result).toMatchObject({ ok: false, kind: "platform-error" });
+  });
+
+  test("propagates platform error responses", async () => {
+    mockClient!.fetch = mock(
+      async () =>
+        new Response(JSON.stringify({ code: "x", detail: "nope" }), {
+          status: 502,
+        }),
+    );
+    const result = await managedSpeechVoices();
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "platform-error",
+      status: 502,
+    });
+  });
+});
+
 describe("managedSpeechSynthesize", () => {
   const MP3_BYTES = Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00]);
 
@@ -172,6 +251,24 @@ describe("managedSpeechSynthesize", () => {
       text: "hello",
       format: "pcm_16000",
     });
+  });
+
+  test("includes the voice model in the body only when provided", async () => {
+    await managedSpeechSynthesize({
+      text: "hello",
+      format: "mp3",
+      model: "aura-2-zeus-en",
+    });
+    const [, init] = mockClient!.fetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      text: "hello",
+      format: "mp3",
+      model: "aura-2-zeus-en",
+    });
+
+    await managedSpeechSynthesize({ text: "hello", format: "mp3" });
+    const [, second] = mockClient!.fetch.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(second.body as string)).not.toHaveProperty("model");
   });
 
   test("falls back to audio/mpeg when no content type is returned", async () => {

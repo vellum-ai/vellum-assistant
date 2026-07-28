@@ -231,7 +231,10 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
 
   test("contact verdict records the reaction; the decision pipeline self-gate ignores it", async () => {
     const result = await handleSlackReactionIntercept(
-      buildParams({ rawSenderId: MEMBER_USER_ID, trustVerdict: MEMBER_VERDICT }),
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
     );
 
     // Dispatched with the contact class (guardian-reply-intercept self-gates
@@ -291,7 +294,10 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
       }),
     );
     await handleSlackReactionIntercept(
-      buildParams({ rawSenderId: MEMBER_USER_ID, trustVerdict: MEMBER_VERDICT }),
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
     );
 
     expect(ipcCalls).toEqual([]);

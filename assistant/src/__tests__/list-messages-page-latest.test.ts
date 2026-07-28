@@ -21,16 +21,17 @@ mock.module("../daemon/identity-helpers.js", () => ({
   getAssistantName: () => mockAssistantName,
 }));
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
   createConversation,
+  getMaxPersistedConversationSeq,
   recordConversationPersistedSeq,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { messages } from "../persistence/schema/index.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,
@@ -129,7 +130,7 @@ function advanceGlobalSeq(count: number): void {
         conversationId: "seq-bump-conv",
         text: "x",
       },
-    } as AssistantEvent);
+    } as AssistantEventEnvelope);
   }
 }
 
@@ -147,6 +148,19 @@ describe("handleListMessages page=latest", () => {
   });
 
   describe("persisted seq", () => {
+    test("getMaxPersistedConversationSeq reports the highest anchor across conversations", () => {
+      /**
+       * The startup seq floor resumes issuance above this value, so it
+       * must reflect the highest anchor any conversation has served.
+       */
+      const a = createConversation();
+      const b = createConversation();
+      recordConversationPersistedSeq(a.id, 41);
+      recordConversationPersistedSeq(b.id, 907779);
+
+      expect(getMaxPersistedConversationSeq()).toBe(907779);
+    });
+
     test("returns the recorded persisted seq for the conversation", () => {
       /**
        * The snapshot must advertise the `seq` of the last durably-persisted

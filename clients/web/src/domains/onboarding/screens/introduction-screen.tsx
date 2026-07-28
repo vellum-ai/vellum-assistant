@@ -72,8 +72,8 @@ export function IntroductionScreen({
 
   const greeting = firstName.trim() ? `Hey, ${firstName.trim()}!` : "Hey!";
   const intro = assistantName?.trim()
-    ? `I’m ${assistantName.trim()}, your new AI assistant`
-    : "I’m your new AI assistant";
+    ? `I’m ${assistantName.trim()}, your new AI assistant.`
+    : "I’m your new AI assistant.";
 
   if (!art) {
     return (
@@ -145,7 +145,7 @@ export function IntroductionScreen({
       {/* Greeting + Continue, grouped so the button sits just under the text. */}
       <div className={ONBOARDING_STEP_CONTENT}>
         <motion.h1
-          className="text-center leading-[1.05]"
+          className="text-center leading-[1.15] max-md:leading-[1.25]"
           style={{ fontFamily: "var(--font-serif)" }}
           initial={reduce ? false : { scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}

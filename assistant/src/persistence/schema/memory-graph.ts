@@ -161,6 +161,9 @@ export const memoryGraphNodeEdits = sqliteTable("memory_graph_node_edits", {
  *
  * No FK to conversations.id — fork() may copy state for a child
  * conversation that hasn't been persisted yet, and stale rows are cheap.
+ *
+ * Lives in the dedicated memory database (`assistant-memory.db`), not main —
+ * access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
  */
 export const activationState = sqliteTable("activation_state", {
   conversationId: text("conversation_id").primaryKey(),

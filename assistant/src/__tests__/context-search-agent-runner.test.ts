@@ -884,6 +884,7 @@ describe("runAgenticRecall", () => {
     };
     expect(options.config).toEqual({
       callSite: "recall",
+      conversationId: "conv-xyz",
       temperature: 0,
       thinking: { type: "disabled" },
     });
@@ -936,6 +937,7 @@ describe("runAgenticRecall", () => {
     };
     expect(finalizeOptions.config).toEqual({
       callSite: "recall",
+      conversationId: "conv-xyz",
       temperature: 0,
       thinking: { type: "disabled" },
     });

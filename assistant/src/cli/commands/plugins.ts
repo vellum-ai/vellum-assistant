@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 
 import type { Command } from "commander";
 
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { yellow } from "../lib/cli-colors.js";
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
@@ -194,7 +195,7 @@ export function registerPluginsCommand(program: Command): void {
               }
             } else {
               const installOpts = direct
-                ? resolveDirectInstallOptions(nameOrUrl, opts)
+                ? await resolveDirectInstallOptions(nameOrUrl, opts)
                 : await resolveInstallOptions(nameOrUrl, opts);
               if (installOpts === null) {
                 process.exitCode = 1;
@@ -569,7 +570,32 @@ export function registerPluginsCommand(program: Command): void {
                 return;
               }
             }
-            const result = await libs.uninstall.uninstallPlugin({ name });
+            // Prefer the daemon: it runs the plugin's `shutdown` hook and drops
+            // the plugin's tools/hooks in the main process — symmetric to how
+            // install runs `init` there. Fall back to a local uninstall only
+            // when the daemon is unreachable (a transport error carries no
+            // `statusCode`); an operator can still uninstall while it's stopped,
+            // and `shutdown` then runs in this process, the only one available.
+            const daemon = await cliIpcCall<{ name: string; target: string }>(
+              "plugins_uninstall",
+              { pathParams: { name } },
+            );
+            let result: { name: string; target: string };
+            if (daemon.ok && daemon.result) {
+              result = daemon.result;
+            } else if (daemon.statusCode === undefined) {
+              log.debug(
+                { name, error: daemon.error },
+                "uninstall could not reach the daemon; running shutdown + removal locally",
+              );
+              result = await libs.uninstall.uninstallPlugin({ name });
+            } else {
+              // The daemon reached a decision (not installed, bad name, …);
+              // surface it rather than silently retrying locally.
+              console.error(daemon.error ?? "Plugin uninstall failed.");
+              process.exitCode = 1;
+              return;
+            }
             log.info(
               { name: result.name, target: result.target },
               "external plugin uninstalled",
@@ -653,14 +679,42 @@ export function registerPluginsCommand(program: Command): void {
             return;
           }
           try {
-            const result = await libs.upgrade.upgradePlugin(
+            // Prefer the daemon: when the upgrade re-materializes files it runs
+            // the plugin's `shutdown` + `init` hooks in the main process —
+            // symmetric to how install/uninstall run their lifecycle there.
+            // Fall back to a local upgrade only when the daemon is unreachable
+            // (a transport error carries no `statusCode`); an operator can still
+            // upgrade while it's stopped, and the new code is picked up on the
+            // daemon's next start. A daemon-side decision (not installed, not
+            // upgradable, …) is surfaced rather than silently retried locally.
+            const daemon = await cliIpcCall<PluginUpgradeResult>(
+              "plugins_upgrade",
               {
-                name,
-                dryRun: opts.dryRun,
-                strategy: strategy as PluginUpgradeStrategy | undefined,
+                pathParams: { name },
+                body: { dryRun: opts.dryRun, strategy },
               },
-              { fetch: globalThis.fetch.bind(globalThis) },
             );
+            let result: PluginUpgradeResult;
+            if (daemon.ok && daemon.result) {
+              result = daemon.result;
+            } else if (daemon.statusCode === undefined) {
+              log.debug(
+                { name, error: daemon.error },
+                "upgrade could not reach the daemon; upgrading locally",
+              );
+              result = await libs.upgrade.upgradePlugin(
+                {
+                  name,
+                  dryRun: opts.dryRun,
+                  strategy: strategy as PluginUpgradeStrategy | undefined,
+                },
+                { fetch: globalThis.fetch.bind(globalThis) },
+              );
+            } else {
+              console.error(daemon.error ?? "Plugin upgrade failed.");
+              process.exitCode = 1;
+              return;
+            }
 
             if (opts.json) {
               process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -778,12 +832,16 @@ async function resolveInstallOptions(
  * untrusted direct install, or `null` when the URL or flag combination is
  * invalid (a message is printed in that case, and the caller exits non-zero).
  *
- * The marketplace-only flags (`--ref`, `--pin`, `--allow-unreviewed`) do not
- * apply to a direct install — the ref lives in the URL — so combining them is
- * rejected. The install name defaults to the repo / sub-path leaf and can be
- * overridden with `--name`.
+ * A `/tree/<ref>/<path>` URL cannot mark where a slash-containing branch name
+ * (`feature/x`) ends and the sub-path begins, so when the ref is left implicit
+ * the real split is resolved against the repository's refs — exactly as
+ * github.com does — before building the install coordinates. `--ref` states the
+ * ref explicitly and skips that lookup (useful offline, or to force a specific
+ * ref). `--pin` and `--allow-unreviewed` are marketplace-only and rejected here.
+ * The install name defaults to the resolved sub-path leaf (or the repo) and can
+ * be overridden with `--name`.
  */
-function resolveDirectInstallOptions(
+async function resolveDirectInstallOptions(
   spec: string,
   opts: {
     force?: boolean;
@@ -792,13 +850,7 @@ function resolveDirectInstallOptions(
     allowUnreviewed?: boolean;
     name?: string;
   },
-): InstallPluginOptions | null {
-  if (opts.ref) {
-    console.error(
-      "--ref does not apply to a GitHub-URL install; put the ref in the URL (e.g. .../tree/<ref>/...).",
-    );
-    return null;
-  }
+): Promise<InstallPluginOptions | null> {
   if (opts.pin || opts.allowUnreviewed) {
     console.error(
       "--pin and --allow-unreviewed only apply to marketplace installs by name, not a GitHub URL.",
@@ -808,7 +860,7 @@ function resolveDirectInstallOptions(
 
   let parsed;
   try {
-    parsed = parseGitHubPluginSpec(spec);
+    parsed = parseGitHubPluginSpec(spec, opts.ref);
   } catch (err) {
     if (err instanceof InvalidGitHubPluginSpecError) {
       console.error(err.message);
@@ -817,7 +869,24 @@ function resolveDirectInstallOptions(
     throw err;
   }
 
-  const requested = opts.name ?? parsed.defaultName;
+  // The offline parse guesses the first `/tree/` segment is the whole ref; when
+  // the tail could hide a slash-containing ref, ask the remote which leading
+  // prefix is a real branch/tag and re-derive the sub-path (and default name)
+  // from the answer. Falls back to the guess when the remote can't be listed.
+  let { path, ref, defaultName } = parsed;
+  if (parsed.ambiguousTreeSegments) {
+    const resolved = await libs.installGitHub.resolveTreeRefPath(
+      parsed.owner,
+      parsed.repo,
+      parsed.ambiguousTreeSegments,
+    );
+    ref = resolved.ref;
+    path = resolved.path;
+    const leaf = path.split("/").filter(Boolean).at(-1) ?? parsed.repo;
+    defaultName = leaf.toLowerCase();
+  }
+
+  const requested = opts.name ?? defaultName;
   let name: string;
   try {
     name = libs.installGitHub.sanitizePluginName(requested);
@@ -826,7 +895,7 @@ function resolveDirectInstallOptions(
       console.error(
         opts.name
           ? err.message
-          : `Could not derive a valid plugin name from "${parsed.defaultName}". ` +
+          : `Could not derive a valid plugin name from "${defaultName}". ` +
               "Pass --name <name> to choose one (lowercase letters, digits, '-', '_').",
       );
       return null;
@@ -837,8 +906,8 @@ function resolveDirectInstallOptions(
   const directSource: PluginFetchSource = {
     owner: parsed.owner,
     repo: parsed.repo,
-    rootPath: parsed.path,
-    ref: parsed.ref,
+    rootPath: path,
+    ref,
   };
   return { name, force: opts.force ?? false, directSource };
 }
@@ -1148,7 +1217,7 @@ function formatUpgrade(result: PluginUpgradeResult): string[] {
         `Upgraded "${name}" ${move}`,
         "",
         `${count}→ ${result.target}`,
-        "Restart the assistant to pick up the upgrade.",
+        "The upgrade is picked up live (no restart required).",
       ];
       if (mergeNote) {
         lines.push(mergeNote);

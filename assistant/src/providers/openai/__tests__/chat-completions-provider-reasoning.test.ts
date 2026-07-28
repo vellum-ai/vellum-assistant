@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import OpenAI from "openai";
+
 import { isPlaceholderSentinelText } from "../../placeholder-sentinels.js";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
@@ -599,6 +601,51 @@ describe("reasoning opt-out rejection fallback", () => {
     expect(text?.text).toBe("ok");
   });
 
+  test("retries once for an OpenRouter-wrapped reasoning rejection (detail in metadata.raw)", async () => {
+    // OpenRouter's SDK APIError.message is the generic wrapper
+    // ("400 Provider returned error"); the real reason lives only in
+    // error.error.metadata.raw, which normalizeOpenAIAPIError promotes into the
+    // normalized message. Matching error.message alone would miss it and the
+    // opt-out rejection would hard-fail instead of retrying.
+    const wrapped = new OpenAI.APIError(
+      400,
+      {
+        code: 400,
+        message: "Provider returned error",
+        metadata: {
+          raw: "reasoning_effort 'none' is not supported for this reasoning model",
+          provider_name: "deepseek",
+        },
+      },
+      undefined,
+      new Headers(),
+    );
+    // Guard: the wrapper message carries no reasoning signal, so the fallback
+    // can only fire off the normalized upstream detail.
+    expect(/reasoning/i.test(wrapped.message)).toBe(false);
+
+    const { provider, requests } = stubProviderWithErrors([wrapped], okChunks);
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { effort: "none" } },
+    );
+
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as { reasoning_effort?: string };
+    const second = requests[1] as {
+      reasoning_effort?: string;
+      reasoning?: unknown;
+    };
+    expect(first.reasoning_effort).toBe("none");
+    expect(second.reasoning_effort).toBeUndefined();
+    expect(second.reasoning).toBeUndefined();
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
   test("does not retry when the request did not opt out of reasoning", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("reasoning_effort is invalid")],
@@ -692,5 +739,44 @@ describe("OpenAIChatCompletionsProvider cache usage parsing", () => {
 
     expect(response.usage).not.toHaveProperty("cacheReadInputTokens");
     expect(response.usage).not.toHaveProperty("cacheCreationInputTokens");
+  });
+});
+
+describe("OpenAIChatCompletionsProvider response model", () => {
+  test("reports the model echoed back by the provider chunks", async () => {
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }], model: "server-model-xyz" },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+        model: "server-model-xyz",
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.model).toBe("server-model-xyz");
+  });
+
+  test("falls back to the configured model when chunks omit `model`", async () => {
+    // opencode/OpenRouter can stream a usage report with no `model` field.
+    // The response must carry the configured model rather than an undefined
+    // that crashes the downstream calibrator and violates the usage-event
+    // NOT NULL constraint on `model`.
+    const { provider } = stubProvider([
+      { choices: [{ delta: { content: "ok" } }] },
+      {
+        choices: [{ delta: {}, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
+
+    const response = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ]);
+
+    expect(response.model).toBe("test-model");
   });
 });

@@ -4,7 +4,10 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { INSUFFICIENT_CREDITS_PATTERNS } from "../../util/provider-error-patterns.js";
+import {
+  DAILY_LIMIT_PATTERNS,
+  INSUFFICIENT_CREDITS_PATTERNS,
+} from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
@@ -27,6 +30,10 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import {
+  type ShadowStreamEvent,
+  StreamContentShadow,
+} from "./stream-content-shadow.js";
 
 const log = getLogger("anthropic-client");
 
@@ -116,6 +123,11 @@ export function deriveAnthropicReason(
   const status = error.status;
   const haystack = `${apiType ?? ""} ${error.message ?? ""}`;
 
+  // The managed proxy's daily-limit 402 shares the status with generic credit
+  // exhaustion; match its specific body code first so it isn't swallowed.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
+    return "daily_limit_reached";
+  }
   if (
     status === 402 ||
     INSUFFICIENT_CREDITS_PATTERNS.some((re) => re.test(haystack)) ||
@@ -961,17 +973,19 @@ export class AnthropicProvider implements Provider {
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
       const supportsEffort = !isHaiku;
-      // opus-4-7 / opus-4-8 and sonnet-5 reject `temperature`, `top_p`, and
-      // `top_k` with a 400 "`temperature`/`top_p` is deprecated for this model"
-      // — model-wide, not effort-conditional (verified 2026-06-23). opus-4-6 /
-      // sonnet-4-6 / haiku-4-5 still accept them. fable-5 is included
-      // conservatively (a frontier model that could not be verified directly
-      // but follows the same deprecation direction). Stripping the params here
-      // keeps callers that set them (e.g. the memory-v3 L2 selector's
-      // `temperature: 0`) from 400ing. OpenRouter `anthropic/...` models
-      // delegate to this provider, so the bare-id suffix is what matches.
+      // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
+      // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
+      // for this model" — model-wide, not effort-conditional (verified
+      // 2026-06-23). opus-4-6 / sonnet-4-6 / haiku-4-5 still accept them.
+      // fable-5 is included conservatively (a frontier model that could not be
+      // verified directly but follows the same deprecation direction).
+      // Stripping the params here keeps callers that set them (e.g. the
+      // memory-v3 L2 selector's `temperature: 0`) from 400ing. OpenRouter
+      // `anthropic/...` models delegate to this provider, so the bare-id
+      // suffix is what matches.
       const deprecatesSamplingParams =
         /claude-opus-4-[78]\b/.test(effectiveModel) ||
+        /claude-opus-5\b/.test(effectiveModel) ||
         /claude-sonnet-5\b/.test(effectiveModel) ||
         effectiveModel.startsWith("claude-fable-");
       const mergedOutputConfig = {
@@ -1306,6 +1320,11 @@ export class AnthropicProvider implements Provider {
                 requestOptions,
               ) as unknown as UnifiedStream);
 
+        // Shadow the streamed content blocks so a mid-stream SDK accumulator
+        // failure on malformed tool-argument JSON can be salvaged instead of
+        // discarding the whole response (see StreamContentShadow).
+        const contentShadow = new StreamContentShadow();
+
         // Buffer streaming text until it's clear the accumulated text isn't
         // going to form a placeholder sentinel. Sentinels are injected into
         // outbound requests for role alternation and are sometimes echoed by
@@ -1349,6 +1368,7 @@ export class AnthropicProvider implements Provider {
         >();
 
         stream.on("streamEvent", (event) => {
+          contentShadow.handleEvent(event as ShadowStreamEvent);
           // Reset the text sentinel buffer at each content-block boundary.
           // A new block starts fresh; at the end of a block, flush any
           // buffered text that is NOT a complete sentinel, and drop it if
@@ -1504,7 +1524,32 @@ export class AnthropicProvider implements Provider {
           }
         });
 
-        response = await stream.finalMessage();
+        try {
+          response = await stream.finalMessage();
+        } catch (error) {
+          // The SDK rejects finalMessage() the moment a tool_use block's
+          // argument JSON stops parsing, discarding everything it streamed.
+          // Salvage the observed prefix instead: completed blocks plus the
+          // malformed call wrapped under `_raw`, which the tool layer bounces
+          // back to the model as an error tool_result so it can self-correct
+          // in the next iteration. Any other rejection rethrows untouched.
+          const salvaged = contentShadow.salvage(error);
+          if (salvaged === undefined) {
+            throw error;
+          }
+          log.warn(
+            {
+              model: params.model,
+              toolName: salvaged.toolName,
+              rawArgsLength: salvaged.rawArgsLength,
+            },
+            "Salvaged stream with unparseable tool-call arguments; returning _raw-wrapped tool call",
+          );
+          response = {
+            ...salvaged.message,
+            model: params.model,
+          } as unknown as Anthropic.Message;
+        }
       } finally {
         cleanupTimeout();
       }
@@ -1514,6 +1559,7 @@ export class AnthropicProvider implements Provider {
           this.fromAnthropicBlock(block),
         ),
         model: response.model,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens:
             response.usage.input_tokens +
@@ -1744,8 +1790,8 @@ export class AnthropicProvider implements Provider {
               ),
           );
 
-        // Preserve assistant turns that would otherwise become empty after filtering
-        // unknown block types (e.g. ui_surface). Dropping these messages can violate
+        // Preserve assistant turns that would otherwise become empty after
+        // filtering unknown block types. Dropping these messages can violate
         // Anthropic's role alternation requirement.
         if (
           content.length === 0 &&
@@ -1894,10 +1940,13 @@ export class AnthropicProvider implements Provider {
   }
 
   /**
-   * Convert a content block to Anthropic format, returning null for unknown
-   * block types instead of throwing.  Unknown types (e.g. ui_surface stored
-   * in DB) are silently dropped so they don't prevent the request from being
-   * sent or break tool_use/tool_result pairing.
+   * Convert a content block to Anthropic format, returning null for blocks the
+   * Messages API cannot carry instead of throwing, so they don't prevent the
+   * request from being sent or break tool_use/tool_result pairing.
+   *
+   * Two distinct null cases: `ui_surface` is a known client-rendering block
+   * dropped by design, while a block reaching `default` is genuinely
+   * unrecognised and warns so the gap is visible.
    */
   private toAnthropicBlockSafe(
     block: ContentBlock,
@@ -2040,6 +2089,12 @@ export class AnthropicProvider implements Provider {
           tool_use_id: block.tool_use_id,
           content: block.content,
         } as unknown as Anthropic.ContentBlockParam;
+      case "ui_surface":
+        // A client rendering instruction, not model context. Dropped by
+        // design: the producer's sibling `_surfaceFallback` text block is what
+        // the model reads. `buildSentMessages` projects the surface to text
+        // for legacy rows that have no fallback sibling.
+        return null;
       default: {
         log.warn(
           { blockType: (block as { type: string }).type },

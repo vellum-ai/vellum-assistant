@@ -197,7 +197,8 @@ async function handleGetVerificationStatus({
   queryParams = {},
   body = {},
 }: RouteHandlerArgs) {
-  const channel = (queryParams.channel ?? (body as Record<string, unknown>).channel) as ChannelId | undefined;
+  const channel = (queryParams.channel ??
+    (body as Record<string, unknown>).channel) as ChannelId | undefined;
   return await getVerificationStatus(channel);
 }
 

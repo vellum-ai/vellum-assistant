@@ -52,7 +52,7 @@ The Vellum team reviews each entry before it lands in the catalog. The review ch
 - The pinned commit matches a public, reachable revision of the repo.
 - The plugin has a valid `package.json` with a `@vellumai/plugin-api` peer dependency.
 - The plugin loads cleanly (hooks register, tools validate, no import errors at boot).
-- The surfaces the plugin claims (hooks, tools, skills) contribute something on boot rather than silently failing.
+- The surfaces the plugin claims contribute something on boot rather than silently failing.
 
 Once the review approves and the PR merges, the plugin appears in `assistant plugins search` and is installable by name.
 

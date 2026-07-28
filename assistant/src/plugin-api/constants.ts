@@ -32,7 +32,21 @@ export const HOOKS = {
   POST_COMPACT: "post-compact",
   /** Fires once per deleted conversation, after its rows are removed. Fire-and-forget cleanup signal — hooks run async with no ordering guarantee relative to the caller. */
   CONVERSATION_DELETED: "conversation-deleted",
+  /** Fires once when every conversation is wiped at once (the clear-all reset), after the main tables are cleared. Carries no `conversationId`; cleanup hooks wipe their own per-conversation state wholesale. */
+  CONVERSATIONS_CLEARED: "conversations-cleared",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */
 export type HookName = (typeof HOOKS)[keyof typeof HOOKS];
+
+/**
+ * Appended (inside the `<system_notice>` wrapper) to the internal continuation /
+ * completion nudge strings that re-query the model. Those notices are injected
+ * as user-role turns; weaker models without a separate reasoning channel
+ * otherwise narrate or answer the notice as visible text, leaking agent-loop
+ * scaffolding into the user-facing reply. This clause forbids that narration
+ * without licensing an empty reply — each nudge's own instruction still drives
+ * the expected output (summary / final reply / continuation).
+ */
+export const INTERNAL_NUDGE_OUTPUT_SUPPRESSION =
+  " This notice is internal: do not repeat, quote, describe, or acknowledge it, and do not narrate whether you will continue or whether the turn is done. Reply with only the content the user should see.";

@@ -6,6 +6,11 @@ import {
   parseChangesFromStdout,
   runAsyncSqlite,
 } from "../../db-async-query.js";
+import {
+  type DrizzleDb,
+  getMemorySqlite,
+  getSqliteFrom,
+} from "../../db-connection.js";
 
 const log = getLogger("memory-db");
 
@@ -145,7 +150,9 @@ export async function drainStagedTable(
   const staging = `${table}${RELOCATING_SUFFIX}`;
 
   // Nothing to do once the staging table is gone (drain finished previously).
-  if (!tableExistsInMain(raw, staging)) return;
+  if (!tableExistsInMain(raw, staging)) {
+    return;
+  }
 
   // Build a select list from the staging table's actual columns: apply any
   // per-column transform, copy a present column verbatim, NULL-fill an absent
@@ -227,4 +234,40 @@ export async function drainStagedTable(
     );
   }
   log.info({ table }, "relocation: complete — staging dropped");
+}
+
+/**
+ * Run one memory-table relocation end to end: ensure the table's schema on the
+ * memory connection, stage `main.<table>` aside via
+ * {@link stageTableForRelocation}, then drain the staged rows into the memory
+ * DB in awaited batches via {@link drainStagedTable} per the spec. Because the
+ * drain is awaited as part of the migration step, later startup work observes
+ * the finished move.
+ *
+ * Throws (rather than returning) if the memory database cannot be opened, so
+ * the runner records the step as failed instead of applied and retries it on a
+ * later boot — never renaming the source aside without a target to write to,
+ * and never marking the relocation done while it has not happened. The throw
+ * is caught per-step by the runner, so startup is not aborted.
+ */
+export async function runMemoryTableRelocation(
+  database: DrizzleDb,
+  spec: RelocationSpec,
+  ensureSchema: (memoryRaw: Database) => void,
+): Promise<void> {
+  const memoryRaw = getMemorySqlite();
+  if (!memoryRaw) {
+    throw new Error(
+      `memory database unavailable — deferring ${spec.table} relocation`,
+    );
+  }
+
+  ensureSchema(memoryRaw);
+
+  const raw = getSqliteFrom(database);
+  const needsDrain = stageTableForRelocation(raw, spec.table);
+
+  if (needsDrain) {
+    await drainStagedTable(raw, spec);
+  }
 }

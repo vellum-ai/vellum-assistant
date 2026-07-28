@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
   type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
 import type {
-  ServerMessage,
-  SurfaceData,
   SurfaceType,
 } from "../daemon/message-protocol.js";
 
@@ -31,7 +30,7 @@ function makeContext(): SurfaceConversationContext & {
     surfaceId?: string;
     displayContent?: string;
   }>;
-  sentMessages: ServerMessage[];
+  sentMessages: AssistantEvent[];
 } {
   const enqueueCalls: Array<{
     content: string;
@@ -47,7 +46,7 @@ function makeContext(): SurfaceConversationContext & {
     surfaceId?: string;
     displayContent?: string;
   }> = [];
-  const sentMessages: ServerMessage[] = [];
+  const sentMessages: AssistantEvent[] = [];
 
   return {
     conversationId: "test-convo",
@@ -146,7 +145,7 @@ function registerTableSurface(
 
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "table",
-    data: data as unknown as SurfaceData,
+    data,
     title: "Test Table",
     actions,
   });

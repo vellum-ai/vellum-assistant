@@ -16,7 +16,7 @@
 
 import { z } from "zod";
 
-import { getCachedShareAnalytics } from "../../platform/consent-cache.js";
+import { getRawShareAnalytics } from "../../platform/consent-cache.js";
 import {
   type AuthFallbackCount,
   recordAuthFallbackCounts,
@@ -61,15 +61,16 @@ function handleRecordAuthFallback({ body }: RouteHandlerArgs) {
 
   const recorded = recordAuthFallbackCounts(window_start, window_end, mapped);
   if (recorded === 0) {
-    if (getCachedShareAnalytics()) {
-      // Consent is on but nothing was recorded (the body guarantees counts),
-      // so the telemetry DB is unavailable. Fail so the gateway's reporter
-      // merges the batch back and retries next flush instead of losing it.
+    if (getRawShareAnalytics() !== false) {
+      // Consent is not a confirmed opt-out but nothing was recorded (the
+      // body guarantees counts), so the telemetry DB is unavailable. Fail so
+      // the gateway's reporter merges the batch back and retries next flush
+      // instead of losing it.
       throw new ServiceUnavailableError(
         "Telemetry database unavailable; retry the auth-fallback batch",
       );
     }
-    // share_analytics consent is off: drop the counts to honor the opt-out.
+    // Confirmed share_analytics opt-out: drop the counts to honor it.
     return { skipped: true };
   }
   log.debug({ recorded }, "Recorded auth-fallback counts");

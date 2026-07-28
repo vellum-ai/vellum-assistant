@@ -7,13 +7,13 @@
 
 import { z } from "zod";
 
+import { resolveSlackAuth } from "../../../../messaging/providers/slack/auth.js";
 import { listUsers } from "../../../../messaging/providers/slack/client.js";
 import { slackUserDisplayName } from "../../../../messaging/providers/slack/conversation-utils.js";
 import type { SlackUser } from "../../../../messaging/providers/slack/types.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { ServiceUnavailableError } from "../../errors.js";
 import type { RouteDefinition } from "../../types.js";
-import { resolveSlackToken } from "./token.js";
 
 const NormalizedUserSchema = z.object({
   id: z.string(),
@@ -30,15 +30,17 @@ const SlackUsersListResultSchema = z.object({
 const SLACKBOT_USER_ID = "USLACKBOT";
 
 export async function handleListSlackUsers() {
-  const token = await resolveSlackToken("read");
-  if (!token) {
+  // users.list is workspace-wide, so the bot token returns the same roster a
+  // user token would — no reason to prefer (or act as) the user here.
+  const auth = await resolveSlackAuth("bot");
+  if (auth === undefined) {
     throw new ServiceUnavailableError("No Slack token configured");
   }
 
   const members: SlackUser[] = [];
   let cursor: string | undefined;
   do {
-    const resp = await listUsers(token, 200, cursor);
+    const resp = await listUsers(auth, 200, cursor);
     members.push(...resp.members);
     cursor = resp.response_metadata?.next_cursor || undefined;
   } while (cursor);

@@ -63,11 +63,12 @@ import type { ContentBlock, Message } from "@vellumai/plugin-api";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getMemoryConfig } from "../config.js";
 import { getLogger } from "../logging.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
   INJECTED_CONCEPT_HEADER_REGEX,
   readInjectedBlock,
-} from "../v2/injected-block-slugs.js";
+} from "../substrate/injected-block-slugs.js";
 import {
   getActiveEntries,
   getPrunedSlugs,
@@ -132,7 +133,9 @@ export function parseCardSections(inner: string): {
     cardMatches.map((match) => ({ index: match.index!, slug: match[1]! }));
   for (const match of inner.matchAll(TOP_LEVEL_HEADER_REGEX)) {
     const i = match.index!;
-    if (cardStarts.has(i)) continue;
+    if (cardStarts.has(i)) {
+      continue;
+    }
     // Foreign header on a `\n\n` seam → starts its own chunk.
     if (i >= 2 && inner[i - 1] === "\n" && inner[i - 2] === "\n") {
       boundaries.push({ index: i, slug: null });
@@ -174,16 +177,24 @@ export function filterPrunedCardSections(
   prunedSlugs: ReadonlySet<string>,
 ): string {
   const { preamble, sections, pieces } = parseCardSections(inner);
-  if (sections.length === 0) return inner;
+  if (sections.length === 0) {
+    return inner;
+  }
 
   const kept = pieces.filter(
     (piece) => piece.kind !== "card" || !prunedSlugs.has(piece.slug),
   );
-  if (kept.length === pieces.length) return inner;
-  if (kept.length === 0) return "";
+  if (kept.length === pieces.length) {
+    return inner;
+  }
+  if (kept.length === 0) {
+    return "";
+  }
 
   const texts = kept.map((piece) => piece.text);
-  if (preamble.length > 0) texts.unshift(preamble);
+  if (preamble.length > 0) {
+    texts.unshift(preamble);
+  }
   return texts.join("\n\n");
 }
 
@@ -210,12 +221,14 @@ export interface PruneDeps {
  *
  * The footprint and the candidates both range over the ACTIVE injected slugs.
  * Candidates are ranked by last selection recency — `MAX(created_at)` per
- * slug from `memory_v3_selections`, falling back to the store's `injected_at`
- * for slugs with no selection rows (e.g. rows copied by a full fork) — taken
- * oldest-first until the footprint is at `targetResidentBytes`. Core/hot lane
- * members are exempt, and zero-byte rows (capability slugs, truncated-fork
- * seeds: dedup-only, no byte accounting) are skipped — pruning them frees
- * nothing while discarding inherited context.
+ * slug from `memory_v3_selections` (read over the dedicated memory
+ * connection; an unavailable memory database reads as no selection rows),
+ * falling back to the store's `injected_at` for slugs with no selection rows
+ * (e.g. rows copied by a full fork) — taken oldest-first until the footprint
+ * is at `targetResidentBytes`. Core/hot lane members are exempt, and
+ * zero-byte rows (capability slugs, truncated-fork seeds: dedup-only, no byte
+ * accounting) are skipped — pruning them frees nothing while discarding
+ * inherited context.
  */
 export function planPrune(
   deps: PruneDeps,
@@ -223,17 +236,22 @@ export function planPrune(
 ): PrunePlan | null {
   const activeEntries = getActiveEntries(conversationId);
   const resident = activeEntries.reduce((sum, e) => sum + e.bytes, 0);
-  if (resident <= deps.maxResidentBytes) return null;
+  if (resident <= deps.maxResidentBytes) {
+    return null;
+  }
 
-  const selectionRows = getSqliteFrom(getDb())
-    .query(
-      /*sql*/ `
+  const memoryRaw = memorySqliteOrNull("planPrune");
+  const selectionRows = memoryRaw
+    ? (memoryRaw
+        .query(
+          /*sql*/ `
       SELECT slug, MAX(created_at) AS lastSelectedAt FROM memory_v3_selections
       WHERE conversation_id = ?
       GROUP BY slug
     `,
-    )
-    .all(conversationId) as Array<{ slug: string; lastSelectedAt: number }>;
+        )
+        .all(conversationId) as Array<{ slug: string; lastSelectedAt: number }>)
+    : [];
   const lastSelectedAt = new Map(
     selectionRows.map((row) => [row.slug, row.lastSelectedAt]),
   );
@@ -250,7 +268,9 @@ export function planPrune(
   const slugs: string[] = [];
   let bytesFreed = 0;
   for (const candidate of candidates) {
-    if (resident - bytesFreed <= deps.targetResidentBytes) break;
+    if (resident - bytesFreed <= deps.targetResidentBytes) {
+      break;
+    }
     slugs.push(candidate.slug);
     bytesFreed += candidate.bytes;
   }
@@ -287,7 +307,9 @@ export function collectPersistedV3Cards(conversationId: string): Set<string> {
       row.metadata,
       MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
     );
-    if (block === null) continue;
+    if (block === null) {
+      continue;
+    }
     for (const section of parseCardSections(unwrapMemoryBlock(block))
       .sections) {
       sections.add(section.text);
@@ -315,7 +337,9 @@ export function stripPrunedCardsFromMessages(
 ): number {
   let strippedBlocks = 0;
   for (const message of messages) {
-    if (message.role !== "user") continue;
+    if (message.role !== "user") {
+      continue;
+    }
     let changed = false;
     const nextContent: ContentBlock[] = [];
     for (const block of message.content) {
@@ -349,7 +373,9 @@ export function stripPrunedCardsFromMessages(
         nextContent.push({ type: "text", text: wrapMemoryBlock(filtered) });
       }
     }
-    if (changed) message.content = nextContent;
+    if (changed) {
+      message.content = nextContent;
+    }
   }
   return strippedBlocks;
 }
@@ -394,7 +420,9 @@ export async function runPruneValve(
 ): Promise<PrunePlan | null> {
   // Defensive read: test configs may omit the prune block entirely.
   const pruneConfig = getMemoryConfig()?.v3?.prune;
-  if (!pruneConfig) return null;
+  if (!pruneConfig) {
+    return null;
+  }
 
   // Planning needs only the store (cheap); the persisted-metadata scan for
   // the live strip's ownership test runs only once a plan exists — a
@@ -407,7 +435,9 @@ export async function runPruneValve(
     },
     conversationId,
   );
-  if (!plan) return null;
+  if (!plan) {
+    return null;
+  }
 
   markPruned(conversationId, plan.slugs, options.now ?? Date.now());
 

@@ -132,10 +132,7 @@ function supportsEffort(provider: string, modelId: string, supportsThinking: boo
     }
     return supportsThinking;
   }
-  if (provider === "fireworks") {
-    return supportsThinking;
-  }
-  if (provider === "together") {
+  if (provider === "fireworks" || provider === "together" || provider === "baseten") {
     return supportsThinking;
   }
   return false;
@@ -152,6 +149,7 @@ const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
   "fireworks",
   "minimax",
   "atlascloud",
+  "baseten",
   "ollama",
   "openrouter",
   "together",

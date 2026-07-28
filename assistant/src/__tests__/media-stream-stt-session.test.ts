@@ -97,6 +97,15 @@ function makeDtmfMessage(digit = "5"): string {
   });
 }
 
+function makeMarkMessage(name = "drain-1"): string {
+  return JSON.stringify({
+    event: "mark",
+    sequenceNumber: "4",
+    streamSid: "MZ00000000000000000000000000000000",
+    mark: { name },
+  });
+}
+
 function makeStopMessage(): string {
   return JSON.stringify({
     event: "stop",
@@ -237,6 +246,44 @@ describe("MediaStreamSttSession", () => {
 
     expect(onDtmf).toHaveBeenCalledTimes(1);
     expect(onDtmf).toHaveBeenCalledWith("9");
+
+    session.dispose();
+  });
+
+  // ── onMark ──────────────────────────────────────────────────────
+
+  test("fires onMark once with the mark name for mark events", () => {
+    const onMark = jest.fn();
+    const session = new MediaStreamSttSession({}, { onMark });
+
+    session.handleMessage(makeStartMessage());
+    session.handleMessage(makeMarkMessage("drain-42"));
+
+    expect(onMark).toHaveBeenCalledTimes(1);
+    expect(onMark).toHaveBeenCalledWith("drain-42");
+
+    session.dispose();
+  });
+
+  test("a session without onMark does not throw on mark events", () => {
+    const session = new MediaStreamSttSession({}, {});
+
+    session.handleMessage(makeStartMessage());
+    expect(() => session.handleMessage(makeMarkMessage())).not.toThrow();
+
+    session.dispose();
+  });
+
+  test("non-mark frames do not fire onMark", () => {
+    const onMark = jest.fn();
+    const session = new MediaStreamSttSession({}, { onMark, onDtmf: jest.fn() });
+
+    session.handleMessage(makeStartMessage());
+    session.handleMessage(makeMediaMessage());
+    session.handleMessage(makeDtmfMessage());
+    session.handleMessage(makeStopMessage());
+
+    expect(onMark).not.toHaveBeenCalled();
 
     session.dispose();
   });

@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   createSurfaceMutex,
   type SurfaceConversationContext,
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type {
-  ServerMessage,
-  SurfaceData,
   SurfaceType,
   UiSurfaceShow,
   UiSurfaceShowWorkResult,
@@ -16,7 +15,7 @@ import type {
 import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
 import { uiShowTool } from "../tools/ui-surface/definitions.js";
 
-function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
+function makeContext(sent: AssistantEvent[] = []): SurfaceConversationContext {
   return {
     conversationId: "session-1",
     sendToClient: (msg) => sent.push(msg),
@@ -25,20 +24,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      {
-        surfaceType: SurfaceType;
-        data: SurfaceData;
-        title?: string;
-        actions?: Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>;
-      }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -122,7 +108,7 @@ describe("work_result surface protocol", () => {
   });
 
   test("ui_show can emit a work_result surface", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -142,7 +128,9 @@ describe("work_result surface protocol", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "work_result") return;
+    if (!showMessage || showMessage.surfaceType !== "work_result") {
+      return;
+    }
 
     expect(showMessage.title).toBe("Inbox cleaned up");
     expect(showMessage.data.summary).toBe(

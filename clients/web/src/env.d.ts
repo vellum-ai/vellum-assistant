@@ -48,8 +48,10 @@ interface ImportMetaEnv {
   /** When truthy ("1", "true", "yes"), disables platform connectivity in local mode. */
   readonly VITE_VELLUM_DISABLE_PLATFORM?: string;
   /**
-   * Override for the live-voice velay host (no scheme), e.g. `velay.dev.vellum.ai`.
-   * Defaults to `velay.vellum.ai` when unset. See `domains/chat/voice/live-voice/connection.ts`.
+   * Override for the live-voice velay host (no scheme), e.g. `localhost:8501`
+   * for a local `vel up` velay. When unset the host is derived at runtime from
+   * the platform host (`velay.vellum.ai`, `velay-{env}.vellum.ai`). See
+   * `domains/chat/voice/live-voice/connection.ts`.
    */
   readonly VITE_VELAY_HOST?: string;
 
@@ -65,7 +67,11 @@ interface Window {
   /** Feature flag overrides injected by Electron preload or CLI script. */
   __VELLUM_FLAG_OVERRIDES__?: Record<string, boolean | string>;
   /** Runtime config injected by the shell (Electron preload, CLI, etc.). */
-  __VELLUM_CONFIG__?: { disablePlatform?: boolean; mode?: string };
+  __VELLUM_CONFIG__?: {
+    disablePlatform?: boolean;
+    mode?: string;
+    platformUrl?: string;
+  };
   /**
    * SDK-defined override for the session-replay recorder script URL. Set before
    * the replay SDK inits so it loads the recorder from our first-party proxy

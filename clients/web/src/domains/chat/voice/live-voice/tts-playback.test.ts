@@ -433,6 +433,109 @@ describe("LiveVoiceAudioPlayer", () => {
   });
 
   // -------------------------------------------------------------------------
+  // playback progress (spoken-word cursor)
+  // -------------------------------------------------------------------------
+
+  describe("getPlaybackProgress", () => {
+    test("returns null before any enqueue", () => {
+      expect(player.getPlaybackProgress()).toBeNull();
+    });
+
+    test("returns null after dispose()", async () => {
+      player.enqueue(chunk(new Array(24000).fill(1)));
+      await player.dispose();
+      expect(player.getPlaybackProgress()).toBeNull();
+    });
+
+    test("tracks a single PCM chunk: total is the buffer duration, played follows currentTime", () => {
+      // One 24000-sample frame at 24 kHz => 1.0s scheduled at t=0.
+      player.enqueue(chunk(new Array(24000).fill(1)));
+
+      expect(player.getPlaybackProgress()).toEqual({
+        playedSeconds: 0,
+        totalSeconds: 1,
+      });
+
+      ctx.currentTime = 0.5;
+      expect(player.getPlaybackProgress()!.playedSeconds).toBeCloseTo(0.5, 6);
+
+      // Past the scheduled tail: played clamps to total.
+      ctx.currentTime = 3;
+      expect(player.getPlaybackProgress()).toEqual({
+        playedSeconds: 1,
+        totalSeconds: 1,
+      });
+    });
+
+    test("accumulates totalSeconds across chunks", () => {
+      player.enqueue(chunk(new Array(24000).fill(1))); // 1.0s
+      player.enqueue(chunk(new Array(12000).fill(1))); // 0.5s
+
+      const progress = player.getPlaybackProgress()!;
+      expect(progress.totalSeconds).toBeCloseTo(1.5, 6);
+      expect(progress.playedSeconds).toBe(0);
+    });
+
+    test("reports played == total after the queue drains (not null)", () => {
+      player.enqueue(chunk(new Array(24000).fill(1)));
+      ctx.currentTime = 1;
+      ctx.sources[0]!.finish(); // drain -> settleIfIdle zeroes the playhead
+
+      // Mid-turn silence: the cursor holds at the end, it doesn't reset.
+      expect(player.getPlaybackProgress()).toEqual({
+        playedSeconds: 1,
+        totalSeconds: 1,
+      });
+    });
+
+    test("a burst after a drain grows total; the silent gap never counts as played", () => {
+      player.enqueue(chunk(new Array(24000).fill(1))); // 1.0s at t=0
+      ctx.currentTime = 1;
+      ctx.sources[0]!.finish();
+
+      // 4s of silence (ack -> tool run), then a second 1.0s burst at t=5.
+      ctx.currentTime = 5;
+      player.enqueue(chunk(new Array(24000).fill(1)));
+
+      // total grew to 2.0s; played is still just the first second — the gap
+      // between bursts did not inflate it.
+      expect(player.getPlaybackProgress()).toEqual({
+        playedSeconds: 1,
+        totalSeconds: 2,
+      });
+
+      ctx.currentTime = 5.5;
+      expect(player.getPlaybackProgress()!.playedSeconds).toBeCloseTo(1.5, 6);
+    });
+
+    test("stop() resets progress to null", () => {
+      player.enqueue(chunk(new Array(24000).fill(1)));
+      player.stop();
+      expect(player.getPlaybackProgress()).toBeNull();
+    });
+
+    test("resetPlaybackProgress() resets progress to null", () => {
+      player.enqueue(chunk(new Array(24000).fill(1)));
+      player.resetPlaybackProgress();
+      expect(player.getPlaybackProgress()).toBeNull();
+    });
+
+    test("container path: a resolved async decode contributes its duration to total", async () => {
+      player.enqueue(frame("audio/wav"));
+      // Not scheduled yet: no progress until the decode resolves.
+      expect(player.getPlaybackProgress()).toBeNull();
+
+      await flushMicrotasks();
+
+      // Default mock decode yields a 1.0s buffer.
+      expect(player.getPlaybackProgress()).toEqual({
+        playedSeconds: 0,
+        totalSeconds: 1,
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // dispose: release the underlying AudioContext (resource-leak guard)
   // -------------------------------------------------------------------------
 

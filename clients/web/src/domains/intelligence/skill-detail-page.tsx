@@ -38,9 +38,10 @@ export function SkillDetailPage() {
   const isMobile = useIsMobile();
   const swipeContainerRef = useRef<HTMLDivElement>(null);
 
-  // The Skills list passes its current query string (search/filter/category)
-  // as router state so the back button restores the same filtered view.
-  // Direct deep-links carry no state and fall back to the plain list.
+  // The My Superpowers list passes its current query string
+  // (search/filter/category) as router state so the back button restores the
+  // same filtered view. Direct deep-links carry no state and fall back to
+  // the plain list.
   const routerState = location.state as { listSearch?: unknown } | null;
   const listSearch =
     typeof routerState?.listSearch === "string" ? routerState.listSearch : "";
@@ -64,7 +65,7 @@ export function SkillDetailPage() {
     // Replace (rather than push) so browser Back doesn't bounce the user
     // back to the detail entry — which may be a not-found page after the
     // skill was removed via `onRemoved`.
-    navigate(`${routes.skills.root}${listSearch}`, { replace: true });
+    navigate(`${routes.superpowers}${listSearch}`, { replace: true });
   }, [navigate, listSearch]);
 
   // Register as the mobile back-swipe owner so a left-edge swipe navigates
@@ -113,7 +114,7 @@ export function SkillDetailPage() {
   });
 
   if (!skillId) {
-    return <Navigate to={routes.skills.root} replace />;
+    return <Navigate to={routes.superpowers} replace />;
   }
 
   if (skillsQuery.isLoading) {
@@ -151,7 +152,7 @@ export function SkillDetailPage() {
           leftIcon={<ArrowLeft aria-hidden />}
           onClick={handleBack}
         >
-          Back to skills
+          Back to My Superpowers
         </Button>
       </SkillsStateCard>
     );

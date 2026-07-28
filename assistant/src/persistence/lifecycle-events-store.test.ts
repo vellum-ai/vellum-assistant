@@ -1,22 +1,16 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-// Mutable consent gate, flipped per-test.
-let shareAnalytics = true;
-mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
-
+import {
+  resetOutboxTable,
+  setShareAnalytics,
+  withTelemetryDbUnavailable,
+} from "../telemetry/__tests__/outbox-test-harness.js";
 import { APP_VERSION } from "../version.js";
-import * as dbConnection from "./db-connection.js";
-import { getTelemetryDb, getTelemetrySqlite } from "./db-connection.js";
-import { initializeDb } from "./db-init.js";
+import { getTelemetrySqlite } from "./db-connection.js";
 import {
   buildLifecycleTelemetryEvent,
   recordLifecycleEvent,
 } from "./lifecycle-events-store.js";
-import { telemetryEvents } from "./schema.js";
-
-await initializeDb();
 
 interface RawOutboxRow {
   id: string;
@@ -35,20 +29,10 @@ function outboxRows(): RawOutboxRow[] {
     .all() as RawOutboxRow[];
 }
 
-/** Run `fn` with the dedicated telemetry connection reported as unavailable. */
-function withTelemetryDbUnavailable(fn: () => void): void {
-  const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
-  try {
-    fn();
-  } finally {
-    spy.mockRestore();
-  }
-}
-
 describe("lifecycle-events-store", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    getTelemetryDb()!.delete(telemetryEvents).run();
+    setShareAnalytics(true);
+    resetOutboxTable();
   });
 
   test("record writes a telemetry_events outbox row carrying the wire payload", () => {
@@ -85,7 +69,7 @@ describe("lifecycle-events-store", () => {
   });
 
   test("returns null and writes no row when share_analytics is disabled", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     expect(recordLifecycleEvent("app_open")).toBeNull();
     expect(outboxRows()).toHaveLength(0);
   });

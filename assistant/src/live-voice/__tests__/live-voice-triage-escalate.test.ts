@@ -1,14 +1,10 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
-  ESCALATION_PROFILE,
-  FRONT_DOOR_PROFILE,
-  VOICE_TRIAGE_ESCALATE_FLAG,
+  FALLBACK_ESCALATION_BRIDGE,
 } from "../../calls/voice-triage-escalate.js";
-import { clearFeatureFlagOverridesCache } from "../../config/assistant-feature-flags.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -23,8 +19,6 @@ import {
   type LiveVoiceClientStartFrame,
   type LiveVoiceServerFrame,
 } from "../protocol.js";
-
-const VOICE_MODE_FLAG = "voice-mode";
 
 const START_FRAME = {
   type: "start",
@@ -155,36 +149,8 @@ function spokenText(frames: LiveVoiceServerFrame[]): string {
     .join("");
 }
 
-function enableBothFlags(): void {
-  setOverridesForTesting({
-    [VOICE_MODE_FLAG]: true,
-    [VOICE_TRIAGE_ESCALATE_FLAG]: true,
-  });
-}
-
-afterEach(() => {
-  clearFeatureFlagOverridesCache();
-});
-
 describe("live-voice triage-and-escalate routing", () => {
-  test("flag off: a single leg runs on the call-site default (no routing options)", async () => {
-    const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["A simple reply."],
-    });
-    const { frames, session } = createHarness(starter);
-
-    await driveTurn(session);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    expect(starter).toHaveBeenCalledTimes(1);
-    const options = starter.mock.calls[0]?.[0];
-    expect(options?.overrideProfile).toBeUndefined();
-    expect(options?.routingLeg).toBeUndefined();
-    expect(spokenText(frames)).toBe("A simple reply.");
-  });
-
-  test("both flags on, simple turn: only the fast front-door leg runs", async () => {
-    enableBothFlags();
+  test("simple turn: only the fast front-door leg runs", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["Sure, it's Tuesday."],
     });
@@ -194,17 +160,16 @@ describe("live-voice triage-and-escalate routing", () => {
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
     expect(starter).toHaveBeenCalledTimes(1);
-    expect(starter.mock.calls[0]?.[0]?.overrideProfile).toBe(
-      FRONT_DOOR_PROFILE,
-    );
+    // The front-door model is pinned by the voiceFrontDoor call site, not a
+    // per-turn profile override.
+    expect(starter.mock.calls[0]?.[0]?.overrideProfile).toBeUndefined();
     expect(starter.mock.calls[0]?.[0]?.routingLeg).toBe("front-door");
     expect(spokenText(frames)).toBe("Sure, it's Tuesday.");
   });
 
-  test("both flags on, tricky turn: [ESCALATE] hands off to a second quality leg", async () => {
-    enableBothFlags();
+  test("tricky turn: the escalate verdict hands off to a second quality leg", async () => {
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think about that. ", "[ESCALATE]"],
+      frontDoor: ["[1] ", "Let me think about that."],
       escalated: ["The detailed answer is 42."],
     });
     const { frames, session } = createHarness(starter);
@@ -216,19 +181,41 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(starter).toHaveBeenCalledTimes(2);
     const frontDoor = starter.mock.calls[0]?.[0];
     const escalated = starter.mock.calls[1]?.[0];
-    expect(frontDoor?.overrideProfile).toBe(FRONT_DOOR_PROFILE);
+    expect(frontDoor?.overrideProfile).toBeUndefined();
     expect(frontDoor?.routingLeg).toBe("front-door");
-    expect(escalated?.overrideProfile).toBe(ESCALATION_PROFILE);
+    // The escalated leg runs on the ordinary call-agent resolution: no
+    // override either.
+    expect(escalated?.overrideProfile).toBeUndefined();
     expect(escalated?.routingLeg).toBe("escalated");
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
   });
 
-  test("the [ESCALATE] marker and any text after it never reach the transcript", async () => {
-    enableBothFlags();
+  test("the [-1] teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      escalated: ["The detailed answer is 42."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const frontDoorPrompt =
+      starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    const escalatedPrompt =
+      starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
+    // The toolless fast leg has nothing to show and its decision rule promises
+    // verbatim speech — it must never learn the marker.
+    expect(frontDoorPrompt).not.toContain("[-1]");
+    expect(escalatedPrompt).toContain("[-1]");
+  });
+
+  test("the verdict token and any text past the bridge cap never reach the transcript", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: [
-        "Let me think about that. ",
-        "[ESCALATE] this weak answer kept streaming",
+        "[1] Let me think about that.",
+        " this weak answer kept streaming",
       ],
       escalated: ["The careful answer."],
     });
@@ -240,15 +227,14 @@ describe("live-voice triage-and-escalate routing", () => {
 
     const spoken = spokenText(frames);
     expect(spoken).toContain("Let me think about that.");
-    expect(spoken).not.toContain("[ESCALATE]");
+    expect(spoken).not.toContain("[1]");
     expect(spoken).not.toContain("weak answer");
     expect(spoken).toContain("The careful answer.");
   });
 
-  test("a [ESCALATE] marker split across deltas is still detected and suppressed", async () => {
-    enableBothFlags();
+  test("a verdict token split across deltas is still detected and suppressed", async () => {
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["One moment. ", "[ESC", "ALATE]", " leftover"],
+      frontDoor: ["[", "1]", " One moment.", " leftover past the cap"],
       escalated: ["Answer."],
     });
     const { frames, session } = createHarness(starter);
@@ -259,15 +245,48 @@ describe("live-voice triage-and-escalate routing", () => {
 
     const spoken = spokenText(frames);
     expect(spoken).toContain("One moment.");
-    expect(spoken).not.toContain("[ESC");
-    expect(spoken).not.toContain("ALATE");
+    expect(spoken).not.toContain("[1");
+    expect(spoken).not.toContain("1]");
     expect(spoken).not.toContain("leftover");
   });
 
-  test("bare [ESCALATE] with no holding phrase still escalates (fallback bridge)", async () => {
-    enableBothFlags();
+  test("a bridge with no sentence terminator hands off at the leg's completion", async () => {
     const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["[ESCALATE]"],
+      frontDoor: ["[1] Give me a moment"],
+      escalated: ["Answer."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      "Give me a moment",
+    );
+    expect(spokenText(frames)).toContain("Give me a moment");
+  });
+
+  test("the escalated leg receives the front-door leg's actual spoken bridge", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] Let me check your calendar.", " ignored tail"],
+      escalated: ["You have three connections."],
+    });
+    const { session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+
+    // The exact phrase the caller heard — pre-marker, cleaned, trimmed — so
+    // the continuation rule can quote it and ban a re-announcing echo.
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      "Let me check your calendar.",
+    );
+  });
+
+  test("a bare escalate verdict with no holding phrase still escalates (fallback bridge)", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1]"],
       escalated: ["The thorough answer."],
     });
     const { frames, session } = createHarness(starter);
@@ -280,45 +299,19 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(starter.mock.calls[1]?.[0]?.content).toBe(
       ESCALATION_CONTINUATION_CONTENT,
     );
-    // The marker itself is never shown; the fallback bridge is audio-only.
-    expect(spokenText(frames)).not.toContain("[ESCALATE]");
-  });
-
-  test("gating requires BOTH flags: voice-triage-escalate alone does not escalate", async () => {
-    setOverridesForTesting({ [VOICE_TRIAGE_ESCALATE_FLAG]: true });
-    const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think. ", "[ESCALATE]"],
-    });
-    const { frames, session } = createHarness(starter);
-
-    await driveTurn(session);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    // No front-door profile, no escalation — the single leg is the default path.
-    expect(starter).toHaveBeenCalledTimes(1);
-    expect(starter.mock.calls[0]?.[0]?.overrideProfile).toBeUndefined();
-    expect(starter.mock.calls[0]?.[0]?.routingLeg).toBeUndefined();
-  });
-
-  test("gating requires BOTH flags: voice-mode alone does not escalate", async () => {
-    setOverridesForTesting({ [VOICE_MODE_FLAG]: true });
-    const { starter } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think. ", "[ESCALATE]"],
-    });
-    const { frames, session } = createHarness(starter);
-
-    await driveTurn(session);
-    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-
-    expect(starter).toHaveBeenCalledTimes(1);
-    expect(starter.mock.calls[0]?.[0]?.overrideProfile).toBeUndefined();
-    expect(starter.mock.calls[0]?.[0]?.routingLeg).toBeUndefined();
+    // The caller heard the canned fallback, so that is the bridge the
+    // escalated leg must be told about.
+    expect(starter.mock.calls[1]?.[0]?.spokenEscalationBridge).toBe(
+      FALLBACK_ESCALATION_BRIDGE,
+    );
+    // The verdict itself is never shown; the fallback bridge is audio-only.
+    expect(spokenText(frames)).not.toContain("[1]");
+    expect(spokenText(frames)).not.toContain(FALLBACK_ESCALATION_BRIDGE);
   });
 
   test("barge-in during the escalated leg aborts it", async () => {
-    enableBothFlags();
     const { starter, escalatedAbort } = scriptedStartVoiceTurn({
-      frontDoor: ["Let me think about that. ", "[ESCALATE]"],
+      frontDoor: ["[1] ", "Let me think about that."],
       holdEscalated: true,
     });
     const { session } = createHarness(starter);

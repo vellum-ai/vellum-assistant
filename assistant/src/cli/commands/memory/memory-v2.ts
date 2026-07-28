@@ -26,7 +26,7 @@ import type {
   MemoryV2ReembedSkillsResult,
   MemoryV2SimulateRouterResult,
   MemoryV2ValidateResult,
-} from "../../../plugins/defaults/memory/routes/memory-v2-routes.js";
+} from "../../../plugins/defaults/memory/src/memory-v2-routes.js";
 import type { ComparisonReport } from "../../../plugins/defaults/memory/v2/harness/runner.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { log } from "../../logger.js";

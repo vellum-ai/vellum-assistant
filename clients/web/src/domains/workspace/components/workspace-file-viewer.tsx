@@ -48,6 +48,77 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
 
+/**
+ * Download state for a single workspace file — shared by the binary-fallback
+ * card and the preview header's download affordance so both surfaces report
+ * in-progress and failure the same way.
+ */
+function useWorkspaceFileDownload(opts: {
+  assistantId: string;
+  path: string;
+  name: string;
+  showHidden?: boolean;
+}) {
+  const { assistantId, path, name, showHidden } = opts;
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const download = useCallback(async () => {
+    setError(false);
+    setIsDownloading(true);
+    try {
+      await downloadWorkspaceFile({ assistantId, path, filename: name, showHidden });
+    } catch {
+      setError(true);
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [assistantId, path, name, showHidden]);
+
+  return { isDownloading, error, download };
+}
+
+/**
+ * Icon-only download button for a previewed file's header. Images, video, and
+ * other inline-rendered files have no other download path, so this lives in the
+ * header's top-right corner alongside any view-mode controls.
+ */
+function HeaderDownloadButton({
+  assistantId,
+  path,
+  name,
+  showHidden,
+}: {
+  assistantId: string;
+  path: string;
+  name: string;
+  showHidden?: boolean;
+}) {
+  const { isDownloading, error, download } = useWorkspaceFileDownload({
+    assistantId,
+    path,
+    name,
+    showHidden,
+  });
+  return (
+    <Button
+      variant="ghost"
+      size="regular"
+      iconOnly={
+        isDownloading ? (
+          <Loader2 className="animate-spin" aria-hidden />
+        ) : (
+          <Download aria-hidden />
+        )
+      }
+      onClick={() => void download()}
+      disabled={isDownloading}
+      aria-label={`Download ${name}`}
+      tooltip={error ? "Download failed. Try again." : "Download"}
+    />
+  );
+}
+
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
   query: { path: string; showHidden?: boolean };
@@ -271,20 +342,8 @@ function BinaryFileCard({
   modifiedAt?: string | null;
   showHidden?: boolean;
 }) {
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [error, setError] = useState(false);
-
-  const handleDownload = useCallback(async () => {
-    setError(false);
-    setIsDownloading(true);
-    try {
-      await downloadWorkspaceFile({ assistantId, path, filename: name, showHidden });
-    } catch {
-      setError(true);
-    } finally {
-      setIsDownloading(false);
-    }
-  }, [assistantId, path, name, showHidden]);
+  const { isDownloading, error, download: handleDownload } =
+    useWorkspaceFileDownload({ assistantId, path, name, showHidden });
 
   return (
     <div className="flex h-full flex-col">
@@ -707,7 +766,19 @@ export function WorkspaceFileViewer({
   if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
     return (
       <div className="flex h-full flex-col">
-        <FileHeader name={name} mimeType={mimeType} size={data.size} />
+        <FileHeader
+          name={name}
+          mimeType={mimeType}
+          size={data.size}
+          rightContent={
+            <HeaderDownloadButton
+              assistantId={assistantId}
+              path={selectedPath}
+              name={name}
+              showHidden={showHidden}
+            />
+          }
+        />
         <div className="flex-1 overflow-auto">
           <BinaryContentViewer
             assistantId={assistantId}

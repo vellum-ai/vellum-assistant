@@ -69,6 +69,7 @@ import { migrateRenameThreadStartersCheckpointsDown } from "../persistence/migra
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "../persistence/migrations/191-backfill-audio-attachment-mime-types.js";
 import { migrateLlmUsageAttribution } from "../persistence/migrations/235-llm-usage-attribution.js";
 import {
+  getStepName,
   type MigrationStep,
   runMigrationSteps,
 } from "../persistence/migrations/run-migrations.js";
@@ -902,6 +903,27 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
         expect(allNames.has(dep)).toBe(true);
       }
     }
+  });
+
+  test("migrationSteps: every dependsOn reference points to an earlier step", () => {
+    // The runner defers a step whose dependsOn prerequisites are not yet
+    // applied. A dependency declared at a later index or a misspelled name can
+    // never be satisfied when both steps are pending, which would leave the
+    // step deferring forever at runtime. This test makes such mis-declarations
+    // a CI failure instead.
+    const indexByName = new Map<string, number>();
+    migrationSteps.forEach((step, index) => {
+      indexByName.set(getStepName(step), index);
+    });
+    migrationSteps.forEach((step, index) => {
+      if (typeof step === "function") return;
+      if (!step.dependsOn) return;
+      for (const dep of step.dependsOn) {
+        const depIndex = indexByName.get(dep);
+        expect(depIndex).toBeDefined();
+        expect(depIndex!).toBeLessThan(index);
+      }
+    });
   });
 
   test("migrateMemoryEntityRelationDedup: idempotent on already-deduplicated table", () => {

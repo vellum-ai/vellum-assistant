@@ -40,6 +40,9 @@ const realSttResolveModule = {
 const realSecureKeysModule = {
   ...(await import("../../security/secure-keys.js")),
 };
+const realManagedSpeechModule = {
+  ...(await import("../../platform/managed-speech.js")),
+};
 
 // -- Mutable stub state --------------------------------------------------------
 
@@ -69,6 +72,16 @@ mock.module("../../security/secure-keys.js", () => ({
     preflightMocksActive
       ? undefined
       : realSecureKeysModule.getSecureKeyAsync(account),
+}));
+
+let managedAvailable = false;
+
+mock.module("../../platform/managed-speech.js", () => ({
+  ...realManagedSpeechModule,
+  managedSpeechAvailable: async () =>
+    preflightMocksActive
+      ? managedAvailable
+      : realManagedSpeechModule.managedSpeechAvailable(),
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
@@ -122,6 +135,7 @@ beforeEach(() => {
   sttProvider = "deepgram";
   ttsProvider = "fish-audio";
   ttsProviders = { "fish-audio": { referenceId: "ref-123" } };
+  managedAvailable = false;
 });
 
 function expectNotReady(
@@ -268,5 +282,34 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
     // Single sentence: suitable for the client `error` frame.
     expect(readiness.userMessage).not.toContain("\n");
     expect(readiness.userMessage.endsWith(".")).toBe(true);
+  });
+});
+
+describe("resolveLiveVoiceCredentialReadiness — managed (vellum) TTS", () => {
+  test("vellum TTS with a full platform connection → ready", async () => {
+    ttsProvider = "vellum";
+    ttsProviders = {};
+    managedAvailable = true;
+
+    const readiness = await runReadiness();
+    expect(readiness).toEqual({ status: "ready" });
+  });
+
+  test("vellum TTS without a platform connection → connection copy, not API-key copy", async () => {
+    ttsProvider = "vellum";
+    ttsProviders = {};
+    managedAvailable = false;
+
+    const readiness = expectNotReady(await runReadiness());
+    expect(readiness.missing).toEqual([
+      {
+        kind: "tts",
+        providerId: "vellum",
+        reason:
+          'TTS provider "vellum" needs a Vellum platform connection for managed speech',
+      },
+    ]);
+    expect(readiness.userMessage).toContain("assistant platform connect");
+    expect(readiness.userMessage).not.toContain("API key");
   });
 });

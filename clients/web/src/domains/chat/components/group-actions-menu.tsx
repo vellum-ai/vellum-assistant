@@ -1,3 +1,22 @@
+/**
+ * Section-header ("group") actions — the bulk menu shared by every sidebar
+ * section: Pinned, Chats, each origin-channel section, and each custom group.
+ *
+ * One prop shape ({@link GroupMenuItemsProps}) feeds three surfaces so they
+ * can't drift:
+ *
+ * - {@link renderGroupMenuItems} — Radix `ContextMenu` / `Menu` items, used
+ *   for the desktop right-click menu on a section header.
+ * - {@link renderGroupMenuItemsAsPanelItems} — the same item set flattened
+ *   into `PanelItem` rows for the popover and the mobile bottom sheet.
+ * - {@link GroupActionsMenu} — the trailing "…" button on custom-group
+ *   headers, which renders the PanelItem set in a Popover (desktop) or a
+ *   BottomSheet (mobile).
+ *
+ * `conversation-actions-menu.tsx` splits the per-conversation menu the same
+ * way; the `PanelItem` row primitives both use live in `panel-menu-item.tsx`.
+ */
+
 import {
     Archive,
     CircleCheck,
@@ -9,16 +28,19 @@ import { type ReactNode, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
+    buildPanelMenuItem,
+    PanelMenuDivider,
+} from "@/domains/chat/components/panel-menu-item";
+import {
     BottomSheet,
     ContextMenu,
     Menu,
-    PanelItem,
     Popover,
 } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
-// Shared group menu items — used by both the hover popover and the
-// right-click context menu so both surfaces stay in lockstep.
+// Shared group menu items — used by the hover popover, the right-click
+// context menu, and the mobile long-press sheet so all three stay in lockstep.
 // ---------------------------------------------------------------------------
 
 export type GroupMenuPrimitive = {
@@ -33,6 +55,24 @@ export interface GroupMenuItemsProps {
   hasConversations?: boolean;
   onRename?: () => void;
   onDelete?: () => void;
+}
+
+/**
+ * True when at least one action is wired. Callers use this to skip mounting
+ * the menu surface entirely rather than opening an empty popover.
+ */
+export function hasAnyGroupMenuAction({
+  onMarkAllRead,
+  onArchiveAll,
+  onRename,
+  onDelete,
+}: GroupMenuItemsProps): boolean {
+  return (
+    onMarkAllRead != null ||
+    onArchiveAll != null ||
+    onRename != null ||
+    onDelete != null
+  );
 }
 
 export function renderGroupMenuItems({
@@ -82,25 +122,99 @@ export function renderGroupMenuItems({
   );
 }
 
-// ---------------------------------------------------------------------------
-// GroupActionsMenu — rename/delete context menu for custom group headers
-// ---------------------------------------------------------------------------
+/**
+ * Popover / bottom-sheet renderer. Returns the same conceptual item set as
+ * {@link renderGroupMenuItems}, flattened into `PanelItem` rows.
+ */
+export function renderGroupMenuItemsAsPanelItems({
+  onMarkAllRead,
+  hasUnreadConversations = false,
+  onArchiveAll,
+  hasConversations = false,
+  onRename,
+  onDelete,
+  onClose,
+}: GroupMenuItemsProps & { onClose: () => void }): ReactNode {
+  const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
+  const hasIndividualActions = onRename != null || onDelete != null;
 
-interface GroupActionsMenuProps {
-  groupId: string;
-  onRename?: (groupId: string) => void;
-  onDelete?: (groupId: string) => void;
+  return (
+    <>
+      {onMarkAllRead
+        ? buildPanelMenuItem({
+            key: "mark-all-read",
+            icon: CircleCheck,
+            label: "Mark All as Read",
+            disabled: !hasUnreadConversations,
+            run: onMarkAllRead,
+            onClose,
+          })
+        : null}
+      {onArchiveAll
+        ? buildPanelMenuItem({
+            key: "archive-all",
+            icon: Archive,
+            label: "Archive All…",
+            disabled: !hasConversations,
+            run: onArchiveAll,
+            onClose,
+          })
+        : null}
+      {hasBulkActions && hasIndividualActions ? <PanelMenuDivider /> : null}
+      {onRename
+        ? buildPanelMenuItem({
+            key: "rename",
+            icon: Pencil,
+            label: "Rename",
+            run: onRename,
+            onClose,
+          })
+        : null}
+      {onDelete
+        ? buildPanelMenuItem({
+            key: "delete",
+            icon: Trash2,
+            label: hasConversations ? "Delete group…" : "Delete group",
+            run: onDelete,
+            onClose,
+          })
+        : null}
+    </>
+  );
 }
 
-export function GroupActionsMenu({ groupId, onRename, onDelete }: GroupActionsMenuProps) {
+// ---------------------------------------------------------------------------
+// GroupActionsMenu — the trailing "…" button on a custom group header
+// ---------------------------------------------------------------------------
+
+export interface GroupActionsMenuProps extends GroupMenuItemsProps {
+  /** Group name, used for the trigger's accessible label. */
+  label: string;
+}
+
+/**
+ * Trailing "…" affordance on a custom-group header. Renders the shared group
+ * menu items, so this menu and the header's right-click menu always offer the
+ * same actions.
+ */
+export function GroupActionsMenu({ label, ...menuProps }: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const closeMenu = () => setOpen(false);
 
+  if (!hasAnyGroupMenuAction(menuProps)) {
+    return null;
+  }
+
+  const items = renderGroupMenuItemsAsPanelItems({
+    ...menuProps,
+    onClose: closeMenu,
+  });
+
   const trigger = (
     <button
       type="button"
-      aria-label="Group actions"
+      aria-label={`${label} actions`}
       aria-haspopup="menu"
       onClick={(event) => event.stopPropagation()}
       className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
@@ -113,32 +227,11 @@ export function GroupActionsMenu({ groupId, onRename, onDelete }: GroupActionsMe
     return (
       <BottomSheet.Root open={open} onOpenChange={setOpen}>
         <BottomSheet.Trigger asChild>{trigger}</BottomSheet.Trigger>
-        <BottomSheet.Content>
+        <BottomSheet.Content aria-describedby={undefined}>
           <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>Group actions</BottomSheet.Title>
+            <BottomSheet.Title>{label} actions</BottomSheet.Title>
           </BottomSheet.Header>
-          <BottomSheet.Body className="pt-0">
-            {onRename ? (
-              <PanelItem
-                icon={Pencil}
-                label="Rename"
-                onSelect={() => {
-                  closeMenu();
-                  onRename(groupId);
-                }}
-              />
-            ) : null}
-            {onDelete ? (
-              <PanelItem
-                icon={Trash2}
-                label="Delete"
-                onSelect={() => {
-                  closeMenu();
-                  onDelete(groupId);
-                }}
-              />
-            ) : null}
-          </BottomSheet.Body>
+          <BottomSheet.Body className="pt-0">{items}</BottomSheet.Body>
         </BottomSheet.Content>
       </BottomSheet.Root>
     );
@@ -151,31 +244,10 @@ export function GroupActionsMenu({ groupId, onRename, onDelete }: GroupActionsMe
         side="right"
         align="start"
         sideOffset={4}
-        className="w-40 rounded-lg py-2 px-0"
+        className="w-48 rounded-lg py-2 px-0"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="px-2">
-          {onRename ? (
-            <PanelItem
-              icon={Pencil}
-              label="Rename"
-              onSelect={() => {
-                closeMenu();
-                onRename(groupId);
-              }}
-            />
-          ) : null}
-          {onDelete ? (
-            <PanelItem
-              icon={Trash2}
-              label="Delete"
-              onSelect={() => {
-                closeMenu();
-                onDelete(groupId);
-              }}
-            />
-          ) : null}
-        </div>
+        <div className="px-2">{items}</div>
       </Popover.Content>
     </Popover.Root>
   );

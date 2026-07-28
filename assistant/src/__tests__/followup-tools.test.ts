@@ -308,3 +308,61 @@ describe("followup_resolve tool", () => {
     );
   });
 });
+
+// ── model-input schema validation (LUM-2856) ────────────────────────
+
+describe("followup tools — model-input schema validation", () => {
+  test("followup_create rejects a non-string contact_id", async () => {
+    const result = await executeFollowupCreate(
+      { channel: "email", conversation_id: "conv-1", contact_id: 42 },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "followup_create"',
+    );
+    expect(result.content).toContain("contact_id");
+  });
+
+  test("followup_create keeps the bespoke positive-number error for expected_response_hours", async () => {
+    const result = await executeFollowupCreate(
+      {
+        channel: "email",
+        conversation_id: "conv-1",
+        expected_response_hours: "soon",
+      },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "expected_response_hours must be a positive number",
+    );
+  });
+
+  test("followup_create treats explicit null channel as missing (bespoke error)", async () => {
+    const result = await executeFollowupCreate(
+      { channel: null, conversation_id: "conv-1" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("channel is required");
+  });
+
+  test("followup_list rejects a non-boolean overdue_only but keeps the bespoke status error", async () => {
+    const bad = await executeFollowupList({ overdue_only: "yes" }, ctx);
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('Invalid input for tool "followup_list"');
+
+    const status = await executeFollowupList({ status: 42 }, ctx);
+    expect(status.isError).toBe(true);
+    expect(status.content).toContain("Invalid status");
+  });
+
+  test("followup_resolve rejects a non-string id", async () => {
+    const result = await executeFollowupResolve({ id: 42 }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "followup_resolve"',
+    );
+  });
+});

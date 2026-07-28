@@ -50,7 +50,12 @@ export function registerMemoryNodesCommand(memory: Command): void {
     .alias("ls")
     .action(
       async (
-        opts: { search?: string; limit?: string; json?: boolean },
+        opts: {
+          search?: string;
+          limit?: string;
+          kind?: string;
+          json?: boolean;
+        },
         cmd: Command,
       ) => {
         const queryParams: Record<string, string> = {};
@@ -59,6 +64,9 @@ export function registerMemoryNodesCommand(memory: Command): void {
         }
         if (opts.limit) {
           queryParams.limit = opts.limit;
+        }
+        if (opts.kind) {
+          queryParams.kind = opts.kind;
         }
         const r = await cliIpcCall<ListMemoryNodesResult>("listMemoryNodes", {
           queryParams,
@@ -80,9 +88,10 @@ export function registerMemoryNodesCommand(memory: Command): void {
         }
 
         if (result.nodes.length === 0) {
+          const suffix = describeFilters(opts);
           log.info(
-            opts.search
-              ? `No memory nodes found matching "${opts.search}".`
+            suffix
+              ? `No memory nodes found ${suffix}.`
               : "No memory nodes found. The memory graph is empty.",
           );
           return;
@@ -121,9 +130,10 @@ export function registerMemoryNodesCommand(memory: Command): void {
           );
         }
 
+        const suffix = describeFilters(opts);
         console.log(
           `\n${result.total} node${result.total === 1 ? "" : "s"}${
-            opts.search ? ` matching "${opts.search}"` : ""
+            suffix ? ` ${suffix}` : ""
           }`,
         );
       },
@@ -203,4 +213,165 @@ export function registerMemoryNodesCommand(memory: Command): void {
       log.info(result.message);
     },
   );
+
+  // ── stats ─────────────────────────────────────────────────────────────
+
+  subcommand(nodes, "stats").action(
+    async (opts: { json?: boolean }, cmd: Command) => {
+      // Deferred: loads config and the graph stats handler in-process.
+      // No daemon needed — reads directly from the workspace SQLite DB.
+      const [{ handleStatsMemory }, { getConfig }] = await Promise.all([
+        import("../../../plugins/defaults/memory/graph/tool-handlers.js") as Promise<
+          typeof import("../../../plugins/defaults/memory/graph/tool-handlers.js")
+        >,
+        import("../../../config/loader.js") as Promise<
+          typeof import("../../../config/loader.js")
+        >,
+      ]);
+
+      const result = handleStatsMemory(getConfig());
+
+      if (!result.success) {
+        log.error(result.message);
+        process.exitCode = 1;
+        return;
+      }
+
+      if (opts.json) {
+        writeOutput(cmd, result.stats);
+        return;
+      }
+
+      printStats(result.stats!);
+    },
+  );
+}
+
+/**
+ * Human-readable trailing clause describing the active list filters, e.g.
+ * `of kind "skill" matching "coffee"`. Returns "" when no filter is set.
+ */
+function describeFilters(opts: { kind?: string; search?: string }): string {
+  const parts: string[] = [];
+  if (opts.kind) {
+    parts.push(`of kind "${opts.kind}"`);
+  }
+  if (opts.search) {
+    parts.push(`matching "${opts.search}"`);
+  }
+  return parts.join(" ");
+}
+
+const MEMORY_TYPES = [
+  "episodic",
+  "semantic",
+  "procedural",
+  "emotional",
+  "prospective",
+  "behavioral",
+  "narrative",
+  "shared",
+] as const;
+
+interface StatsData {
+  total: number;
+  byType: { [key: string]: number | undefined };
+  byFidelity: { vivid: number; clear: number; faded: number; gist: number };
+  atRisk: number;
+  edgeCount: number;
+  oldestCreated: number | null;
+  newestCreated: number | null;
+  lastReinforced: number | null;
+  avgSignificance: number;
+  topNodes: ReadonlyArray<{ content: string; significance: number }>;
+}
+
+function printStats(s: StatsData): void {
+  const n = s.total;
+  const e = s.edgeCount;
+
+  console.log(
+    `\nMemory graph  ${n} node${n === 1 ? "" : "s"} · ${e} edge${e === 1 ? "" : "s"}\n`,
+  );
+
+  if (n === 0) {
+    console.log("  The memory graph is empty.");
+    console.log("");
+    return;
+  }
+
+  // ── by type ─────────────────────────────────────────────────────────────
+
+  console.log("BY TYPE");
+  for (const t of MEMORY_TYPES) {
+    const count = s.byType[t] ?? 0;
+    if (count > 0) {
+      console.log(`  ${t.padEnd(12)}  ${count}`);
+    }
+  }
+
+  // ── by fidelity (with ASCII bar) ─────────────────────────────────────────
+
+  console.log("\nBY FIDELITY");
+  const fidelities = ["vivid", "clear", "faded", "gist"] as const;
+  for (const f of fidelities) {
+    const count = s.byFidelity[f];
+    const barLen = n > 0 ? Math.round((count / n) * 20) : 0;
+    const bar = "█".repeat(barLen);
+    console.log(`  ${f.padEnd(6)}  ${String(count).padStart(4)}  ${bar}`);
+  }
+
+  // ── significance ─────────────────────────────────────────────────────────
+
+  console.log("\nSIGNIFICANCE");
+  console.log(`  average    ${(s.avgSignificance * 100).toFixed(1)}%`);
+  if (s.atRisk > 0) {
+    console.log(
+      `  at risk    ${s.atRisk} node${s.atRisk === 1 ? "" : "s"} fading (significance < 15%)`,
+    );
+  }
+
+  // ── timeline ─────────────────────────────────────────────────────────────
+
+  console.log("\nTIMELINE");
+  const dateOpts: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  };
+  if (s.oldestCreated) {
+    console.log(
+      `  oldest      ${new Date(s.oldestCreated).toLocaleString("en-US", dateOpts)}`,
+    );
+  }
+  if (s.newestCreated) {
+    console.log(
+      `  newest      ${new Date(s.newestCreated).toLocaleString("en-US", dateOpts)}`,
+    );
+  }
+  if (s.lastReinforced) {
+    console.log(
+      `  reinforced  ${new Date(s.lastReinforced).toLocaleString("en-US", {
+        ...dateOpts,
+        hour: "numeric",
+        minute: "2-digit",
+      })}`,
+    );
+  }
+
+  // ── top nodes ────────────────────────────────────────────────────────────
+
+  if (s.topNodes.length > 0) {
+    console.log("\nTOP NODES BY SIGNIFICANCE");
+    const WIDTH = 60;
+    const trunc = (str: string) =>
+      str.length > WIDTH ? str.slice(0, WIDTH - 1) + "…" : str;
+    for (const node of s.topNodes) {
+      console.log(
+        `  ${(node.significance * 100).toFixed(0).padStart(3)}%  ${trunc(node.content)}`,
+      );
+    }
+  }
+
+  console.log("");
 }

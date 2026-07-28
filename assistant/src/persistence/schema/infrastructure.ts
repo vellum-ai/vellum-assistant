@@ -170,6 +170,10 @@ export const llmRequestLogs = sqliteTable(
   ],
 );
 
+// Per-turn diagnostics for memory recall, recording hit counts, latency,
+// and the injected text. Lives in the dedicated memory database
+// (`assistant-memory.db`), not main — access it via the memory connection
+// (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryRecallLogs = sqliteTable(
   "memory_recall_logs",
   {
@@ -202,6 +206,9 @@ export const memoryRecallLogs = sqliteTable(
   ],
 );
 
+// Per-turn log of memory-v2 concept/skill activations. Lives in the
+// dedicated memory database (`assistant-memory.db`), not main — access it
+// via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV2ActivationLogs = sqliteTable(
   "memory_v2_activation_logs",
   {
@@ -277,6 +284,8 @@ export const llmUsageEvents = sqliteTable(
 // One row per conversation started on the activation-rail bootstrap template.
 // Lets the activation funnel telemetry scope its events to activation
 // conversations without inspecting the bootstrap template at emit time.
+// Lives in the dedicated memory database (`assistant-memory.db`), not main —
+// access it via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const activationSessions = sqliteTable("activation_sessions", {
   conversationId: text("conversation_id").primaryKey(),
   createdAt: integer("created_at").notNull(),

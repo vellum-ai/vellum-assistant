@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   probeScheduleWorker,
   ScheduleWorkerSpawnError,
+  setScheduleWorkerAdministrativelyStopped,
   spawnScheduleWorkerProcess,
   stopScheduleWorkerProcess,
 } from "../../schedule/worker-control.js";
@@ -59,6 +60,10 @@ async function startScheduleWorker() {
     throw new InternalError(message);
   }
 
+  // A successful start clears any prior operator stop so the watchdog resumes
+  // supervising the worker.
+  setScheduleWorkerAdministrativelyStopped(false);
+
   return {
     pid: result.pid,
     alreadyRunning: result.alreadyRunning,
@@ -79,6 +84,10 @@ function stopScheduleWorker() {
     log.warn({ err }, "Failed to signal schedule worker process");
     throw new InternalError(message);
   }
+
+  // Mark as administratively stopped so the liveness watchdog does not respawn
+  // the worker the operator just told it to stop (cleared by start / restart).
+  setScheduleWorkerAdministrativelyStopped(true);
 
   return {
     workerWasRunning: before.status === "running",

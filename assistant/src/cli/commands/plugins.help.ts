@@ -51,7 +51,7 @@ Examples:
         { flags: "--force", description: "Overwrite an existing install" },
         {
           flags: "--ref <ref>",
-          description: `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). Marketplace installs only — for a GitHub URL, put the ref in the URL (.../tree/<ref>/...)`,
+          description: `For a marketplace install, the manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). For a GitHub URL, the git ref (branch/tag/SHA) to clone — states a slash-containing branch (e.g. feature/x) explicitly and skips the remote ref lookup a bare /tree/ URL otherwise does`,
         },
         {
           flags: "--pin <sha>",
@@ -75,11 +75,15 @@ bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
 been reviewed and its hooks/tools run with full assistant access — so the
 install prints a warning. Use it for a plugin still under development that is
 not in the catalog yet. The ref comes from the URL's /tree/<ref>/ segment, or
-defaults to the repository's default branch.
+defaults to the repository's default branch. A branch whose name contains a
+slash (e.g. feature/x) is resolved automatically against the repo's refs, just
+as github.com does — paste the /tree/ URL as-is, or pass --ref to skip the
+lookup (e.g. offline, or to force a specific ref).
 
 Examples:
   $ assistant plugins install https://github.com/owner/repo
   $ assistant plugins install https://github.com/owner/repo/tree/my-branch/path/to/plugin
+  $ assistant plugins install https://github.com/owner/repo/tree/feat/results-viewer/path
   $ assistant plugins install owner/repo --name my-plugin --force`,
     },
     {
@@ -227,7 +231,7 @@ $ assistant plugins publish --json`,
       name: "upgrade",
       args: "<name>",
       description:
-        "Upgrade an installed plugin to the marketplace's current pin",
+        "Upgrade an installed plugin to its source's current revision (the marketplace pin, or — for a GitHub-URL install — whatever its recorded branch/tag/ref now resolves to)",
       options: [
         {
           flags: "--dry-run",
@@ -235,13 +239,24 @@ $ assistant plugins publish --json`,
         },
         {
           flags: "--strategy <strategy>",
-          description: `How to reconcile local edits with the pin: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")} (default: ${DEFAULT_PLUGIN_UPGRADE_STRATEGY})`,
+          description: `How to reconcile local edits with the target: ${PLUGIN_UPGRADE_STRATEGIES.join(", ")} (default: ${DEFAULT_PLUGIN_UPGRADE_STRATEGY})`,
         },
         {
           flags: "--json",
           description: "Emit machine-readable JSON instead of a summary",
         },
       ],
+      helpText: `
+A marketplace plugin upgrades to the curated pin. A plugin installed directly
+from a GitHub URL (untrusted) upgrades against its recorded source: it re-fetches
+whatever its recorded ref resolves to now — a pinned commit SHA is immutable (a
+no-op), while a branch/tag/HEAD advances as upstream does — and re-materializes
+it verbatim, with no curated adapter overlay.
+
+Examples:
+  $ assistant plugins upgrade example
+  $ assistant plugins upgrade example --dry-run
+  $ assistant plugins upgrade example --strategy ours`,
     },
   ],
 };

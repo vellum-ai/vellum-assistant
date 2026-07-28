@@ -231,4 +231,66 @@ describe("OpenRouter provider.only plumbing", () => {
       });
     });
   });
+
+  describe("per-model reasoning-effort ceiling", () => {
+    test("clamps an inherited max effort down to high for grok-4.5", () => {
+      const provider = new ProbeOpenRouterProvider("fake-key", "x-ai/grok-4.5");
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "max" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "high", summary: "detailed" },
+      });
+    });
+
+    test("clamps an inherited xhigh effort down to high for grok-4.5", () => {
+      const provider = new ProbeOpenRouterProvider("fake-key", "x-ai/grok-4.5");
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "xhigh" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "high", summary: "detailed" },
+      });
+    });
+
+    test("leaves an effort at or below the grok-4.5 ceiling untouched", () => {
+      const provider = new ProbeOpenRouterProvider("fake-key", "x-ai/grok-4.5");
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "low" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "low", summary: "detailed" },
+      });
+    });
+
+    test("leaves models without a catalog ceiling on the provider default (xhigh)", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "x-ai/grok-4.20",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "max" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "xhigh", summary: "detailed" },
+      });
+    });
+
+    test("keys the ceiling off a per-call model override, not the constructor model", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "moonshotai/kimi-k2.6",
+      );
+      const extras = provider.probeExtras({
+        config: {
+          model: "x-ai/grok-4.5",
+          thinking: { enabled: true },
+          effort: "max",
+        },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "high", summary: "detailed" },
+      });
+    });
+  });
 });

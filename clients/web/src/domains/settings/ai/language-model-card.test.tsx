@@ -181,7 +181,9 @@ describe("default-provider availability notice", () => {
     ].find((b) => b.textContent === "Providers");
     fireEvent.click(providersButton as HTMLButtonElement);
     await waitFor(() => {
-      expect(result.baseElement.textContent).toContain("Provider Connections");
+      expect(result.baseElement.textContent).toContain(
+        "Manage the model providers your assistant can use.",
+      );
     });
 
     setAvailability("ok");

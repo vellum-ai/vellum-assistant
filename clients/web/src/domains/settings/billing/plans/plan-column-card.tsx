@@ -1,0 +1,125 @@
+import { CircleCheck } from "lucide-react";
+
+import { PlanTierAvatar } from "@/domains/settings/billing/plan-tier-meta";
+import type { TierRelation } from "@/domains/settings/billing/package-types";
+import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
+
+export interface PlanColumnCardProps {
+  /** Tier key ("free" or a `ProPackage.key`) — selects the creature avatar. */
+  tierKey: string;
+  name: string;
+  tagline: string;
+  /** Formatted price, e.g. "$50/month". */
+  priceLabel: string;
+  priceCaption: string;
+  /** CTA label for a selectable tier; ignored when `isCurrent`. */
+  ctaLabel: string;
+  features: readonly string[];
+  /** Renders the "Recommended" chip — only on a non-current, non-downgrade column. */
+  recommended?: boolean;
+  /**
+   * The featured tier renders as the white/light card; the rest stay dark. The
+   * value drives a nested `data-theme` scope so the design tokens inside the
+   * card resolve to the right palette.
+   */
+  tone?: "dark" | "light";
+  isCurrent: boolean;
+  /**
+   * How this tier relates to the user's current tier. Drives the CTA chrome:
+   * "downgrade" renders an outlined button; "upgrade" (default) and "current"
+   * keep the existing primary / disabled rendering.
+   */
+  intent?: TierRelation;
+  /** A checkout is in flight — disable every CTA until it resolves. */
+  pending: boolean;
+  onCta: () => void;
+}
+
+/**
+ * One pricing column in the View Plans takeover. Layout-only: the parent owns
+ * the catalog data, the current-plan decision, and the CTA behavior.
+ */
+export function PlanColumnCard({
+  tierKey,
+  name,
+  tagline,
+  priceLabel,
+  priceCaption,
+  ctaLabel,
+  features,
+  recommended = false,
+  tone = "dark",
+  isCurrent,
+  intent = "upgrade",
+  pending,
+  onCta,
+}: PlanColumnCardProps) {
+  const isDowngrade = intent === "downgrade" && !isCurrent;
+  return (
+    <div
+      data-theme={tone}
+      className="flex w-full flex-col gap-3 rounded-2xl bg-[var(--surface-lift)] p-3 sm:gap-4 sm:p-4"
+    >
+      <PlanTierAvatar tier={tierKey} size={50} />
+
+      <div className="flex flex-col gap-2">
+        <div className="flex h-8 items-center gap-2">
+          <span className="text-[20px] font-medium text-[var(--content-emphasised)]">
+            {name}
+          </span>
+          {recommended && !isDowngrade && !isCurrent ? (
+            <Tag className="bg-[var(--feed-digest-weak)] text-[12px] font-semibold uppercase text-[var(--credits-accent)]">
+              Recommended
+            </Tag>
+          ) : null}
+        </div>
+
+        <p className="overflow-hidden text-[14px] font-medium leading-[18px] text-[var(--content-tertiary)] sm:h-9">
+          {tagline}
+        </p>
+      </div>
+
+      <div className="h-px w-full bg-[var(--border-hover)]" />
+
+      <div className="flex flex-col gap-1">
+        <span className="text-[24px] font-medium text-[var(--content-default)]">
+          {priceLabel}
+        </span>
+        <span className="text-[11px] font-medium text-[var(--content-tertiary)]">
+          {priceCaption}
+        </span>
+      </div>
+
+      <Button
+        variant={isDowngrade ? "outlined" : "primary"}
+        fullWidth
+        disabled={isCurrent || pending}
+        onClick={onCta}
+      >
+        {isCurrent ? "Current Plan" : ctaLabel}
+      </Button>
+
+      <div className="h-px w-full bg-[var(--border-hover)]" />
+
+      <div className="flex flex-col gap-2 sm:gap-4">
+        <span className="text-[12px] font-medium text-[var(--content-tertiary)]">
+          Includes:
+        </span>
+        <ul className="flex flex-col gap-2">
+          {features.map((feature) => (
+            <li key={feature} className="flex items-start gap-2">
+              <CircleCheck
+                className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-secondary)]"
+                aria-hidden
+              />
+              <span className="text-[14px] font-medium text-[var(--content-secondary)]">
+                {feature}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}

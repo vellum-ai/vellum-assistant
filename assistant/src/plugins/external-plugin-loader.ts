@@ -42,13 +42,14 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import semver from "semver";
 import { z } from "zod";
 
 import assistantPkg from "../../package.json" with { type: "json" };
+import { PLUGIN_SECRET_PATTERN_LIMITS } from "../security/plugin-secret-patterns.js";
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -56,6 +57,7 @@ import { registerPlugin } from "./registry.js";
 import type {
   HookFunction,
   Plugin,
+  PluginCredentialKeyPattern,
   PluginHooks,
   PluginManifest,
 } from "./types.js";
@@ -76,6 +78,10 @@ const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
  *   against the running assistant version and rejects the plugin on
  *   mismatch. If absent, the plugin loads without a host-compat claim
  *   (with a warning).
+ * - `credentialKeyPatterns` is typed `unknown` here and shape-validated
+ *   separately ({@link parseCredentialKeyPatterns}) so a malformed
+ *   declaration degrades to `undefined` instead of failing the whole
+ *   `safeParse` and blocking plugin load.
  * - Unknown fields pass through (`passthrough`) so the loader does not
  *   destructively reshape the file when the rest of the npm ecosystem
  *   writes to it.
@@ -85,10 +91,57 @@ const PluginPackageJsonSchema = z
     name: z.string().min(1, "package.json `name` must be a non-empty string"),
     version: z.string().optional(),
     peerDependencies: z.record(z.string(), z.string()).optional(),
+    credentialKeyPatterns: z.unknown().optional(),
   })
   .passthrough();
 
 type PluginPackageJson = z.infer<typeof PluginPackageJsonSchema>;
+
+/**
+ * Shape-level caps for the `credentialKeyPatterns` manifest field. The
+ * security grammar for what makes a *safe* pattern (anchored prefix, ReDoS
+ * bounds) is owned by the secret-pattern registry that consumes the parsed
+ * field — this schema only bounds sizes so a manifest cannot smuggle in
+ * unbounded data. The bounds themselves come from
+ * {@link PLUGIN_SECRET_PATTERN_LIMITS} so the two layers cannot drift. A
+ * pattern can never be shorter than its required literal prefix, so
+ * `minLiteralPrefix` doubles as the shape-level length floor.
+ */
+const CredentialKeyPatternsSchema = z
+  .array(
+    z.object({
+      label: z.string().min(1).max(PLUGIN_SECRET_PATTERN_LIMITS.maxLabelLength),
+      pattern: z
+        .string()
+        .min(PLUGIN_SECRET_PATTERN_LIMITS.minLiteralPrefix)
+        .max(PLUGIN_SECRET_PATTERN_LIMITS.maxSourceLength),
+    }),
+  )
+  .max(PLUGIN_SECRET_PATTERN_LIMITS.maxPatternsPerPlugin);
+
+/**
+ * Shape-validate a raw `credentialKeyPatterns` value from a plugin
+ * `package.json`. A malformed value degrades to `undefined` with a logged
+ * warning — it must never fail plugin load (daemon startup philosophy:
+ * subsystem failures never block).
+ */
+function parseCredentialKeyPatterns(
+  raw: unknown,
+  pluginDir: string,
+): PluginCredentialKeyPattern[] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  const parsed = CredentialKeyPatternsSchema.safeParse(raw);
+  if (!parsed.success) {
+    log.warn(
+      { pluginDir, err: parsed.error },
+      `package.json at ${pluginDir} has a malformed credentialKeyPatterns field — ignoring it`,
+    );
+    return undefined;
+  }
+  return parsed.data;
+}
 
 export interface LoadExternalPluginOptions {
   /**
@@ -98,15 +151,6 @@ export interface LoadExternalPluginOptions {
    * {@link DEFAULT_IMPORT_TIMEOUT_MS}.
    */
   readonly importTimeoutMs?: number;
-}
-
-/**
- * Strip the npm scope from a package name. `@vellumai/simple-memory` →
- * `simple-memory`; an unscoped name passes through unchanged.
- */
-export function stripScope(name: string): string {
-  const match = /^@[^/]+\/(.+)$/.exec(name);
-  return match ? match[1]! : name;
 }
 
 export function toToolNameSegment(value: string): string {
@@ -229,7 +273,15 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
     );
   }
   const pkg: PluginPackageJson = parsed.data;
-  const name = stripScope(pkg.name);
+  // A plugin's identity is its install directory name — the slug the plugin
+  // was installed under (a marketplace slug or a GitHub path leaf). This is
+  // the identity every other surface uses: `plugins list`, enable/disable,
+  // per-conversation plugin scoping, and resident-skill `owner.id`. The
+  // `package.json` `name` is authored by the plugin and routinely differs
+  // from the slug, so keying runtime registration off it would desync the
+  // registry from the identity the user toggles and the scope filters match.
+  // The manifest is still required (schema-validated above) as the load gate.
+  const name = basename(pluginDir);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
 
   // Host-compat negotiation: plugins declare their plugin-api version
@@ -275,6 +327,13 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   }
 
   const manifest: PluginManifest = { name, version };
+  const credentialKeyPatterns = parseCredentialKeyPatterns(
+    pkg.credentialKeyPatterns,
+    pluginDir,
+  );
+  if (credentialKeyPatterns !== undefined) {
+    manifest.credentialKeyPatterns = credentialKeyPatterns;
+  }
   const plugin: Plugin = { manifest };
 
   const hooks = await loadHooks(pluginDir, name);
@@ -381,15 +440,19 @@ export async function loadExternalPlugin(
 
 /**
  * Parse a plugin's `package.json` manifest from disk. Returns the plugin
- * name (scope-stripped) and version, or `undefined` when the file is
+ * identity (its install directory name), version, and any declared
+ * `credentialKeyPatterns`, or `undefined` when the `package.json` is
  * missing, unparseable, or fails schema validation.
  *
  * Exported so the mtime cache can discover plugin identity without going
- * through the full `buildExternalPlugin` path.
+ * through the full `buildExternalPlugin` path. The identity mirrors
+ * {@link buildPluginFromDir}: the directory name, not `package.json` `name`.
  */
 export async function parsePluginManifest(
   pluginDir: string,
-): Promise<{ name: string; version: string } | undefined> {
+): Promise<
+  Pick<PluginManifest, "name" | "version" | "credentialKeyPatterns"> | undefined
+> {
   const pkgPath = join(pluginDir, "package.json");
   let rawPkg: unknown;
   try {
@@ -411,7 +474,14 @@ export async function parsePluginManifest(
     return undefined;
   }
   const pkg: PluginPackageJson = parsed.data;
-  const name = stripScope(pkg.name);
+  const name = basename(pluginDir);
   const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
+  const credentialKeyPatterns = parseCredentialKeyPatterns(
+    pkg.credentialKeyPatterns,
+    pluginDir,
+  );
+  if (credentialKeyPatterns !== undefined) {
+    return { name, version, credentialKeyPatterns };
+  }
   return { name, version };
 }

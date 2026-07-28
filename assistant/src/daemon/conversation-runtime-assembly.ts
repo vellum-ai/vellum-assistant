@@ -22,6 +22,10 @@ import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import { findContactInfoById } from "../contacts/contact-store.js";
 import {
+  computeRefusedExchangeDrops,
+  quarantineRefusedExchanges,
+} from "../context/refusal-quarantine.js";
+import {
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripSpotlightInjections,
   stripUserTextBlocksByPrefix,
@@ -70,15 +74,14 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
-import type {
-  DynamicPageSurfaceData,
-  SurfaceData,
-  SurfaceType,
-} from "./message-protocol.js";
+import type {} from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
@@ -95,6 +98,13 @@ export interface ChannelCapabilities {
   dashboardCapable: boolean;
   /** Whether the channel supports dynamic UI surfaces (ui_show / ui_update). */
   supportsDynamicUi: boolean;
+  /**
+   * Whether the channel's adapter can render inline tappable options — approval
+   * buttons and (next) question option pickers. Distinct from `supportsDynamicUi`:
+   * a text-only channel can render inline buttons without dynamic UI. Optional;
+   * absent is treated as `false`.
+   */
+  supportsInlineOptions?: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
   /** The client OS/interface identifier (e.g. "macos", "ios", "web"). */
@@ -280,6 +290,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "web",
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,
@@ -294,6 +305,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -302,6 +314,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -358,10 +371,7 @@ interface ActiveSurfaceContext {
 export function buildActiveSurfaceContext(params: {
   currentActiveSurfaceId: string | undefined;
   currentPage: string | undefined;
-  surfaceState: ReadonlyMap<
-    string,
-    { surfaceType: SurfaceType; data: SurfaceData }
-  >;
+  surfaceState: ReadonlyMap<string, SurfaceShowPair>;
 }): ActiveSurfaceContext | null {
   const { currentActiveSurfaceId, currentPage, surfaceState } = params;
   if (!currentActiveSurfaceId) {
@@ -373,7 +383,7 @@ export function buildActiveSurfaceContext(params: {
     return null;
   }
 
-  const data = stored.data as DynamicPageSurfaceData;
+  const data = stored.data;
   const activeSurface: ActiveSurfaceContext = {
     surfaceId: currentActiveSurfaceId,
     html: data.html,
@@ -975,6 +985,11 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
     case "tool_result":
     case "web_search_tool_result":
       return "[tool result]";
+    // Surfaces normally ride with a `_surfaceFallback` text sibling that
+    // supplies the line, so this label is reached only by legacy rows that
+    // carry a bare card — better than rendering an empty transcript line.
+    case "ui_surface":
+      return "[card]";
     case "thinking":
     case "redacted_thinking":
     case "text":
@@ -1191,7 +1206,7 @@ function maxSlackTs(values: readonly (string | null)[]): string | null {
 }
 
 function legacyRowIsAfterWatermark(
-  row: SlackTranscriptInputRow,
+  row: { createdAt: number },
   watermarkTs: string,
 ): boolean {
   return compareSlackTs(String(row.createdAt / 1000), watermarkTs) > 0;
@@ -1260,10 +1275,13 @@ export function getSlackCompactionWatermarkForPrefix(
  * rows), so a kept-tail row past the boundary can carry an OLDER `channelTs`
  * than the prefix max. Advancing anyway would drop that row from every
  * future projection (`isSlackTsAfter` keeps strictly-after) while the
- * summary doesn't cover it either — silent loss. When any kept row's
- * `channelTs` sits at or before the candidate, the advance is skipped
- * entirely, degrading to bounded duplication of already-summarized rows: the
- * conservative direction.
+ * summary doesn't cover it either — silent loss. When any kept row sits at or
+ * before the candidate, the advance is skipped entirely, degrading to bounded
+ * duplication of already-summarized rows: the conservative direction. Legacy
+ * kept rows without `slackMeta` carry no `channelTs`, so they are compared via
+ * `createdAt/1000` — the same fallback `filterRowsAfterSlackCompactionBoundary`
+ * uses to drop them, keeping the guard and the filter from disagreeing about
+ * which legacy rows an advance would silently drop.
  */
 export function getSlackWatermarkAdvanceForRowPrefix(
   rows: MessageRow[],
@@ -1286,11 +1304,39 @@ export function getSlackWatermarkAdvanceForRowPrefix(
   }
   for (const row of rows.slice(endExclusive)) {
     const keptTs = channelTsForRow(row);
-    if (keptTs !== null && !isSlackTsAfter(keptTs, ts)) {
+    const survivesAdvance =
+      keptTs !== null
+        ? isSlackTsAfter(keptTs, ts)
+        : legacyRowIsAfterWatermark(row, ts);
+    if (!survivesAdvance) {
       return null;
     }
   }
   return ts;
+}
+
+/**
+ * Map each row's Slack `channelTs` to its thread key (`threadTs ?? channelTs`).
+ *
+ * A rendered transcript message carries its source row's `channelTs` in
+ * `sourceChannelTs`, so this map lets the refusal-exchange sweep resolve each
+ * rendered message's thread and pair a persisted refusal fallback with the
+ * prompt in its own thread — rather than the nearest chronological neighbour,
+ * which in a multi-party channel can be an unrelated sibling-thread post.
+ */
+function buildSlackThreadKeyByChannelTs(
+  rows: SlackTranscriptInputRow[],
+): Map<string, string> {
+  const byChannelTs = new Map<string, string>();
+  for (const row of rows) {
+    const meta = readSlackMetadataFromMessageMetadata(row.metadata, {
+      allowFlatLegacy: true,
+    });
+    if (meta?.channelTs) {
+      byChannelTs.set(meta.channelTs, meta.threadTs ?? meta.channelTs);
+    }
+  }
+  return byChannelTs;
 }
 
 function assembleSlackChronologicalContext(
@@ -1305,8 +1351,28 @@ function assembleSlackChronologicalContext(
   }
   const renderable = rowsToRenderableSlackMessages(rows);
   const rendered = renderSlackTranscriptWithProvenance(renderable);
+  // Drop previously-refused exchanges — a persisted safety-classifier refusal
+  // and the prompt that tripped it — so the model isn't re-fed a refusal it
+  // will just repeat (the dead-end `empty-response` sweeps off Slack turns).
+  // Pairing is thread-aware: each rendered message's Slack thread is resolved
+  // from its `sourceChannelTs`, so an interleaved sibling-thread post that
+  // landed between the refused prompt and the fallback is neither dropped nor
+  // mistaken for the prompt. `renderedMessages` is filtered by the same indices
+  // to stay aligned with the `messages` projection compaction slices.
+  const threadKeyByChannelTs = buildSlackThreadKeyByChannelTs(rows);
+  const threadKeys = rendered.renderedMessages.map((entry) =>
+    entry.sourceChannelTs !== null
+      ? (threadKeyByChannelTs.get(entry.sourceChannelTs) ?? null)
+      : null,
+  );
+  const { dropIndices } = computeRefusedExchangeDrops(rendered.messages, {
+    threadKeys,
+  });
+  const renderedMessages =
+    dropIndices.size > 0
+      ? rendered.renderedMessages.filter((_, i) => !dropIndices.has(i))
+      : rendered.renderedMessages;
   const contextSummary = options.contextSummary?.trim();
-  const renderedMessages = rendered.renderedMessages;
   if (contextSummary) {
     const withSummary: RenderedSlackTranscriptMessage[] = [
       {
@@ -1526,12 +1592,14 @@ function buildActiveThreadBlockFromRenderable(
   });
 
   const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
-  if (rendered.renderedMessages.length === 0) {
+  // Exclude previously-refused exchanges: the block is appended to the user
+  // tail, so a surviving refusal line would let the model re-refuse just as
+  // replaying it in the chronological transcript would.
+  const { messages } = quarantineRefusedExchanges(rendered.messages);
+  if (messages.length === 0) {
     return null;
   }
-  const lines = rendered.renderedMessages
-    .map((entry) => extractTagLineTexts([entry.message])[0] ?? "")
-    .join("\n");
+  const lines = extractTagLineTexts(messages).join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }
 
@@ -1696,9 +1764,22 @@ export interface RuntimeInjectionResult {
 }
 
 /**
+ * Injectors whose interior records its own latency sub-spans (the `v3_*`
+ * spans in the memory-v3 orchestration) — timing the injector wrapper too
+ * would double-count the same wall clock. Sub-spans must stay
+ * non-overlapping so the inspector's "Other" remainder is honest. The
+ * names are pinned by `injector-registry-order-guard.test.ts`.
+ */
+const SELF_INSTRUMENTED_INJECTORS = new Set([
+  "memory-v3-shadow",
+  "memory-v3-spotlight",
+]);
+
+/**
  * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
  * already sorted by ascending `order`) and return every non-null block it
- * produced.
+ * produced, timing each non-self-instrumented injector as a latency
+ * sub-span.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1717,7 +1798,13 @@ async function collectInjectorBlocks(
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
   for (const injector of getRegisteredInjectors()) {
-    const block = await injector.produce(ctx, runMessages);
+    const block = SELF_INSTRUMENTED_INJECTORS.has(injector.name)
+      ? await injector.produce(ctx, runMessages)
+      : await timeLatencySubSpan(
+          `injector:${injector.name}`,
+          `Injector: ${injector.name}`,
+          () => injector.produce(ctx, runMessages),
+        );
     if (block) {
       out.push(block);
     }

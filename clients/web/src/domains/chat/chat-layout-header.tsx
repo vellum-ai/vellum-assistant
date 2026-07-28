@@ -1,8 +1,9 @@
-import { Button } from "@vellumai/design-library";
+import { Button, Popover } from "@vellumai/design-library";
 import {
     ChevronLeft,
     ChevronRight,
     Menu as MenuIcon,
+    MoreHorizontal,
     PanelLeft,
     Search,
 } from "lucide-react";
@@ -28,7 +29,36 @@ export interface ChatLayoutHeaderProps {
   collapsed: boolean;
   sidebarWidth?: number;
   toggleSidebar: () => void;
+  /** Fades out and disables every header control (the in-chat onboarding
+   *  prototype's focused stage) while keeping the bar itself for layout
+   *  and Electron window dragging. */
+  controlsHidden?: boolean;
+  /** Fades out just the center chat title (the in-chat onboarding tour,
+   *  where the surrounding controls are back but a conversation title over
+   *  the narration would compete with it). */
+  centerHidden?: boolean;
+  /** Dims (not hides) the side control clusters — the tour's walk keeps
+   *  them visible for context but pulls them out of the attention field. */
+  controlsDimmed?: boolean;
   topBarCenter?: ReactNode;
+  /**
+   * Leads the right cluster, ahead of the mobile search button. The
+   * voice-session pill sits here so a live session reads as the leftmost
+   * thing in the cluster rather than buried between search and the
+   * notification bell.
+   */
+  topBarRightLeading?: ReactNode;
+  /**
+   * Collapse the rest of the right cluster (search, `topBarRightSlot`) behind
+   * a single ⋯ popover, leaving `topBarRightLeading` beside it. Set while the
+   * voice-session pill occupies the row: two icon buttons is the budget that
+   * keeps a conversation title readable at phone widths.
+   *
+   * The leading slot deliberately stays out of the popover — a live
+   * microphone must keep an indicator visible in the chrome, not one the user
+   * has to open a menu to discover.
+   */
+  collapseRightCluster?: boolean;
   topBarRightSlot?: ReactNode;
   canGoBack?: boolean;
   canGoForward?: boolean;
@@ -42,7 +72,12 @@ export function ChatLayoutHeader({
   collapsed,
   sidebarWidth,
   toggleSidebar,
+  controlsHidden = false,
+  centerHidden = false,
+  controlsDimmed = false,
   topBarCenter,
+  topBarRightLeading,
+  collapseRightCluster = false,
   topBarRightSlot,
   canGoBack,
   canGoForward,
@@ -62,10 +97,24 @@ export function ChatLayoutHeader({
   // Gated to Electron so the web/iOS layouts are byte-for-byte unchanged.
   const electron = isElectron();
 
+  // Mobile-only: on desktop the same affordance lives in the left cluster.
+  // Hoisted so the collapsed and expanded arms render the identical node.
+  const searchButton = isMobile ? (
+    <Button
+      variant="ghost"
+      iconOnly={<Search />}
+      aria-label="Search (Ctrl+K)"
+      tooltip="Search (Ctrl+K)"
+      onClick={handleSearchClick}
+    />
+  ) : null;
+
   const setInlineTitleBarActive =
     useTitleBarStore.use.setInlineTitleBarActive();
   useEffect(() => {
-    if (!electron) return;
+    if (!electron) {
+      return;
+    }
     setInlineTitleBarActive(true);
     return () => setInlineTitleBarActive(false);
   }, [electron, setInlineTitleBarActive]);
@@ -85,7 +134,10 @@ export function ChatLayoutHeader({
       }}
     >
       <div
-        className="flex items-center gap-2 transition-[min-width] duration-150 ease-in-out max-md:min-w-0 max-md:flex-1"
+        // `inert` (not just opacity/pointer-events) so the faded-out
+        // controls also leave the tab order and accessibility tree.
+        inert={controlsHidden || undefined}
+        className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:shrink-0${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         style={{
           // `minWidth` reserves the sidebar column on desktop only. The Electron
           // inset clears the inline traffic lights regardless of `isMobile` —
@@ -146,21 +198,53 @@ export function ChatLayoutHeader({
         ) : null}
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center justify-center">
+      <div
+        inert={controlsHidden || centerHidden || undefined}
+        className={`flex min-w-0 flex-1 items-center justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
+      >
         {topBarCenter}
       </div>
 
-      <div className="flex items-center gap-2 max-md:flex-1 max-md:justify-end">
-        {isMobile ? (
-          <Button
-            variant="ghost"
-            iconOnly={<Search />}
-            aria-label="Search (Ctrl+K)"
-            tooltip="Search (Ctrl+K)"
-            onClick={handleSearchClick}
-          />
-        ) : null}
-        {topBarRightSlot}
+      {/* `shrink-0`, not `flex-1`: these are fixed-size controls, and a wide
+          occupant (the voice-session pill) would otherwise either squash them
+          into each other or hold the row at its intrinsic width and push the
+          trailing ones off-screen. The centre slot is the only zone that
+          gives. */}
+      <div
+        inert={controlsHidden || undefined}
+        className={`flex shrink-0 items-center gap-2 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+      >
+        {topBarRightLeading}
+        {collapseRightCluster ? (
+          // The collapsed controls are relocated, not rebuilt: they render as
+          // the same nodes inside the popover, so contributors to
+          // `topBarRightSlot` need no menu-item form of themselves.
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              {/* No `tooltip`: the collapse is mobile-only, and touch has no
+                  hover to show one on. The `aria-label` is what names the
+                  control for assistive tech. */}
+              <Button
+                variant="ghost"
+                iconOnly={<MoreHorizontal />}
+                aria-label="More controls"
+              />
+            </Popover.Trigger>
+            <Popover.Content
+              side="bottom"
+              align="end"
+              className="flex w-auto items-center gap-1 p-1"
+            >
+              {searchButton}
+              {topBarRightSlot}
+            </Popover.Content>
+          </Popover.Root>
+        ) : (
+          <>
+            {searchButton}
+            {topBarRightSlot}
+          </>
+        )}
       </div>
     </header>
   );

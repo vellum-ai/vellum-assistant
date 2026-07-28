@@ -110,6 +110,11 @@ Examples:
           description:
             "Comma-separated tool names that may use this credential",
         },
+        {
+          flags: "--generated",
+          description:
+            "Assert the value was machine-generated (e.g. $(uuidgen), an API exchange result) and never entered via chat; bypasses the agent-shell inline-secret guard",
+        },
       ],
       helpText: `
 Arguments:
@@ -118,10 +123,18 @@ Arguments:
 If the credential already exists, the secret is overwritten and metadata is
 updated with any provided flags. Omitted flags leave existing metadata intact.
 
+When run from an agent shell (bash tool or skill sandbox), an inline value is
+refused unless --generated is passed: user-supplied secrets must be collected
+via "assistant credentials prompt" so they never transit the conversation.
+Pass --generated only for values the agent machine-generated itself (e.g.
+$(uuidgen), an API exchange result) — never for values typed or pasted by
+the user.
+
 Examples:
   $ assistant credentials set --service twilio --field account_sid AC1234567890
   $ assistant credentials set --service fal --field api_key key_live_abc --label "fal-prod" --description "Image generation"
-  $ assistant credentials set --service github --field token ghp_abc --allowed-tools "bash,host_bash"`,
+  $ assistant credentials set --service github --field token ghp_abc --allowed-tools "bash,host_bash"
+  $ assistant credentials set --service telegram --field webhook_secret "$(uuidgen)" --generated`,
     },
     {
       name: "delete",
@@ -191,6 +204,11 @@ Examples:
           flags: "--field <field>",
           description: "Field name",
         },
+        {
+          flags: "--for-chat",
+          description:
+            "Print a chat-safe reveal chip token instead of the plaintext",
+        },
       ],
       helpText: `
 Arguments:
@@ -204,10 +222,18 @@ captured with shell substitution.
 Use --service and --field to look up by service/field, or pass a UUID as a
 positional argument. One of the two forms is required.
 
+With --for-chat, the plaintext is never printed: the command outputs the
+credential's redaction chip token instead. Paste that token into a chat
+reply to show the credential as a click-to-reveal chip — use it whenever
+the goal is to SHOW a credential to the user in conversation rather than
+to pipe its value into another tool. Requires the chat-credential-reveal
+feature flag.
+
 Examples:
   $ assistant credentials reveal --service twilio --field auth_token
   $ assistant credentials reveal 7a3b1c2d-4e5f-6789-abcd-ef0123456789
   $ assistant credentials reveal --json --service twilio --field account_sid
+  $ assistant credentials reveal --for-chat --service twilio --field auth_token
   $ export TWILIO_TOKEN=$(assistant credentials reveal --service twilio --field auth_token)`,
     },
     {

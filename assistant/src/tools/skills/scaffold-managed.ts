@@ -12,10 +12,14 @@ import {
   createManagedSkill,
   getManagedSkillDir,
 } from "../../skills/managed-store.js";
+import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("scaffold-managed-skill");
+
+/** Watchdog check_name for the per-creation skill-authoring counter. */
+const SKILL_AUTHORED_CHECK_NAME = "skill_authored";
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
@@ -37,7 +41,9 @@ function normalizeOptionalStringArray(
   raw: unknown,
   field: string,
 ): { value?: string[]; error?: string } {
-  if (raw === undefined) return {};
+  if (raw === undefined) {
+    return {};
+  }
   if (!Array.isArray(raw)) {
     return { error: `${field} must be an array of strings` };
   }
@@ -51,7 +57,9 @@ function normalizeOptionalStringArray(
     if (!cleaned) {
       return { error: `each element in ${field} must be a non-empty string` };
     }
-    if (seen.has(cleaned)) continue;
+    if (seen.has(cleaned)) {
+      continue;
+    }
     seen.add(cleaned);
     normalized.push(cleaned);
   }
@@ -139,38 +147,63 @@ export async function executeScaffoldManagedSkill(
   }
   const avoidWhen = avoidWhenResult.value;
 
-  // Validate and normalize companion files
-  let files: Array<{ path: string; content: string }> | undefined;
+  // Validate and normalize companion files. Each entry carries the file bytes
+  // exactly one way: inline `content`, or `copy_from` naming an on-disk source
+  // the store validates and reads (managed-store.validateCompanionSource).
+  let files:
+    | Array<{ path: string; content?: string; copyFrom?: string }>
+    | undefined;
   if (input.files !== undefined) {
     if (!Array.isArray(input.files)) {
       return {
-        content: "Error: files must be an array of { path, content } objects",
+        content:
+          "Error: files must be an array of { path, content | copy_from } objects",
         isError: true,
       };
     }
-    const collected: Array<{ path: string; content: string }> = [];
+    const collected: Array<{
+      path: string;
+      content?: string;
+      copyFrom?: string;
+    }> = [];
     for (const item of input.files) {
       if (typeof item !== "object" || item === null) {
         return {
           content:
-            "Error: each element in files must be a { path, content } object",
+            "Error: each element in files must be a { path, content | copy_from } object",
           isError: true,
         };
       }
-      const { path, content } = item as Record<string, unknown>;
+      const { path, content, copy_from } = item as Record<string, unknown>;
       if (typeof path !== "string" || !path.trim()) {
         return {
           content: "Error: each file must have a non-empty string path",
           isError: true,
         };
       }
-      if (typeof content !== "string") {
+      if ((content === undefined) === (copy_from === undefined)) {
         return {
-          content: "Error: each file must have a string content",
+          content: `Error: file "${path}" must set exactly one of content or copy_from`,
           isError: true,
         };
       }
-      collected.push({ path: path.trim(), content });
+      if (content !== undefined && typeof content !== "string") {
+        return {
+          content: "Error: each file's content must be a string",
+          isError: true,
+        };
+      }
+      if (copy_from !== undefined && typeof copy_from !== "string") {
+        return {
+          content: "Error: each file's copy_from must be a string path",
+          isError: true,
+        };
+      }
+      collected.push({
+        path: path.trim(),
+        ...(content !== undefined ? { content: content as string } : {}),
+        ...(copy_from !== undefined ? { copyFrom: copy_from as string } : {}),
+      });
     }
     if (collected.length > 0) {
       files = collected;
@@ -199,12 +232,14 @@ export async function executeScaffoldManagedSkill(
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
   const author = fromRetrospective ? "assistant" : "user";
 
-  // Whether a managed SKILL.md already existed before this call. Resolved for
-  // retrospective calls only — it drives both the ownership backstop below and
-  // the created-vs-refined discriminant for the skill-card enqueue: only a
-  // genuine CREATE (no pre-existing skill, regardless of the `overwrite` flag)
-  // gets a card.
-  let managedSkillExistedBefore = false;
+  // Whether a managed SKILL.md already existed before this call. Drives the
+  // ownership backstop below, the created-vs-refined discriminant for the
+  // skill-card enqueue, and the `skill_authored` telemetry counter: only a
+  // genuine CREATE (no pre-existing skill, regardless of the `overwrite`
+  // flag) gets a card or a counter event.
+  const managedSkillExistedBefore = existsSync(
+    join(getManagedSkillDir(id), "SKILL.md"),
+  );
 
   // Ownership backstop (retrospective origin only): the retrospective may author
   // a skill ONLY if it owns it. Fail closed on either of two collisions.
@@ -234,11 +269,9 @@ export async function executeScaffoldManagedSkill(
     // exactly "assistant". This fails closed on user-authored, untagged, and
     // unverifiable (missing/corrupt meta) managed skills alike, matching the
     // prune side where such skills are never pruned.
-    const managedDir = getManagedSkillDir(id);
-    managedSkillExistedBefore = existsSync(join(managedDir, "SKILL.md"));
     if (
       managedSkillExistedBefore &&
-      readInstallMeta(managedDir)?.author !== "assistant"
+      readInstallMeta(getManagedSkillDir(id))?.author !== "assistant"
     ) {
       return {
         content: `Error: skill "${id}" is not verifiably assistant-authored; the retrospective may not overwrite it or write companion files into it. Author a new skill instead.`,
@@ -297,6 +330,30 @@ export async function executeScaffoldManagedSkill(
   }
 
   refreshSkillCapabilityMemories();
+
+  // Central adoption counter for skill authoring (admin analytics groups on
+  // the watchdog check_name). Genuine creates only — refinements of a
+  // pre-existing skill are not new capabilities and would double-count.
+  // `authored_by` distinguishes proactive retrospective authoring from
+  // user-directed scaffolds; the skill id itself stays out of the detail
+  // bag — ids derive from user/model content (a name can encode a
+  // customer or procedure), and watchdog events are metadata-only with no
+  // deletion-redaction tie to the source conversation. Never throws: a
+  // telemetry failure must not fail a scaffold that already succeeded.
+  if (!managedSkillExistedBefore) {
+    try {
+      recordWatchdogEvent({
+        checkName: SKILL_AUTHORED_CHECK_NAME,
+        value: 1,
+        detail: {
+          authored_by: fromRetrospective ? "retrospective" : "user",
+        },
+      });
+    } catch {
+      // recordWatchdogEvent already no-ops on opt-out and a missing
+      // telemetry DB; anything past that is not worth surfacing here.
+    }
+  }
 
   // Surface a genuine retrospective CREATE to the user as a skill card on the
   // source conversation, via the durable `skill_card_insert` delivery job

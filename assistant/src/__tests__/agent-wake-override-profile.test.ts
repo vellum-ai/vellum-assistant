@@ -26,26 +26,7 @@
  *      pinned-profile values.
  */
 
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// These suites exercise override-profile PLUMBING through legacy-shaped
-// fixtures (llm.default-centric, no defaultProvider). Pinned to the
-// flag-off cascade; override-or-default resolution semantics are pinned by
-// llm-resolver-override-or-default.test.ts and the inference-profile loop
-// suite.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockOverrideProfile: string | undefined = undefined;
 
@@ -140,14 +121,12 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
   test("forwards the conversation's pinned overrideProfile + mainAgent callSite to agentLoop.run", async () => {
     mockOverrideProfile = "frontier";
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        maxTokens: 64000,
-        contextWindow: { maxInputTokens: 200000 },
-      },
       profiles: {
+        // Complete (provider + model) so the pinned profile is a usable
+        // winner; its context window is what the wake must resolve.
         frontier: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
           contextWindow: { maxInputTokens: 150000 },
         },
       },
@@ -184,23 +163,24 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
   test("forceOverrideProfile replaces the pinned-profile lookup and forwards the force flag to agentLoop.run", async () => {
     // The conversation's own pinned profile must be ignored — the caller's
     // forced profile (e.g. a fork-based retrospective matching the source
-    // conversation) takes its place AND floats above the call-site layers
-    // via the resolver's `forceOverrideProfile` escape hatch.
+    // conversation) takes its place and, as the override rung of the
+    // single-winner chain, beats the call site's own pinned profile.
     mockOverrideProfile = "pinned-ignored";
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        maxTokens: 64000,
-        contextWindow: { maxInputTokens: 200000 },
-      },
       profiles: {
         forced: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
           contextWindow: { maxInputTokens: 120000 },
+        },
+        "retrospective-pinned": {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          contextWindow: { maxInputTokens: 180000 },
         },
       },
       callSites: {
-        memoryRetrospective: { contextWindow: { maxInputTokens: 180000 } },
+        memoryRetrospective: { profile: "retrospective-pinned" },
       },
     });
     const { target, runArgs } = makeTarget();
@@ -221,8 +201,9 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     expect(runArgs[0]!.options?.overrideProfile).toBe("forced");
     expect(runArgs[0]!.options?.forceOverrideProfile).toBe(true);
     expect(runArgs[0]!.options?.callSite).toBe("memoryRetrospective");
-    // The effective context window resolves under the FORCED profile, above
-    // the explicit call-site override (120k beats the call site's 180k).
+    // The effective context window resolves under the FORCED profile, which
+    // wins selection over the call site's own pinned profile (the forced
+    // profile's 120k beats the call-site profile's 180k).
     expect(runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens).toBe(
       120000,
     );
@@ -231,13 +212,9 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
   test("without forceOverrideProfile the wake never sets the force flag", async () => {
     mockOverrideProfile = "frontier";
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        maxTokens: 64000,
-        contextWindow: { maxInputTokens: 200000 },
+      profiles: {
+        frontier: { provider: "anthropic", model: "claude-sonnet-4-6" },
       },
-      profiles: { frontier: {} },
       callSites: { mainAgent: {} },
     });
     const { target, runArgs } = makeTarget();
@@ -317,13 +294,9 @@ describe("wakeAgentForOpportunity — resolver actually engages", () => {
     // undefined (the original bug), the retry layer would skip the resolver
     // entirely and the downstream provider would see only the wire defaults.
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        maxTokens: 64000,
-      },
       profiles: {
         frontier: {
+          provider: "anthropic",
           model: "claude-opus-4-7",
           maxTokens: 32000,
         },

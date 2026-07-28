@@ -23,6 +23,7 @@ import { Database } from "bun:sqlite";
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
 import { assistantDbQuery } from "../assistant-db-proxy.js";
+import { assistantHasContactAclColumns } from "./assistant-contact-acl-columns.js";
 import { assistantInviteIdSelect } from "./assistant-invite-id-column.js";
 
 import type { MigrationResult } from "./index.js";
@@ -31,6 +32,15 @@ const log = getLogger("m0008-upsert-acl-columns");
 
 function getRawGatewayDb(): Database {
   return (getGatewayDb() as unknown as { $client: Database }).$client;
+}
+
+/**
+ * The escalate policy is removed. This backfill can re-run after
+ * m0017-coerce-escalate-policy has checkpointed, so coerce on import to keep
+ * escalate out of the gateway regardless of ordering (deny = fail-closed).
+ */
+function importedPolicy(policy: string): string {
+  return policy === "escalate" ? "deny" : policy;
 }
 
 interface AssistantContactRow {
@@ -76,6 +86,29 @@ export async function up(): Promise<MigrationResult> {
         "Assistant DB missing contacts/contact_channels — retrying next boot",
       );
       return "skip";
+    }
+
+    // Terminal, unlike the absent table above: data migrations run only after
+    // the assistant's own, so once 305 ships the columns are always already
+    // gone here and no retry can ever see them. Checkpointing an empty gateway
+    // is real ACL loss, so say so rather than checkpointing quietly.
+    if (!(await assistantHasContactAclColumns())) {
+      const gwContacts = (
+        gwDb.prepare("SELECT count(*) AS n FROM contacts").get() as {
+          n: number;
+        }
+      ).n;
+      if (gwContacts === 0) {
+        log.warn(
+          "Assistant DB has no contact ACL columns and the gateway has no contacts — " +
+            "ACL was never backfilled and the source is gone; re-pair to recover",
+        );
+      } else {
+        log.info(
+          "Assistant DB has no contact ACL columns — nothing to backfill",
+        );
+      }
+      return "done";
     }
 
     // ── 2. Read the assistant ACL source rows ──────────────────────────────
@@ -167,7 +200,7 @@ export async function up(): Promise<MigrationResult> {
           updateChannelAcl.run(
             ch.contact_id,
             ch.status,
-            ch.policy,
+            importedPolicy(ch.policy),
             ch.verified_at,
             ch.verified_via,
             ch.revoked_reason,
@@ -183,7 +216,7 @@ export async function up(): Promise<MigrationResult> {
             ch.is_primary ? 1 : 0,
             ch.external_chat_id,
             ch.status,
-            ch.policy,
+            importedPolicy(ch.policy),
             ch.verified_at,
             ch.verified_via,
             ch.invite_id,

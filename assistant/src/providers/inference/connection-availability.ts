@@ -174,14 +174,15 @@ export async function computeConnectionAvailability(
         message: `Connection "${resolvedConnectionName}" uses Vellum platform auth, which cannot serve provider "${provider}". Add an API-key connection for "${provider}" ${SETTINGS_HINT}.`,
       };
     case "none": {
-      // Keyless providers (catalog setupMode "keyless", e.g. ollama)
+      // Keyless providers (catalog setupMode "keyless", e.g. ollama) and
+      // openai-compatible endpoints (dual-mode: local servers are keyless)
       // legitimately dispatch with none-auth — mirror
       // `createAdapterFromConnection`, which only rejects none-auth for
       // keyed catalog entries.
       const isKeyless =
         PROVIDER_CATALOG.find((entry) => entry.id === provider)?.setupMode ===
         "keyless";
-      if (isKeyless) {
+      if (isKeyless || provider === "openai-compatible") {
         return { status: "ok" };
       }
       return {

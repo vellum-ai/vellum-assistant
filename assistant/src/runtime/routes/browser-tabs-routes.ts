@@ -19,6 +19,7 @@ import type { ToolContext } from "../../tools/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { browserCliConversationKey } from "./browser-routes.js";
 import { BadRequestError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const BrowserTabsParams = z.object({
@@ -34,7 +35,7 @@ const BrowserTabsParams = z.object({
 
 async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   const { command, sessionId, conversationId, tabId, url, targetClientId } =
-    BrowserTabsParams.parse(body);
+    parseBody(BrowserTabsParams, body);
 
   const conversation = conversationId
     ? findConversation(conversationId)

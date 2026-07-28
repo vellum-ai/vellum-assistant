@@ -273,3 +273,191 @@ export function stopWorkerProcess(pidPath: string): WorkerProcessStatus {
   }
   return current;
 }
+
+// ---------------------------------------------------------------------------
+// PID-file identity
+// ---------------------------------------------------------------------------
+
+/**
+ * Remove the worker PID file only while it still names this process. A
+ * successor worker overwrites the file with its own PID at startup, so an
+ * exiting predecessor that unlinked unconditionally would delete the
+ * successor's entry — the liveness supervisor would then respawn a
+ * duplicate and orphan the successor.
+ */
+export function cleanupWorkerPidFile(pidPath: string): void {
+  try {
+    const raw = readFileSync(pidPath, "utf-8").trim();
+    if (parseInt(raw, 10) === process.pid) {
+      unlinkSync(pidPath);
+    }
+  } catch {
+    // best-effort — a missing or unreadable file needs no cleanup
+  }
+}
+
+/**
+ * Watch the worker PID file and evict this process when the file stops
+ * naming it. The PID file is a worker's sole tracking handle: stop
+ * commands and daemon shutdown signal only the PID it names, so a worker
+ * the file does not name can never be stopped externally — it must stop
+ * itself. Eviction fires when the file names another process (a successor
+ * spawned over this one) or is missing (untracked). A worker a successor
+ * daemon reuses via the `alreadyRunning` path is still named by the file,
+ * so the guard never fires for it.
+ *
+ * Checks immediately on arm and then every `intervalMs` (default 15s) on an
+ * unref'd timer so the guard never keeps the process alive, calls `onEvicted`
+ * at most once, and stops checking after eviction. The synchronous on-arm
+ * check is what closes the startup window: a worker superseded before it
+ * begins work evicts during arm — so callers arm the guard just before their
+ * first tick — instead of running one orphaned interval's work first. Returns
+ * a disposer; call it before {@link cleanupWorkerPidFile} on the normal
+ * shutdown path so shutdown never reads as an eviction. The eviction path must
+ * not delete the PID file — it names the successor.
+ */
+export function startWorkerPidFileGuard(
+  pidPath: string,
+  opts: { onEvicted: (reason: string) => void; intervalMs?: number },
+): () => void {
+  const intervalMs = opts.intervalMs ?? 15_000;
+  let evicted = false;
+
+  const check = (): void => {
+    if (evicted) {
+      return;
+    }
+    let reason: string | null = null;
+    try {
+      const raw = readFileSync(pidPath, "utf-8").trim();
+      if (parseInt(raw, 10) !== process.pid) {
+        reason = `PID file names ${raw || "nothing"}, not this process (${process.pid})`;
+      }
+    } catch {
+      reason = "PID file is missing";
+    }
+    if (reason != null) {
+      evicted = true;
+      clearInterval(timer);
+      opts.onEvicted(reason);
+    }
+  };
+
+  const timer = setInterval(check, intervalMs);
+  timer.unref();
+
+  // Synchronous check on arm: a worker already superseded at startup evicts
+  // here, before its caller starts work, rather than waiting a full interval.
+  check();
+
+  return () => clearInterval(timer);
+}
+
+// ---------------------------------------------------------------------------
+// Liveness supervisor
+// ---------------------------------------------------------------------------
+
+/**
+ * A liveness supervisor that probes a worker process and respawns it when it
+ * has died, subject to exponential backoff and a suppression hook. Detects
+ * process *death* (via the PID-file probe) — not a worker that is alive but
+ * wedged.
+ */
+export interface WorkerSupervisor {
+  /** Probe liveness; respawn if dead (subject to backoff/suppression). Never throws. */
+  ensureAlive(now?: number): Promise<void>;
+  /**
+   * Stop supervising: no further respawns, and a respawn already in flight is
+   * killed via {@link WorkerSupervisorOptions.killChild} when it resolves.
+   */
+  dispose(): void;
+}
+
+export interface WorkerSupervisorOptions {
+  label: string;
+  probe: () => WorkerProcessStatus;
+  respawn: () => Promise<{ pid: number; alreadyRunning: boolean }>;
+  /**
+   * Kill a child brought up by a respawn that resolved after the worker was
+   * disposed ({@link WorkerSupervisor.dispose}) or administratively suppressed
+   * ({@link WorkerSupervisorOptions.isSuppressed}) — closes the race where a
+   * stop lands while a respawn is already in flight.
+   */
+  killChild?: (pid: number) => void;
+  /**
+   * When it returns true, `ensureAlive` skips respawning — e.g. an operator
+   * administratively stopped the worker and the watchdog must not undo that.
+   */
+  isSuppressed?: () => boolean;
+  /** Fired after a respawn actually started a new process (not `alreadyRunning`). */
+  onRespawn?: (pid: number) => void;
+  /** Fires once when consecutiveFailures first reaches the threshold. */
+  onPersistentFailure?: (consecutiveFailures: number, err: unknown) => void;
+  minBackoffMs?: number; // default 15_000 (one tick)
+  maxBackoffMs?: number; // default 300_000 (5 min)
+  persistentFailureThreshold?: number; // default 3
+}
+
+export function createWorkerSupervisor(
+  opts: WorkerSupervisorOptions,
+): WorkerSupervisor {
+  let consecutiveFailures = 0;
+  let nextAttemptAt = 0;
+  let inFlight = false;
+  let stopping = false;
+  const minBackoff = opts.minBackoffMs ?? 15_000;
+  const maxBackoff = opts.maxBackoffMs ?? 300_000;
+  const threshold = opts.persistentFailureThreshold ?? 3;
+
+  return {
+    async ensureAlive(now = Date.now()): Promise<void> {
+      if (stopping || inFlight) {
+        return;
+      }
+      // Operator stop wins over the watchdog — never respawn while suppressed.
+      if (opts.isSuppressed?.()) {
+        return;
+      }
+      if (opts.probe().status === "running") {
+        consecutiveFailures = 0;
+        nextAttemptAt = 0;
+        return;
+      }
+      if (now < nextAttemptAt) {
+        return; // in a backoff window after a failed respawn
+      }
+      inFlight = true;
+      try {
+        const { pid, alreadyRunning } = await opts.respawn();
+        consecutiveFailures = 0;
+        nextAttemptAt = 0;
+        if (stopping || opts.isSuppressed?.()) {
+          // A stop landed while this respawn was in flight — either disposal
+          // (shutdown) or an operator stop that set suppression. Kill the child
+          // we just brought up so the stop is not silently undone; otherwise
+          // the fresh worker survives past the stop.
+          opts.killChild?.(pid);
+          return;
+        }
+        if (!alreadyRunning) {
+          opts.onRespawn?.(pid);
+        }
+      } catch (err) {
+        consecutiveFailures += 1;
+        const backoff = Math.min(
+          maxBackoff,
+          minBackoff * 2 ** (consecutiveFailures - 1),
+        );
+        nextAttemptAt = now + backoff;
+        if (consecutiveFailures === threshold) {
+          opts.onPersistentFailure?.(consecutiveFailures, err);
+        }
+      } finally {
+        inFlight = false;
+      }
+    },
+    dispose(): void {
+      stopping = true;
+    },
+  };
+}

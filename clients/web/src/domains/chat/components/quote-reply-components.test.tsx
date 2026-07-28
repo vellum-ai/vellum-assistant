@@ -267,7 +267,7 @@ describe("QuoteReplyBubble", () => {
     expect(quoteBlock.className).toContain("flex-1");
     expect(quoteBlock.parentElement?.className).toContain("mx-0");
     expect(quoteBlock.parentElement?.className).toContain("gap-3");
-    expect(quoteBlock.previousElementSibling?.className).toContain("h-5");
+    expect(quoteBlock.previousElementSibling?.className).toContain("self-stretch");
     expect(quoteBlock.previousElementSibling?.className).toContain("w-0.5");
     expect(
       screen.getByRole("button", { name: "Cancel" }).getAttribute("data-slot"),
@@ -350,7 +350,7 @@ describe("StagedQuotesStrip", () => {
     const quoteText = screen.getByText("competitive research");
     expect(quoteText.className).toContain("flex-1");
     expect(quoteText.parentElement?.className).toContain("gap-3");
-    expect(quoteText.previousElementSibling?.className).toContain("h-5");
+    expect(quoteText.previousElementSibling?.className).toContain("self-stretch");
     expect(
       screen.getByRole("button", { name: "Remove quote" }).getAttribute("data-slot"),
     ).toBe("button");

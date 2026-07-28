@@ -2,6 +2,7 @@ import type OpenAI from "openai";
 
 import type { ProviderErrorReason } from "../../util/errors.js";
 import {
+  DAILY_LIMIT_PATTERNS,
   INSUFFICIENT_CREDITS_PATTERNS,
   VISION_NOT_SUPPORTED_PATTERNS,
 } from "../../util/provider-error-patterns.js";
@@ -38,6 +39,17 @@ export interface NormalizedOpenAIAPIError {
 }
 
 /**
+ * All human-readable text from a normalized error — message, detail, and raw
+ * body — joined for case-insensitive substring/regex scanning. Classifying off
+ * the intact upstream payload (not the SDK's lossy `error.message`) is what lets
+ * OpenRouter's wrapped errors be matched, where the real reason lives in
+ * `metadata.raw`.
+ */
+export function normalizedErrorText(n: NormalizedOpenAIAPIError): string {
+  return `${n.message} ${n.detail ?? ""} ${n.rawBody ?? ""}`;
+}
+
+/**
  * Map an OpenAI-compatible error to a semantic {@link ProviderErrorReason}.
  * Order matters — the model-restriction check precedes the generic 401/403
  * credential branch, and billing precedes credentials.
@@ -46,7 +58,7 @@ export function deriveReason(
   n: NormalizedOpenAIAPIError,
   status: number | undefined,
 ): ProviderErrorReason {
-  const haystack = `${n.message} ${n.detail ?? ""} ${n.rawBody ?? ""}`;
+  const haystack = normalizedErrorText(n);
 
   if (
     status === 403 &&
@@ -67,6 +79,12 @@ export function deriveReason(
 
   if (VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack))) {
     return "vision_unsupported";
+  }
+
+  // The managed proxy's daily-limit 402 shares the status with generic credit
+  // exhaustion; match its specific body code first so it isn't swallowed.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(haystack))) {
+    return "daily_limit_reached";
   }
 
   if (

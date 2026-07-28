@@ -655,19 +655,6 @@ describe("routeSetup — verdict path enforces member ACL", () => {
     expect(outcome.action).toBe("deny");
   });
 
-  test("policy escalate member via verdict is denied (live call can't await approval)", async () => {
-    const { outcome } = await route(
-      null,
-      makeMemberVerdict("trusted_contact", {
-        status: "active",
-        policy: "escalate",
-      }),
-    );
-
-    expect(resolveActorTrustMock).not.toHaveBeenCalled();
-    expect(outcome.action).toBe("deny");
-  });
-
   test("trusted/active member via verdict still admits to normal_call", async () => {
     const { outcome } = await route(
       null,

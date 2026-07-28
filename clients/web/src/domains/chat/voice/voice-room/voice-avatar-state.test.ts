@@ -42,4 +42,28 @@ describe("toVoiceAvatarVisual", () => {
     expect(toVoiceAvatarVisual("listening", true)).toBe("listening");
     expect(toVoiceAvatarVisual("speaking", true)).toBe("responding");
   });
+
+  it("defaults assistantAudioActive to true (speaking → responding)", () => {
+    // Callers without the audio signal keep the plain mapping.
+    expect(toVoiceAvatarVisual("speaking", false)).toBe("responding");
+  });
+
+  it("maps speaking → thinking when no audio is flowing", () => {
+    // A turn that spoke an ack and is now running a tool stays `speaking` but
+    // is silent; the avatar must read `thinking`, not `responding` (JARVIS-1279).
+    expect(toVoiceAvatarVisual("speaking", false, false)).toBe("thinking");
+    expect(toVoiceAvatarVisual("speaking", true, false)).toBe("thinking");
+  });
+
+  it("keeps speaking → responding while audio is flowing", () => {
+    expect(toVoiceAvatarVisual("speaking", false, true)).toBe("responding");
+  });
+
+  it("ignores assistantAudioActive for every non-speaking phase", () => {
+    // The flag is only meaningful while `speaking`; it must not perturb others.
+    expect(toVoiceAvatarVisual("listening", false, false)).toBe("listening");
+    expect(toVoiceAvatarVisual("thinking", false, false)).toBe("thinking");
+    expect(toVoiceAvatarVisual("thinking", false, true)).toBe("thinking");
+    expect(toVoiceAvatarVisual("idle", false, false)).toBe("idle");
+  });
 });

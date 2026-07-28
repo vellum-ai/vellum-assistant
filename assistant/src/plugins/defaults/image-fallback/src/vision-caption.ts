@@ -102,6 +102,7 @@ export async function captionImage(
         systemPrompt: CAPTION_SYSTEM_PROMPT,
         config: {
           callSite: "vision",
+          conversationId,
           overrideProfile: profileKey,
           forceOverrideProfile: true,
           tool_choice: { type: "none" },

@@ -79,13 +79,13 @@ function resetTables(): void {
   db.run("DELETE FROM contacts");
 }
 
-function seedTrustedContact(policy: "allow" | "escalate" = "allow"): void {
+function seedTrustedContact(): void {
   seedContactChannel({
     sourceChannel: "telegram",
     externalUserId: "telegram-user-1",
     displayName: "Example User",
     status: "active",
-    policy,
+    policy: "allow",
   });
 }
 
@@ -274,7 +274,7 @@ describe("channel inbound disk pressure gate", () => {
     expect(db.select().from(messages).all()).toHaveLength(0);
   });
 
-  test("blocks escalation-policy trusted-contact ingress before escalation state", async () => {
+  test("blocks trusted-contact ingress without creating guardian requests", async () => {
     resetTables();
     createGuardianBinding({
       channel: "telegram",
@@ -282,14 +282,14 @@ describe("channel inbound disk pressure gate", () => {
       guardianDeliveryChatId: "guardian-chat-1",
       guardianPrincipalId: "guardian-user-1",
     });
-    seedTrustedContact("escalate");
+    seedTrustedContact();
     const processMessage = mock(async () => {
       throw new Error("processMessage should not run");
     });
     setAdapterProcessMessage(processMessage);
 
     const res = await handleChannelInbound(
-      makeInboundRequest({ externalMessageId: "msg-escalate-blocked" }),
+      makeInboundRequest({ externalMessageId: "msg-guardian-bound-blocked" }),
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -305,7 +305,12 @@ describe("channel inbound disk pressure gate", () => {
     const event = db
       .select()
       .from(channelInboundEvents)
-      .where(eq(channelInboundEvents.externalMessageId, "msg-escalate-blocked"))
+      .where(
+        eq(
+          channelInboundEvents.externalMessageId,
+          "msg-guardian-bound-blocked",
+        ),
+      )
       .get();
     expect(event?.processingStatus).toBe("processed");
     expect(event?.messageId).toBeNull();

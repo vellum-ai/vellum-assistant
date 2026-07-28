@@ -131,6 +131,12 @@ export const PROVIDER_SEED_DATA: Record<
         headerName: "Authorization",
         valuePrefix: "Bearer ",
       },
+      {
+        hostPattern: "docs.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
     ],
     revokeUrl: "https://oauth2.googleapis.com/revoke",
     revokeBodyTemplate: { token: "{access_token}" },

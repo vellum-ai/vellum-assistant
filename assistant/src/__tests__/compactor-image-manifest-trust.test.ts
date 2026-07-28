@@ -124,3 +124,53 @@ describe("collectImageManifest trust filtering", () => {
     expect(filenames).not.toContain("guardian-secret.png");
   });
 });
+
+describe("collectImageManifest fixed-boundary row bound", () => {
+  beforeEach(resetTables);
+
+  test("endRowIndex excludes images at and after the boundary row", async () => {
+    // GIVEN three image messages (rows 0, 1, 2)
+    const conv = createConversation();
+    await addImageMessage(conv.id, "guardian", "head-1.png");
+    await addImageMessage(conv.id, "guardian", "head-2.png");
+    await addImageMessage(conv.id, "guardian", "tail.png");
+
+    // WHEN the manifest is bounded to rows before index 2
+    const manifest = collectImageManifest(conv.id, "guardian", 2);
+
+    // THEN only head images are offered for retention
+    const filenames = manifest.map((e) => e.filename);
+    expect(filenames).toEqual(["head-1.png", "head-2.png"]);
+  });
+
+  test("omitted endRowIndex keeps the whole-conversation manifest", async () => {
+    // GIVEN two image messages
+    const conv = createConversation();
+    await addImageMessage(conv.id, "guardian", "first.png");
+    await addImageMessage(conv.id, "guardian", "second.png");
+
+    // WHEN the manifest is built without a boundary (auto-compaction path)
+    const manifest = collectImageManifest(conv.id, "guardian");
+
+    // THEN every image is listed
+    expect(manifest.map((e) => e.filename)).toEqual([
+      "first.png",
+      "second.png",
+    ]);
+  });
+
+  test("boundary slices the full row list before the trust filter", async () => {
+    // GIVEN guardian and unknown images interleaved across rows 0-2
+    const conv = createConversation();
+    await addImageMessage(conv.id, "guardian", "guardian-head.png");
+    await addImageMessage(conv.id, "unknown", "visitor-head.png");
+    await addImageMessage(conv.id, "unknown", "visitor-tail.png");
+
+    // WHEN an untrusted manifest is bounded to rows before index 2
+    const manifest = collectImageManifest(conv.id, "unknown", 2);
+
+    // THEN the boundary indexes the unfiltered row list (row 2 sliced away)
+    // and trust filtering still hides the guardian image from row 0
+    expect(manifest.map((e) => e.filename)).toEqual(["visitor-head.png"]);
+  });
+});

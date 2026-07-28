@@ -1,11 +1,11 @@
-import { getEffectiveProfiles } from "../config/default-profile-catalog.js";
 import {
-  isOverrideOrDefaultResolutionEnabled,
   resolveCallSiteConfig,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+import { resolveRoutingIdentity } from "../providers/routing-identity.js";
 import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;
@@ -87,13 +87,42 @@ export function toAttributionColumns(
  * values are capped so later forwarding cannot create unbounded headers.
  */
 export function sanitizeUsageMetadataValue(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string") {
+    return null;
+  }
 
   const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-  if (containsControlCharacter(trimmed)) return null;
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (containsControlCharacter(trimmed)) {
+    return null;
+  }
 
   return safeStringSlice(trimmed, 0, MAX_METADATA_VALUE_LENGTH);
+}
+
+/**
+ * Attribution records the billed upstream: a routing-identity provider
+ * ("vellum"/"chatgpt") translates to the upstream that actually serves the
+ * request, matching what dispatch resolves. Unroutable identity models fall
+ * back to the stored value rather than throwing — attribution must never
+ * take dispatch down.
+ */
+function attributedProvider(
+  provider: string | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (provider === undefined || !ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    return provider;
+  }
+  try {
+    return (
+      resolveRoutingIdentity(provider, model)?.expectedProvider ?? provider
+    );
+  } catch {
+    return provider;
+  }
 }
 
 export function resolveUsageAttribution(
@@ -116,7 +145,11 @@ export function resolveUsageAttribution(
       callSiteProfile: null,
       appliedProfile: null,
       profileSource: "unknown",
-      resolvedProvider: resolvedMainAgent.provider,
+      resolvedProvider:
+        attributedProvider(
+          resolvedMainAgent.provider,
+          resolvedMainAgent.model,
+        ) ?? resolvedMainAgent.provider,
       resolvedModel: resolvedMainAgent.model,
       resolvedMixArm: null,
     };
@@ -140,19 +173,15 @@ export function resolveUsageAttribution(
   const callSiteProfile = normalizeProfileId(
     llm.callSites?.[callSite]?.profile,
   );
-  // Under override-or-default semantics the resolver's own winner selection
-  // is the single source of truth for which profile applied — attribution
-  // must never re-derive precedence and drift from dispatch.
-  const profile = isOverrideOrDefaultResolutionEnabled()
-    ? appliedProfileFromWinnerSelection(callSite, llm, overrideProfile, input)
-    : resolveAppliedProfile({
-        callSite,
-        profiles: getEffectiveProfiles(llm.profiles),
-        activeProfile,
-        overrideProfile,
-        forceOverrideProfile: input.forceOverrideProfile === true,
-        callSiteProfile,
-      });
+  // The resolver's own winner selection is the single source of truth for which
+  // profile applied — attribution must never re-derive precedence and drift
+  // from dispatch.
+  const profile = appliedProfileFromWinnerSelection(
+    callSite,
+    llm,
+    overrideProfile,
+    input,
+  );
 
   return {
     callSite,
@@ -161,7 +190,9 @@ export function resolveUsageAttribution(
     callSiteProfile,
     appliedProfile: profile.appliedProfile,
     profileSource: profile.profileSource,
-    resolvedProvider: resolved.provider,
+    resolvedProvider:
+      attributedProvider(resolved.provider, resolved.model) ??
+      resolved.provider,
     resolvedModel: resolved.model,
     resolvedMixArm:
       profile.appliedProfile != null
@@ -191,100 +222,6 @@ function appliedProfileFromWinnerSelection(
   return {
     appliedProfile: selection.profileName,
     profileSource: sourceBySelection[selection.source],
-  };
-}
-
-function resolveAppliedProfile(input: {
-  callSite: LLMCallSite;
-  profiles: Record<string, unknown>;
-  activeProfile: string | null;
-  overrideProfile: string | null;
-  forceOverrideProfile: boolean;
-  callSiteProfile: string | null;
-}): Pick<UsageAttributionSnapshot, "appliedProfile" | "profileSource"> {
-  if (input.callSite === "mainAgent") {
-    if (
-      input.overrideProfile != null &&
-      input.profiles[input.overrideProfile] != null
-    ) {
-      return {
-        appliedProfile: input.overrideProfile,
-        profileSource: "conversation",
-      };
-    }
-
-    if (
-      input.activeProfile != null &&
-      input.profiles[input.activeProfile] != null
-    ) {
-      return {
-        appliedProfile: input.activeProfile,
-        profileSource: "active",
-      };
-    }
-
-    if (
-      input.callSiteProfile != null &&
-      input.profiles[input.callSiteProfile] != null
-    ) {
-      return {
-        appliedProfile: input.callSiteProfile,
-        profileSource: "call_site",
-      };
-    }
-
-    return {
-      appliedProfile: null,
-      profileSource: "default",
-    };
-  }
-
-  // Forced override floats above the call-site profile (the resolver's
-  // `forceOverrideProfile` escape hatch), so it wins attribution too.
-  if (
-    input.forceOverrideProfile &&
-    input.overrideProfile != null &&
-    input.profiles[input.overrideProfile] != null
-  ) {
-    return {
-      appliedProfile: input.overrideProfile,
-      profileSource: "conversation",
-    };
-  }
-
-  if (
-    input.callSiteProfile != null &&
-    input.profiles[input.callSiteProfile] != null
-  ) {
-    return {
-      appliedProfile: input.callSiteProfile,
-      profileSource: "call_site",
-    };
-  }
-
-  if (
-    input.overrideProfile != null &&
-    input.profiles[input.overrideProfile] != null
-  ) {
-    return {
-      appliedProfile: input.overrideProfile,
-      profileSource: "conversation",
-    };
-  }
-
-  if (
-    input.activeProfile != null &&
-    input.profiles[input.activeProfile] != null
-  ) {
-    return {
-      appliedProfile: input.activeProfile,
-      profileSource: "active",
-    };
-  }
-
-  return {
-    appliedProfile: null,
-    profileSource: "default",
   };
 }
 

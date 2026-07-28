@@ -42,8 +42,8 @@ const _require = createRequire(import.meta.url);
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 
 // The longest socket filename we place in the workspace directory.
-// assistant-skill.sock = 20 chars, plus 1 for the "/" separator = 21 overhead.
-const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
+// assistant.sock = 14 chars, plus 1 for the "/" separator = 15 overhead.
+const LONGEST_SOCKET_FILENAME = "assistant.sock";
 const LOCAL_RUNTIME_PACKAGE = "vellum";
 
 export interface LocalRuntimeInstall {
@@ -105,7 +105,7 @@ function hasLocalRuntimeComponents(installDir: string): boolean {
  * (`assistant`, `credential-executor`) collide with app-bundle binary names
  * and point at whatever version happens to be installed globally.
  */
-function isCompiledCli(): boolean {
+export function isCompiledCli(): boolean {
   const execBase = basename(process.execPath);
   return (
     execBase !== "bun" && execBase !== "bunx" && !execBase.startsWith("bun-")
@@ -300,7 +300,7 @@ function warnIfLegacyWorkspaceFallbackDetected(
 }
 
 /**
- * On macOS, if `{workspaceDir}/assistant-skill.sock` would exceed the
+ * On macOS, if `{workspaceDir}/assistant.sock` would exceed the
  * 103-byte AF_UNIX path limit, compute a short tmpdir-based IPC socket
  * directory and return it.  Returns `undefined` when no override is needed
  * (the workspace path is short enough, or we're not on macOS).
@@ -340,7 +340,6 @@ function applyIpcSocketDirOverride(
   mkdirSync(override, { recursive: true });
   env.GATEWAY_IPC_SOCKET_DIR = override;
   env.ASSISTANT_IPC_SOCKET_DIR = override;
-  env.ASSISTANT_SKILL_IPC_SOCKET_DIR = override;
 }
 
 function isAssistantSourceDir(dir: string): boolean {
@@ -549,6 +548,7 @@ export function generateLocalSigningKey(): string {
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
+  requireReady?: boolean;
   signingKey?: string;
 };
 
@@ -598,7 +598,10 @@ function applyDaemonEnvOverrides(
   applyIpcSocketDirOverride(env);
 }
 
-function logDaemonReadiness(readiness: DaemonReadiness): void {
+function logDaemonReadiness(
+  readiness: DaemonReadiness,
+  requireReady = false,
+): void {
   switch (readiness) {
     case "ready":
       console.log("   Assistant ready\n");
@@ -614,6 +617,11 @@ function logDaemonReadiness(readiness: DaemonReadiness): void {
       );
       break;
     default:
+      if (requireReady) {
+        throw new Error(
+          "Assistant did not bind its local port within 60 seconds.",
+        );
+      }
       console.log(
         "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
       );
@@ -1321,6 +1329,7 @@ export async function startLocalDaemon(
           resources.daemonPort,
           Date.now() + 60000,
         ),
+        options?.requireReady,
       );
     }
     return;
@@ -1363,6 +1372,7 @@ export async function startLocalDaemon(
         // classifies it without blocking on an in-flight migration.
         logDaemonReadiness(
           await probeDaemonReadinessWithRetry(resources.daemonPort),
+          options?.requireReady,
         );
         return;
       }
@@ -1514,7 +1524,7 @@ export async function startLocalDaemon(
         readiness = await probeDaemonReadiness(resources.daemonPort);
       }
 
-      logDaemonReadiness(readiness);
+      logDaemonReadiness(readiness, options?.requireReady);
     }
   } else {
     console.log("🔨 Starting local assistant...");
@@ -1536,6 +1546,7 @@ export async function startLocalDaemon(
           resources.daemonPort,
           Date.now() + 60000,
         ),
+        options?.requireReady,
       );
     }
   }
@@ -1548,6 +1559,7 @@ export async function startGateway(
     signingKey?: string;
     bootstrapSecret?: string;
     envOverrides?: Record<string, string>;
+    requireReady?: boolean;
   },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
@@ -1677,6 +1689,11 @@ export async function startGateway(
   // connection-refused errors.
   const ready = await waitForDaemonReady(effectiveGatewayPort, 30000);
   if (!ready) {
+    if (options?.requireReady) {
+      throw new Error(
+        "Assistant gateway did not bind its local port within 30 seconds.",
+      );
+    }
     console.warn(
       "⚠ Gateway started but health check did not respond within 30s",
     );

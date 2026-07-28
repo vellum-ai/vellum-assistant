@@ -26,6 +26,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   countCompletedHeartbeatRuns: mock(() => 10),
   countCompletedRunsToday: mock(() => 0),
   countRecentConsecutiveRuns: mock(() => 0),
+  getLastHeartbeatRunAt: mock(() => null),
 }));
 
 mock.module("../schedule/recurrence-engine.js", () => ({

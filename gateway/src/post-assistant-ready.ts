@@ -135,9 +135,14 @@ async function executeDeferredTasks(): Promise<void> {
     log.error({ err }, "Post-ready data migrations failed");
   }
 
-  // 2. Guardian binding backfill
+  // 2. Guardian binding backfill. Opt into actor-token recovery: an install
+  //    whose contact reconcile could not run (the assistant DB's ACL columns
+  //    were already dropped by migration 305 before the gateway read them) has
+  //    an empty contacts table but surviving actor tokens — rebind the vellum
+  //    guardian from those instead of leaving it unresolved. This is the single
+  //    boot-time self-heal seam; runtime token/pairing callers stay fail-closed.
   try {
-    await ensureVellumGuardianBinding();
+    await ensureVellumGuardianBinding({ recoverFromActorTokens: true });
   } catch (err) {
     log.warn({ err }, "Post-ready guardian binding backfill failed");
   }

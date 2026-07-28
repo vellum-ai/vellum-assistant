@@ -7,7 +7,6 @@
  * have canonical fields materialised.
  */
 
-import { effectiveTtsProvider } from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
 import type { TtsProviderId } from "./types.js";
 
@@ -34,11 +33,19 @@ export interface ResolvedTtsConfig {
  *
  * Reads exclusively from `services.tts.provider` and
  * `services.tts.providers.<id>`. No legacy fallback logic.
+ *
+ * `providerOverride` selects a provider other than the configured one and
+ * returns that provider's config block — used by callers that resolve the
+ * provider themselves (e.g. live voice, which runs on the managed-speech
+ * effective provider).
  */
-export function resolveTtsConfig(config: AssistantConfig): ResolvedTtsConfig {
+export function resolveTtsConfig(
+  config: AssistantConfig,
+  providerOverride?: TtsProviderId,
+): ResolvedTtsConfig {
   const ttsService = config.services.tts;
 
-  const provider = effectiveTtsProvider(ttsService) as TtsProviderId;
+  const provider = providerOverride ?? (ttsService.provider as TtsProviderId);
 
   // Resolve provider-specific config from the canonical providers map.
   const providerConfig = resolveProviderConfig(config, provider);

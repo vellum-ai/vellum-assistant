@@ -211,6 +211,15 @@ describe("injectBridge", () => {
     expect(out).not.toContain("vellum_fetch_request");
     expect(out).not.toContain("window.vellum.fetch");
   });
+
+  it("normalizes a missing /v1 prefix on custom-route fetch paths", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID, { fetch: true });
+    // The bridge prepends "/v1" to "/x/..." paths so the host's strict
+    // "/v1/x/" check accepts callers that omit the version prefix.
+    expect(out).toContain("path.indexOf('/x/') === 0");
+    expect(out).toContain("'/v1' + path");
+  });
 });
 
 describe("buildLinkInterceptorScript", () => {
@@ -265,6 +274,11 @@ describe("buildLinkInterceptorScript", () => {
     expect(out).toContain("vellum://");
     // frameId should be embedded in the generated script
     expect(out).toContain(FRAME_ID);
+  });
+
+  it("intercepts only the workspace and host vellum:// authorities", () => {
+    const out = buildLinkInterceptorScript(FRAME_ID);
+    expect(out).toContain("(workspace|host)");
   });
 
   it("checks vellum:// scheme before external http(s) schemes", () => {

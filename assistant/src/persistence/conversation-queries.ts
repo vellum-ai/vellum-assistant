@@ -531,7 +531,19 @@ function isMessageContentSearchAvailable(): boolean {
  */
 export async function searchConversations(
   query: string,
-  opts?: { limit?: number; maxMessagesPerConversation?: number },
+  opts?: {
+    limit?: number;
+    maxMessagesPerConversation?: number;
+    /**
+     * When true, search results include conversations whose `archived_at`
+     * is non-null. Defaults to `false` to preserve the historical
+     * "search matches the sidebar" invariant (anything in the standard
+     * listing is findable, archived rows are hidden). Surfaced only to
+     * opt-in callers like the global Search box toggle — never applied to
+     * background listing endpoints.
+     */
+    includeArchived?: boolean;
+  },
 ): Promise<ConversationSearchResult[]> {
   if (!query.trim()) {
     return [];
@@ -595,13 +607,20 @@ export async function searchConversations(
         conversation_id: string;
       }
       const placeholders = candidateIds.map(() => "?").join(",");
+      const whereClauses = [
+        `m.id IN (${placeholders})`,
+        standardListingVisibilitySql("c"),
+      ];
+      if (!opts?.includeArchived) {
+        whereClauses.push(`c.archived_at IS NULL`);
+      }
       const visibleRows = rawAll<CandidateRow>(
         "conversation:searchConversations:visibleCandidates",
         `
         SELECT m.id, m.conversation_id
         FROM messages m
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE m.id IN (${placeholders}) AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
+        WHERE ${whereClauses.join(" AND ")}
       `,
         ...candidateIds,
       );
@@ -656,16 +675,17 @@ export async function searchConversations(
   }
 
   // Title-only matches (message-content indexes don't cover conversation titles).
+  const titleConditions = [
+    sql.raw(standardListingVisibilitySql()),
+    sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
+  ];
+  if (!opts?.includeArchived) {
+    titleConditions.push(sql`${conversations.archivedAt} IS NULL`);
+  }
   const titleMatchConvs = db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(
-      and(
-        sql.raw(standardListingVisibilitySql()),
-        sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
-        sql`${conversations.archivedAt} IS NULL`,
-      ),
-    )
+    .where(and(...titleConditions))
     .all();
   for (const row of titleMatchConvs) {
     contentConvIds.add(row.id);

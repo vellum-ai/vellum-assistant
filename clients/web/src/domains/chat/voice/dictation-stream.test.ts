@@ -135,7 +135,9 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("buildSttStreamWsUrl", () => {
-  test("http ingress with a path prefix maps to ws and keeps the prefix", () => {
+  test("local __gateway proxy path dials the loopback gateway directly", () => {
+    // The HTTP-only __gateway proxy can't carry a WS upgrade, so the dictation
+    // stream must bypass it and hit 127.0.0.1:<port> directly (shared bypass).
     const url = new URL(
       buildSttStreamWsUrl({
         ingressUrl: "http://localhost:3000/assistant/__gateway/8500/",
@@ -144,7 +146,8 @@ describe("buildSttStreamWsUrl", () => {
     );
 
     expect(url.protocol).toBe("ws:");
-    expect(url.pathname).toBe("/assistant/__gateway/8500/v1/stt/stream");
+    expect(url.host).toBe("127.0.0.1:8500");
+    expect(url.pathname).toBe("/v1/stt/stream");
     expect(url.searchParams.get("token")).toBe("tok en");
     expect(url.searchParams.get("mimeType")).toBe("audio/pcm");
     expect(url.searchParams.get("sampleRate")).toBe("16000");

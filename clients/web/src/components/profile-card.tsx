@@ -1,6 +1,7 @@
 import { AlertCircle, Check, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { useQuery } from "@tanstack/react-query";
@@ -556,15 +557,29 @@ interface ProfileCardProps {
    * fallback, no platform assistant, or feature gated off upstream).
    */
   assistant?: Assistant | null;
+  /**
+   * Render the handle editors. Handles live on the user's platform
+   * account, so parents withhold them when there is no usable platform
+   * session. The card itself still renders — the email row and any
+   * extra sections (e.g. timezone) work for every assistant.
+   */
+  showHandles?: boolean;
+  /** Extra sections rendered after the handles, divider-separated. */
+  children?: ReactNode;
+}
+
+function SectionDivider() {
+  return <div className="border-t border-[var(--border-subtle)]" />;
 }
 
 /**
- * Settings card for editing handles on the user's Vellum identity surface.
+ * Settings card for the user's account details: email, public handles,
+ * and any extra sections the parent supplies (e.g. timezone).
  *
- * Renders two independently-saveable sections:
+ * The handle block renders two independently-saveable sections:
  *
- *   1. **User handle** — always visible; fetches ``/v1/user/me/`` on mount.
- *      The auth-store ``username`` lags a session refresh behind a save,
+ *   1. **User handle** — fetches ``/v1/user/me/`` on mount. The
+ *      auth-store ``username`` lags a session refresh behind a save,
  *      so we re-read from the server for the editor's initial value.
  *   2. **Assistant handle** — only when an ``assistant`` prop is supplied
  *      (a non-local platform assistant). Lets the user claim a public
@@ -574,8 +589,43 @@ interface ProfileCardProps {
  * other.
  */
 export function ProfileCard({
-  assistant: initialAssistant,
+  assistant,
+  showHandles = true,
+  children,
 }: ProfileCardProps = {}) {
+  const email = useAuthStore.use.user?.()?.email ?? null;
+
+  return (
+    <DetailCard
+      title="Profile"
+      subtitle="Manage your account details and preferences."
+    >
+      <div className="flex flex-col gap-6">
+        {email && (
+          <div className="max-w-[420px]">
+            <Input label="Email" value={email} disabled readOnly />
+          </div>
+        )}
+        {showHandles && (
+          <>
+            {email && <SectionDivider />}
+            <ProfileHandles assistant={assistant} />
+          </>
+        )}
+        {children != null && (
+          <>
+            {(email || showHandles) && <SectionDivider />}
+            {children}
+          </>
+        )}
+      </div>
+    </DetailCard>
+  );
+}
+
+function ProfileHandles({
+  assistant: initialAssistant,
+}: Pick<ProfileCardProps, "assistant">) {
   const [me, setMe] = useState<UserMe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const prefersReducedMotion = useReducedMotion();
@@ -612,36 +662,36 @@ export function ProfileCard({
     };
   }, []);
 
+  if (error) {
+    return (
+      <p className="text-body-small-default text-[var(--system-negative-strong)]">
+        {error}
+      </p>
+    );
+  }
+  if (!me) {
+    return <ProfileCardSkeleton />;
+  }
   return (
-    <DetailCard title="Profile" subtitle="Manage your user and assistant public handles.">
-      {error ? (
-        <p className="text-body-small-default text-[var(--system-negative-strong)]">
-          {error}
-        </p>
-      ) : me ? (
-        <motion.div
-          initial={prefersReducedMotion ? false : { opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
-          className="flex flex-col gap-6"
-        >
-          <UserHandleSection initial={me} onSaved={setMe} />
-          {assistant && (
-            <>
-              {/* Inline divider — keeps the two sections visually grouped
-                  inside a single card while letting them act independently.
-                  Two-tone border to match the DetailCard surface. */}
-              <div className="border-t border-[var(--border-subtle)]" />
-              <AssistantHandleSection
-                assistant={assistant}
-                onSaved={setAssistant}
-              />
-            </>
-          )}
-        </motion.div>
-      ) : (
-        <ProfileCardSkeleton />
+    <motion.div
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+      className="flex flex-col gap-6"
+    >
+      <UserHandleSection initial={me} onSaved={setMe} />
+      {assistant && (
+        <>
+          {/* Inline divider — keeps the two sections visually grouped
+              inside a single card while letting them act independently.
+              Two-tone border to match the DetailCard surface. */}
+          <div className="border-t border-[var(--border-subtle)]" />
+          <AssistantHandleSection
+            assistant={assistant}
+            onSaved={setAssistant}
+          />
+        </>
       )}
-    </DetailCard>
+    </motion.div>
   );
 }

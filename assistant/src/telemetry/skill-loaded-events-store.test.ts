@@ -1,18 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-let shareAnalytics = true;
-
-mock.module("../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getTelemetryDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
 import { telemetryEvents } from "../persistence/schema/index.js";
 import { APP_VERSION } from "../version.js";
+import {
+  resetOutboxTable,
+  setShareAnalytics,
+} from "./__tests__/outbox-test-harness.js";
 import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
-
-await initializeDb();
 
 function pendingRows(): Array<{
   id: string;
@@ -33,12 +28,12 @@ function pendingRows(): Array<{
 
 describe("skill-loaded-events-store", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    getTelemetryDb()!.delete(telemetryEvents).run();
+    setShareAnalytics(true);
+    resetOutboxTable();
   });
 
   test("honors the share_analytics opt-out (records nothing)", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     recordSkillLoadedEvent({ skillName: "web-research" });
     expect(pendingRows()).toHaveLength(0);
   });

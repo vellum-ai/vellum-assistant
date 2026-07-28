@@ -19,17 +19,23 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { startMonitoring } from "../monitoring/control.js";
+import { recordDaemonBootTime } from "../monitoring/daemon-boot-time.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { getMaxPersistedConversationSeq } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
+import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
+import { repairSharedCredentialSlots } from "../providers/inference/credential-slot-repair.js";
 import { initializeProviders } from "../providers/registry.js";
+import { startRouteHost } from "../routes/control.js";
+import { floorSeqAbove } from "../runtime/assistant-stream-state.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -40,6 +46,7 @@ import {
 } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { markCurrentProcessAsMainDaemon } from "../runtime/process-role.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
@@ -75,6 +82,7 @@ import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
+  type InterruptedResumeTarget,
   MAX_RESUME_ATTEMPTS,
   reconcileInterruptedConversations,
   resumeInterruptedConversations,
@@ -97,6 +105,11 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  // Identify this process as the daemon before anything can publish: it owns
+  // the event hub real clients subscribe to, so plugin-facing publishes made
+  // here fan out locally rather than routing to a daemon over IPC.
+  markCurrentProcessAsMainDaemon();
+
   const startupStartedAt = Date.now();
   // dotenv loads before the first log call so the lazy root logger
   // initializes against the final VELLUM_WORKSPACE_DIR / log path, not
@@ -113,6 +126,13 @@ export async function runDaemon(): Promise<void> {
   installShutdownHandlers();
 
   ensureDataDir();
+
+  // Persist this process's boot time for the monitor's out-of-process recovery
+  // pass, which fences its stale-`processing_started_at` sweep on it: a flag
+  // set before boot belongs to a process that has exited, one at or after it to
+  // a live turn. Recorded before any turn can start so every live flag is at or
+  // after it.
+  recordDaemonBootTime(startupStartedAt);
 
   // Recover from any streaming `.vbundle` import that was interrupted by a
   // crash or SIGKILL. If the previous process died between
@@ -156,8 +176,8 @@ export async function runDaemon(): Promise<void> {
   // so a fast-reconnecting client could otherwise resolve a turn against a
   // partial profile in the window between readiness and the post-overlay
   // ensure call below. Sync, DB-free, and idempotent. Skipped when an
-  // unconsumed onboarding overlay is pending: the overlay can rewrite
-  // llm.default later this boot, and baking against the pre-overlay default
+  // unconsumed onboarding overlay is pending: the overlay can rewrite the
+  // llm config later this boot, and baking against the pre-overlay default
   // would pin the wrong baseline — on that single boot (a fresh hatch, with
   // no established clients to race the window) the post-overlay pass owns
   // materialization; the overlay file is consumed on merge, so every
@@ -229,13 +249,35 @@ export async function runDaemon(): Promise<void> {
   try {
     const { migrationsOk } = await initializeDb();
     dbReady = true;
+    // A quiesce lease can survive a stop that happened mid-drain; clear it so
+    // a fresh boot never starts with background work paused. Placed
+    // synchronously after DB init — before any await yields to the
+    // already-listening HTTP server — so it cannot delete a lease a client
+    // arms against THIS boot.
+    clearLifecycleQuiesce();
+    // Floor the stream seq counter above every persisted conversation
+    // anchor before turns can stamp events. Anchors are getCurrentSeq()
+    // snapshots already served to clients, and a crashed process can have
+    // outrun its last successful seq-reservation write — resuming below an
+    // anchor re-issues seqs, and anchored clients then discard every live
+    // event as an already-applied replay. Own try/catch: on a
+    // failed-migration DB the column may be unreadable, and that must not
+    // flip startup into the migration-failed path.
+    try {
+      floorSeqAbove(getMaxPersistedConversationSeq());
+    } catch (err) {
+      log.warn(
+        { err },
+        "stream seq floor from persisted anchors failed — continuing startup",
+      );
+    }
     if (migrationsOk) {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
       setDbMigrationFailed();
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
+        "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
       );
     }
     // Migrations have settled (successfully or in the failed degraded mode),
@@ -288,6 +330,13 @@ export async function runDaemon(): Promise<void> {
         "provider_connections backfill failed — continuing startup",
       );
     }
+
+    // Repoint openai-compatible connections sharing the legacy provider-keyed
+    // credential slot onto per-connection slots. Vault-dependent, so it runs
+    // fire-and-forget with per-row deferral rather than blocking startup.
+    void repairSharedCredentialSlots(getDb()).catch((err) => {
+      log.warn({ err }, "credential slot repair failed — continuing startup");
+    });
 
     // Profiler retention sweep — prune completed profiler runs to stay
     // within configured byte-count, run-count, and free-space budgets.
@@ -492,27 +541,23 @@ export async function runDaemon(): Promise<void> {
   log.info("Daemon startup: loading config");
   const config = loadConfig();
 
-  // Reconcile conversations left mid-turn by the previous shutdown. Their
+  // Select conversations left mid-turn by the previous shutdown for auto-resume
+  // when `conversations.resumeProcessingOnStartup` is enabled. Their
   // `processing_started_at` is still set even though the in-memory agent loop
-  // that owned the turn is gone. Stale flags are always cleared so no
-  // conversation stays visibly stuck "processing"; when
-  // `conversations.resumeProcessingOnStartup` is enabled the reconciler also
-  // selects conversations to resume once startup completes (the wakes need
-  // providers/CES, so they are kicked off next to `setStartupComplete()`).
-  let conversationsToResume: string[] = [];
+  // that owned the turn is gone; the monitor's recovery pass clears those stale
+  // flags out of process. The resume wakes need providers/CES, so they are
+  // kicked off next to `setStartupComplete()`.
+  let conversationsToResume: InterruptedResumeTarget[] = [];
   if (dbReady) {
     try {
       const reconciled = reconcileInterruptedConversations(
         config.conversations.resumeProcessingOnStartup,
       );
       conversationsToResume = reconciled.resume;
-      if (reconciled.cleared > 0) {
+      if (reconciled.resume.length > 0) {
         log.info(
-          {
-            count: reconciled.cleared,
-            resuming: reconciled.resume.length,
-          },
-          "Cleared stale conversation processing flags from previous process",
+          { resuming: reconciled.resume.length },
+          "Selected interrupted conversations for auto-resume",
         );
       }
       if (reconciled.capped.length > 0) {
@@ -522,6 +567,12 @@ export async function runDaemon(): Promise<void> {
             maxAttempts: MAX_RESUME_ATTEMPTS,
           },
           "Left interrupted conversations un-resumed after repeated interruptions",
+        );
+      }
+      if (reconciled.trustUnrecoverable.length > 0) {
+        log.warn(
+          { conversationIds: reconciled.trustUnrecoverable },
+          "Left interrupted conversations un-resumed: resting trust could not be reconstructed",
         );
       }
     } catch (err) {
@@ -553,7 +604,7 @@ export async function runDaemon(): Promise<void> {
   }
 
   // Refresh the consent cache regardless of dev mode so record-time telemetry
-  // writes (gated on getCachedShareAnalytics()) work in dev too. The usage
+  // writes (which drop on a confirmed opt-out) work in dev too. The usage
   // telemetry reporter re-checks share_analytics on every flush, so dev still
   // never sends telemetry to the platform. Fire-and-forget: startConsentRefresh()
   // runs an immediate non-blocking refresh, so the startup hot path is never
@@ -673,6 +724,10 @@ export async function runDaemon(): Promise<void> {
   // Spawn the resource monitor as a child of the daemon when enabled, off the
   // main event loop.
   startMonitoring();
+
+  // Pre-warm the route host subprocess when `userRoutes.host.enabled` is set
+  // (no-op otherwise). Fire-and-forget — never blocks boot.
+  startRouteHost();
 
   // The runtime HTTP server is up; broadcast the fresh daemon status so
   // connected clients pick up the transition.

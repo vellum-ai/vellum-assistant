@@ -89,7 +89,6 @@ mock.module("@/utils/routes", () => ({
     selectAssistant: "/assistant/select-assistant",
     onboarding: {
       hosting: "/assistant/onboarding/hosting",
-      prechat: "/assistant/onboarding/prechat",
       privacy: "/assistant/onboarding/privacy",
     },
   },

@@ -15,12 +15,21 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 // `buildPolicyContext` (used by the integration tests below) precomputes the
-// proc-to-skills gate via `isProcToSkillsActive`. Drive it through this slot so
-// a test can put the production threading path in the active / inactive state.
-let mockProcToSkillsActive = true;
+// proc-to-skills gate via `isV3TierActive`. Drive it through this slot so a
+// test can put the production threading path in the active / inactive state.
+let mockV3TierActive = true;
 mock.module("../config/memory-v3-gate.js", () => ({
-  isProcToSkillsActive: () => mockProcToSkillsActive,
-  isMemoryV3Live: () => mockProcToSkillsActive,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
+  isV3TierActive: () => mockV3TierActive,
+  isMemoryV3Live: () => mockV3TierActive,
+  usesConceptPageMemory: (memory?: {
+    enabled?: boolean;
+    v2?: { enabled?: boolean };
+    v3?: { live?: boolean };
+  }) =>
+    memory?.enabled !== false &&
+    (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
 // Mock skill resolution — return null by default (no skill found).
@@ -108,10 +117,14 @@ mock.module("./trust-store.js", () => ({
   onRulesChanged: () => {},
 }));
 
-// Mock workspace policy.
+// Mock workspace policy. Spread the real module so pure path helpers
+// (resolveSandboxBase) keep their real behavior for param building.
+const realWorkspacePolicy = await import("./workspace-policy.js");
 let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
+  ...realWorkspacePolicy,
   isWorkspaceScopedInvocation: () => false,
+  isOutOfWorkspaceFileInvocation: () => false,
   isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
@@ -136,9 +149,13 @@ mock.module("../tools/network/url-safety.js", () => ({
 import type { ClassificationResult } from "./ipc-risk-types.js";
 
 let mockIpcClassifyRiskResult: ClassificationResult | undefined;
+let lastClassifyRiskParams: Record<string, unknown> | undefined;
 
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcClassifyRisk: async () => mockIpcClassifyRiskResult,
+  ipcClassifyRisk: async (params: Record<string, unknown>) => {
+    lastClassifyRiskParams = params;
+    return mockIpcClassifyRiskResult;
+  },
   ipcCall: async () => undefined,
   ipcCallPersistent: async () => undefined,
   resetPersistentClient: () => {},
@@ -148,6 +165,7 @@ mock.module("../ipc/gateway-client.js", () => ({
 
 import {
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -173,9 +191,10 @@ describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;
+    lastClassifyRiskParams = undefined;
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
-    mockProcToSkillsActive = true;
+    mockV3TierActive = true;
     thresholdCallLog.length = 0;
   });
 
@@ -237,6 +256,70 @@ describe("Permission Checker (gateway IPC)", () => {
       await expect(classifyRisk("bash", { command: "ls" })).rejects.toThrow(
         /Gateway IPC classify_risk failed/,
       );
+    });
+
+    test("sends canonicalized boundary params for sandbox file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = mkdtempSync(join(tmpdir(), "checker-boundary-"));
+      try {
+        await classifyRisk(
+          "file_write",
+          { path: "/tmp/checker-boundary-outside.txt" },
+          workingDir,
+        );
+        expect(lastClassifyRiskParams?.isContainerized).toBe(false);
+        // The boundary is canonicalized so the gateway compares canonical
+        // against canonical (macOS tmpdir lives behind a /var symlink).
+        expect(lastClassifyRiskParams?.resolvedWorkingDir).toBe(
+          realpathSync(workingDir),
+        );
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+      }
+    });
+
+    test("classifies a dangling symlink by its destination", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-")),
+      );
+      const outside = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-out-")),
+      );
+      try {
+        const destination = join(outside, "not-yet.txt");
+        symlinkSync(destination, join(workingDir, "dangle"));
+        await classifyRisk("file_write", { path: "dangle" }, workingDir);
+        // The destination does not exist, but a write through the link
+        // creates it — classification must see the destination.
+        expect(lastClassifyRiskParams?.resolvedPath).toBe(destination);
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    test("omits the canonicalized boundary for host file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "Host file write (default)",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      await classifyRisk("host_file_write", {
+        path: "/tmp/checker-boundary-host.txt",
+      });
+      expect(lastClassifyRiskParams?.resolvedWorkingDir).toBeUndefined();
     });
 
     test("caches results for identical inputs", async () => {
@@ -1078,7 +1161,7 @@ describe("Permission Checker (gateway IPC)", () => {
       // Same retrospective ToolContext, but the feature is inactive (flag off
       // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
       // so the grant is dead and the high-risk scaffold prompts.
-      mockProcToSkillsActive = false;
+      mockV3TierActive = false;
       mockIpcClassifyRiskResult = {
         risk: "high",
         reason: "Skill scaffold",

@@ -137,6 +137,21 @@ export function truncate(text: string, max: number): string {
   return `${text.slice(0, max - 3)}...`;
 }
 
+/**
+ * Get the initialized Qdrant client, converting the "not initialized" error
+ * into a retryable {@link BackendUnavailableError} so a background job defers and
+ * retries once Qdrant is up instead of failing fatally (the raw error classifies
+ * as fatal). Under memory v2 the worker short-circuits v1 Qdrant job types before
+ * dispatch, so a handler only reaches here when the client is expected to exist.
+ */
+export function requireQdrantClient(): ReturnType<typeof getQdrantClient> {
+  try {
+    return getQdrantClient();
+  } catch {
+    throw new BackendUnavailableError("Qdrant client not initialized");
+  }
+}
+
 // ── Embedding helper ───────────────────────────────────────────────
 
 export async function embedAndUpsert(
@@ -215,8 +230,39 @@ export async function embedAndUpsert(
       ? generateSparseEmbedding(normalized.text)
       : undefined;
 
-  // Persist embedding in SQLite for cross-restart cache
   const now = Date.now();
+  const qdrant = requireQdrantClient();
+
+  try {
+    const modality = normalized.type;
+    await withQdrantBreaker(() =>
+      qdrant.upsert(
+        targetType,
+        targetId,
+        vector,
+        {
+          text: payloadText,
+          modality,
+          created_at: (extraPayload?.created_at as number) ?? now,
+          ...(extraPayload as Record<string, unknown> | undefined),
+        },
+        sparseVector,
+      ),
+    );
+  } catch (err) {
+    log.warn(
+      { err, targetType, targetId },
+      "Failed to upsert embedding to Qdrant",
+    );
+    throw err;
+  }
+
+  // Persist the embedding in SQLite for the cross-restart cache, after the
+  // point is live in Qdrant. Consumers read a row as "this target is indexed"
+  // — the graph-node orphan sweep does — so a row written ahead of the upsert
+  // would mark a missing point as embedded and suppress the re-embed that
+  // would restore it. Best-effort in the other direction: a write failure logs
+  // and leaves the point in place, and the next run re-embeds.
   try {
     const blobValue = vectorToBlob(vector);
     db.insert(memoryEmbeddings)
@@ -251,36 +297,5 @@ export async function embedAndUpsert(
       .run();
   } catch (err) {
     log.warn({ err, targetType, targetId }, "Failed to write embedding cache");
-  }
-
-  let qdrant;
-  try {
-    qdrant = getQdrantClient();
-  } catch {
-    throw new BackendUnavailableError("Qdrant client not initialized");
-  }
-
-  try {
-    const modality = normalized.type;
-    await withQdrantBreaker(() =>
-      qdrant.upsert(
-        targetType,
-        targetId,
-        vector,
-        {
-          text: payloadText,
-          modality,
-          created_at: (extraPayload?.created_at as number) ?? now,
-          ...(extraPayload as Record<string, unknown> | undefined),
-        },
-        sparseVector,
-      ),
-    );
-  } catch (err) {
-    log.warn(
-      { err, targetType, targetId },
-      "Failed to upsert embedding to Qdrant",
-    );
-    throw err;
   }
 }

@@ -52,6 +52,7 @@ import {
   type ChannelDeliveryContext,
   type DecisionOutcomePlan,
   getResolver,
+  introductionOutcomeForAction,
   type ResolverEmissionContext,
 } from "./guardian-request-resolvers.js";
 
@@ -170,6 +171,15 @@ export type GuardianDecisionResult =
       resolverFailed?: boolean;
       resolverFailureReason?: string;
       resolverReplyText?: string;
+      /**
+       * The action as it should be presented on the resolved card — the
+       * resolved outcome, not necessarily the raw button. For an access request
+       * the generic decision pair is folded onto the introduction outcomes
+       * (`reject` → `leave_unverified`), so a caller completing the card
+       * optimistically can render the neutral park instead of a denial. Omitted
+       * when the decision did not commit (persist failure).
+       */
+      decidedAction?: ApprovalAction;
     }
   | {
       applied: false;
@@ -450,7 +460,9 @@ export async function applyGuardianDecision(
       actor: actorContext,
       channelDeliveryContext,
       emissionContext,
-      ...(decided.mintedSession ? { mintedSession: decided.mintedSession } : {}),
+      ...(decided.mintedSession
+        ? { mintedSession: decided.mintedSession }
+        : {}),
     });
 
     if (!resolverResult.ok) {
@@ -506,10 +518,20 @@ export async function applyGuardianDecision(
   // projection, so awaiting its Slack round-trips would only add latency to
   // the decision response that interactive callers wait on. The projector
   // never throws; the `.catch` is a defensive backstop.
+  // For access requests the resolver folds the generic decision pair onto the
+  // introduction outcomes (`reject` → `leave_unverified`, `approve_once` →
+  // `verify_code`), so the resolved card must reflect the OUTCOME, not the raw
+  // button — otherwise a `reject` that actually parked the contact at
+  // `unverified` would still render "Denied". Other kinds have no such mapping.
+  const cardAction =
+    request.kind === "access_request"
+      ? introductionOutcomeForAction(effectiveAction)
+      : effectiveAction;
   void withdrawGuardianRequestCards({
     request: resolved,
     status: targetStatus,
     originChannel: actorContext.channel,
+    decidedAction: cardAction,
   }).catch((err) => {
     log.warn(
       { err, requestId },
@@ -536,6 +558,7 @@ export async function applyGuardianDecision(
     applied: true,
     requestId,
     grantMinted,
+    decidedAction: cardAction,
     ...(resolverFailed ? { resolverFailed, resolverFailureReason } : {}),
     ...(resolverReplyText ? { resolverReplyText } : {}),
   };

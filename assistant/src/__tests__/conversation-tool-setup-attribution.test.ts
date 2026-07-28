@@ -10,7 +10,6 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -42,7 +41,6 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
-  isMultifileApp: mock(() => false),
   getAppsDir: mock(() => "/tmp/test-apps"),
   resolveAppIdByDirName: mock(() => null),
   resolveAppIdFromPath: mock(() => null),
@@ -103,10 +101,7 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map(),
     accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set<string>(),

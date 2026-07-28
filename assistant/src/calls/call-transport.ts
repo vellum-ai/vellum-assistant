@@ -72,4 +72,13 @@ export interface CallTransport {
    * this.
    */
   cancelPendingSpeech?(): void;
+
+  /**
+   * Resolve once all queued speech has played out to the caller (the most
+   * recent end-of-turn boundary has been echoed back by the downstream
+   * transport). Used to gate end-of-call teardown so a goodbye is never cut
+   * off mid-sentence. Transports that play speech synchronously may omit
+   * this — the controller then treats playback as already drained.
+   */
+  awaitPlaybackDrained?(): Promise<void>;
 }

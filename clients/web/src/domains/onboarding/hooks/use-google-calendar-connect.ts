@@ -3,13 +3,10 @@
  *
  * SPIKE — checkin-onboarding flow.
  *
- * Lifted from the connect logic in
- * `@/domains/onboarding/screens/google-connect-screen.tsx`, but parameterized
+ * Lifted from the legacy pre-chat Google connect logic, but parameterized
  * with `requestedScopes` (so the check-in page can ask for ONLY
  * `calendar.events` — the minimum to create an event — instead of the full
- * Gmail+Calendar+Drive bundle) and an `onConnect(scopes)` callback. The
- * existing GoogleConnectScreen is deliberately left untouched to avoid any
- * regression on the live pre-chat Google connect; dedup is a follow-up.
+ * Gmail+Calendar+Drive bundle) and an `onConnect(scopes)` callback.
  *
  * Handles the web popup flow, the native (SFSafariViewController) flow, and the
  * three completion channels (postMessage, storage event, native deep link)

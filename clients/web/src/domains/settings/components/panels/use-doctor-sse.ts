@@ -31,6 +31,7 @@ import {
   handleFeedbackPrompt,
   handleMessageComplete,
   handleMessageDelta,
+  handleUserOutcomePrompt,
   handleStatus,
   handleToolCall,
   handleToolResult,
@@ -235,6 +236,9 @@ export function useDoctorSSE() {
             break;
           case "feedback_prompt":
             handleFeedbackPrompt(ctx, event);
+            break;
+          case "user_outcome_prompt":
+            handleUserOutcomePrompt(ctx);
             break;
           case "status":
             if (handleStatus(ctx, event)) {

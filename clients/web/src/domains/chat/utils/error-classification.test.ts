@@ -36,6 +36,25 @@ describe("chat error classification", () => {
     ).toBe("provider_billing");
   });
 
+  test("classifies daily_limit_reached category as a daily limit banner", () => {
+    const error = {
+      code: "PROVIDER_BILLING",
+      errorCategory: "daily_limit_reached",
+    };
+
+    expect(getChatBillingBannerDecision(error)).toBe("daily_limit");
+    expect(shouldSuppressGenericChatErrorNotice(error)).toBe(true);
+    expect(shouldShowGenericChatErrorNotice(error)).toBe(false);
+  });
+
+  test("matches a namespaced daily_limit_reached category suffix", () => {
+    expect(
+      getChatBillingBannerDecision({
+        errorCategory: "billing.daily_limit_reached",
+      }),
+    ).toBe("daily_limit");
+  });
+
   test("falls back to managed credits for legacy errors with no category", () => {
     const error = { code: "PROVIDER_BILLING" };
 

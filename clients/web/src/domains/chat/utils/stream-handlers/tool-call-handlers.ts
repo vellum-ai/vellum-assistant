@@ -1,3 +1,5 @@
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { ACP_CLAUDE_OAUTH_MISSING_CODE } from "@/domains/chat/utils/acp-connect";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   ToolResultEvent,
@@ -49,5 +51,16 @@ export function handleToolResult(
       event.toolUseId,
       event.activityMetadata,
     );
+  }
+
+  // A missing-token `acp_spawn` failure raises the inline "Connect Claude Code"
+  // prompt in the interaction store. This is a LIVE-only tap: a `/messages`
+  // reseed replays the event tail through the rolling-snapshot reducer, not
+  // this handler, so the prompt is raised exactly once on live arrival. Holding
+  // it in the interaction store (not on the reseed-able tool-call `errorCode`
+  // field the reducer folds) is what keeps the affordance from vanishing when
+  // the routine post-turn resync reseeds the transcript from persisted history.
+  if (event.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && event.toolUseId) {
+    useInteractionStore.getState().showAcpConnect({ toolUseId: event.toolUseId });
   }
 }

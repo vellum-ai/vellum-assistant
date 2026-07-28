@@ -1,7 +1,7 @@
 /**
- * Shared helpers for IPC server socket lifecycle. Both `AssistantIpcServer` and
- * `SkillIpcServer` need the same probe-before-unlink dance to avoid silently
- * stealing another daemon's listener: a blind `unlinkSync` on a live Unix
+ * Shared helpers for IPC server socket lifecycle. `AssistantIpcServer` needs
+ * the probe-before-unlink dance to avoid silently stealing another daemon's
+ * listener: a blind `unlinkSync` on a live Unix
  * socket file would orphan the bound listener (Linux/macOS allow unlink while
  * still bound) and the new server would happily `listen()` on the now-renamed
  * inode, leaving two daemons in conflict with no error.

@@ -157,11 +157,15 @@ itLinux(
       trackedChildExited = true;
     });
 
-    // AND we wait for that orphan to surface as our zombie child
+    // AND we wait for libuv to reap A before polling for the orphan —
+    // between A's exit and libuv's waitpid, A is itself transiently a zombie
+    // with our pid as parent, so an ungated poll can match A instead of B
     let zombies: number[] = [];
     for (let i = 0; i < 40 && zombies.length === 0; i++) {
       await sleep(50);
-      zombies = zombieChildPids();
+      if (trackedChildExited) {
+        zombies = zombieChildPids();
+      }
     }
     expect(zombies.length).toBeGreaterThan(0);
     expect(trackedChildExited).toBe(true); // libuv reaped A independently

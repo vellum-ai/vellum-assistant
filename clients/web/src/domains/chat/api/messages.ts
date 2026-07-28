@@ -42,9 +42,6 @@ import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import { detectClientOs } from "@/runtime/platform-detection";
 
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 120_000;
-
 /**
  * Subagent notification as carried by the web. The wire shape
  * (`ConversationSubagentNotification`) is enriched during history
@@ -79,50 +76,6 @@ export function toBackgroundTaskEntryFromCompletion(
     output: c.output,
     completedAt: c.completedAt,
   };
-}
-
-export async function pollForResponse(
-  assistantId: string,
-  userMessageId: string,
-  conversationId: string,
-): Promise<ConversationMessage | null> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-  while (Date.now() < deadline) {
-    const { data, error, response } = await messagesGet({
-      path: { assistant_id: assistantId },
-      query: { conversationId },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to poll for messages");
-
-    if (!response.ok) {
-      const msg = extractErrorMessage(
-        error,
-        response,
-        "Failed to poll for messages",
-      );
-      throw new Error(msg);
-    }
-
-    const messages = data?.messages ?? [];
-
-    // Only consider assistant messages that appear after our sent user
-    // message in the list, establishing a causal boundary so delayed
-    // replies from earlier sends cannot be mis-associated.
-    const userMsgIndex = messages.findIndex((m) => m.id === userMessageId);
-    if (userMsgIndex >= 0) {
-      const afterSend = messages.slice(userMsgIndex + 1);
-      const reply = afterSend.find((m) => m.role === "assistant");
-      if (reply) {
-        return reply;
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-
-  return null;
 }
 
 /**
@@ -478,6 +431,7 @@ export type PostChatMessageOptions = Pick<
   | "inferenceProfile"
   | "enabledPlugins"
   | "hidden"
+  | "bypassSecretCheck"
 > & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
@@ -500,9 +454,9 @@ export type PostChatMessageOptions = Pick<
  *     `undefined`). Empty strings ARE preserved on the wire — Swift's
  *     `if let` semantics in `MessageClient.swift` accept any non-nil value
  *     including `""`, so producers that intend to omit the field should
- *     pass `undefined` explicitly. The current caller (`PreChatFlow`)
- *     trims-or-undefined before calling, so the empty-string path is
- *     latent today; if it ever fires, the daemon sees the empty string.
+ *     pass `undefined` explicitly. Current callers trim-or-undefined
+ *     before calling, so the empty-string path is latent today; if it
+ *     ever fires, the daemon sees the empty string.
  */
 export async function postChatMessage(
   assistantId: string,
@@ -517,6 +471,7 @@ export async function postChatMessage(
     inferenceProfile,
     enabledPlugins,
     hidden,
+    bypassSecretCheck,
   } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -591,6 +546,13 @@ export async function postChatMessage(
   if (hidden) {
     body.hidden = true;
   }
+  // Single-use override for the daemon's `secret_blocked` ingress guard,
+  // set only when the user explicitly confirmed a client-side blocked send
+  // (the composer's "Send anyway" action). Applies to this message alone —
+  // never persisted, and omitted from every ordinary send.
+  if (bypassSecretCheck) {
+    body.bypassSecretCheck = true;
+  }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)
     : undefined;
@@ -627,6 +589,8 @@ export async function postChatMessage(
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
     if (normalizedOnboarding.skills !== undefined)
       onboardingDict.skills = normalizedOnboarding.skills;
+    if (normalizedOnboarding.researchFindings !== undefined)
+      onboardingDict.researchFindings = normalizedOnboarding.researchFindings;
     if (normalizedOnboarding.title !== undefined)
       onboardingDict.title = normalizedOnboarding.title;
     body.onboarding = onboardingDict;
@@ -756,24 +720,40 @@ export async function postChatMessage(
   };
 }
 
+function queuedMessageHeaders(conversationId: string) {
+  return { "X-Vellum-Conversation-Id": conversationId };
+}
+
 /**
  * Steer the assistant to a queued message by aborting the current
  * generation and promoting the message to the head of the queue.
  */
+export type SteerQueuedMessageResult =
+  | "steered"
+  | "not_steerable"
+  | "request_failed";
+
 export async function steerToMessage(
   assistantId: string,
   conversationId: string,
   requestId: string,
-): Promise<boolean> {
+): Promise<SteerQueuedMessageResult> {
   try {
     const { response } = await messagesQueuedByIdSteerPost({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
-    return response?.ok ?? false;
+    if (response?.ok) {
+      return "steered";
+    }
+    if (response?.status === 404) {
+      return "not_steerable";
+    }
+    return "request_failed";
   } catch {
-    return false;
+    return "request_failed";
   }
 }
 
@@ -791,6 +771,7 @@ export async function deleteQueuedMessage(
     const { response } = await messagesQueuedByIdDelete({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
     return response?.ok ?? false;

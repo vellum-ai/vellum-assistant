@@ -62,18 +62,15 @@ describe("maybeDefaultSpeechToManaged", () => {
     expect(config.services).toBeUndefined();
   });
 
-  test("defaults both services to managed when no BYOK credentials resolve", async () => {
+  test("defaults both services to vellum when no BYOK credentials resolve", async () => {
     mockManagedSpeechAvailable = true;
 
     await maybeDefaultSpeechToManaged();
 
     const config = readConfig();
-    expect((config.services as any)?.stt?.mode).toBe("managed");
-    expect((config.services as any)?.tts?.mode).toBe("managed");
-    // Sparse configs must stay schema-valid: SttServiceSchema requires
-    // `provider` whenever the stt object exists.
-    expect((config.services as any)?.stt?.provider).toBeDefined();
-    expect(getConfig().services.stt.mode).toBe("managed");
+    expect((config.services as any)?.stt?.provider).toBe("vellum");
+    expect((config.services as any)?.tts?.provider).toBe("vellum");
+    expect(getConfig().services.stt.provider).toBe("vellum");
   });
 
   test("leaves a service alone when its BYOK credential resolves", async () => {
@@ -83,8 +80,8 @@ describe("maybeDefaultSpeechToManaged", () => {
     await maybeDefaultSpeechToManaged();
 
     const config = readConfig();
-    expect((config.services as any)?.stt?.mode).toBeUndefined();
-    expect((config.services as any)?.tts?.mode).toBe("managed");
+    expect((config.services as any)?.stt?.provider).toBeUndefined();
+    expect((config.services as any)?.tts?.provider).toBe("vellum");
   });
 
   test("no-ops when both BYOK credentials resolve", async () => {
@@ -98,12 +95,12 @@ describe("maybeDefaultSpeechToManaged", () => {
     expect(config.services).toBeUndefined();
   });
 
-  test("no-ops when services are already managed", async () => {
+  test("no-ops when services are already on vellum", async () => {
     mockManagedSpeechAvailable = true;
     writeConfig({
       services: {
-        stt: { mode: "managed", provider: "deepgram" },
-        tts: { mode: "managed" },
+        stt: { provider: "vellum" },
+        tts: { provider: "vellum" },
       },
     });
 
@@ -112,27 +109,27 @@ describe("maybeDefaultSpeechToManaged", () => {
     const config = readConfig();
     expect(config).toEqual({
       services: {
-        stt: { mode: "managed", provider: "deepgram" },
-        tts: { mode: "managed" },
+        stt: { provider: "vellum" },
+        tts: { provider: "vellum" },
       },
     });
   });
 
-  test("never downgrades an explicit your-own mode with resolving credentials", async () => {
+  test("never repoints an explicit BYOK provider with resolving credentials", async () => {
     mockManagedSpeechAvailable = true;
     mockSttKeyResolves = true;
     mockTtsSecretResolves = true;
     writeConfig({
       services: {
-        stt: { mode: "your-own", provider: "deepgram" },
-        tts: { mode: "your-own", provider: "elevenlabs" },
+        stt: { provider: "deepgram" },
+        tts: { provider: "elevenlabs" },
       },
     });
 
     await maybeDefaultSpeechToManaged();
 
     const config = readConfig();
-    expect((config.services as any).stt.mode).toBe("your-own");
-    expect((config.services as any).tts.mode).toBe("your-own");
+    expect((config.services as any).stt.provider).toBe("deepgram");
+    expect((config.services as any).tts.provider).toBe("elevenlabs");
   });
 });

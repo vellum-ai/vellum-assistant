@@ -153,13 +153,25 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     >;
     expect(embeddingsRaw.provider).toBeUndefined();
 
-    // Managed service modes ARE persisted on first launch (existing behavior).
+    // Managed service modes ARE persisted on first launch, but web-search is
+    // exempt: `provider` is its only axis, and a context-filled `mode` would
+    // override BYOK configs on every load. The persisted value is the schema
+    // default rather than an injected "managed".
     const servicesRaw = (raw.services ?? {}) as Record<string, unknown>;
     const webSearchRaw = (servicesRaw["web-search"] ?? {}) as Record<
       string,
       unknown
     >;
-    expect(webSearchRaw.mode).toBe("managed");
+    expect(webSearchRaw.mode).not.toBe("managed");
+
+    // image-generation's managed axis is its provider: the seeded value is
+    // the platform fill "vellum", never an injected managed mode.
+    const imageGenRaw = (servicesRaw["image-generation"] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(imageGenRaw.provider).toBe("vellum");
+    expect(imageGenRaw.mode).not.toBe("managed");
 
     // Regression guard: on the NEXT load (config.json now exists with the
     // provider leaf absent), the platform default re-applies in memory rather

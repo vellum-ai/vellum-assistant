@@ -18,11 +18,12 @@ let _missingPrereqsWarned = false;
 
 export interface OwnerConsent {
   /**
-   * The platform returns null when the owner never made an explicit
-   * analytics choice (onboarding doesn't ask); that maps to `false` here —
-   * no consent, fail closed.
+   * Telemetry is opt-out: the owner-consent endpoint returns effective
+   * values (a never-chose null is served as consented), so an explicit
+   * `false` is the only thing that disables sharing.
    */
   shareAnalytics: boolean;
+  /** Same opt-out semantics as {@link shareAnalytics}. */
   shareDiagnostics: boolean;
   /**
    * Version of the diagnostics-sharing consent the owner accepted
@@ -129,10 +130,11 @@ export class VellumPlatformClient {
   /**
    * Fetch the platform owner's telemetry consent for this assistant.
    *
+   * The endpoint returns effective consent values (a never-chose null is
+   * served as consented); an explicit `false` is the only disable.
+   *
    * Returns `null` whenever the consent is unknown — missing assistant id,
-   * any non-2xx response (e.g. 404 before the endpoint is deployed), a
-   * malformed body, or a network error. Callers treat `null` as default-off.
-   * Never throws.
+   * any non-2xx response, a malformed body, or a network error. Never throws.
    */
   async getOwnerConsent(): Promise<OwnerConsent | null> {
     if (!this.assistantId) {
@@ -159,15 +161,17 @@ export class VellumPlatformClient {
       if (
         (typeof body.share_analytics !== "boolean" &&
           body.share_analytics !== null) ||
-        typeof body.share_diagnostics !== "boolean"
+        (typeof body.share_diagnostics !== "boolean" &&
+          body.share_diagnostics !== null)
       ) {
         log.debug("owner-consent body malformed — treating as unknown");
         return null;
       }
 
       return {
-        shareAnalytics: body.share_analytics === true,
-        shareDiagnostics: body.share_diagnostics,
+        // Opt-out: anything but an explicit false enables sharing.
+        shareAnalytics: body.share_analytics !== false,
+        shareDiagnostics: body.share_diagnostics !== false,
         // Back-compat: an older platform that doesn't return this field yields
         // "" → fails the trace-collection version gate → fail-closed (no trace).
         shareDiagnosticsAcceptedVersion:

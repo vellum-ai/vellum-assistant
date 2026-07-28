@@ -2,12 +2,20 @@ import { type LLMCallSite } from "./schemas/llm.js";
 
 type CallSiteDefaultConfig = {
   /**
-   * Named profile the call site resolves to. Omit to inherit the workspace
-   * default config (`llm.default`, with the active profile applied) — used for
-   * call sites that must resolve to a credentialed provider on every install
+   * Named profile the call site resolves to. Omit to fall through to the
+   * balanced intent resolved through `llm.defaultProvider` — used for call
+   * sites that must resolve to a credentialed provider on every install
    * rather than pinning a profile that may be unavailable.
    */
   profile?: string;
+  /**
+   * Direct model pin overriding the resolved profile's model. The resolver
+   * treats a bare model pin as catalog-implied: it stamps the model's
+   * catalog provider and keeps the provider-agnostic Vellum managed
+   * connection (see `resolveOverrideOrDefault`). Reserve for call sites
+   * whose latency envelope the profile's model cannot meet.
+   */
+  model?: string;
   maxTokens?: number;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   temperature?: number | null;
@@ -110,6 +118,28 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   interactionClassifier: {
     profile: "cost-optimized",
+    effort: "low",
+    thinking: { enabled: false },
+  },
+  // Endpoint decisions gate live-voice turn-end latency, and `cost-optimized`'s
+  // upstream cannot fit any usable decision budget (~1s+ per forced tool call).
+  // `latency-optimized` is the internal latency-class profile (see
+  // default-profile-catalog.ts): managed installs get the pinned latency model,
+  // BYOK installs resolve their own provider's latency model through the intent
+  // table rather than a model id they may hold no credential for.
+  voiceFrontDecision: {
+    profile: "latency-optimized",
+    effort: "low",
+    thinking: { enabled: false },
+  },
+  // The front-door leg fronts EVERY unified live-voice turn and its leading
+  // tokens ARE the endpointing/triage verdict, so both TTFT variance and
+  // judgment quality gate the whole call. Same latency class as the endpoint
+  // decider: live drives showed the cost-optimized upstream with multi-second
+  // cross-session TTFT tails and over-escalation of small talk under open-task
+  // context pressure.
+  voiceFrontDoor: {
+    profile: "latency-optimized",
     effort: "low",
     thinking: { enabled: false },
   },

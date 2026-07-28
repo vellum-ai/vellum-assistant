@@ -197,6 +197,32 @@ describe("estimator calibration", () => {
     expect(getCorrection("anthropic", "claude-opus-4-7")).toBeCloseTo(1.2, 1);
   });
 
+  test("an undefined model is tolerated and folded into the per-provider aggregate", () => {
+    // Some OpenAI-compatible providers (opencode/OpenRouter) omit `model` in
+    // their usage report, so `recordEstimate` can be called with a runtime
+    // undefined despite the static `string` type. It must not throw — an
+    // unhandled rejection here crashes the whole assistant process — and the
+    // sample should still land on the per-provider aggregate key.
+    expect(() =>
+      recordEstimate(
+        "openrouter",
+        undefined as unknown as string,
+        100_000,
+        120_000,
+      ),
+    ).not.toThrow();
+    expect(getCorrection("openrouter", "")).toBeCloseTo(1.2, 5);
+
+    // Exactly one sample landed on the aggregate — the undefined-model path
+    // must not double-count into a specific key.
+    const snap = getCalibrationSnapshot().filter(
+      (e) => e.provider === "openrouter",
+    );
+    expect(snap).toHaveLength(1);
+    expect(snap[0].model).toBe("");
+    expect(snap[0].samples).toBe(1);
+  });
+
   test("explicit empty-model recording does not double-count the aggregate", () => {
     // When a caller passes an empty model string (degenerate case), the
     // aggregate update path must not run — otherwise the sample would be

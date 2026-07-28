@@ -6,7 +6,12 @@ import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
-import { base64Source, resolveMediaReferences } from "../media-resolve.js";
+import {
+  base64Source,
+  mediaSourceByteLength,
+  resolveMediaReferences,
+} from "../media-resolve.js";
+import { modelSupportsAudioInput } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
@@ -28,12 +33,18 @@ import {
 import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
+  normalizedErrorText,
   normalizeOpenAIAPIError,
 } from "./api-error-normalization.js";
 import {
   coerceObjectParamsToJsonString,
   decodeCoercedObjectArgs,
 } from "./coerce-object-args.js";
+import {
+  isOpenAICompatInlineAudio,
+  OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES,
+  openAIInputAudioFormat,
+} from "./input-audio.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -216,8 +227,18 @@ function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
   if (typeof status !== "number" || status < 400 || status >= 500) {
     return false;
   }
-  const message = error instanceof Error ? error.message : String(error);
-  return /reasoning/i.test(message);
+  // OpenRouter wraps upstream 4xxs in a generic "Provider returned error" and
+  // stashes the real reason under `metadata.raw`, which `normalizeOpenAIAPIError`
+  // promotes into the normalized fields. Scan those, not just `error.message` —
+  // otherwise the wrapped reasoning rejection is missed and this one-shot
+  // fallback never fires.
+  const haystack =
+    error instanceof OpenAI.APIError
+      ? normalizedErrorText(normalizeOpenAIAPIError(error))
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return /reasoning/i.test(haystack);
 }
 
 /**
@@ -325,6 +346,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
       options.coerceObjectArgsToJsonString ?? false;
   }
 
+  get defaultModel(): string {
+    return this.model;
+  }
+
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
@@ -348,7 +373,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const coercedObjectKeys = new Map<string, string[]>();
 
     try {
-      const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
+      const openaiMessages = this.toOpenAIMessages(
+        messages,
+        systemPrompt,
+        modelSupportsAudioInput(modelOverride ?? this.model),
+      );
 
       const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
         {
@@ -645,7 +674,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
             cacheWritePromptTokens = promptDetails?.cache_write_tokens ?? 0;
           }
 
-          responseModel = chunk.model;
+          // OpenAI-compatible providers (e.g. opencode/OpenRouter) may omit
+          // `model` in their usage-report chunk. Only overwrite when the chunk
+          // actually names one so the configured model (`modelOverride ??
+          // this.model`) survives as the fallback.
+          if (chunk.model) {
+            responseModel = chunk.model;
+          }
         }
       } finally {
         cleanupTimeout();
@@ -744,6 +779,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       return {
         content,
         model: responseModel,
+        resolvedEndpoint: this.client.baseURL,
         usage: {
           inputTokens: promptTokens,
           outputTokens: completionTokens,
@@ -875,6 +911,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private toOpenAIMessages(
     messages: Message[],
     systemPrompt?: string,
+    audioInputEnabled = false,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
@@ -905,9 +942,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         );
 
         // Emit tool results as separate tool-role messages
-        // OpenAI's API only supports string content in tool messages, so images
-        // from contentBlocks are collected and injected as a user message below.
-        const toolResultImages: ContentBlock[] = [];
+        // OpenAI's API only supports string content in tool messages, so media
+        // from contentBlocks is collected and injected as a user message below.
+        const toolResultMedia: ContentBlock[] = [];
         for (const tr of toolResults) {
           let textContent = tr.content;
           if (tr.contentBlocks && tr.contentBlocks.length > 0) {
@@ -921,7 +958,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
               textContent = textContent + "\n" + extraText.join("\n");
             }
             for (const cb of tr.contentBlocks) {
-              if (cb.type === "image") toolResultImages.push(cb);
+              if (cb.type === "image") {
+                toolResultMedia.push(cb);
+              } else if (
+                audioInputEnabled &&
+                cb.type === "file" &&
+                isOpenAICompatInlineAudio(
+                  cb.source.media_type,
+                  mediaSourceByteLength(cb.source),
+                )
+              ) {
+                toolResultMedia.push(cb);
+              }
             }
           }
           result.push({
@@ -931,12 +979,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
           });
         }
 
-        // Emit remaining content + any tool result images as a user message.
-        // Images from tool results (e.g. browser_screenshot) must go in a user
-        // message because OpenAI-compatible APIs don't support images in tool messages.
-        const userContent = [...otherBlocks, ...toolResultImages];
+        // Emit remaining content + any tool result media as a user message.
+        // Media from tool results (e.g. browser_screenshot, audio a tool read)
+        // must go in a user message because OpenAI-compatible APIs don't
+        // support media parts in tool messages.
+        const userContent = [...otherBlocks, ...toolResultMedia];
         if (userContent.length > 0) {
-          result.push(this.toOpenAIUserMessage(userContent));
+          result.push(this.toOpenAIUserMessage(userContent, audioInputEnabled));
         }
       }
     }
@@ -1017,9 +1066,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
     return result;
   }
 
-  /** Convert user content blocks (text, image) to an OpenAI user message. */
+  /** Convert user content blocks (text, image, audio) to an OpenAI user message. */
   private toOpenAIUserMessage(
     blocks: ContentBlock[],
+    audioInputEnabled = false,
   ): OpenAI.Chat.Completions.ChatCompletionUserMessageParam {
     // If only a single text block, use plain string (simpler, fewer tokens)
     if (blocks.length === 1 && blocks[0].type === "text") {
@@ -1048,12 +1098,28 @@ export class OpenAIChatCompletionsProvider implements Provider {
             });
           }
           break;
-        case "file":
-          parts.push({
-            type: "text",
-            text: this.fileBlockToText(block),
-          });
+        case "file": {
+          const audioFormat = audioInputEnabled
+            ? openAIInputAudioFormat(block.source.media_type)
+            : null;
+          if (
+            audioFormat !== null &&
+            mediaSourceByteLength(block.source) <=
+              OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES
+          ) {
+            const audioSrc = base64Source(block.source);
+            parts.push({
+              type: "input_audio",
+              input_audio: { data: audioSrc.data, format: audioFormat },
+            });
+          } else {
+            parts.push({
+              type: "text",
+              text: this.fileBlockToText(block),
+            });
+          }
           break;
+        }
         case "server_tool_use":
           parts.push({
             type: "text",

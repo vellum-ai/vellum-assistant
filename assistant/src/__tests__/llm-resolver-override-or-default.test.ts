@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { CODE_DEFAULT_PROFILE_ENTRIES } from "../config/default-profile-catalog.js";
 import {
@@ -8,13 +8,6 @@ import {
   selectWinningProfile,
 } from "../config/llm-resolver.js";
 import { LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Pins the override-or-default (flag-on, shipped default) semantics. The
-// legacy merge cascade is pinned by llm-resolver.test.ts under flag-off.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": true });
-});
 
 const schemaBase = LLMConfigBase.parse({});
 
@@ -205,7 +198,7 @@ describe("composition", () => {
     // siblings.
     expect(resolved.thinking.enabled).toBe(true);
     expect(resolved.thinking.streamThinking).toBe(false);
-    // Fields nobody set fall to schema defaults, not llm.default.
+    // Fields nobody set fall to the code-owned schema defaults.
     expect(resolved.verbosity).toBe(schemaBase.verbosity);
   });
 
@@ -257,7 +250,25 @@ describe("composition", () => {
     expect(resolved.provider_connection).toBeUndefined();
   });
 
-  test("a model-only tweak keeps the provider-agnostic vellum connection for managed-routable implied providers", () => {
+  test("a provider-pinning tweak over the vellum default keeps the managed routing", () => {
+    const llm = LLMSchema.parse({
+      callSites: {
+        conversationSummarization: {
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+      },
+      defaultProvider: { provider: "vellum" },
+    });
+    const resolved = resolveCallSiteConfig("conversationSummarization", llm);
+    // The tweak wins the fields it sets; the identity winner contributes its
+    // routing through the provider-agnostic managed connection.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).toBe("claude-opus-4-6");
+    expect(resolved.provider_connection).toBe("vellum");
+  });
+
+  test("a model-only tweak on the vellum default keeps the identity provider", () => {
     const llm = LLMSchema.parse({
       callSites: {
         conversationSummarization: { model: "claude-haiku-4-5-20251001" },
@@ -265,10 +276,10 @@ describe("composition", () => {
       defaultProvider: { provider: "vellum" },
     });
     const resolved = resolveCallSiteConfig("conversationSummarization", llm);
-    expect(resolved.provider).toBe("anthropic");
-    // The vellum connection routes anthropic via expectedProvider; dropping
-    // it would leave platform installs with no resolvable connection.
-    expect(resolved.provider_connection).toBe("vellum");
+    // provider "vellum" + the tweaked model is the complete dispatch shape:
+    // the upstream derives from the model, no connection stamp needed.
+    expect(resolved.provider).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("profileless call sites anchor on balanced intent through the default provider plus their tweaks", () => {
@@ -327,7 +338,7 @@ describe("mix profiles", () => {
   });
 });
 
-describe("resolveDefaultProfileKey (flag-on)", () => {
+describe("resolveDefaultProfileKey", () => {
   test("mainAgent: activeProfile, else the call-site intent", () => {
     const withActive = LLMSchema.parse({
       profiles: { mine: completeCustom },
@@ -349,48 +360,6 @@ describe("resolveDefaultProfileKey (flag-on)", () => {
       ...anthropicDp,
     });
     expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
-  });
-});
-
-describe("flag-on / flag-off parity on materialized workspaces", () => {
-  // For a workspace the M6 data PRs produced — complete custom profiles,
-  // llm.default equal to what the profiles were materialized against — the
-  // two semantics must resolve identically on the common paths.
-  const materializedLlm = () =>
-    LLMSchema.parse({
-      default: {
-        ...schemaBase,
-        provider: "openai",
-        provider_connection: "openai-personal",
-        model: "gpt-5.5",
-      },
-      profiles: { "custom-balanced": completeCustom },
-      activeProfile: "custom-balanced",
-      defaultProvider: { provider: "openai" },
-    });
-
-  test("mainAgent under an active materialized profile resolves identically", () => {
-    const llm = materializedLlm();
-    const flagOn = resolveCallSiteConfig("mainAgent", llm, {
-      resolutionSemantics: "override-or-default",
-    });
-    const flagOff = resolveCallSiteConfig("mainAgent", llm, {
-      resolutionSemantics: "legacy-merge",
-    });
-    expect(flagOn).toEqual(flagOff);
-  });
-
-  test("an override pin on a materialized profile resolves identically", () => {
-    const llm = materializedLlm();
-    const flagOn = resolveCallSiteConfig("mainAgent", llm, {
-      overrideProfile: "custom-balanced",
-      resolutionSemantics: "override-or-default",
-    });
-    const flagOff = resolveCallSiteConfig("mainAgent", llm, {
-      overrideProfile: "custom-balanced",
-      resolutionSemantics: "legacy-merge",
-    });
-    expect(flagOn).toEqual(flagOff);
   });
 });
 

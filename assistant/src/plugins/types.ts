@@ -3,8 +3,8 @@
  *
  * A plugin may contribute lifecycle hooks ({@link PluginHooks}) that the
  * runtime invokes at named events, and model-visible capabilities (`tools`,
- * `routes`, `skills`). The registry tracks every registered plugin in
- * registration order.
+ * `skills`). The registry tracks every registered plugin in registration
+ * order.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
@@ -23,7 +23,6 @@ import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { MemoryJob } from "../persistence/jobs-store.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
-import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
@@ -55,6 +54,27 @@ export interface PluginManifest {
    * validators land in M2/M3 PRs.
    */
   config?: unknown;
+  /**
+   * Declared API-key formats for the plugin's service, parsed from the
+   * plugin's `package.json` `credentialKeyPatterns` field. Each entry pairs
+   * a human-readable label with a regex source string matching the service's
+   * credential format. Security-validated and fed into secret ingress
+   * detection + redaction when the plugin activates; the loader only
+   * enforces shape (a malformed declaration degrades to `undefined` and
+   * never blocks plugin load).
+   */
+  credentialKeyPatterns?: PluginCredentialKeyPattern[];
+}
+
+/**
+ * One declared credential format for a plugin's service: a display `label`
+ * plus the regex source string (`pattern`) that matches keys of that format.
+ */
+export interface PluginCredentialKeyPattern {
+  /** Human-readable name for the key format (e.g. "Example API token"). */
+  label: string;
+  /** Regex source string matching the service's credential format. */
+  pattern: string;
 }
 
 // ─── Public plugin-API types ─────────────────────────────────────────────────
@@ -71,8 +91,8 @@ export type {
 /**
  * The complete set of compaction circuit-breaker transition events:
  * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
- * on the open→closed transition. Both are a subset of `ServerMessage`, so any
- * existing `ServerMessage` sink remains assignable to a
+ * on the open→closed transition. Both are a subset of `AssistantEvent`, so any
+ * existing `AssistantEvent` sink remains assignable to a
  * `(msg: CompactionCircuitEvent) => void` parameter.
  */
 export type CompactionCircuitEvent =
@@ -306,23 +326,12 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
-// Concrete shapes are defined by the tool/route registries. Tool
-// contributions use the canonical `Tool` interface; route contributions use
-// the `SkillRoute` shape from the skill-route registry. Skills ship on disk
-// inside an installed plugin (`plugins/<name>/skills/<id>/SKILL.md`) and are
-// discovered by the skill catalog loader, so they need no contribution slot.
-
-/**
- * HTTP route registration contributed by a plugin. Plugins express routes as
- * {@link SkillRoute} values — the same shape the skill-route registry
- * consumes — so `registerSkillRoute` can accept them directly. Bootstrap
- * wires the registrations after `init()` succeeds, retains the opaque
- * handle returned by each `registerSkillRoute` call, and uses those handles
- * (not the regex patterns themselves) to unregister the plugin's routes on
- * shutdown. Identity-keyed unregistration is what keeps sibling owners that
- * happen to register the same regex from evicting each other's routes.
- */
-export type PluginRouteRegistration = SkillRoute;
+// Concrete shapes are defined by the tool registry. Tool contributions use the
+// canonical `Tool` interface. Skills ship on disk inside an installed plugin
+// (`plugins/<name>/skills/<id>/SKILL.md`) and are discovered by the skill
+// catalog loader, so they need no contribution slot. A plugin's other on-disk
+// surfaces (e.g. `routes/`) are served from their workspace location rather
+// than wired through the loader, so they carry no `Plugin` contribution slot.
 
 /**
  * Processes one claimed background job: receives the claimed job row and the
@@ -397,12 +406,10 @@ export interface Plugin {
    * stamped by `registerPluginTools` at registration time.
    */
   tools?: Tool[];
-  /** HTTP route registrations served by the assistant. */
-  routes?: PluginRouteRegistration[];
   /**
    * Runtime injectors contributed to the per-turn injection chain. Bootstrap
    * registers these into the global injector registry before `init()` runs,
-   * symmetric with `tools`/`routes`. The registry unions every plugin's
+   * symmetric with `tools`. The registry unions every plugin's
    * injectors and stable-sorts by ascending `order`, so contribution order
    * does not affect the produced sequence except as the tiebreak among
    * injectors sharing an `order`. See `plugins/injector-registry.ts`.

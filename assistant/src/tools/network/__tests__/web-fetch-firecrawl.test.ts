@@ -7,7 +7,7 @@ let mockFirecrawlSecureKey: string | undefined;
 
 /** Seed the active web-fetch provider into the workspace config for real. */
 function seedWebFetch(provider: string): void {
-  setConfig("services", { "web-fetch": { mode: "your-own", provider } });
+  setConfig("services", { "web-fetch": { provider } });
 }
 
 mock.module("../../../security/secure-keys.js", () => ({

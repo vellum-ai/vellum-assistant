@@ -48,6 +48,9 @@ export interface TranscriptMessageBodyProps {
   ) => void;
   onForkConversation?: (messageId: string) => void;
   onSummarizeUpToHere?: (messageId: string) => void;
+  /** Opens the "Retry" confirm dialog. Bound to the hover-actions row only on
+   *  the latest assistant message (see the `retryHandler` derivation). */
+  onRetryLatestTurn?: () => void;
   onInspectMessage?: (messageId: string) => void;
   onOpenRuleEditor?: (context: OpenRuleEditorContext) => void;
   /** Tool-call ids whose chip should display the "command not recognized"

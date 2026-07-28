@@ -48,6 +48,51 @@ class MyViewController: CAPBridgeViewController {
     private static let textSelectionHandlerName = "vellumTextSelection"
     private static let surfaceOverlayHandlerName = "vellumSurfaceOverlay"
 
+    // MARK: - Self-hosted server origin
+
+    /// The baked Vellum Cloud URL from `capacitor.config.json`, captured before
+    /// any self-hosted override is applied so a cleared preference and the "Use
+    /// Vellum Cloud" fallback can always return here.
+    private var bakedServerURL: URL?
+
+    /// Retains the navigation-delegate decorator. Capacitor stores its
+    /// `navigationDelegate` weakly, so the proxy must be owned here to stay
+    /// alive for the view controller's lifetime.
+    private var navigationDelegateProxy: NavigationDelegateProxy?
+
+    /// The full server URL the web view was last loaded against — the effective
+    /// self-hosted override or the baked default. Foreground change detection
+    /// compares the current preference against this to decide whether to reload,
+    /// so a change that keeps the same host but a different path (e.g.
+    /// `https://host/a` → `https://host/b`) is still caught.
+    private var appliedServerURL: URL?
+
+    /// Point the shell at the user's self-hosted assistant when
+    /// `self_hosted_server_url` is set, otherwise keep the baked Vellum Cloud
+    /// URL untouched. The configured host is added to the navigation allowlist —
+    /// scoped to exactly the baked cloud host plus the configured origin, never a
+    /// wildcard — so its pages load as the main document instead of being handed
+    /// off to Safari.
+    override open func instanceDescriptor() -> InstanceDescriptor {
+        let descriptor = super.instanceDescriptor()
+        bakedServerURL = descriptor.serverURL.flatMap { URL(string: $0) }
+
+        let configured = SelfHostedServer.configuredURL()
+        appliedServerURL = configured ?? bakedServerURL
+        guard let configured else {
+            return descriptor
+        }
+        descriptor.serverURL = configured.absoluteString
+
+        var allowed = descriptor.allowedNavigationHostnames
+        for host in [bakedServerURL?.host, configured.host].compactMap({ $0 }) where !allowed.contains(host) {
+            allowed.append(host)
+        }
+        descriptor.allowedNavigationHostnames = allowed
+
+        return descriptor
+    }
+
     /// Substitute the quote-and-reply-aware web view subclass. This is the
     /// Capacitor-supported hook for providing a custom `WKWebView` class.
     override open func webView(
@@ -87,16 +132,70 @@ class MyViewController: CAPBridgeViewController {
         if let surfaceOverlay {
             webView?.underPageBackgroundColor = surfaceOverlay
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadIfConfiguredOriginChanged),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
     }
 
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeAuthPlugin())
         bridge?.registerPluginInstance(NativeBiometricPlugin())
+        installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
         installTextSelectionHandler()
         installSurfaceOverlayThemeSync()
         installQuoteReplyCapabilityMarker()
+    }
+
+    // MARK: - Self-hosted origin navigation
+
+    /// Decorate Capacitor's navigation delegate so the shell can allow top-level
+    /// navigation to the user-configured self-hosted host and surface a native
+    /// alert when that origin can't be reached. Every other callback is
+    /// forwarded to Capacitor unchanged. A no-op when the cast fails, leaving the
+    /// stock Capacitor behavior in place.
+    private func installNavigationDelegateProxy() {
+        guard let capacitorDelegate = webView?.navigationDelegate as? WebViewDelegationHandler else {
+            return
+        }
+        let proxy = NavigationDelegateProxy(forwardingTo: capacitorDelegate, failureObserver: self)
+        navigationDelegateProxy = proxy
+        webView?.navigationDelegate = proxy
+    }
+
+    /// On return to the foreground, reload the web view if the effective server
+    /// URL (self-hosted override or baked default) no longer matches what was
+    /// last applied. Comparing the full URL — not just the origin — catches a
+    /// same-host path change. A full reload is sufficient; the assistant has no
+    /// useful offline state.
+    @objc private func reloadIfConfiguredOriginChanged() {
+        let destination = SelfHostedServer.configuredURL() ?? bakedServerURL
+        guard let destination else { return }
+        guard destination.absoluteString != appliedServerURL?.absoluteString else {
+            return
+        }
+        appliedServerURL = destination
+        webView?.load(URLRequest(url: destination))
+    }
+
+    /// Apply any connect deep link that arrived before the web view was ready.
+    /// A cold launch stashes the pair-page navigation in `AppDelegate` and it is
+    /// delivered here, once the bridge web view is live and on screen.
+    override open func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        (UIApplication.shared.delegate as? AppDelegate)?.deliverPendingConnectNavigation()
+    }
+
+    /// Bind foreground change detection to the currently-configured self-hosted
+    /// origin so a connect deep link that switched the server out-of-band isn't
+    /// re-detected as a change on the next foreground.
+    func bindServerTrackingToConfiguredOrigin() {
+        appliedServerURL = SelfHostedServer.configuredURL() ?? bakedServerURL
     }
 
     // MARK: - Quote-and-reply edit menu
@@ -264,6 +363,150 @@ extension MyViewController: WKScriptMessageHandler {
               let canReply = body["canReply"] as? Bool
         else { return }
         (webView as? QuoteReplyWebView)?.canQuoteReply = canReply
+    }
+}
+
+// MARK: - Unreachable self-hosted origin alert
+
+extension MyViewController: WebViewNavigationFailureObserver {
+    /// Present a single native alert when the configured self-hosted server's
+    /// main document fails to load. A no-op when no override is active (the baked
+    /// Vellum Cloud URL keeps its existing behavior), when the failure is a
+    /// programmatic cancellation (e.g. a superseding navigation), or when the
+    /// failed navigation targeted some other host.
+    ///
+    /// The host check matters because the shell loads other URLs into the same
+    /// web view — most notably Universal Links via `AppDelegate.navigateWebView`.
+    /// Without it, an unrelated failure would offer to clear a valid preference.
+    /// The configured server's own failures (boot load, foreground reload, the
+    /// deferred connect pair-page load — all to the configured host) still alert.
+    func webViewNavigationDidFail(_ error: Error) {
+        guard let configured = SelfHostedServer.configuredURL() else { return }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+        guard let failedHost = Self.failingURL(for: nsError)?.host?.lowercased(),
+              failedHost == configured.host?.lowercased()
+        else {
+            return
+        }
+        presentUnreachableAlert(for: configured)
+    }
+
+    /// The URL whose load failed, read from the navigation error. Populated on
+    /// the `NSURLErrorDomain` failures the unreachable alert cares about
+    /// (unreachable host, TLS, timeout).
+    private static func failingURL(for error: NSError) -> URL? {
+        if let url = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
+            return url
+        }
+        if let string = error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
+            return URL(string: string)
+        }
+        return nil
+    }
+
+    private func presentUnreachableAlert(for origin: URL) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.viewIfLoaded?.window != nil,
+                  self.presentedViewController == nil
+            else { return }
+
+            let host = origin.host ?? origin.absoluteString
+            let alert = UIAlertController(
+                title: nil,
+                message: "Can't reach \(host).",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+                self?.appliedServerURL = origin
+                self?.webView?.load(URLRequest(url: origin))
+            })
+            alert.addAction(UIAlertAction(title: "Use Vellum Cloud", style: .default) { [weak self] _ in
+                SelfHostedServer.clear()
+                if let baked = self?.bakedServerURL {
+                    self?.appliedServerURL = baked
+                    self?.webView?.load(URLRequest(url: baked))
+                }
+            })
+            self.present(alert, animated: true)
+        }
+    }
+}
+
+// MARK: - Navigation delegate decoration
+
+/// Receives main-document load failures observed by `NavigationDelegateProxy`.
+protocol WebViewNavigationFailureObserver: AnyObject {
+    func webViewNavigationDidFail(_ error: Error)
+}
+
+/// `WKNavigationDelegate` decorator installed over Capacitor's own delegate.
+///
+/// Capacitor's `WebViewDelegationHandler` drives SSE handling, cookie sync, and
+/// the allow-navigation policy, so it must keep receiving every callback. This
+/// proxy forwards everything to it through Objective-C message forwarding and
+/// only adds two behaviors:
+///
+///  1. Top-level navigation to the user-configured self-hosted host is allowed
+///     even though Capacitor freezes its navigation allowlist at launch. This is
+///     what lets a runtime origin switch (a Settings change or a connect deep
+///     link) load in-app instead of being handed to Safari. The scope is exactly
+///     the currently-configured host; everything else defers to Capacitor.
+///  2. Main-document load failures are reported to `failureObserver` so the
+///     shell can show a native "can't reach server" alert.
+final class NavigationDelegateProxy: NSObject, WKNavigationDelegate {
+    private weak var target: WebViewDelegationHandler?
+    private weak var failureObserver: WebViewNavigationFailureObserver?
+
+    init(forwardingTo target: WebViewDelegationHandler, failureObserver: WebViewNavigationFailureObserver) {
+        self.target = target
+        self.failureObserver = failureObserver
+    }
+
+    // Forward any selector this proxy doesn't implement to Capacitor's delegate
+    // so every callback it relies on still reaches it unchanged.
+    override func responds(to aSelector: Selector!) -> Bool {
+        return super.responds(to: aSelector) || (target?.responds(to: aSelector) ?? false)
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        if target?.responds(to: aSelector) == true {
+            return target
+        }
+        return super.forwardingTarget(for: aSelector)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if let host = navigationAction.request.url?.host?.lowercased(),
+           host == SelfHostedServer.configuredURL()?.host?.lowercased(),
+           navigationAction.targetFrame?.isMainFrame ?? true {
+            decisionHandler(.allow)
+            return
+        }
+        guard let target else {
+            decisionHandler(.allow)
+            return
+        }
+        target.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+    }
+
+    // The force unwrap is part of the WKNavigationDelegate declaration.
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        failureObserver?.webViewNavigationDidFail(error)
+        target?.webView(webView, didFailProvisionalNavigation: navigation, withError: error)
+    }
+
+    // The force unwrap is part of the WKNavigationDelegate declaration.
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        failureObserver?.webViewNavigationDidFail(error)
+        target?.webView(webView, didFail: navigation, withError: error)
     }
 }
 

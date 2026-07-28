@@ -1,8 +1,14 @@
 import { z } from "zod";
 
+import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
+import {
+  getManagedUpstream,
+  parseVellumModel,
+} from "../../providers/vellum-model-routing.js";
 import {
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
+  INTERNAL_PROFILE_KEYS,
 } from "../default-profile-names.js";
 
 /**
@@ -31,6 +37,15 @@ export const LLMProvider = z
     "minimax",
     "atlascloud",
     "together",
+    "litellm",
+    "baseten",
+    "poolside",
+    // Routing identities rather than adapters: "vellum" = the platform-managed
+    // route (upstream derived from the model at dispatch), "chatgpt" = the
+    // subscription route to OpenAI. Neither has a PROVIDER_CATALOG entry;
+    // dispatch substitutes the real upstream before any adapter lookup.
+    "vellum",
+    "chatgpt",
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
@@ -38,6 +53,49 @@ type LLMProvider = z.infer<typeof LLMProvider>;
 // Deliberately narrower than `LLMProvider`: only providers that can serve
 // the code-defined default profile catalog.
 const DefaultProviderEnum = z.enum(DEFAULT_PROFILE_PROVIDERS);
+
+/**
+ * Validation for routing-identity (provider, model) pairs in stored config.
+ * Returns a message when the pair cannot dispatch, null when it can.
+ *
+ * Identities require an explicit model: the routing table ships in the same
+ * build as this check, so a missing or unroutable model fails every request
+ * on that profile/call site deterministically — a call-site fragment naming
+ * an identity without a model would inherit whatever model the winning
+ * profile carries, which the identity may not serve. Enforced at parse time
+ * (LLMSchema.superRefine), at the config write choke point
+ * (commitConfigWrite), and by the profile write route.
+ */
+export function routingIdentityModelIssue(
+  provider: string,
+  model: string | undefined,
+): string | null {
+  if (provider === "vellum") {
+    if (!model) {
+      return 'Provider "vellum" requires an explicit model.';
+    }
+    // Stored config holds the bare native model id only. The encoded
+    // `<provider>/<model>` routing string is a telemetry/display codec —
+    // dispatch passes the stored model to the upstream adapter verbatim, so
+    // an encoded value would name a nonexistent upstream model.
+    const routed = parseVellumModel(model);
+    if (routed) {
+      return `Model "${model}" is an encoded routing string; store the native model id "${routed.model}".`;
+    }
+    return getManagedUpstream(model) === null
+      ? `Model "${model}" is not served by the Vellum managed route.`
+      : null;
+  }
+  if (provider === "chatgpt") {
+    if (!model) {
+      return 'Provider "chatgpt" requires an explicit model.';
+    }
+    return isCodexSubscriptionModel(model)
+      ? null
+      : `Model "${model}" is not served by the ChatGPT subscription (Codex models only).`;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Call-site enum
@@ -87,6 +145,8 @@ export const LLMCallSiteEnum = z.enum([
   "skillCategoryInference",
   "inference",
   "vision",
+  "voiceFrontDecision",
+  "voiceFrontDoor",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -261,14 +321,46 @@ export type ContextWindow = z.infer<typeof ContextWindowSchema>;
 // injected. Nested `overflowRecovery` likewise uses its fragment view, so a
 // partial override like `{ overflowRecovery: { maxAttempts: 5 } }` produces
 // exactly that and nothing else.
-const ContextWindowDeepPartialSchema = z.object({
-  enabled: ContextEnabledSchema.optional(),
-  maxInputTokens: ContextMaxInputTokensSchema.optional(),
-  targetBudgetRatio: ContextTargetBudgetRatioSchema.optional(),
-  compactThreshold: ContextCompactThresholdSchema.optional(),
-  summaryBudgetRatio: ContextSummaryBudgetRatioSchema.optional(),
-  overflowRecovery: ContextOverflowRecoveryFragmentSchema.optional(),
-});
+//
+// Cross-field ordering (targetBudgetRatio < compactThreshold, and
+// targetBudgetRatio > summaryBudgetRatio) is enforced only when both sides of
+// a pair are present in the same fragment — a partial override merges with
+// lower layers at resolution time, so a lone field can't be judged here.
+const ContextWindowDeepPartialSchema = z
+  .object({
+    enabled: ContextEnabledSchema.optional(),
+    maxInputTokens: ContextMaxInputTokensSchema.optional(),
+    targetBudgetRatio: ContextTargetBudgetRatioSchema.optional(),
+    compactThreshold: ContextCompactThresholdSchema.optional(),
+    summaryBudgetRatio: ContextSummaryBudgetRatioSchema.optional(),
+    overflowRecovery: ContextOverflowRecoveryFragmentSchema.optional(),
+  })
+  .superRefine((cw, ctx) => {
+    if (
+      cw.targetBudgetRatio != null &&
+      cw.compactThreshold != null &&
+      cw.targetBudgetRatio >= cw.compactThreshold
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetBudgetRatio"],
+        message:
+          "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
+      });
+    }
+    if (
+      cw.targetBudgetRatio != null &&
+      cw.summaryBudgetRatio != null &&
+      cw.targetBudgetRatio <= cw.summaryBudgetRatio
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetBudgetRatio"],
+        message:
+          "contextWindow.targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
+      });
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // OpenRouter provider-routing preferences
@@ -318,10 +410,11 @@ const PricingOverrideSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Fully specified LLM config. Used for `llm.default` — every knob has a
- * schema-level default, so `LLMConfigBase.parse({})` returns a complete
- * fallback object. This is essential for the loader's leaf-deletion recovery
- * path; see the comment on `ThinkingSchema` above.
+ * Fully specified LLM config: every knob has a schema-level default, so
+ * `LLMConfigBase.parse({})` returns a complete object. The resolver uses it as
+ * the code-owned base every resolved call-site config composes over (see
+ * `CODE_DEFAULT_BASE` in `llm-resolver.ts`), and profile materialization
+ * completes partial custom profiles against it.
  */
 export const LLMConfigBase = z.object({
   provider: LLMProvider.default("anthropic"),
@@ -510,7 +603,6 @@ const DefaultProviderField = DefaultProviderSchema.optional().catch(undefined);
 
 export const LLMSchema = z
   .object({
-    default: LLMConfigBase.default(LLMConfigBase.parse({})),
     profiles: z.record(z.string().min(1), ProfileEntry).default({}),
     // Presentation-only order for named profiles. The resolver ignores this;
     // clients use it to render profile pickers consistently.
@@ -540,6 +632,34 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
+    for (const [name, entry] of Object.entries(config.profiles ?? {})) {
+      const issue = entry?.provider
+        ? routingIdentityModelIssue(entry.provider, entry.model ?? undefined)
+        : null;
+      if (issue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["profiles", name, "model"],
+          message: issue,
+        });
+      }
+    }
+    for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
+      const issue = siteConfig?.provider
+        ? routingIdentityModelIssue(
+            siteConfig.provider,
+            siteConfig.model ?? undefined,
+          )
+        : null;
+      if (issue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["callSites", siteId, "model"],
+          message: issue,
+        });
+      }
+    }
+
     // The always-available default profiles are code-defined
     // (`default-profile-catalog.ts`) and resolve whether or not they are
     // materialized in `llm.profiles`, so their names are always valid
@@ -550,9 +670,18 @@ export const LLMSchema = z
       ...Object.keys(config.profiles ?? {}),
       ...DEFAULT_PROFILE_KEYS,
     ]);
+    // Internal profiles exist only to be named by a call site, so they are
+    // valid reference targets there and nowhere else — never for
+    // `activeProfile`/`advisorProfile`, which are user-facing selections.
+    const callSiteProfileNames = new Set([
+      ...profileNames,
+      ...INTERNAL_PROFILE_KEYS,
+    ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
-      if (siteConfig?.profile == null) continue;
-      if (!profileNames.has(siteConfig.profile)) {
+      if (siteConfig?.profile == null) {
+        continue;
+      }
+      if (!callSiteProfileNames.has(siteConfig.profile)) {
         ctx.addIssue({
           code: "custom",
           path: ["callSites", siteId, "profile"],
@@ -596,7 +725,9 @@ export const LLMSchema = z
         .map(([name]) => name),
     );
     for (const [name, profile] of Object.entries(config.profiles ?? {})) {
-      if (profile?.mix == null) continue;
+      if (profile?.mix == null) {
+        continue;
+      }
       // (d) A mix must not also carry model config — the resolved config comes
       // entirely from the chosen constituent.
       for (const key of MIX_DISALLOWED_CONFIG_KEYS) {

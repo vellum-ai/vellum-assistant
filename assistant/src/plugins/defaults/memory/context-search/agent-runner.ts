@@ -301,6 +301,7 @@ export async function runAgenticRecall(
           // matters more than extended chain-of-thought.
           config: {
             callSite: "recall",
+            conversationId: context.conversationId,
             temperature: 0,
             thinking: { type: "disabled" },
           },
@@ -598,6 +599,7 @@ async function tryFinalFinishRecall(options: {
         // thinking is enabled or in adaptive mode.
         config: {
           callSite: "recall",
+          conversationId: options.context.conversationId,
           temperature: 0,
           thinking: { type: "disabled" },
         },

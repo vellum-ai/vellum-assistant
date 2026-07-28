@@ -7,10 +7,13 @@
  * and returns it at v2's dynamic-memory placement (`after-memory-prefix`).
  *
  * On each live turn:
- *   1. Lazy-init the v3 lanes ONCE across the whole process (section index,
- *      section-grain BM25 needle, dense lane config, link-graph edge graph,
- *      curated core set, frecency hot set), memoizing the init promise so
- *      concurrent first turns share a single build.
+ *   1. Lazy-init the v3 lanes (section index, section-grain BM25 needle,
+ *      dense lane config, link-graph edge graph, curated core set, frecency
+ *      hot set), memoizing the init promise so concurrent first turns share a
+ *      single build. The memo lives until the persisted lanes-version token
+ *      changes (see `./lanes-version-store.js`) — writers in any process bump
+ *      it via {@link invalidateLanes}, and {@link getLanes} observes the change
+ *      and rebuilds.
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
@@ -29,23 +32,32 @@ import {
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryEnabled } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
-import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
+import {
+  recordLatencySubSpan,
+  timeLatencySubSpan,
+} from "../../../../daemon/turn-latency-sub-spans.js";
 import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
+import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
-import { getPageIndex } from "../v2/page-index.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
-import { capabilityOrDiskBody } from "./capabilities.js";
+import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
+import {
+  capabilityOrDiskBody,
+  renderCapabilityContent,
+} from "./capabilities.js";
 import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
+import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
-import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
+import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
@@ -133,16 +145,50 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 let lanesPromise: Promise<ShadowLanes> | null = null;
 
+/** The persisted lanes-version token captured when the memoized build started
+ *  ({@link readLanesVersion}). {@link getLanes} rebuilds when the store's token
+ *  differs. */
+let builtLanesVersion: string | null = null;
+
+/** Drop THIS process's lane caches: the memo and the page-index cache the
+ *  rebuild reads through. Shared by the writer path ({@link invalidateLanes})
+ *  and the observer path in {@link getLanes}. */
+function dropLanesLocal(): void {
+  lanesPromise = null;
+  invalidatePageIndex();
+}
+
 /**
  * Drop the memoized lanes so the NEXT `getLanes` rebuilds them from scratch
  * (fresh section index + fresh needle + fresh edge graph). The rebuild is lazy
- * — this only clears the cache, so the cost is paid by the next caller, and
+ * — this only clears the caches, so the cost is paid by the next caller, and
  * concurrent first-callers after the invalidation still share a single build via
  * the re-memoized promise. Call this whenever the underlying pages change on
  * disk.
+ *
+ * Three effects, and every caller needs all three:
+ *   - null the local memo, so this process rebuilds on its next turn;
+ *   - drop the page-index cache, so the rebuild re-scans the workspace even
+ *     when the pages changed without a daemon tool hook firing (direct disk
+ *     edits, another process's writes);
+ *   - bump the persisted lanes-version token, so OTHER processes observe the
+ *     invalidation — the memory worker is where the maintain job calls this,
+ *     and without the bump the daemon's lanes would never rebuild.
+ *
+ * The bump is best-effort: invalidation must never throw (it runs inside
+ * jobs, the rebuild-index route, and tests), so a token-write failure only
+ * logs — the local invalidation above still holds.
  */
 export function invalidateLanes(): void {
-  lanesPromise = null;
+  dropLanesLocal();
+  try {
+    bumpLanesVersion(getWorkspaceDir());
+  } catch (err) {
+    log.warn(
+      { err },
+      "lanes-version bump failed; other processes will not observe this invalidation",
+    );
+  }
 }
 
 /** Test-only alias for {@link invalidateLanes}. */
@@ -188,12 +234,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     return loaded;
   }
   // Synthetic capability slugs (skills / CLI commands) have no on-disk page, so
-  // they contribute their rendered capability content to the section index —
-  // exactly the content `page-content.ts` injects for them. This puts them in
-  // the section index, so the needle lane (and, once a backfill embeds them, the
-  // dense lane) ranks them by relevance like any other page, instead of being
-  // blindly added to the select pool every turn. Real pages read their body
-  // through the cached `loadPage`.
+  // they contribute their full INDEX-form capability content (for CLI commands,
+  // the complete help text — injection renders only the short summary). This
+  // puts them in the section index, so the needle lane (and, once a backfill
+  // embeds them, the dense lane) ranks them by relevance like any other page,
+  // instead of being blindly added to the select pool every turn. Real pages
+  // read their body through the cached `loadPage`.
   const pageBody = async (slug: Slug): Promise<string> =>
     capabilityOrDiskBody(slug, async (s) => (await loadPage(s))?.body ?? "");
   const pageRaw = async (slug: Slug): Promise<string> => {
@@ -229,15 +275,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const coreSlugs = loadCoreSet(getWorkspaceDir()).filter((slug) =>
     sectionIndex.byArticle.has(slug),
   );
-  const hotSlugs = computeHotSet(
-    { db: getDb() },
-    {
-      k: tuning.hotSetK,
-      halfLifeMs: config.memory.v3.hotSet.halfLifeDays * DAY_MS,
-      now: Date.now(),
-      excludeSlugs: new Set(coreSlugs),
-    },
-  )
+  const hotSlugs = computeHotSet({
+    k: tuning.hotSetK,
+    halfLifeMs: config.memory.v3.hotSet.halfLifeDays * DAY_MS,
+    now: Date.now(),
+    excludeSlugs: new Set(coreSlugs),
+  })
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
@@ -266,11 +309,14 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // stable prefix must be byte-identical across turns to ride the provider KV
   // cache, so the cards are frozen here (lane invalidation at consolidation is
   // the recompute point) instead of being re-read per turn. Capability slugs
-  // render their capability content; disk pages render raw (frontmatter +
-  // body) so `kind: index` pages surface their `links:` map in the card TOC.
-  // Each card carries its lane annotation; fresh cards additionally carry the
-  // page's last-modified time (an absolute stamp — it only changes when the
-  // page does, so the card stays byte-stable between lane recomputes).
+  // card as their short injection form (matching the net-new capability
+  // cards) — a CLI command in the hot set must not pin its full-help index
+  // body into the byte-stable prefix. Disk pages render raw (frontmatter +
+  // body) through `renderCard` so `kind: index` pages surface their `links:`
+  // map in the card TOC. Each disk card carries its lane annotation; fresh
+  // cards additionally carry the page's last-modified time (an absolute
+  // stamp — it only changes when the page does, so the card stays byte-stable
+  // between lane recomputes).
   const modifiedAtBySlug = new Map(
     pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
   );
@@ -303,10 +349,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     ["always", alwaysCandidateSlugs],
   ] as const) {
     for (const slug of slugs) {
-      const raw = await capabilityOrDiskBody(
-        slug,
-        async (s) => (await loadPage(s))?.raw ?? "",
-      );
+      const capability = renderCapabilityContent(slug);
+      if (capability !== null) {
+        prefixCards.set(slug, capability);
+        continue;
+      }
+      const raw = (await loadPage(slug))?.raw ?? "";
       prefixCards.set(slug, renderCard(slug, raw, laneAnnotation(slug, lane)));
     }
   }
@@ -320,18 +368,15 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const learned = config.memory.v3.learnedEdges;
   const learnedGraph =
     tuning.learnedEdgesCap > 0 && learned.maxPerPage > 0
-      ? computeLearnedEdgeGraph(
-          { db: getDb() },
-          {
-            halfLifeMs: learned.halfLifeDays * DAY_MS,
-            minCount: learned.minCount,
-            npmiFloor: learned.npmiFloor,
-            maxPerPage: learned.maxPerPage,
-            now: Date.now(),
-            windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-            knownSlugs: new Set(sectionIndex.byArticle.keys()),
-          },
-        )
+      ? computeLearnedEdgeGraph({
+          halfLifeMs: learned.halfLifeDays * DAY_MS,
+          minCount: learned.minCount,
+          npmiFloor: learned.npmiFloor,
+          maxPerPage: learned.maxPerPage,
+          now: Date.now(),
+          windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+          knownSlugs: new Set(sectionIndex.byArticle.keys()),
+        })
       : undefined;
   // Ensuring the dense collection is best-effort: the needle + edge lanes and
   // the core/hot prefix are in-memory and independent of Qdrant, so a Qdrant outage
@@ -365,9 +410,28 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   };
 }
 
-/** Lazy, memoized accessor for the shadow lanes. */
+/**
+ * Lazy, memoized accessor for the shadow lanes. The memo is valid while the
+ * persisted lanes-version token matches the one captured at build start; a
+ * mismatch (another process — or this one — called {@link invalidateLanes})
+ * drops the memo and rebuilds. A failed token read serves the memo unchanged.
+ */
 function getLanes(config: AssistantConfig): Promise<ShadowLanes> {
+  if (lanesPromise) {
+    const current = readLanesVersion(getWorkspaceDir());
+    if (current !== undefined && current !== builtLanesVersion) {
+      // A writer bumped the persisted token since this build — the memory
+      // worker's maintain job after a consolidation, or the rebuild-index
+      // route. This observer path never re-bumps the token: writers bump,
+      // observers only compare — a re-bump here would make every rebuild
+      // trigger another one on the following turn.
+      dropLanesLocal();
+    }
+  }
   if (!lanesPromise) {
+    // Capture the token BEFORE building: a bump that lands mid-build is then
+    // detected on the next call (one extra rebuild, never a missed one).
+    builtLanesVersion = readLanesVersion(getWorkspaceDir()) ?? null;
     lanesPromise = initLanes(config).catch((err) => {
       // Reset on failure so a transient init error doesn't permanently wedge
       // the shadow lane — the next turn retries.
@@ -530,7 +594,11 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   });
 }
 
-/** Write the attributed selection rows to `memory_v3_selections`. */
+/**
+ * Write the attributed selection rows to `memory_v3_selections` over the
+ * dedicated memory connection. Best-effort: an unavailable memory database or
+ * a failed write drops the turn's log rows rather than affecting the turn.
+ */
 export function writeSelections(
   conversationId: string,
   turn: number,
@@ -539,30 +607,37 @@ export function writeSelections(
   if (rows.length === 0) {
     return;
   }
-  const raw = getSqliteFrom(getDb());
-  // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
-  // idempotent if the same turn is observed twice (e.g. a retried turn).
-  // `message_id` is written NULL here (the assistant message does not exist at
-  // injection time) and stamped at turn end by
-  // `backfillMemoryV3SelectionMessageId`.
-  const stmt = raw.query(/*sql*/ `
-    INSERT OR REPLACE INTO memory_v3_selections (
-      conversation_id, turn, slug, source, pinned, created_at,
-      message_id, section_ordinal, section_title
-    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-  `);
-  const now = Date.now();
-  for (const row of rows) {
-    stmt.run(
-      conversationId,
-      turn,
-      row.slug,
-      row.source,
-      row.pinned,
-      now,
-      row.sectionOrdinal,
-      row.sectionTitle,
-    );
+  try {
+    const raw = memorySqliteOrNull("writeSelections");
+    if (!raw) {
+      return;
+    }
+    // PK is (conversation_id, turn, slug); OR REPLACE keeps the write
+    // idempotent if the same turn is observed twice (e.g. a retried turn).
+    // `message_id` is written NULL here (the assistant message does not exist
+    // at injection time) and stamped at turn end by
+    // `backfillMemoryV3SelectionMessageId`.
+    const stmt = raw.query(/*sql*/ `
+      INSERT OR REPLACE INTO memory_v3_selections (
+        conversation_id, turn, slug, source, pinned, created_at,
+        message_id, section_ordinal, section_title
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    `);
+    const now = Date.now();
+    for (const row of rows) {
+      stmt.run(
+        conversationId,
+        turn,
+        row.slug,
+        row.source,
+        row.pinned,
+        now,
+        row.sectionOrdinal,
+        row.sectionTitle,
+      );
+    }
+  } catch (err) {
+    log.warn({ err }, "failed to write memory-v3 selections; continuing");
   }
 }
 
@@ -579,12 +654,23 @@ export function backfillMemoryV3SelectionMessageId(
   conversationId: string,
   assistantMessageId: string,
 ): void {
-  getSqliteFrom(getDb())
-    .query(
-      /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
-               WHERE conversation_id = ? AND message_id IS NULL`,
-    )
-    .run(assistantMessageId, conversationId);
+  try {
+    const raw = memorySqliteOrNull("backfillMemoryV3SelectionMessageId");
+    if (!raw) {
+      return;
+    }
+    raw
+      .query(
+        /*sql*/ `UPDATE memory_v3_selections SET message_id = ?
+                 WHERE conversation_id = ? AND message_id IS NULL`,
+      )
+      .run(assistantMessageId, conversationId);
+  } catch (err) {
+    log.warn(
+      { err },
+      "failed to backfill memory-v3 selection messageId; continuing",
+    );
+  }
 }
 
 /**
@@ -604,15 +690,18 @@ export async function observeTurn(
     }
 
     const cfg = getConfig();
-    if (cfg.memory.enabled === false) {
+    if (!isMemoryEnabled(cfg)) {
       return null;
     }
-    const lanes = await getLanes(cfg);
+    // Lane init is module-memoized: the first turn after daemon start pays
+    // the full build (section index, BM25/entity lanes, prefix cards) here;
+    // warm turns record ~0ms and are floored away by the recorder.
+    const lanes = await timeLatencySubSpan(
+      "v3_lanes_init",
+      "Memory lane init",
+      () => getLanes(cfg),
+    );
     const v3 = cfg.memory.v3;
-    // Resolve the effective gate enable once for the turn: the feature flag
-    // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
-    // `memory.v3.gate`.
-    const gateEnabled = isMemoryV3InjectionGateEnabled(cfg);
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
     // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
@@ -633,8 +722,14 @@ export async function observeTurn(
       prefixCards: lanes.prefixCards,
       needleK: tuning.needleK,
       denseK: tuning.denseK,
+      realConceptPageCount: lanes.realConceptPageCount,
+      // Read-only: lets orchestrate compute the `net_new_count` telemetry field
+      // against the same store the injector renders from. This turn has not
+      // committed yet, so the set matches what the injector will see.
+      activeSlugs: getActiveSlugs(conversationId),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
+      spanQueryK: tuning.spanQueryK,
       edgeSeeds: tuning.edgeSeedCount,
       edgePerSeed: tuning.edgePerSeed,
       edgeCap: tuning.edgeCap,
@@ -646,11 +741,10 @@ export async function observeTurn(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
-      // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
-      // config `enabled` overwritten by the effective enable (flag AND config).
-      // The spread is the compile-time drift guard — if the gate schema and
-      // `V3GateConfig` diverge, this stops typechecking.
-      gateConfig: { ...v3.gate, enabled: gateEnabled },
+      // Per-turn injection gate: the `memory.v3.gate` tuning, `enabled`
+      // kill-switch included. Read-only downstream, so the config object is
+      // passed as-is.
+      gateConfig: v3.gate,
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be
@@ -669,8 +763,14 @@ export async function observeTurn(
       );
     }
 
+    const persistStartedAt = Date.now();
     const rows = attributeSelections(result);
     writeSelections(conversationId, turnIndex, rows);
+    recordLatencySubSpan(
+      "v3_persist",
+      "Selection persistence",
+      Date.now() - persistStartedAt,
+    );
     return result;
   } catch (err) {
     // Infrastructure failures are surfaced to callers that want distinct

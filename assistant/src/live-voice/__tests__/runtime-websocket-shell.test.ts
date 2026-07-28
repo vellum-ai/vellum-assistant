@@ -325,6 +325,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     expect(typeof ready.sessionId).toBe("string");
     expect(resolveStreamingTranscriberMock).toHaveBeenCalledWith({
       sampleRate: 24_000,
+      providerId: "deepgram",
     });
     expect(resolvedTranscribers).toHaveLength(1);
     expect(resolvedTranscribers[0]?.started).toBe(true);

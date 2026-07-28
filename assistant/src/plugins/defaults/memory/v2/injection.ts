@@ -24,31 +24,30 @@
 // cached prefix bytes-identical across turns.
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import type { DrizzleDb } from "../../../../persistence/db-connection.js";
 import { getLogger } from "../logging.js";
-import {
-  type MemoryV2ConceptRowRecord,
-  recordMemoryV2ActivationLog,
-} from "../memory-v2-activation-log-store.js";
 import { getWorkspaceDir } from "../paths.js";
+import {
+  getCliCommandCapability,
+  isCliCommandSlug,
+} from "../substrate/cli-command-store.js";
+import { getEdgeIndex } from "../substrate/edge-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
+import { getSkillCapability, isSkillSlug } from "../substrate/skill-store.js";
+import { spreadActivation } from "../substrate/spread.js";
+import type { ActivationState, EverInjectedEntry } from "../substrate/types.js";
 import {
   computeOwnActivation,
   selectCandidates,
   selectInjections,
-  spreadActivation,
 } from "./activation.js";
-import { hydrate, save } from "./activation-store.js";
 import {
-  getCliCommandCapability,
-  isCliCommandSlug,
-} from "./cli-command-store.js";
-import { getEdgeIndex } from "./edge-index.js";
+  type MemoryV2ConceptRowRecord,
+  recordMemoryV2ActivationLog,
+} from "./activation-log-store.js";
+import { hydrate, save } from "./activation-store.js";
 import { recordInjectionEvents } from "./injection-events.js";
-import { getPageIndex } from "./page-index.js";
-import { readPage, renderPageContent } from "./page-store.js";
 import { type RouterTurnPair, runRouter } from "./router.js";
-import { getSkillCapability, isSkillSlug } from "./skill-store.js";
-import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 const log = getLogger("memory-v2-injection");
 
@@ -76,8 +75,6 @@ export type InjectMemoryV2Mode = "context-load" | "per-turn";
 type FinalizeInjectionMode = InjectMemoryV2Mode | "router" | "errored";
 
 export interface InjectMemoryV2BlockParams {
-  /** SQLite database handle for activation_state hydrate/save. */
-  database: DrizzleDb;
   /** Conversation key for hydrate/save. */
   conversationId: string;
   /** Caller-tracked turn number, persisted with each new everInjected entry. */
@@ -141,7 +138,6 @@ export async function injectMemoryV2Block(
   params: InjectMemoryV2BlockParams,
 ): Promise<InjectMemoryV2BlockResult> {
   const {
-    database,
     conversationId,
     currentTurn,
     recentTurnPairs,
@@ -165,7 +161,7 @@ export async function injectMemoryV2Block(
   // (1) Hydrate. Missing rows are normal at conversation start — proceed
   // with an effective empty prior state so the first turn can still inject.
   throwIfAborted(signal);
-  const priorState = await hydrate(database, conversationId);
+  const priorState = await hydrate(conversationId);
 
   // Flag-gated router dispatch: when the LLM router is enabled, route the
   // page selection through `runRouter` and reuse `finalizeInjection` for
@@ -182,7 +178,6 @@ export async function injectMemoryV2Block(
   if (config.memory.v2.router.enabled) {
     return injectViaRouter({
       workspaceDir,
-      database,
       conversationId,
       currentTurn,
       recentTurnPairs,
@@ -252,7 +247,9 @@ export async function injectMemoryV2Block(
   // slugs drop out of consideration next turn.
   const nextStateMap: Record<string, number> = {};
   for (const [slug, value] of finalActivation) {
-    if (value > epsilon) nextStateMap[slug] = value;
+    if (value > epsilon) {
+      nextStateMap[slug] = value;
+    }
   }
 
   // Build the rich per-candidate telemetry rows up front (status assigned
@@ -283,7 +280,6 @@ export async function injectMemoryV2Block(
 
   return finalizeInjection({
     workspaceDir,
-    database,
     conversationId,
     mode,
     currentTurn,
@@ -322,7 +318,6 @@ export async function injectMemoryV2Block(
  */
 async function finalizeInjection(args: {
   workspaceDir: string;
-  database: DrizzleDb;
   conversationId: string;
   mode: FinalizeInjectionMode;
   currentTurn: number;
@@ -343,7 +338,6 @@ async function finalizeInjection(args: {
 }): Promise<InjectMemoryV2BlockResult> {
   const {
     workspaceDir,
-    database,
     conversationId,
     currentTurn,
     messageId,
@@ -416,7 +410,7 @@ async function finalizeInjection(args: {
   let caughtErr: unknown = undefined;
 
   try {
-    await save(database, conversationId, nextActivationState);
+    await save(conversationId, nextActivationState);
 
     // Render before recording telemetry so the activation log can mark slugs
     // whose backing file is gone or failed to load — those are no-op renders
@@ -508,7 +502,9 @@ async function finalizeInjection(args: {
     }
   }
 
-  if (caughtErr !== undefined && !args.bestEffort) throw caughtErr;
+  if (caughtErr !== undefined && !args.bestEffort) {
+    throw caughtErr;
+  }
   return { block, toInject: newlyInjected };
 }
 
@@ -528,7 +524,6 @@ async function finalizeInjection(args: {
  */
 async function injectViaRouter(args: {
   workspaceDir: string;
-  database: DrizzleDb;
   conversationId: string;
   currentTurn: number;
   recentTurnPairs: readonly RouterTurnPair[];
@@ -540,7 +535,6 @@ async function injectViaRouter(args: {
 }): Promise<InjectMemoryV2BlockResult> {
   const {
     workspaceDir,
-    database,
     conversationId,
     currentTurn,
     recentTurnPairs,
@@ -579,7 +573,6 @@ async function injectViaRouter(args: {
     );
     return finalizeInjection({
       workspaceDir,
-      database,
       conversationId,
       mode: "router",
       currentTurn,
@@ -608,6 +601,7 @@ async function injectViaRouter(args: {
 
   const routerResult = await runRouter({
     workspaceDir,
+    conversationId,
     recentTurnPairs,
     nowText,
     priorEverInjected,
@@ -640,7 +634,6 @@ async function injectViaRouter(args: {
     // to abort the turn on top of the router failure that already happened.
     return finalizeInjection({
       workspaceDir,
-      database,
       conversationId,
       mode: "errored",
       currentTurn,
@@ -678,7 +671,9 @@ async function injectViaRouter(args: {
   // `source: "carry_over"`. The `status` placeholder is overwritten by
   // `finalizeInjection`.
   const telemetrySlugs = new Set<string>(routerResult.selectedSlugs);
-  for (const entry of priorEverInjected) telemetrySlugs.add(entry.slug);
+  for (const entry of priorEverInjected) {
+    telemetrySlugs.add(entry.slug);
+  }
   const telemetryRows: MemoryV2ConceptRowRecord[] = [...telemetrySlugs].map(
     (slug) => ({
       slug,
@@ -699,7 +694,6 @@ async function injectViaRouter(args: {
 
   return finalizeInjection({
     workspaceDir,
-    database,
     conversationId,
     mode: "router",
     currentTurn,
@@ -852,9 +846,13 @@ async function renderInjectionBlock(
   const skillSlugs: string[] = [];
   const cliCommandSlugs: string[] = [];
   for (const slug of slugs) {
-    if (isSkillSlug(slug)) skillSlugs.push(slug);
-    else if (isCliCommandSlug(slug)) cliCommandSlugs.push(slug);
-    else conceptSlugs.push(slug);
+    if (isSkillSlug(slug)) {
+      skillSlugs.push(slug);
+    } else if (isCliCommandSlug(slug)) {
+      cliCommandSlugs.push(slug);
+    } else {
+      conceptSlugs.push(slug);
+    }
   }
 
   const settled = await Promise.allSettled(
@@ -892,14 +890,18 @@ async function renderInjectionBlock(
     // empty). Render the full page — frontmatter + body — so retrieval
     // still surfaces the same content the agent saw before this change.
     const content = renderPageContent(page).trim();
-    if (content.length === 0) continue;
+    if (content.length === 0) {
+      continue;
+    }
     sections.push(`# ${path}\n${content}`);
   }
 
   const skillLines: string[] = [];
   for (const slug of skillSlugs) {
     const entry = getSkillCapability(slug);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
     skillLines.push(`- ${entry.content} → use skill_load to activate`);
   }
   if (skillLines.length > 0) {
@@ -909,7 +911,9 @@ async function renderInjectionBlock(
   const cliCommandLines: string[] = [];
   for (const slug of cliCommandSlugs) {
     const entry = getCliCommandCapability(slug);
-    if (!entry) continue;
+    if (!entry) {
+      continue;
+    }
     cliCommandLines.push(`- \`assistant ${entry.id}\`: ${entry.description}`);
   }
   if (cliCommandLines.length > 0) {

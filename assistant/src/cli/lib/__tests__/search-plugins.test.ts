@@ -33,6 +33,7 @@ function entry(
   extra?: {
     path?: string;
     description?: string;
+    icon?: string;
     category?: string;
     homepage?: string;
     license?: string;
@@ -47,6 +48,7 @@ function entry(
       ref,
     },
     ...(extra?.description ? { description: extra.description } : {}),
+    ...(extra?.icon ? { icon: extra.icon } : {}),
     ...(extra?.category ? { category: extra.category } : {}),
     ...(extra?.homepage ? { homepage: extra.homepage } : {}),
     ...(extra?.license ? { license: extra.license } : {}),
@@ -220,6 +222,17 @@ describe("marketplaceMatch", () => {
     );
     expect(match.homepage).toBeUndefined();
     expect(match.license).toBeUndefined();
+  });
+
+  test("carries the curated icon, leaving it undefined when absent", () => {
+    expect(
+      marketplaceMatch(
+        entry("calendar-sync", "acme/calendar-sync", SHA_A, { icon: "📅" }),
+      ).icon,
+    ).toBe("📅");
+    expect(
+      marketplaceMatch(entry("plain-plugin", "acme/plain-plugin", SHA_B)).icon,
+    ).toBeUndefined();
   });
 });
 

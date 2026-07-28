@@ -33,9 +33,29 @@ export class ToolProfiler {
   startRequest(): void {
     this.tools.clear();
     this.requestStartMs = Date.now();
-    const rss = process.memoryUsage().rss;
+    const rss = this.sampleRssBytes() ?? 0;
     this.rssStartBytes = rss;
     this.peakRssBytes = rss;
+  }
+
+  /**
+   * Sample the current RSS in bytes, returning `null` if the reading fails.
+   *
+   * Bun 1.3.11 can throw `SystemError: Failed to get memory usage, errno: 2`
+   * from the underlying syscall. Resource metrics are best-effort — a failed
+   * sample must never propagate, so it is logged and reported as `null` and the
+   * caller keeps its last known peak.
+   */
+  private sampleRssBytes(): number | null {
+    try {
+      return process.memoryUsage().rss;
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to sample RSS memory; skipping profiler sample",
+      );
+      return null;
+    }
   }
 
   recordToolCompletion(
@@ -57,8 +77,8 @@ export class ToolProfiler {
       stats.errors++;
     }
 
-    const currentRss = process.memoryUsage().rss;
-    if (currentRss > this.peakRssBytes) {
+    const currentRss = this.sampleRssBytes();
+    if (currentRss !== null && currentRss > this.peakRssBytes) {
       this.peakRssBytes = currentRss;
     }
   }
@@ -156,6 +176,10 @@ export function startToolProfilingRequest(conversationId: string): void {
 /**
  * Record a completed tool invocation into the conversation's profiler.
  * A no-op when no profiling window is active (e.g. standalone tool runs).
+ *
+ * The tool has already completed by the time this runs, so profiling is pure
+ * observation: any failure here is swallowed and logged rather than allowed to
+ * propagate into the executor and fail the agent loop.
  */
 export function recordToolCompletion(
   conversationId: string,
@@ -163,9 +187,16 @@ export function recordToolCompletion(
   durationMs: number,
   isError: boolean,
 ): void {
-  profilersByConversation
-    .get(conversationId)
-    ?.recordToolCompletion(toolName, durationMs, isError);
+  try {
+    profilersByConversation
+      .get(conversationId)
+      ?.recordToolCompletion(toolName, durationMs, isError);
+  } catch (err) {
+    log.warn(
+      { err, conversationId, toolName },
+      "Tool profiler failed to record completion; continuing",
+    );
+  }
 }
 
 /** Emit the end-of-turn profiling summary log for a conversation. */

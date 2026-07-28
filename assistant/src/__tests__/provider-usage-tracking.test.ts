@@ -1,13 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -39,17 +30,20 @@ describe("UsageTrackingProvider", () => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
       profiles: {
+        // User-owned shadow of the default profile name: carries its own
+        // provider+model so it is a usable single-winner selection.
         balanced: {
           provider: "openai",
           model: "gpt-5.4-mini",
         },
       },
       activeProfile: "balanced",
+      // Pin the non-main-agent call site to the same profile — activeProfile
+      // only applies to mainAgent under single-winner selection.
+      callSites: {
+        conversationTitle: { profile: "balanced" },
+      },
       pricingOverrides: [],
     });
   });
@@ -91,18 +85,45 @@ describe("UsageTrackingProvider", () => {
       cacheReadInputTokens: 0,
       callSite: "conversationTitle",
       inferenceProfile: "balanced",
-      inferenceProfileSource: "active",
+      inferenceProfileSource: "call_site",
       pricingStatus: "priced",
     });
     expect(events[0].estimatedCostUsd ?? 0).toBeCloseTo(0.00975, 10);
   });
 
+  test("stamps the triggering conversation id when the config carries one", async () => {
+    const provider = new UsageTrackingProvider(
+      makeProvider({
+        content: [{ type: "text", text: "Title" }],
+        model: "gpt-5.4-mini",
+        usage: {
+          inputTokens: 1_000,
+          outputTokens: 2_000,
+        },
+        stopReason: "end_turn",
+      }),
+    );
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Summarize" }] }],
+      {
+        config: {
+          callSite: "conversationTitle",
+          conversationId: "conv-123",
+        },
+      },
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      callSite: "conversationTitle",
+      conversationId: "conv-123",
+    });
+  });
+
   test("uses the transport provider when resolved attribution points elsewhere", async () => {
     setLlmConfig({
-      default: {
-        provider: "openai",
-        model: "gpt-5.4-mini",
-      },
       callSites: {
         conversationTitle: {
           provider: "fireworks",
@@ -184,6 +205,7 @@ describe("UsageTrackingProvider", () => {
       {
         config: {
           model: "gpt-5.4-mini",
+          conversationId: "conv-456",
         },
       },
     );
@@ -194,6 +216,7 @@ describe("UsageTrackingProvider", () => {
       callSite: "mainAgent",
       provider: "openai",
       model: "gpt-5.4-mini",
+      conversationId: "conv-456",
     });
   });
 });

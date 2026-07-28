@@ -1,14 +1,16 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
+import * as liveVoiceArchive from "../live-voice-archive.js";
 import {
   createLiveVoiceSession,
   type LiveVoiceSessionArchiveAudioInput,
@@ -217,7 +219,9 @@ async function waitFor(
   message = "Timed out waiting for live voice integration condition",
 ): Promise<void> {
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
@@ -670,5 +674,115 @@ describe("LiveVoiceSession integration smoke harness", () => {
       Buffer.from(firstUtteranceAudio),
       Buffer.from(secondUtteranceAudio),
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audio archiving is config-gated and OFF by default (JARVIS-1283): a voice
+// turn persists only its transcribed text, so no audio-file artifact lands on
+// the conversation messages unless `liveVoice.archiveAudio` is enabled. These
+// exercise the production factory's config resolution (no injected archiver).
+// ---------------------------------------------------------------------------
+
+describe("live-voice audio archiving default (JARVIS-1283)", () => {
+  function makeSingleTurnLegs() {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.persisted_user_message_id?.("user-message-123");
+      options.callbacks?.assistant_text_delta?.(
+        makeTextDelta("Hello from the assistant."),
+      );
+      options.callbacks?.message_complete?.(makeMessageComplete());
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    return { startVoiceTurn, streamTtsAudio };
+  }
+
+  async function driveOneTurn(
+    session: ReturnType<typeof createLiveVoiceSession>,
+    frames: LiveVoiceServerFrame[],
+  ) {
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1, 2, 3, 4]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+  }
+
+  test("with no injected archiver and default config, nothing is archived", async () => {
+    const { startVoiceTurn, streamTtsAudio } = makeSingleTurnLegs();
+    const { context, frames } = createContext();
+    // No `archiveAudio` option → the factory consults config, which defaults
+    // off in the test workspace.
+    const session = createLiveVoiceSession(context, {
+      resolveCredentialReadiness: null,
+      resolveTranscriber: mock(async () => new FakeStreamingTranscriber()),
+      startVoiceTurn,
+      streamTtsAudio,
+      metricsClock: createClock(),
+      createTurnId: () => "live-turn-1",
+    });
+
+    await driveOneTurn(session, frames);
+
+    // The turn completed, but no `archived` frame was emitted — no audio
+    // attachment was written to either message.
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(frames.some((frame) => frame.type === "archived")).toBe(false);
+    expect(frameTypes(frames)).not.toContain("archived");
+  });
+
+  test("liveVoice.archiveAudio=true wires the default archiver through the factory", async () => {
+    // The real linkers write to the DB; these are role-less inputs, so stub
+    // them (synchronously — the linkers are sync) with a valid archived result
+    // per role. The point under test is the config→default-archiver wiring, not
+    // the DB write, which the injected-archiver tests above already cover.
+    const audioInput = {
+      sessionId: "session-123",
+      turnId: "live-turn-1",
+      mimeType: "audio/pcm",
+      audio: {
+        type: "base64" as const,
+        dataBase64: Buffer.from([1, 2, 3, 4]).toString("base64"),
+      },
+    };
+    const userSpy = spyOn(
+      liveVoiceArchive,
+      "linkLiveVoiceUserUtteranceAudioToMessage",
+    ).mockReturnValue(makeArchiveResult({ ...audioInput, role: "user" }));
+    const assistantSpy = spyOn(
+      liveVoiceArchive,
+      "linkLiveVoiceAssistantResponseAudioToMessage",
+    ).mockReturnValue(makeArchiveResult({ ...audioInput, role: "assistant" }));
+    const originalRaw = loadRawConfig();
+    saveRawConfig({ ...originalRaw, liveVoice: { archiveAudio: true } });
+
+    try {
+      const { startVoiceTurn, streamTtsAudio } = makeSingleTurnLegs();
+      const { context, frames } = createContext();
+      // Still no injected `archiveAudio` — the config default must supply it.
+      const session = createLiveVoiceSession(context, {
+        resolveCredentialReadiness: null,
+        resolveTranscriber: mock(async () => new FakeStreamingTranscriber()),
+        startVoiceTurn,
+        streamTtsAudio,
+        metricsClock: createClock(),
+        createTurnId: () => "live-turn-1",
+      });
+
+      await driveOneTurn(session, frames);
+
+      expect(userSpy).toHaveBeenCalledTimes(1);
+      expect(assistantSpy).toHaveBeenCalledTimes(1);
+      expect(frames.filter((frame) => frame.type === "archived")).toHaveLength(
+        2,
+      );
+    } finally {
+      saveRawConfig(originalRaw);
+      userSpy.mockRestore();
+      assistantSpy.mockRestore();
+    }
   });
 });

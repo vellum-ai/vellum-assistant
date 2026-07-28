@@ -20,6 +20,7 @@ let stopImpl: () => { status: "running" | "not_running"; pid?: number };
 let workerProbe: { status: "running" | "not_running"; pid?: number } = {
   status: "not_running",
 };
+const adminStoppedCalls: boolean[] = [];
 
 mock.module("../../../schedule/worker-control.js", () => ({
   ScheduleWorkerSpawnError: FakeSpawnError,
@@ -32,6 +33,9 @@ mock.module("../../../schedule/worker-control.js", () => ({
   },
   stopScheduleWorkerProcess: () => stopImpl(),
   probeScheduleWorker: () => workerProbe,
+  setScheduleWorkerAdministrativelyStopped: (value: boolean) => {
+    adminStoppedCalls.push(value);
+  },
 }));
 
 const { ROUTES } = await import("../schedule-worker-routes.js");
@@ -49,6 +53,7 @@ beforeEach(() => {
   spawnImpl = async () => ({ pid: 4242, alreadyRunning: false });
   stopImpl = () => ({ status: "not_running" });
   workerProbe = { status: "not_running" };
+  adminStoppedCalls.length = 0;
 });
 
 describe("schedules_worker_start", () => {
@@ -82,6 +87,11 @@ describe("schedules_worker_start", () => {
       "worker exited during startup",
     );
   });
+
+  test("clears the administratively-stopped flag so the watchdog resumes", async () => {
+    await handler("schedules_worker_start")();
+    expect(adminStoppedCalls).toContain(false);
+  });
 });
 
 describe("schedules_worker_stop", () => {
@@ -99,6 +109,11 @@ describe("schedules_worker_stop", () => {
     const res = await handler("schedules_worker_stop")();
 
     expect(res).toEqual({ workerWasRunning: false });
+  });
+
+  test("sets the administratively-stopped flag so the watchdog does not respawn", async () => {
+    await handler("schedules_worker_stop")();
+    expect(adminStoppedCalls).toContain(true);
   });
 });
 

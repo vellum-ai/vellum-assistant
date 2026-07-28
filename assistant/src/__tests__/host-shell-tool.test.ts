@@ -357,7 +357,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("command is required");
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 
   test("rejects non-string command", async () => {
@@ -369,9 +369,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain(
-      "command is required and must be a string",
-    );
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 
   test("rejects non-string working_dir", async () => {
@@ -384,7 +382,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("working_dir must be a string");
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 });
 
@@ -398,6 +396,20 @@ describe("host_bash — environment setup", () => {
     const result = await hostShellTool.execute(
       {
         command: "pwd",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe(realpathSync(homedir()));
+  });
+
+  test("treats an explicit null working_dir as omitted (runs from home)", async () => {
+    const { homedir } = await import("node:os");
+    const result = await hostShellTool.execute(
+      {
+        command: "pwd",
+        working_dir: null,
       },
       makeContext(),
     );
@@ -855,6 +867,7 @@ describe("host_bash — proxy delegation", () => {
       expect(calls.length).toBe(1);
       expect(calls[0].input.env).toEqual({
         __CONVERSATION_ID: "test-conversation",
+        __REVEAL_NONCE: expect.any(String),
       });
     } finally {
       restoreEnv(envSnapshot);
@@ -888,6 +901,7 @@ describe("host_bash — proxy delegation", () => {
         VELLUM_ENVIRONMENT: "local",
         INTERNAL_GATEWAY_BASE_URL: "http://127.0.0.1:7830",
         __CONVERSATION_ID: "test-conversation",
+        __REVEAL_NONCE: expect.any(String),
       });
     } finally {
       restoreEnv(envSnapshot);

@@ -8,8 +8,10 @@ export const routesHelp: CliCommandHelp = {
     "Manage user-defined authenticated HTTP route handlers under /x/*",
   helpText: `
 User-defined routes let you expose custom HTTP endpoints by dropping handler
-files into /workspace/routes/. Each file exports named HTTP method functions
-(GET, POST, etc.) and becomes reachable at /x/<path>.
+files into /workspace/routes/ (reachable at /x/<path>) or into a plugin's
+/workspace/plugins/<name>/routes/ (reachable in that plugin's namespace at
+/x/plugins/<name>/<path>). Each file exports named HTTP method functions
+(GET, POST, etc.).
 
 These routes require edge authentication — they are intended for
 assistant-internal or user-facing endpoints, not for unauthenticated provider
@@ -21,7 +23,8 @@ needed.
 Examples:
   $ assistant routes list
   $ assistant routes list --json
-  $ assistant routes inspect my-dashboard-api/submit`,
+  $ assistant routes inspect my-dashboard-api/submit
+  $ assistant routes inspect plugins/my-plugin/status`,
   subcommands: [
     {
       name: "list",
@@ -33,8 +36,9 @@ Examples:
         },
       ],
       helpText: `
-Scans /workspace/routes/ for handler files (.ts, .js) and displays the route
-path, exported HTTP methods, optional description, and file location.
+Scans /workspace/routes/ and each enabled plugin's /workspace/plugins/<name>/routes/
+for handler files (.ts, .js) and displays the route path, exported HTTP
+methods, optional description, and file location.
 
 Examples:
   $ assistant routes list
@@ -52,15 +56,66 @@ Examples:
       ],
       helpText: `
 Arguments:
-  path   Route path relative to /x/ (e.g. "my-dashboard-api/submit").
-         Do not include the /x/ prefix.
+  path   Route path relative to /x/ (e.g. "my-dashboard-api/submit" or
+         "plugins/my-plugin/status"). The /x/ prefix is optional, so a path
+         copied straight from 'routes list' works too.
 
 Loads the handler file and displays exported methods, description, file path,
 public URL, file size, and last modified time.
 
 Examples:
   $ assistant routes inspect my-dashboard-api/submit
+  $ assistant routes inspect plugins/my-plugin/status
   $ assistant routes inspect items --json`,
+    },
+    {
+      name: "worker",
+      description: "Manage the route host process (start/stop/status)",
+      helpText: `
+The route host runs user-defined /x/* handlers in a separate OS process, so a
+handler that blocks does not stall the assistant's main event loop and can be
+reclaimed with a hard kill. The assistant spawns it on demand (on the first
+request); these commands manage that process directly.
+
+\`start\` spawns it as a child of the assistant (so it shows up in
+\`assistant ps\`); \`stop\` SIGTERMs it — the next request respawns it.
+
+Examples:
+  $ assistant routes worker start
+  $ assistant routes worker status
+  $ assistant routes worker stop`,
+      subcommands: [
+        {
+          name: "start",
+          description: "Spawn the route host process if it is not running",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+        {
+          name: "stop",
+          description: "SIGTERM the route host process",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+        {
+          name: "status",
+          description: "Report the route host process liveness",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+      ],
     },
   ],
 };

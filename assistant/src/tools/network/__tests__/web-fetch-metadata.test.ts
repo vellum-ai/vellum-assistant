@@ -212,6 +212,31 @@ describe("web_fetch activityMetadata", () => {
     expect(result.status ?? "").not.toContain("JavaScript-rendered");
   });
 
+  test("does not flag mayRequireJavaScript for markup-heavy pages that still yield substantial text", async () => {
+    // Mirrors a server-rendered GitHub PR page: <5% text-to-byte ratio, yet
+    // the extraction is complete — thousands of chars of real content.
+    const paragraph =
+      "<p>" +
+      "The quick brown fox jumps over the lazy dog. ".repeat(140) +
+      "</p>";
+    const scriptPayload = `var x = ${JSON.stringify("a".repeat(200_000))};`;
+    const body =
+      "<!doctype html><html><head><title>Article</title></head>" +
+      `<body>${paragraph}<script>${scriptPayload}</script></body></html>`;
+    globalThis.fetch = (async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })) as unknown as typeof globalThis.fetch;
+
+    const result = await executeWithMockFetch({ url: "https://example.com/" });
+    expect(result.isError).toBe(false);
+
+    const meta = result.activityMetadata?.webFetch;
+    expect(meta?.mayRequireJavaScript).toBeUndefined();
+    expect(result.status ?? "").not.toContain("JavaScript-rendered");
+  });
+
   test("populates metadata for blocked private-network targets", async () => {
     const result = await executeWithMockFetch({
       url: "http://127.0.0.1/admin",

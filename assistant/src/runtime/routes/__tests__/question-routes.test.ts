@@ -76,10 +76,8 @@ afterEach(() => {
 describe("POST /v1/question-response", () => {
   test("submit: resolves a one-question batch with an option entry", async () => {
     const resolved: QuestionPromptResult[] = [];
-    registerQuestion(
-      "req-1",
-      [{ id: "q1", options: ["yes", "no"] }],
-      (v) => resolved.push(v as QuestionPromptResult),
+    registerQuestion("req-1", [{ id: "q1", options: ["yes", "no"] }], (v) =>
+      resolved.push(v as QuestionPromptResult),
     );
 
     const result = await call({

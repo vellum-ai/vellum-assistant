@@ -259,10 +259,6 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
                 click: () => dispatchMenuCommand({ kind: "replayOnboarding" }),
               },
               {
-                label: "Preview PreChat",
-                click: () => dispatchMenuCommand({ kind: "previewPrechat" }),
-              },
-              {
                 label: "Replay Hatch Failure",
                 click: () => dispatchToFocused({ kind: "replayHatchFailure" }),
               },

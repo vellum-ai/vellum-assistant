@@ -12,11 +12,11 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AppSummary } from "@/types/app-types";
 import {
   loadPinnedApps,
   pinApp,
   unpinApp,
+  type PinnableApp,
   type PinnedAppEntry,
 } from "@/utils/app-pin-storage";
 
@@ -37,7 +37,7 @@ export interface PinnedAppsState {
 }
 
 export interface PinnedAppsActions {
-  togglePin: (app: AppSummary) => void;
+  togglePin: (app: PinnableApp) => void;
   /**
    * Remove a pin by id. Safe to call for an app that is no longer loadable
    * (e.g. deleted server-side), which is the sidebar's only way to clear a
@@ -70,7 +70,7 @@ function loadState(): PinnedAppsState {
 const usePinnedAppsStoreBase = create<PinnedAppsStore>()((set, get) => ({
   ...loadState(),
 
-  togglePin: (app: AppSummary) => {
+  togglePin: (app: PinnableApp) => {
     if (get().pinnedAppIds.has(app.id)) {
       get().unpin(app.id);
     } else {

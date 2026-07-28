@@ -1,5 +1,5 @@
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
@@ -30,8 +30,6 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   attachments,
   assistantId,
 }) => {
-  const { openPreview, previewModal } = useAttachmentPreview(assistantId, attachments);
-
   // Ids whose previewUrl the browser failed to decode (e.g. a HEIC blob on a
   // Chromium renderer). Those fall back to the chip instead of the browser's
   // broken-image glyph.
@@ -39,6 +37,23 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   const markImageFailed = useCallback((id: string) => {
     setFailedImageIds((prev) => new Set(prev).add(id));
   }, []);
+
+  // A failed inline decode leaves a dead previewUrl (e.g. an undecodable HEIC
+  // blob on Chromium). Nulling it by id across the whole array — which is also
+  // forwarded as the modal's `siblingAttachments` — makes the chip, the modal,
+  // and gallery navigation all refetch stored bytes instead of the broken blob.
+  const previewAttachments = useMemo(
+    () =>
+      attachments.map((att) =>
+        failedImageIds.has(att.id) ? { ...att, previewUrl: null } : att,
+      ),
+    [attachments, failedImageIds],
+  );
+
+  const { openPreview, previewModal } = useAttachmentPreview(
+    assistantId,
+    previewAttachments,
+  );
 
   const handleDownload = useCallback(
     (att: DisplayAttachment) => {
@@ -54,12 +69,10 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   return (
     <>
       <div className="flex flex-col gap-2">
-        {attachments.map((att) => {
-          const imageFailed = failedImageIds.has(att.id);
+        {previewAttachments.map((att, index) => {
           const isInlineImage =
             classifyAttachment(att.mimeType, att.filename) === "image" &&
-            att.previewUrl != null &&
-            !imageFailed;
+            att.previewUrl != null;
 
           if (isInlineImage) {
             return (
@@ -84,24 +97,19 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
             );
           }
 
-          // A failed inline decode leaves a dead previewUrl (e.g. an
-          // undecodable HEIC blob on Chromium). Sanitize it so the chip and
-          // the full-screen modal both fall back to fetching stored bytes
-          // instead of reusing the broken blob.
-          const previewAttachment = imageFailed
-            ? { ...att, previewUrl: null }
-            : att;
-
           return (
             <MessageAttachmentSquare
               key={att.id}
               filename={att.filename}
               mimeType={att.mimeType}
               sizeBytes={att.sizeBytes}
-              previewUrl={previewAttachment.previewUrl}
+              previewUrl={att.previewUrl}
               thumbnailUrl={att.thumbnailUrl}
-              onPreview={() => openPreview(previewAttachment)}
-              onDownload={() => handleDownload(att)}
+              onPreview={() => openPreview(att)}
+              // Download falls back to previewUrl when the daemon content fetch
+              // is unavailable, so it takes the unsanitized attachment — a blob
+              // that can't be *rendered* is still valid bytes to save.
+              onDownload={() => handleDownload(attachments[index]!)}
             />
           );
         })}

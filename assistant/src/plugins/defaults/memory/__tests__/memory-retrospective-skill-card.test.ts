@@ -35,6 +35,21 @@ type ConversationStub = {
 } | null;
 let conversationOverrides: Record<string, ConversationStub> = {};
 
+const watchdogEvents: Array<{
+  checkName: string;
+  value?: number | null;
+  detail?: Record<string, unknown> | null;
+}> = [];
+mock.module("../../../../telemetry/watchdog-events-store.js", () => ({
+  recordWatchdogEvent: (record: {
+    checkName: string;
+    value?: number | null;
+    detail?: Record<string, unknown> | null;
+  }) => {
+    watchdogEvents.push(record);
+  },
+}));
+
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getMessagesAfter: (_id: string, _afterId: string | null) => [],
   getMessages: (_id: string) => [],
@@ -156,6 +171,7 @@ function makeInsertJob(payload: Record<string, unknown>): MemoryJob {
 
 describe("memory-retrospective skill card", () => {
   beforeEach(() => {
+    watchdogEvents.length = 0;
     addMessageCalls = [];
     addMessageThrowsFor = null;
     addMessageDeduplicatesFor = null;
@@ -191,7 +207,7 @@ describe("memory-retrospective skill card", () => {
         type: "ui_surface",
         surfaceId: "skill-card-run-conv-1",
         surfaceType: "skill_card",
-        title: "New skill learned",
+        title: "I just learned how to do 2 new things",
         display: "inline",
         data: {
           skills: [
@@ -214,7 +230,7 @@ describe("memory-retrospective skill card", () => {
       // surface-capable clients skip it via the `_surfaceFallback` flag.
       {
         type: "text",
-        text: "New skill learned: Skill A, Skill B",
+        text: "I just learned how to do Skill A, Skill B",
         _surfaceFallback: true,
       },
     ]);
@@ -317,6 +333,31 @@ describe("memory-retrospective skill card", () => {
     expect(publishedConversationIds).toHaveLength(0);
   });
 
+  test("a delivered card emits the skill_card_delivered counter; a dedup does not", async () => {
+    await insertSkillCardMessage("conv-source", "conv-run-telemetry", [
+      { skillId: "s-1", name: "Skill One", description: "d1" },
+      { skillId: "s-2", name: "Skill Two", description: "d2" },
+    ]);
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_card_delivered"),
+    ).toEqual([
+      {
+        checkName: "skill_card_delivered",
+        value: 2,
+        detail: { skill_count: 2 },
+      },
+    ]);
+
+    // Retried delivery for the same run dedups on clientMessageId — the
+    // counter must not fire again.
+    await insertSkillCardMessage("conv-source", "conv-run-telemetry", [
+      { skillId: "s-1", name: "Skill One", description: "d1" },
+    ]);
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_card_delivered"),
+    ).toHaveLength(1);
+  });
+
   test("insert is best-effort: a persistence failure never throws", async () => {
     addMessageThrowsFor = "src-conv-9";
 
@@ -359,7 +400,7 @@ describe("memory-retrospective skill card", () => {
         type: "ui_surface",
         surfaceId: "skill-card-run-conv-1",
         surfaceType: "skill_card",
-        title: "New skill learned",
+        title: "I just learned how to do Skill A",
         display: "inline",
         data: {
           skills: [
@@ -374,7 +415,7 @@ describe("memory-retrospective skill card", () => {
       },
       {
         type: "text",
-        text: "New skill learned: Skill A",
+        text: "I just learned how to do Skill A",
         _surfaceFallback: true,
       },
     ]);
@@ -448,7 +489,7 @@ describe("memory-retrospective skill card", () => {
     ]);
     expect(blocks[1]).toEqual({
       type: "text",
-      text: "New skill learned: Skill A, Skill B",
+      text: "I just learned how to do Skill A, Skill B",
       _surfaceFallback: true,
     });
     expect(publishedConversationIds).toEqual(["src-conv-9"]);

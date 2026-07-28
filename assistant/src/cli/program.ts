@@ -55,6 +55,7 @@ import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
 import { red } from "./lib/cli-colors.js";
+import { registerGlobalJsonOption } from "./lib/global-json-option.js";
 import { log } from "./logger.js";
 
 /**
@@ -150,6 +151,10 @@ Examples:
   registerUsageCommand(program);
   registerWatchersCommand(program);
   registerWebhooksCommand(program);
+
+  // Every command accepts `--json` — see registerGlobalJsonOption. Must run
+  // after all commands are registered so the whole tree is covered.
+  registerGlobalJsonOption(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.

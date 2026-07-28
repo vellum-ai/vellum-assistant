@@ -4,20 +4,28 @@ import { ChevronDown } from "lucide-react";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { ChannelIcon } from "@/utils/channel-presentation";
-import type { Conversation } from "@/types/conversation-types";
+import {
+  buildMoveToGroupTargets,
+  isInCustomGroup,
+} from "@/domains/chat/utils/group-conversations";
+import { ChannelIcon, getOpenInChannelLabel } from "@/utils/channel-presentation";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
   assistantId: string | null;
   activeConversation: Conversation | null;
   headerSupplements: ChatHeaderSupplements | null;
   showLlmInspector: boolean;
+  conversationGroups?: ConversationGroup[];
   onArchive: (c: Conversation) => void;
   onUnarchive: (c: Conversation) => void;
   onMarkUnread: (c: Conversation) => void;
   onMarkRead: (c: Conversation) => void;
   onPinToggle: (c: Conversation) => void;
   onRename: (c: Conversation) => void;
+  onMoveToGroup: (c: Conversation, groupId: string) => void;
+  onCreateGroupInto: (c: Conversation) => void;
+  onRemoveFromGroup: (c: Conversation) => void;
 }
 
 export function ChatConversationHeader({
@@ -25,18 +33,29 @@ export function ChatConversationHeader({
   activeConversation,
   headerSupplements,
   showLlmInspector,
+  conversationGroups,
   onArchive,
   onUnarchive,
   onMarkUnread,
   onMarkRead,
   onPinToggle,
   onRename,
+  onMoveToGroup,
+  onCreateGroupInto,
+  onRemoveFromGroup,
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
-    if (!assistantId) return null;
+    if (!assistantId) {return null;}
+    // `min-w-0` + `truncate` are load-bearing, not cosmetic: the header's
+    // centre slot is a `flex-1 min-w-0 justify-center` box, so when the right
+    // cluster (voice pill, assets pill) claims the row this item shrinks
+    // toward zero. Without them the span refuses to shrink and overflows its
+    // box in *both* directions — `justify-center` splits the overflow evenly —
+    // painting the title underneath the surrounding chrome. The titled branch
+    // below truncates for the same reason.
     return (
-      <span className="text-sm font-medium text-[var(--content-default)]">
-        New conversation
+      <span className="min-w-0 truncate text-sm font-medium text-[var(--content-default)]">
+        New Chat
       </span>
     );
   }
@@ -50,15 +69,31 @@ export function ChatConversationHeader({
   // channels use a neutral Lucide icon from the presentation registry.
   const channelHeaderLabel = headerSupplements?.channelHeaderLabel ?? null;
   const channelHeaderChannelId = headerSupplements?.channelHeaderChannelId ?? null;
+  const channelSourceLinkHref = headerSupplements?.channelSourceLinkHref ?? null;
+  const channelSourceLink = channelSourceLinkHref
+    ? {
+        href: channelSourceLinkHref,
+        label: getOpenInChannelLabel(channelHeaderChannelId),
+      }
+    : null;
 
   return (
     <ConversationActionsMenu
       variant="header"
+      channelSourceLink={channelSourceLink}
       isPinned={isPinned}
       isArchived={isArchived}
       isReadonly={isReadonly}
       onPinToggle={() => onPinToggle(activeConversation)}
       onRename={() => onRename(activeConversation)}
+      moveToGroups={buildMoveToGroupTargets(activeConversation, conversationGroups)}
+      onMoveToGroup={(groupId) => onMoveToGroup(activeConversation, groupId)}
+      onCreateGroupInto={() => onCreateGroupInto(activeConversation)}
+      onRemoveFromGroup={
+        isInCustomGroup(activeConversation)
+          ? () => onRemoveFromGroup(activeConversation)
+          : undefined
+      }
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
       onForkConversation={

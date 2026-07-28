@@ -10,15 +10,15 @@ import { and, eq, like, sql } from "drizzle-orm";
 
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryV1Active } from "../../../../config/memory-v3-gate.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
 import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
-  isMemoryEnabled,
+  upsertEmbedGraphNodeJob,
 } from "../../../../persistence/jobs-store.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import {
@@ -26,8 +26,13 @@ import {
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
 import { getLogger } from "../logging.js";
-import type { SkillCapabilityInput } from "../v2/skill-content.js";
+import { memoryDbOrNull } from "../memory-db.js";
+import type { SkillCapabilityInput } from "../substrate/skill-content.js";
 import { createNode } from "./store.js";
+import {
+  CAPABILITY_CLI_SOURCE_PREFIX as CLI_SOURCE_PREFIX,
+  CAPABILITY_SKILL_SOURCE_PREFIX as SKILL_SOURCE_PREFIX,
+} from "./types.js";
 
 const log = getLogger("graph-capability-seed");
 
@@ -61,10 +66,6 @@ function fromCatalogSkill(entry: RemoteCatalogSkill): SkillCapabilityInput {
 
 /** Default significance for capability nodes. */
 const CAPABILITY_SIGNIFICANCE = 0.6;
-
-/** Stable prefix for capability node source tracking. */
-const SKILL_SOURCE_PREFIX = "capability:skill:";
-const CLI_SOURCE_PREFIX = "capability:cli:";
 
 /**
  * Upsert a graph node for a skill capability.
@@ -259,9 +260,17 @@ function buildSkillContent(input: SkillCapabilityInput): string {
  *
  * We store the sourceKey in sourceConversations[0] as a stable identifier
  * (capability nodes aren't tied to a real conversation).
+ *
+ * The node write itself is all-tier — the `list_memory` surface reads
+ * capability nodes on every tier. The `embed_graph_node` enqueue is v1-only:
+ * those rows target the v1 Qdrant collection, and dispatch discards them
+ * while concept-page memory is active.
  */
 function upsertCapabilityNode(sourceKey: string, content: string): void {
-  const db = getDb();
+  const db = memoryDbOrNull("upsertCapabilityNode");
+  if (!db) {
+    return;
+  }
 
   // Find existing node by sourceKey stored in source_conversations JSON
   const existing = db
@@ -303,8 +312,8 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    if (isMemoryEnabled()) {
-      enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+    if (isMemoryV1Active(getConfig())) {
+      upsertEmbedGraphNodeJob({ nodeId: existing.id });
     }
     return;
   }
@@ -337,8 +346,8 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     imageRefs: null,
   });
 
-  if (isMemoryEnabled()) {
-    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+  if (isMemoryV1Active(getConfig())) {
+    upsertEmbedGraphNodeJob({ nodeId: node.id });
   }
   log.info({ sourceKey, nodeId: node.id }, "Created capability graph node");
 }
@@ -347,7 +356,10 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
  * Soft-delete (mark as gone) a capability node by its sourceKey.
  */
 function deleteCapabilityNode(sourceKey: string): void {
-  const db = getDb();
+  const db = memoryDbOrNull("deleteCapabilityNode");
+  if (!db) {
+    return;
+  }
   const existing = db
     .select()
     .from(memoryGraphNodes)
@@ -377,7 +389,10 @@ function deleteCapabilityNode(sourceKey: string): void {
  * surface in retrieval.
  */
 function cleanupOldFormatCapabilityNodes(): void {
-  const db = getDb();
+  const db = memoryDbOrNull("cleanupOldFormatCapabilityNodes");
+  if (!db) {
+    return;
+  }
   const now = Date.now();
 
   // --- skill:* old-format nodes ---
@@ -443,7 +458,10 @@ function cleanupOldFormatCapabilityNodes(): void {
  * Remove capability nodes whose sourceKeys are no longer in the active set.
  */
 function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
-  const db = getDb();
+  const db = memoryDbOrNull("pruneStaleCapabilities");
+  if (!db) {
+    return;
+  }
   const allCapabilities = db
     .select()
     .from(memoryGraphNodes)

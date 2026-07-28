@@ -1,19 +1,64 @@
 import { basename } from "node:path";
 
+import { z } from "zod";
+
+import { markAcpConnectCardRaised } from "../../acp/acp-connect-card-state.js";
 import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
-import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
+import {
+  ACP_CLAUDE_OAUTH_MISSING_CODE,
+  prepareAgentEnv,
+} from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
+import { FailedDependencyError } from "../../runtime/routes/errors.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { getSendToClient } from "./context.js";
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeAcpSpawn}.
+ * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
+ * tools — see the schema block in `tools/document/document-tool.ts` for the
+ * framework. The bespoke '"task" is required.' check keeps its message for
+ * the missing/null/empty cases.
+ */
+export const acpSpawnInputSchema = z.looseObject({
+  agent: nullAsOmitted(z.string()),
+  task: nullAsOmitted(z.string()),
+  cwd: nullAsOmitted(z.string()),
+});
+
+/**
+ * Recover the stable `acp_claude_oauth_missing` marker off a `prepareAgentEnv`
+ * failure so the tool result can carry it as a structured `errorCode` instead
+ * of the client re-parsing the human message string.
+ */
+function acpSpawnErrorCode(err: unknown): string | undefined {
+  if (
+    err instanceof FailedDependencyError &&
+    typeof err.details === "object" &&
+    err.details !== null &&
+    (err.details as { code?: unknown }).code === ACP_CLAUDE_OAUTH_MISSING_CODE
+  ) {
+    return ACP_CLAUDE_OAUTH_MISSING_CODE;
+  }
+  return undefined;
+}
 
 export async function executeAcpSpawn(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const agent = (input.agent as string) || "claude";
-  const task = input.task as string;
+  const parsedInput = acpSpawnInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("acp_spawn", parsedInput.error);
+  }
+  const agent = parsedInput.data.agent || "claude";
+  const task = parsedInput.data.task;
 
   if (!task) {
     return { content: '"task" is required.', isError: true };
@@ -53,12 +98,19 @@ export async function executeAcpSpawn(
     agentConfig = await prepareAgentEnv(resolved.agent);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { content: msg, isError: true };
+    const errorCode = acpSpawnErrorCode(err);
+    if (errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE) {
+      // This failure raises the inline Connect card. Record it so the
+      // credential-prompt route only redirects a redundant secure-prompt when a
+      // card actually exists (not for a proactive prompt before any failure).
+      markAcpConnectCardRaised(context.conversationId);
+    }
+    return { content: msg, isError: true, ...(errorCode ? { errorCode } : {}) };
   }
 
   try {
     const manager = getAcpSessionManager();
-    const cwd = (input.cwd as string) || context.workingDir;
+    const cwd = parsedInput.data.cwd || context.workingDir;
     const { acpSessionId, protocolSessionId } = await manager.spawn(
       agent,
       agentConfig,

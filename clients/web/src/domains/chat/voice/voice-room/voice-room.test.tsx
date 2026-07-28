@@ -9,15 +9,24 @@
  * assistant-avatar React Query graph — irrelevant to room chrome, and stubbed
  * so the exit control's independence from avatar readiness is testable).
  *
- * Exit is the load-bearing behavior: the room is a full-app takeover with no
- * minimize — ending the session is the only way out, via the ✕ control (which
- * renders even with no assistant resolved) or Escape, and the key listener is
- * removed on unmount (no leaks).
+ * Dismissal is the load-bearing behavior: the ✕ control (which renders even
+ * with no assistant resolved) ends the session; the minimize control and
+ * Escape dismiss the room while the session keeps running (`roomMinimized`
+ * flips, session state untouched); and the key listener is removed on
+ * unmount (no leaks).
  */
+
+import { type ReactNode } from "react";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 
 import type { MainView } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
@@ -30,6 +39,8 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -43,6 +54,11 @@ let mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
 let mockSearch = "";
 mock.module("react-router", () => ({
   useLocation: () => ({ pathname: mockPathname, search: mockSearch }),
+  // The settings popover's bring-your-own-provider row links to Settings; a
+  // plain anchor renders it without a Router.
+  Link: ({ to, children }: { to: string; children: ReactNode }) => (
+    <a href={typeof to === "string" ? to : "#"}>{children}</a>
+  ),
 }));
 
 let mockMainView: MainView = "chat";
@@ -108,8 +124,77 @@ const CHARACTER_COMPONENTS = {
   colors: [{ id: "green", hex: "#4C9B50" }],
 };
 
+// Stub the OAuth connect surface (pulls the managed-oauth + generated-SDK
+// graph) so the room-slot tests assert only the wiring: that the room renders
+// the pending card and routes its action to `handleSurfaceAction`.
+mock.module("@/domains/chat/components/surfaces/oauth-connect-surface", () => ({
+  OAuthConnectSurface: ({
+    surface,
+    assistantId,
+    onAction,
+  }: {
+    surface: { surfaceId: string; data?: { providerKey?: string } };
+    assistantId?: string | null;
+    onAction: (surfaceId: string, actionId: string, data?: unknown) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="room-connect-card"
+      data-assistant={assistantId ?? ""}
+      data-provider={surface.data?.providerKey ?? ""}
+      onClick={() => onAction(surface.surfaceId, "connect", { ok: true })}
+    >
+      connect
+    </button>
+  ),
+}));
+
+const handleSurfaceActionSpy = mock(async () => {});
+mock.module("@/domains/chat/surface-actions", () => ({
+  handleSurfaceAction: handleSurfaceActionSpy,
+}));
+
 // Imported after the mocks so the room picks up the mocked modules.
-const { VoiceRoom } = await import("@/domains/chat/voice/voice-room/voice-room");
+const { VoiceRoom } =
+  await import("@/domains/chat/voice/voice-room/voice-room");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
+const { attachSurface } =
+  await import("@/domains/chat/utils/stream-updaters/surface-updaters");
+const { completeSurface } =
+  await import("@/domains/chat/utils/stream-updaters/surface-updaters");
+
+type TestSurface = Parameters<typeof attachSurface>[1];
+
+/** Build an `oauth_connect` surface for the transcript snapshot. */
+function connectSurface(
+  surfaceId = "surface-oauth-1",
+  providerKey = "google",
+): TestSurface {
+  return {
+    surfaceId,
+    surfaceType: "oauth_connect",
+    title: "Connect Gmail",
+    data: { providerKey },
+  } as TestSurface;
+}
+
+/** Seed the transcript snapshot with a single assistant message + surface. */
+function seedTranscriptSurface(surface: TestSurface, completed = false): void {
+  let messages = attachSurface([], surface, "assistant-msg-1");
+  if (completed) {
+    messages = completeSurface(messages, surface.surfaceId);
+  }
+  useChatSessionStore.setState({
+    snapshot: {
+      messages,
+      seq: null,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+    },
+  });
+}
 
 const controls = makeControlsSpies();
 
@@ -140,12 +225,116 @@ beforeEach(() => {
     showUserTranscript: false,
     showAssistantTranscript: false,
   });
+  handleSurfaceActionSpy.mockClear();
+  useChatSessionStore.setState({
+    snapshot: null,
+    dismissedSurfaceIds: new Set(),
+  });
+  // Version unknown by default — the backwards-compat gate reads that as
+  // "may still raise oauth_connect mid-call", keeping the fallback card
+  // reachable (the conservative legacy path).
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 afterEach(() => {
   cleanup();
   useLiveVoiceStore.getState().reset();
   useConversationStore.getState().reset();
+  useAssistantIdentityStore.getState().clearIdentity();
+});
+
+const connectCard = () => screen.queryByTestId("room-connect-card");
+
+// Backwards-compat fallback card — see
+// use-supports-noninteractive-voice-turns.ts for the canonical writeup. The
+// suite runs with the identity cleared in `beforeEach`, which the gate
+// conservatively reads as "legacy" — the card stays reachable exactly as it
+// would against an old assistant.
+describe("VoiceRoom — OAuth connect card (backwards-compat fallback)", () => {
+  test("renders a reachable connect card when a pending oauth_connect surface exists (version unknown)", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+
+    const card = connectCard();
+    expect(card).not.toBeNull();
+    // The room's live-voice assistant id threads through to the card.
+    expect(card?.getAttribute("data-assistant")).toBe(ASSISTANT_ID);
+    expect(card?.getAttribute("data-provider")).toBe("google");
+  });
+
+  test("renders the card for a legacy assistant below the non-interactive gate", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.8", ASSISTANT_ID);
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).not.toBeNull();
+  });
+
+  test("renders no card once the assistant enforces non-interactive voice turns", () => {
+    // At MIN_VERSION+ the assistant forces supportsDynamicUi: false on voice
+    // turns — it can never raise oauth_connect mid-call, so the fallback slot
+    // stays hidden even if a stale pending surface lingers in the snapshot.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION, ASSISTANT_ID);
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("keeps the card when the hydrated version belongs to a different assistant", () => {
+    // Identity switch/re-hydration mid-call: another assistant's version
+    // must not vouch for this session's assistant — the gate scopes to the
+    // session owner and conservatively keeps the fallback reachable.
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", NONINTERACTIVE_VOICE_MIN_VERSION, "asst-other");
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+    expect(connectCard()).not.toBeNull();
+  });
+
+  test("routes the card action to handleSurfaceAction", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1", "google"));
+    render(<VoiceRoom />);
+
+    fireEvent.click(connectCard()!);
+    expect(handleSurfaceActionSpy).toHaveBeenCalledTimes(1);
+    expect(handleSurfaceActionSpy).toHaveBeenCalledWith(
+      "surface-oauth-1",
+      "connect",
+      { ok: true },
+    );
+  });
+
+  test("renders no card when the surface is already completed", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface(), true);
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("renders no card when there is no pending surface", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
+
+  test("renders no card for a dismissed surface", () => {
+    startOwnedSession("listening");
+    seedTranscriptSurface(connectSurface("surface-oauth-1"));
+    useChatSessionStore.setState({
+      dismissedSurfaceIds: new Set(["surface-oauth-1"]),
+    });
+    render(<VoiceRoom />);
+    expect(connectCard()).toBeNull();
+  });
 });
 
 const roomDialog = () =>
@@ -193,12 +382,22 @@ describe("VoiceRoom — visibility", () => {
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
   });
+
+  test("renders nothing while the room is minimized, even on the owning composer", () => {
+    // Minimized, the composer's voice bar underneath is the session control —
+    // the session itself stays live.
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setRoomMinimized(true);
+    render(<VoiceRoom />);
+    expect(roomDialog()).toBeNull();
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+  });
 });
 
 describe("VoiceRoom — listening waves", () => {
   const waves = () => screen.queryByTestId("listening-waves");
 
-  test("mounts the bottom waves while listening (energy coming in)", () => {
+  test("mounts the listening waves while listening (energy coming in)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(roomDialog()).not.toBeNull();
@@ -235,28 +434,33 @@ describe("VoiceRoom — exit", () => {
     expect(exitButton()).not.toBeNull();
     expect(screen.getByTestId("voice-avatar").textContent).toBe("no-assistant");
   });
-
 });
 
-describe("VoiceRoom — no way out but ending the session", () => {
-  test("no minimize control renders", () => {
+describe("VoiceRoom — minimize (session keeps running)", () => {
+  const minimizeButton = () =>
+    screen.queryByRole("button", { name: "Minimize voice room" });
+
+  test("the minimize control dismisses the room without ending the session", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    expect(
-      screen.queryByRole("button", { name: "Minimize voice room" }),
-    ).toBeNull();
+    fireEvent.click(minimizeButton()!);
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("Escape ends the session, same as ✕", () => {
+  test("Escape minimizes instead of ending the session", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(controls.stop).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("Escape ends the session even when an editable element holds focus (global key)", () => {
+  test("Escape minimizes even when an editable element holds focus (global key)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     // The room can open while the composer textarea still owns focus; the key
@@ -268,7 +472,8 @@ describe("VoiceRoom — no way out but ending the session", () => {
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
     });
-    expect(controls.stop).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(controls.stop).not.toHaveBeenCalled();
     input.remove();
   });
 
@@ -277,28 +482,22 @@ describe("VoiceRoom — no way out but ending the session", () => {
     const { unmount } = render(<VoiceRoom />);
     unmount();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
     expect(controls.stop).not.toHaveBeenCalled();
   });
 });
 
-describe("VoiceRoom — captions toggle", () => {
-  test("toggling captions on flips both persisted transcript prefs", () => {
+describe("VoiceRoom — settings gear", () => {
+  // The captions toggle + pause slider now live in the settings-gear popover
+  // (see voice-room-settings-menu.test.tsx for their behavior). The room just
+  // renders the gear in place of the old direct captions button.
+  test("renders the voice-settings gear, not a bare captions button", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    fireEvent.click(screen.getByRole("button", { name: "Show captions" }));
-    const prefs = useVoicePrefsStore.getState();
-    expect(prefs.showUserTranscript).toBe(true);
-    expect(prefs.showAssistantTranscript).toBe(true);
-  });
-
-  test("with any transcript pref on, the control offers to hide and clears both", () => {
-    useVoicePrefsStore.setState({ showUserTranscript: true });
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    fireEvent.click(screen.getByRole("button", { name: "Hide captions" }));
-    const prefs = useVoicePrefsStore.getState();
-    expect(prefs.showUserTranscript).toBe(false);
-    expect(prefs.showAssistantTranscript).toBe(false);
+    expect(
+      screen.getByRole("button", { name: "Voice settings" }),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
   });
 });
 
@@ -354,24 +553,44 @@ describe("VoiceRoom — connect feedback", () => {
   test("shows the connecting label while the session connects", () => {
     startOwnedSession("connecting");
     render(<VoiceRoom />);
-    expect(
-      screen.getByTestId("voice-room-connect-label").textContent,
-    ).toBe("Connecting…");
+    expect(screen.getByTestId("voice-room-connect-label").textContent).toBe(
+      "Connecting…",
+    );
   });
 
   test("relabels to Reconnecting… while retrying a dropped connection", () => {
     startOwnedSession("connecting");
     useLiveVoiceStore.getState().setReconnecting(true);
     render(<VoiceRoom />);
-    expect(
-      screen.getByTestId("voice-room-connect-label").textContent,
-    ).toBe("Reconnecting…");
+    expect(screen.getByTestId("voice-room-connect-label").textContent).toBe(
+      "Reconnecting…",
+    );
   });
 
   test("no connect label once listening", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(screen.queryByTestId("voice-room-connect-label")).toBeNull();
+  });
+});
+
+describe("VoiceRoom — audio-aware status label (JARVIS-1279)", () => {
+  // The sr-only aria-live region uses the "…"-suffixed state labels, distinct
+  // from the caption's un-suffixed text (e.g. "Thinking" vs "Thinking…").
+  test("announces Thinking… (not Speaking…) during a silent mid-turn speaking phase", () => {
+    startOwnedSession("speaking");
+    // A mid-turn tool run: still `speaking`, but audio has stopped flowing.
+    useLiveVoiceStore.setState({ assistantAudioActive: false });
+    render(<VoiceRoom />);
+    expect(screen.getByText("Thinking…")).toBeTruthy();
+    expect(screen.queryByText("Speaking…")).toBeNull();
+  });
+
+  test("announces Speaking… while audio is actually flowing", () => {
+    // seedLiveVoiceSession marks a `speaking` session audio-active.
+    startOwnedSession("speaking");
+    render(<VoiceRoom />);
+    expect(screen.getByText("Speaking…")).toBeTruthy();
   });
 });
 
@@ -446,6 +665,93 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     render(<VoiceRoom />);
     expect(eyes()).toBeNull();
     expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+  });
+});
+
+describe("VoiceRoom — state caption (shared across looks)", () => {
+  const caption = () => screen.queryByTestId("voice-state-caption");
+
+  function renderCharacterLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  // The void look (custom-image / unresolved avatar) carries the centered
+  // avatar, not the eyes, but shares the same caption in the same beat.
+  function renderVoidLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  test("shows the state caption below the eyes by default (captions off)", () => {
+    renderCharacterLook("listening");
+    expect(caption()?.textContent).toBe("Listening");
+  });
+
+  test("stands the caption down when the assistant transcript is enabled", () => {
+    useVoicePrefsStore.setState({ showAssistantTranscript: true });
+    renderCharacterLook("speaking");
+    expect(caption()).toBeNull();
+  });
+
+  test("keeps the caption when only the user transcript is enabled", () => {
+    // The user transcript floats *above* the eyes, so it never fills the
+    // caption's lower space — enabling it alone must not blank the caption.
+    useVoicePrefsStore.setState({ showUserTranscript: true });
+    renderCharacterLook("listening");
+    expect(caption()?.textContent).toBe("Listening");
+  });
+
+  test("the void look shows the same caption below the custom avatar (parity)", () => {
+    renderVoidLook("speaking");
+    // Void look — the centered avatar, not the eyes — still names the beat.
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
+    expect(caption()?.textContent).toBe("Speaking");
+  });
+
+  test("the void look stands its caption down for the assistant transcript too", () => {
+    useVoicePrefsStore.setState({ showAssistantTranscript: true });
+    renderVoidLook("speaking");
+    expect(caption()).toBeNull();
+  });
+});
+
+describe("VoiceRoom — void-look responding rings", () => {
+  const rings = () => screen.queryByTestId("voice-responding-rings");
+
+  function renderVoidLook(state: LiveVoiceSessionState) {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: null,
+      customImageUrl: "blob:custom-avatar",
+    };
+    startOwnedSession(state);
+    render(<VoiceRoom />);
+  }
+
+  test("emits the same concentric rings behind the custom avatar while responding", () => {
+    renderVoidLook("speaking");
+    // The custom avatar (not the eyes) is the centerpiece, but it radiates the
+    // color look's rings — parity with the eyes' responding treatment.
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
+    expect(rings()).toBeTruthy();
+  });
+
+  test("shows no rings outside responding (energy going out only while speaking)", () => {
+    renderVoidLook("listening");
+    expect(rings()).toBeNull();
   });
 });
 

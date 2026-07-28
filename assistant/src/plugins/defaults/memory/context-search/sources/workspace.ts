@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, sep } from "node:path";
 
+import { isPathInsideRoot } from "../../path-containment.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
@@ -1206,14 +1207,6 @@ export function normalizeWorkspacePathLiteral(
     return null;
   }
   return withoutLineSuffix.split(sep).join("/");
-}
-
-function isPathInsideRoot(pathToCheck: string, rootRealPath: string): boolean {
-  const pathRelativeToRoot = relative(rootRealPath, pathToCheck);
-  return (
-    pathRelativeToRoot === "" ||
-    (!pathRelativeToRoot.startsWith("..") && !isAbsolute(pathRelativeToRoot))
-  );
 }
 
 function toWorkspaceRelativePath(

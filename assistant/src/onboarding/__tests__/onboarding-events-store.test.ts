@@ -1,20 +1,13 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-// Mutable consent gate, flipped per-test.
-let shareAnalytics = true;
-mock.module("../../platform/consent-cache.js", () => ({
-  getCachedShareAnalytics: () => shareAnalytics,
-}));
-
-import * as dbConnection from "../../persistence/db-connection.js";
+import { getTelemetrySqlite } from "../../persistence/db-connection.js";
 import {
-  getTelemetryDb,
-  getTelemetrySqlite,
-} from "../../persistence/db-connection.js";
-import { initializeDb } from "../../persistence/db-init.js";
-import { telemetryEvents } from "../../persistence/schema/index.js";
+  pendingOutboxPayloads,
+  resetOutboxTable,
+  setShareAnalytics,
+  withTelemetryDbUnavailable,
+} from "../../telemetry/__tests__/outbox-test-harness.js";
 import { ACTIVATION_FUNNEL_VERSION } from "../../telemetry/activation-funnel.js";
-import { queryTelemetryOutboxBatch } from "../../telemetry/telemetry-events-outbox.js";
 import type { OnboardingTelemetryEvent } from "../../telemetry/types.js";
 import { APP_VERSION } from "../../version.js";
 import {
@@ -22,33 +15,15 @@ import {
   recordOnboardingEvent,
 } from "../onboarding-events-store.js";
 
-await initializeDb();
-
-function resetTable(): void {
-  getTelemetryDb()!.delete(telemetryEvents).run();
-}
-
 /** Pending onboarding outbox payloads, parsed, in `(created_at, id)` order. */
 function pendingOnboardingPayloads(): OnboardingTelemetryEvent[] {
-  return queryTelemetryOutboxBatch("onboarding", 10).map(
-    (row) => JSON.parse(row.payload) as OnboardingTelemetryEvent,
-  );
-}
-
-/** Run `fn` with the dedicated telemetry connection reported as unavailable. */
-function withTelemetryDbUnavailable(fn: () => void): void {
-  const spy = spyOn(dbConnection, "getTelemetryDb").mockReturnValue(null);
-  try {
-    fn();
-  } finally {
-    spy.mockRestore();
-  }
+  return pendingOutboxPayloads<OnboardingTelemetryEvent>("onboarding", 10);
 }
 
 describe("onboarding-events-store: recordActivationEvent", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    resetTable();
+    setShareAnalytics(true);
+    resetOutboxTable();
   });
 
   test("stores the full wire payload with the deterministic activation daemon_event_id", () => {
@@ -104,7 +79,7 @@ describe("onboarding-events-store: recordActivationEvent", () => {
   });
 
   test("returns null and writes no row when share_analytics is disabled", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     const event = recordActivationEvent({
       stepName: "activation_moment_1_complete",
       sessionId: "conv-3",
@@ -129,8 +104,8 @@ describe("onboarding-events-store: recordActivationEvent", () => {
 
 describe("onboarding-events-store: recordOnboardingEvent", () => {
   beforeEach(() => {
-    shareAnalytics = true;
-    resetTable();
+    setShareAnalytics(true);
+    resetOutboxTable();
   });
 
   test("stores a pre-chat wire payload with daemon_event_id = row id and no funnel fields", () => {
@@ -168,7 +143,7 @@ describe("onboarding-events-store: recordOnboardingEvent", () => {
   });
 
   test("returns null and writes no row when share_analytics is disabled", () => {
-    shareAnalytics = false;
+    setShareAnalytics(false);
     expect(recordOnboardingEvent({ screen: "tools" })).toBeNull();
     expect(pendingOnboardingPayloads()).toHaveLength(0);
   });

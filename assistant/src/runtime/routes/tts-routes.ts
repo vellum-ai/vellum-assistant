@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import { getConfig } from "../../config/loader.js";
+import { managedSpeechVoices } from "../../platform/managed-speech.js";
 import { listCatalogProvidersForDisplay } from "../../tts/provider-catalog.js";
 import {
   synthesizeText,
@@ -131,6 +132,17 @@ function handleListTtsProviders() {
   return { providers: listCatalogProvidersForDisplay() };
 }
 
+async function handleListManagedVoices() {
+  const result = await managedSpeechVoices();
+  if (!result.ok) {
+    if (result.kind === "unavailable") {
+      throw new ServiceUnavailableError(result.message);
+    }
+    throw new BadGatewayError(result.message);
+  }
+  return result.value;
+}
+
 async function handleSynthesizeTts({ body }: RouteHandlerArgs) {
   if (!body?.text || typeof body.text !== "string") {
     throw new BadRequestError("text is required");
@@ -161,12 +173,14 @@ async function handleSynthesizeCliTts({ body }: RouteHandlerArgs) {
   const useCase: TtsUseCase =
     (body.useCase as TtsUseCase | undefined) ?? "message-playback";
   const voiceId =
-    body.voiceId && typeof body.voiceId === "string"
-      ? body.voiceId
-      : undefined;
+    body.voiceId && typeof body.voiceId === "string" ? body.voiceId : undefined;
 
   try {
-    const result = await synthesizeText({ text: sanitizedText, useCase, voiceId });
+    const result = await synthesizeText({
+      text: sanitizedText,
+      useCase,
+      voiceId,
+    });
     return {
       audioBase64: Buffer.from(result.audio).toString("base64"),
       contentType: result.contentType,
@@ -221,6 +235,32 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleListTtsProviders,
   },
   {
+    operationId: "tts_managed_voices",
+    endpoint: "tts/managed-voices",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List managed TTS voices",
+    description:
+      "Return the voices offered by Vellum managed TTS, fetched live from the platform. Only currently-usable voices are returned; defaultModel is always one of them (null when none are offered).",
+    tags: ["tts"],
+    responseBody: z.object({
+      voices: z.array(
+        z.object({
+          model: z.string(),
+          label: z.string(),
+          description: z.string(),
+          sampleUrl: z.string(),
+          source: z.string(),
+        }),
+      ),
+      defaultModel: z.string().nullable(),
+    }),
+    handler: handleListManagedVoices,
+  },
+  {
     operationId: "tts_synthesize",
     endpoint: "tts/synthesize",
     method: "POST",
@@ -273,7 +313,9 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       audioBase64: z.string().describe("Base64-encoded audio bytes"),
-      contentType: z.string().describe("MIME type of the audio (e.g. audio/mpeg)"),
+      contentType: z
+        .string()
+        .describe("MIME type of the audio (e.g. audio/mpeg)"),
     }),
     handler: handleSynthesizeCliTts,
   },

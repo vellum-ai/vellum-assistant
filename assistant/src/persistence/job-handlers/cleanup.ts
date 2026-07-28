@@ -1,4 +1,6 @@
 import type { AssistantConfig } from "../../config/types.js";
+import { HOOKS } from "../../plugin-api/constants.js";
+import { runHook } from "../../plugins/pipeline.js";
 import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
@@ -38,8 +40,13 @@ export async function pruneOldLlmRequestLogsJob(
         ? rawRetention
         : config.memory.cleanup.llmRequestLogRetentionMs;
 
-  // null means "keep forever" — skip pruning entirely
-  if (retentionMs === null || retentionMs === undefined) return;
+  // null/0 means "keep forever" — skip pruning entirely. 0 is excluded (not
+  // just null) to match the scheduler in maybeEnqueueScheduledCleanupJobs,
+  // which no longer enqueues a retention-0 prune; guarding here too ensures a
+  // job left pending from before that fix does not wipe every log on its next
+  // run.
+  if (retentionMs === null || retentionMs === undefined || retentionMs <= 0)
+    return;
 
   const cutoffMs = Math.floor(Date.now() - retentionMs);
   if (!Number.isFinite(cutoffMs)) return;
@@ -104,9 +111,10 @@ export async function pruneOldToolInvocationsJob(
       ? rawRetention
       : config.auditLog.retentionDays;
 
-  // 0 means disabled. rotateToolInvocations no-ops on this too, but
-  // short-circuit so we don't dispatch a pointless async query.
-  if (!retentionDays) return;
+  // 0 (or any non-positive window) means disabled — keep forever. Guarding
+  // <= 0 mirrors the LLM-log prune and short-circuits before dispatching a
+  // pointless async query (rotateToolInvocations no-ops on this too).
+  if (retentionDays <= 0) return;
 
   await rotateToolInvocations(retentionDays);
 }
@@ -158,8 +166,10 @@ export function pruneOldConversationsJob(
       ? job.payload.retentionDays
       : config.memory.cleanup.conversationRetentionDays;
 
-  // 0 means disabled
-  if (retentionDays === 0) return;
+  // 0 (or any non-positive window) means disabled — keep forever. Guarding
+  // <= 0 mirrors the LLM-log prune so a stray non-positive window can never
+  // produce a cutoff at/after `now` that deletes live conversations.
+  if (retentionDays <= 0) return;
 
   const cutoffMs = Date.now() - retentionDays * 86_400_000;
 
@@ -172,7 +182,7 @@ export function pruneOldConversationsJob(
   if (stale.length === 0) return;
 
   const db = getDb();
-  let pruned = 0;
+  const prunedIds: string[] = [];
   for (const { id } of stale) {
     db.transaction(() => {
       // Re-check staleness inside the transaction to avoid racing with a conversation
@@ -218,9 +228,19 @@ export function pruneOldConversationsJob(
         `DELETE FROM conversations WHERE id = ?`,
         id,
       );
-      pruned++;
+      prunedIds.push(id);
     });
   }
+
+  // Fire the conversation-deleted signal for each pruned id, mirroring the
+  // single-delete primitive: the memory plugin's hook purges its relocated
+  // per-conversation tables and cancels the conversation's pending jobs.
+  // Fire-and-forget, after the rows are gone — a lost cleanup only leaves
+  // harmless orphan rows in derived tables.
+  for (const id of prunedIds) {
+    void runHook(HOOKS.CONVERSATION_DELETED, { conversationId: id });
+  }
+  const pruned = prunedIds.length;
 
   if (stale.length === PRUNE_BATCH_LIMIT) {
     enqueueMemoryJob("prune_old_conversations", { retentionDays });

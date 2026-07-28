@@ -88,9 +88,15 @@ import {
   PluginNotUpgradableError,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import { getPlatformBaseUrl } from "../../config/env.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
+import {
+  deactivatePluginForUpdate,
+  reconcilePluginSourcesNow,
+} from "../../plugins/mtime-cache.js";
 import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -212,6 +218,12 @@ const pluginSearchMatchSchema = z.object({
     .string()
     .optional()
     .describe("Short description, when known (external entries only today)."),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Plugin icon: a curated emoji from the marketplace entry, or an icon URL served by the platform catalog when the plugin ships a bundled image.",
+    ),
   category: z
     .string()
     .nullable()
@@ -695,6 +707,37 @@ const pluginDiffResponseSchema = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
+const log = getLogger("plugins-routes");
+
+/**
+ * Emit a structured log for a platform plugin-catalog outage before the caller
+ * maps it to a client-facing error.
+ *
+ * The catalog fetcher (`plugin-catalog-platform.ts`) throws
+ * `PluginCatalogUnavailableError` without logging, and the transport adapters
+ * return the resulting `RouteError` (a 503) without any Sentry capture — so an
+ * outage on the platform-first paths (`search`, `install`, the remote-only
+ * detail view) otherwise leaves no trace beyond the daemon access-log status
+ * code, and the real upstream status / URL is lost. Log at `error` so the
+ * outage is time-correlatable in the daemon log and surfaces in Sentry;
+ * `upstreamStatus` preserves the true platform status (e.g. 404 / 500 / 503)
+ * that the client-facing 503 collapses.
+ */
+function logPluginCatalogUnavailable(
+  operation: string,
+  err: PluginCatalogUnavailableError,
+): void {
+  log.error(
+    {
+      err,
+      operation,
+      upstreamStatus: err.status,
+      platformBaseUrl: getPlatformBaseUrl(),
+    },
+    "Platform plugin catalog unavailable",
+  );
+}
+
 interface PluginView {
   id: string;
   name: string;
@@ -788,6 +831,7 @@ interface PluginMatchView {
   name: string;
   path: string;
   description?: string;
+  icon?: string;
   category: string | null;
   source: { kind: "github"; repo: string; path?: string; ref: string };
 }
@@ -814,6 +858,9 @@ function projectMatch(
   };
   if (m.description !== undefined) {
     view.description = m.description;
+  }
+  if (m.icon !== undefined) {
+    view.icon = m.icon;
   }
   return view;
 }
@@ -870,10 +917,31 @@ export async function loadCategoryMapBounded(
       }),
     ]);
     if (!catalog) {
+      // Timed out past the budget: the installed list degrades to no
+      // categories rather than stalling. Non-fatal, but log it so a slow
+      // marketplace is diagnosable and not silently invisible.
+      log.warn(
+        { timeoutMs, platformBaseUrl: getPlatformBaseUrl() },
+        "Plugin catalog lookup timed out; listing without categories",
+      );
       return new Map();
     }
     return new Map(catalog.matches.map((m) => [m.name, m.category]));
-  } catch {
+  } catch (err) {
+    // The installed list must never fail on a catalog outage, so this degrades
+    // to no categories — but log it (warn: the request still succeeds) so the
+    // same platform outage that hard-fails search/install is not invisible on
+    // the list path. `upstreamStatus` is preserved when the failure carries one.
+    log.warn(
+      {
+        err,
+        platformBaseUrl: getPlatformBaseUrl(),
+        ...(err instanceof PluginCatalogUnavailableError
+          ? { upstreamStatus: err.status }
+          : {}),
+      },
+      "Plugin catalog lookup failed; listing without categories",
+    );
     return new Map();
   } finally {
     if (timer) {
@@ -989,6 +1057,7 @@ async function handleSearchPlugins({
     // misleading 500 so the client can show a "temporarily unavailable"
     // state and retry later.
     if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("search", err);
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
@@ -1027,7 +1096,15 @@ async function handleUninstallPlugin({
   await ensurePluginApiShim().catch(() => {});
 
   try {
+    // `uninstallPlugin` runs the plugin's `shutdown` hook (while its files are
+    // still present) and then removes the directory — both in this daemon
+    // process. Following it with a reconcile drops the plugin's now-absent
+    // tools and hooks from the in-memory caches immediately (the `shutdown`
+    // already ran, so the reconcile's deactivation does not run it again),
+    // rather than leaving that to the background source watcher. Symmetric to
+    // the install route, which reconciles to bring a new plugin up.
     const result = await uninstallPlugin({ name: rawName });
+    await reconcilePluginSourcesNow();
     publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {
@@ -1070,6 +1147,7 @@ async function handleGetPluginDetails({
     // transient — surface it as retryable rather than a misleading 404/500 so
     // clients retry instead of treating the plugin as permanently gone.
     if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("details", err);
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
@@ -1162,6 +1240,12 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
         { fetch: globalThis.fetch.bind(globalThis) },
       );
     }
+    // Bring the freshly materialized plugin up in-process right now — register
+    // its tools and run its `init` hook — instead of waiting for the resource
+    // monitor to republish the sentinel and a later turn to apply it. This is
+    // what makes `init` fire as part of the install rather than at the next
+    // daemon boot. Never throws; a failure is contained and logged.
+    await reconcilePluginSourcesNow();
     publishPluginsChanged(getOriginClientId(headers));
     return {
       ok: true as const,
@@ -1197,6 +1281,7 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
     // A rate-limited or unavailable platform catalog (no stale fallback) is
     // transient — surface it as retryable rather than a misleading 500.
     if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("install", err);
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
@@ -1331,11 +1416,46 @@ async function handleUpgradePlugin({
   // (resolved inside `upgradePlugin` via `inspectPlugin`), never a
   // caller-supplied ref — a `settings.write` principal cannot redirect the
   // upgrade at an unreviewed revision.
+  //
+  // Ensure the workspace `@vellumai/plugin-api` shim before the upgrade (as
+  // the uninstall route does before `uninstallPlugin`): the old version's
+  // `shutdown` runs mid-upgrade at the swap boundary, and a hook that imports
+  // the package must resolve even inside the daemon boot window.
+  await ensurePluginApiShim().catch(() => {});
+  // Set when the upgrade reached the swap boundary and this route deactivated
+  // the old version; from that point the plugin is down until a reconcile
+  // brings the on-disk version up, so the reconcile below must run even when
+  // the swap itself failed (re-initializing the untouched old install).
+  let deactivated = false;
   try {
+    const name = sanitizePluginName(rawName);
     const result = await upgradePlugin(
-      { name: rawName, dryRun, strategy },
-      { fetch: globalThis.fetch.bind(globalThis) },
+      { name, dryRun, strategy },
+      {
+        fetch: globalThis.fetch.bind(globalThis),
+        // Tear the old version down BEFORE the staged tree replaces its
+        // files, mirroring uninstall (shutdown runs while the files it was
+        // initialized from are still on disk). Deactivating in-process also
+        // marks the plugin inactive, so the post-swap reconcile's redeploy
+        // branch skips its own deactivate (no double shutdown) and only the
+        // new version's `init` remains to run.
+        beforeSwap: async () => {
+          deactivated = true;
+          await deactivatePluginForUpdate(name);
+        },
+      },
     );
+    // Bring the change up in-process right now — the new version's `init`
+    // via the reconcile — instead of waiting for the resource monitor to
+    // republish the sentinel and a later turn to apply it. This is what
+    // makes the lifecycle fire as part of the upgrade rather than at the
+    // next daemon boot, symmetric to the install and uninstall routes. A
+    // no-op or dry run leaves the tree unchanged (and never reaches the
+    // swap boundary), so there is nothing to reconcile. Never throws; a
+    // failure is contained and logged.
+    if (result.outcome === "upgraded") {
+      await reconcilePluginSourcesNow();
+    }
     publishPluginsChanged(getOriginClientId(headers));
     return {
       name: result.name,
@@ -1368,9 +1488,10 @@ async function handleUpgradePlugin({
     if (err instanceof PluginMergeBaselineError) {
       throw new ConflictError(err.message);
     }
-    // The install exists but has no marketplace entry to advance to — a
-    // permanent state the caller cannot resolve by retrying. 409 marks the
-    // request as well-formed but not actionable in the current state.
+    // The install has neither a marketplace entry nor a recorded GitHub source
+    // to advance to — a permanent state the caller cannot resolve by retrying.
+    // 409 marks the request as well-formed but not actionable in the current
+    // state.
     if (err instanceof PluginNotUpgradableError) {
       throw new ConflictError(err.message);
     }
@@ -1382,6 +1503,18 @@ async function handleUpgradePlugin({
     throw new InternalError(
       err instanceof Error ? err.message : "plugin upgrade failed",
     );
+  } finally {
+    // Once `beforeSwap` deactivated the old version, the plugin is down until
+    // a reconcile brings the on-disk tree up — the new revision on success,
+    // or the untouched old install when the swap itself failed. Run it here
+    // rather than only on the success path so a failed swap never strands
+    // the plugin deactivated until the next sentinel-driven reconcile.
+    // (On success this is the same reconcile the try block already awaited;
+    // `reconcilePluginSourcesNow` coalesces, and a second pass with nothing
+    // changed is a cheap no-op.)
+    if (deactivated) {
+      await reconcilePluginSourcesNow();
+    }
   }
 }
 
@@ -1799,9 +1932,9 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Upgrade a plugin to the marketplace pin",
+    summary: "Upgrade a plugin to its source's current revision",
     description:
-      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
+      'Move an installed plugin to its source\'s current revision, re-materializing it under `<workspaceDir>/plugins/<name>/`. A marketplace plugin advances to the curated pin; a plugin installed directly from a GitHub URL (untrusted, not in the marketplace) advances to whatever its recorded ref now resolves to — a pinned SHA is immutable (a no-op), a branch/tag/HEAD moves as upstream does — re-materialized verbatim with no curated adapter overlay, exactly as the original untrusted install was. The target ref is never taken from the request (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the target; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the target wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the target (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -1824,7 +1957,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       "409": {
         description:
-          "The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
+          "The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
       },
       "503": {
         description:

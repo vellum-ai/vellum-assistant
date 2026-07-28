@@ -107,3 +107,23 @@ describe("setImageGenModel — provider derived from model prefix", () => {
     expect(imageGen?.provider).toBe("openai");
   });
 });
+
+describe("setImageGenModel with provider vellum", () => {
+  test("a model change leaves provider vellum untouched", () => {
+    writeConfig({
+      services: {
+        "image-generation": { provider: "vellum", model: "gpt-image-2" },
+      },
+    });
+
+    setImageGenModel("gemini-3-pro-image-preview", makeCtx());
+
+    const raw = readConfig() as {
+      services: { "image-generation": { provider: string; model: string } };
+    };
+    expect(raw.services["image-generation"].model).toBe(
+      "gemini-3-pro-image-preview",
+    );
+    expect(raw.services["image-generation"].provider).toBe("vellum");
+  });
+});

@@ -1,13 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Services } from "../config/schemas/services.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
@@ -111,7 +102,6 @@ let mockPlatformAssistantId = "";
 let mockAssistantApiKey: string | null = null;
 let mockProviderKeys: Record<string, string> = {};
 const defaultWebSearchService: Services["web-search"] = {
-  mode: "your-own",
   provider: "inference-provider-native",
 };
 
@@ -143,7 +133,7 @@ mock.module("../platform/feature-gate.js", () => ({
   arePlatformFeaturesEnabled: () => true,
 }));
 
-import { type LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
+import { LLMSchema } from "../config/schemas/llm.js";
 import type { ProvidersConfig } from "../providers/registry.js";
 import {
   getProvider,
@@ -159,25 +149,20 @@ function makeProvidersConfig(
   model: string,
   webSearch: Services["web-search"] = defaultWebSearchService,
 ): ProvidersConfig {
-  const baseLlm = LLMSchema.parse({});
   return {
     services: {
       inference: {},
       "image-generation": {
-        mode: "your-own",
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },
       "web-search": webSearch,
     },
-    llm: {
-      ...baseLlm,
-      default: {
-        ...baseLlm.default,
-        provider: provider as LLMConfigBase["provider"],
-        model,
-      },
-    },
+    // The mainAgent call-site tweak is applied last by the resolver, so it
+    // fully determines the provider/model the registry resolves at boot.
+    llm: LLMSchema.parse({
+      callSites: { mainAgent: { provider, model } },
+    }),
   };
 }
 
@@ -190,7 +175,6 @@ const MANAGED_API_KEY = "ast-managed-key-123";
 const PLATFORM_ASSISTANT_ID = "assistant-abc123";
 
 const MANAGED_NATIVE_WEB_SEARCH: Services["web-search"] = {
-  mode: "managed",
   provider: "inference-provider-native",
 };
 
@@ -399,9 +383,10 @@ describe("managed proxy integration — credential precedence", () => {
       enableManagedProxy();
       mockProviderKeys = {};
       setConfig("llm", {
-        default: { provider: "gemini", model: "gemini-3.1-pro" },
         profiles: {
+          // Complete (provider + model) so the override pin wins resolution.
           "conversation-profile": {
+            provider: "gemini",
             model: "gemini-3.1-flash",
             source: "user",
           },
@@ -454,9 +439,6 @@ describe("managed proxy integration — credential precedence", () => {
     test("managed gemini omits attribution headers without callSite", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
-      setConfig("llm", {
-        default: { provider: "gemini", model: "gemini-3.1-pro" },
-      });
       await initializeProviders(
         makeProvidersConfig("gemini", "gemini-3.1-pro"),
       );
@@ -631,13 +613,7 @@ describe("managed proxy integration — ollama exclusion", () => {
   test("ollama registers only when explicitly configured as provider", async () => {
     enableManagedProxy();
     mockProviderKeys = {};
-    const config = makeProvidersConfig("ollama", "test-model");
-    // Disable the catalog default so resolution lands on llm.default.
-    config.llm.profiles = {
-      ...config.llm.profiles,
-      balanced: { source: "managed", status: "disabled" },
-    };
-    await initializeProviders(config);
+    await initializeProviders(makeProvidersConfig("ollama", "test-model"));
     expect(listProviders()).toContain("ollama");
   });
 

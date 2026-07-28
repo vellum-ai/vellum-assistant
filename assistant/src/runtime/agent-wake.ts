@@ -70,8 +70,6 @@ import type {
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import {
-  isOverrideOrDefaultResolutionEnabled,
-  resolveDefaultProfileKey,
   resolveProfilelessModelKey,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
@@ -117,6 +115,7 @@ import {
 } from "../security/untrusted-content.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
+import { createKeyedSingleFlight } from "../util/single-flight.js";
 
 const log = getLogger("agent-wake");
 
@@ -294,6 +293,14 @@ export interface WakeOptions {
    */
   toolContextPin?: WakeToolContextPin;
   /**
+   * Skill IDs to preactivate for the wake so their bundled tools join the
+   * turn's active set (`allowedToolNames`) without a prior `skill_load`.
+   * Applied and restored alongside `allowedTools`; ignored when `allowedTools`
+   * is absent. Used by fork-based memory retrospectives to make the
+   * skill-management authoring tools callable directly.
+   */
+  preactivateSkillIds?: readonly string[];
+  /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
    * afterwards. Wakes bypass the orchestrator's turn-start persona snapshot,
@@ -439,7 +446,9 @@ async function defaultResolveTarget(
     await import("../daemon/conversation-store.js");
   try {
     const existing = getConversation(conversationId);
-    if (!existing) return null;
+    if (!existing) {
+      return null;
+    }
     if (existing.archivedAt != null) {
       log.info(
         { conversationId },
@@ -468,36 +477,13 @@ async function defaultResolveTarget(
 
 // ── Per-conversation single-flight lock ───────────────────────────────
 //
-// Simple promise-chain map. When a wake arrives and another run is in
-// flight, we chain onto its tail so the wake runs *after* the current
-// work completes. Using the tail promise avoids awaiting every prior
-// completion in the chain (only the last one matters) and keeps memory
-// bounded — the map entry is cleared once the chain completes.
+// When a wake arrives and another run is in flight for the same
+// conversation, we chain onto its tail so the wake runs *after* the current
+// work completes. `createKeyedSingleFlight` owns the tail-chaining and
+// bounded-map bookkeeping; wakes serialize on their own chain, independent of
+// any other single-flight consumer.
 
-const wakeChain = new Map<string, Promise<void>>();
-
-async function runSingleFlight<T>(
-  conversationId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const prior = wakeChain.get(conversationId) ?? Promise.resolve();
-  let release!: () => void;
-  const next = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  // Install our tail *before* awaiting so later callers chain behind us.
-  wakeChain.set(conversationId, next);
-  try {
-    await prior;
-    return await fn();
-  } finally {
-    // Only clear the map entry if nothing chained behind us in the meantime.
-    if (wakeChain.get(conversationId) === next) {
-      wakeChain.delete(conversationId);
-    }
-    release();
-  }
-}
+const runWakeSingleFlight = createKeyedSingleFlight();
 
 /**
  * How long a wake waits for an in-flight turn to release the conversation's
@@ -589,7 +575,9 @@ function inspectWakeOutput(
   let hasVisibleText = false;
   const toolUseNames: string[] = [];
   for (const msg of tailMessages) {
-    if (msg.role !== "assistant") continue;
+    if (msg.role !== "assistant") {
+      continue;
+    }
     const blocks = Array.isArray(msg.content) ? msg.content : [];
     for (const block of blocks) {
       if (block.type === "text" && typeof block.text === "string") {
@@ -626,7 +614,7 @@ export async function wakeAgentForOpportunity(
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
 
-  return runSingleFlight(conversationId, async () => {
+  return runWakeSingleFlight(conversationId, async () => {
     // Snapshot the conversation's resting trust before the resolver runs, so
     // it can be restored after. The resolver leaves the wake's trust on the
     // conversation, and a following no-trust wake would otherwise read it via
@@ -749,21 +737,14 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
-    // Same winner-selection sourcing as the agent loop's key: under
-    // override-or-default semantics a hand-mirrored chain would disagree
-    // with dispatch (a non-forced override now wins on every call site).
+    // Same winner-selection sourcing as the agent loop's key: a hand-mirrored
+    // chain would disagree with dispatch (a non-forced override wins on every
+    // call site).
     const modelProfileKey =
-      (isOverrideOrDefaultResolutionEnabled()
-        ? selectWinningProfile(callSite, config.llm, {
-            ...(overrideProfile != null ? { overrideProfile } : {}),
-            selectionSeed: conversationId,
-          }).profileName
-        : ((forceOverrideProfile || callSite === "mainAgent"
-            ? overrideProfile
-            : undefined) ??
-          resolveDefaultProfileKey(callSite, config.llm) ??
-          overrideProfile ??
-          resolveDefaultProfileKey("mainAgent", config.llm))) ??
+      selectWinningProfile(callSite, config.llm, {
+        ...(overrideProfile != null ? { overrideProfile } : {}),
+        selectionSeed: conversationId,
+      }).profileName ??
       resolveProfilelessModelKey(callSite, config.llm, {
         ...(overrideProfile != null ? { overrideProfile } : {}),
         ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
@@ -857,6 +838,12 @@ export async function wakeAgentForOpportunity(
           conversation,
           triggerMessage,
           source,
+          // Forward this wake's `clientless` option; `persistWakeTriggerMessage`
+          // derives the recorded interactivity from it plus the conversation's
+          // client state, matching the mode the loop resolves for the dispatch
+          // below (`clientless` pins `hasNoClient` → non-interactive; see the
+          // `hasNoClient` pin before `agentLoop.run`). A later retry replays it.
+          opts.clientless ?? false,
           opts.backgroundToolCompletion,
         );
       } catch (err) {
@@ -1123,7 +1110,9 @@ export async function wakeAgentForOpportunity(
     // and renames `text_delta` → `assistant_text_delta`; bypassing it
     // would ship malformed wire frames.
     const goLive = (currentHistory: Message[]): void => {
-      if (mode === "live") return;
+      if (mode === "live") {
+        return;
+      }
       if (!surfaceInjected) {
         if (!opts.suppressWakeSurface) {
           const tailStart = baselineLength + wakeHintMessageCount;
@@ -1186,7 +1175,9 @@ export async function wakeAgentForOpportunity(
       currentHistory: Message[],
     ): Promise<void> => {
       const start = baselineLength + wakeHintMessageCount + persistedTailIndex;
-      if (start >= currentHistory.length) return;
+      if (start >= currentHistory.length) {
+        return;
+      }
       const newMessages = currentHistory.slice(start);
       for (const msg of newMessages) {
         conversation.messages.push(msg);
@@ -1207,9 +1198,13 @@ export async function wakeAgentForOpportunity(
     let wakeToolScopeRestored = false;
     let restoreWakeToolScope: (() => void) | null = null;
     const restoreWakeAllowedTools = (): void => {
-      if (wakeToolScopeRestored) return;
+      if (wakeToolScopeRestored) {
+        return;
+      }
       wakeToolScopeRestored = true;
-      if (!restoreWakeToolScope) return;
+      if (!restoreWakeToolScope) {
+        return;
+      }
       try {
         restoreWakeToolScope();
       } catch (err) {
@@ -1220,13 +1215,16 @@ export async function wakeAgentForOpportunity(
       }
     };
     const applyWakeAllowedTools = (): boolean => {
-      if (!opts.allowedTools) return true;
+      if (!opts.allowedTools) {
+        return true;
+      }
       try {
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
           opts.toolGateMode,
           opts.toolContextPin,
+          opts.preactivateSkillIds,
         );
         return true;
       } catch (err) {
@@ -1342,7 +1340,9 @@ export async function wakeAgentForOpportunity(
       const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
-      if (opts.clientless) conversation.hasNoClient = true;
+      if (opts.clientless) {
+        conversation.hasNoClient = true;
+      }
       // Per-turn guardian elevation for the wake's tools, set after the pre-run
       // reads so a pre-run failure can't leak it; restored in the finally.
       if (opts.trustContext) {
@@ -1603,5 +1603,5 @@ export async function wakeAgentForOpportunity(
  * @internal
  */
 export function __resetWakeChainForTests(): void {
-  wakeChain.clear();
+  runWakeSingleFlight.reset();
 }

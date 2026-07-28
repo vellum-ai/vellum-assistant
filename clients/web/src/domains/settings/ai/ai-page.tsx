@@ -1,4 +1,3 @@
-import { ExternalLink, Info } from "lucide-react";
 import { useEffect } from "react";
 
 import { LanguageModelCard } from "@/domains/settings/ai/language-model-card";
@@ -8,6 +7,7 @@ import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
 import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
 import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
+import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
 
 // ---------------------------------------------------------------------------
 // AiPage — layout shell
@@ -25,29 +25,16 @@ export function AiPage() {
 
   return (
     <div className="space-y-5">
-      {/* Managed services billing banner */}
-      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] px-4 py-2.5">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-tertiary)]" />
-        <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-          Managed services are metered and deducted from your Vellum account
-          balance.{" "}
-          <a
-            href="https://www.vellum.ai/docs/pricing"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[var(--primary-base)] hover:underline"
-          >
-            View pricing
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </p>
-      </div>
+      <ManagedServicesBanner />
 
       <LanguageModelCard />
       <WebSearchCard />
       <WebFetchCard />
       <EmailServiceCard />
       <ImageGenerationCard />
+      {/* Speech providers are BYO provider config like every other card here.
+          They used to sit behind a "Services" tab on the Voice page, where the
+          voice picker got buried under an API-key form. */}
       <TextToSpeechCard />
       <SpeechToTextCard />
     </div>

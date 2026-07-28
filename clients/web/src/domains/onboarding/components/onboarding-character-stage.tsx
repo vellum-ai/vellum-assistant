@@ -27,7 +27,7 @@ import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboardin
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 /** Where the centered avatar sits, as viewport fractions. */
-const CENTER_POINT = { x: 0.5, y: 0.4 };
+const CENTER_POINT = { x: 0.5, y: 0.43 };
 
 /**
  * Slight per-slot tilt (degrees) so the edge cast isn't all bolt-upright. Some
@@ -54,8 +54,12 @@ const DEPTH_Z = [10, 20];
 /** z-index for the centered avatar — above every edge plane. */
 const CENTER_Z = 50;
 
+/** Per-slot size tweak on top of the depth scale. Defaults to 1 (no change). */
+const SLOT_SIZE_MULTIPLIER: Record<number, number> = { 6: 1.1 };
+
 export function slotDepthScale(slot: number): number {
-  return DEPTH_SCALE[SLOT_DEPTH[slot] ?? 1] ?? 1;
+  const base = DEPTH_SCALE[SLOT_DEPTH[slot] ?? 1] ?? 1;
+  return base * (SLOT_SIZE_MULTIPLIER[slot] ?? 1);
 }
 export function slotDepthOpacity(slot: number): number {
   return DEPTH_OPACITY[SLOT_DEPTH[slot] ?? 1] ?? 1;
@@ -93,16 +97,16 @@ export function edgeSlots(w: number, h: number, edgeRadius: number): { x: number
   // Order matches HARDCODED_POOL indices 1–11 (see onboarding-avatar-pool-store).
   return [
     { x: corner, y: corner }, // 0 top-left corner → purple blob
-    { x: w * 0.3, y: side }, // 1 top, left of center → orange star
-    { x: w * 0.72, y: side }, // 2 top, right of center → pink blob
+    { x: w * 0.3, y: side - h * 0.03 }, // 1 top, left of center → orange star
+    { x: w * 0.72, y: side - h * 0.1 }, // 2 top, right of center → pink blob
     { x: w - corner, y: corner }, // 3 top-right corner → yellow ninja
     { x: w - side, y: h * 0.72 }, // 4 right lower → pink urchin
     { x: w - corner, y: h - corner }, // 5 bottom-right corner → orange burst
     { x: corner, y: h - corner }, // 6 bottom-left corner → green ghost
     { x: side, y: h * 0.5 }, // 7 left mid → orange sprout
     { x: w - side, y: h * 0.3 }, // 8 right upper → teal star
-    { x: w * 0.38, y: h - side }, // 9 bottom, left of center → pink flower
-    { x: w * 0.62, y: h - side }, // 10 bottom, right of center → yellow cloud
+    { x: w * 0.28, y: h - side + h * 0.05 }, // 9 bottom, left of center → pink flower
+    { x: w * 0.77, y: h - side }, // 10 bottom, right of center → yellow cloud
   ];
 }
 

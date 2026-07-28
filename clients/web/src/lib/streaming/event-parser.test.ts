@@ -1428,6 +1428,44 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  test("parses open_conversation with all fields (not unknown)", () => {
+    const event = parseEvent({
+      type: "open_conversation",
+      conversationId: "conv-1",
+      title: "New conversation",
+      anchorMessageId: "msg-42",
+      focus: true,
+    });
+    expect(event).toEqual({
+      type: "open_conversation",
+      conversationId: "conv-1",
+      title: "New conversation",
+      anchorMessageId: "msg-42",
+      focus: true,
+    });
+  });
+
+  test("parses open_conversation with only the required conversationId", () => {
+    const event = parseEvent({
+      type: "open_conversation",
+      conversationId: "conv-1",
+    });
+    expect(event).toEqual({
+      type: "open_conversation",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown open_conversation event when conversationId is missing", () => {
+    const data = { type: "open_conversation", focus: true };
+    const event = parseEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "open_conversation",
+      data,
+    });
+  });
+
   describe("disk_pressure_status_changed", () => {
     const criticalStatus: DiskPressureStatus = {
       enabled: true,

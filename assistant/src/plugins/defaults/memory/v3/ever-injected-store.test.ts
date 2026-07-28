@@ -8,6 +8,12 @@
  *     seeding (`bytes = 0`, dedup-only);
  *   - migration idempotence (run twice).
  *
+ * The rows live on the dedicated memory connection, resolved via
+ * `getMemorySqlite` — stubbed to an in-memory DB carrying the relocated table's
+ * schema, with `memoryDbAvailable` toggled to `null` for the fail-soft case.
+ * The fork functions still accept a main-DB handle (unused now) so their call
+ * sites are unchanged.
+ *
  * `mock.module` is process-global and leaks into sibling files in a directory
  * run, so the db-connection stub DELEGATES to the real implementation unless
  * this test is actively running (`storeMockActive`, toggled in
@@ -19,7 +25,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3EverInjected } from "../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../persistence/schema/index.js";
 
 const realDb = {
@@ -27,23 +33,31 @@ const realDb = {
 };
 
 let storeMockActive = false;
+let memoryDbAvailable = true;
 
-let testSqlite: Database;
-let testDb = makeDb();
+// The fork functions still take a (now unused) main-DB handle; keep a drizzle
+// stand-in to pass positionally so the call sites read the same as production.
+let memorySqlite: Database;
+makeDb();
 function makeDb() {
-  testSqlite = new Database(":memory:");
-  const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3EverInjected(db);
-  return db;
+  memorySqlite = new Database(":memory:");
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
 }
 
 mock.module("../../../../persistence/db-connection.js", () => ({
   ...realDb,
-  getDb: () => (storeMockActive ? testDb : realDb.getDb()),
-  getSqliteFrom: (db: unknown) =>
+  getMemorySqlite: () =>
     storeMockActive
-      ? testSqlite
-      : realDb.getSqliteFrom(db as Parameters<typeof realDb.getSqliteFrom>[0]),
+      ? memoryDbAvailable
+        ? memorySqlite
+        : null
+      : realDb.getMemorySqlite(),
+  getMemoryDb: () =>
+    storeMockActive
+      ? memoryDbAvailable
+        ? drizzle(memorySqlite, { schema })
+        : null
+      : realDb.getMemoryDb(),
 }));
 
 const {
@@ -61,7 +75,8 @@ const {
 
 beforeEach(() => {
   storeMockActive = true;
-  testDb = makeDb();
+  memoryDbAvailable = true;
+  makeDb();
 });
 
 afterAll(() => {
@@ -114,7 +129,7 @@ describe("recordInjected / getInjected / getActiveSlugs", () => {
       prunedAt: null,
     });
     expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
-    const row = testSqlite
+    const row = memorySqlite
       .query(
         "SELECT injected_at FROM memory_v3_ever_injected WHERE conversation_id = ? AND slug = ?",
       )
@@ -185,7 +200,7 @@ describe("forkEverInjected", () => {
     );
     markPruned("conv-parent", ["topics/page-b"], 2_000);
 
-    forkEverInjected(testDb, "conv-parent", "conv-child");
+    forkEverInjected("conv-parent", "conv-child");
 
     expect(getInjected("conv-child")).toEqual(
       new Map([
@@ -199,7 +214,7 @@ describe("forkEverInjected", () => {
   });
 
   test("is a no-op when the parent has no rows", () => {
-    forkEverInjected(testDb, "conv-empty", "conv-child");
+    forkEverInjected("conv-empty", "conv-child");
     expect(getInjected("conv-child").size).toBe(0);
   });
 });
@@ -207,7 +222,6 @@ describe("forkEverInjected", () => {
 describe("seedEverInjectedFromSlugs", () => {
   test("seeds dedup-only rows with bytes = 0 stamped at the given time", () => {
     seedEverInjectedFromSlugs(
-      testDb,
       "conv-parent",
       "conv-child",
       ["topics/page-a", "topics/page-b"],
@@ -226,7 +240,7 @@ describe("seedEverInjectedFromSlugs", () => {
     // Inherited cards carry no byte accounting — resident accounting
     // restarts from the fork's own injections.
     expect(residentBytes("conv-child")).toBe(0);
-    const row = testSqlite
+    const row = memorySqlite
       .query(
         "SELECT injected_at FROM memory_v3_ever_injected WHERE conversation_id = ? AND slug = ?",
       )
@@ -250,7 +264,6 @@ describe("seedEverInjectedFromSlugs", () => {
     markPruned("conv-parent", ["topics/page-a"], 2_000);
 
     seedEverInjectedFromSlugs(
-      testDb,
       "conv-parent",
       "conv-child",
       ["topics/page-a", "topics/page-b"],
@@ -274,7 +287,7 @@ describe("seedEverInjectedFromSlugs", () => {
   });
 
   test("is a no-op for an empty slug list and never overwrites existing rows", () => {
-    seedEverInjectedFromSlugs(testDb, "conv-parent", "conv-child", [], 5_000);
+    seedEverInjectedFromSlugs("conv-parent", "conv-child", [], 5_000);
     expect(getInjected("conv-child").size).toBe(0);
 
     recordInjected(
@@ -283,7 +296,6 @@ describe("seedEverInjectedFromSlugs", () => {
       1_000,
     );
     seedEverInjectedFromSlugs(
-      testDb,
       "conv-parent",
       "conv-child",
       ["topics/page-a"],
@@ -296,12 +308,50 @@ describe("seedEverInjectedFromSlugs", () => {
   });
 });
 
-describe("migration", () => {
-  test("is idempotent — running twice leaves a usable table", () => {
-    // makeDb() already ran the migration once; run it again.
-    migrateAddMemoryV3EverInjected(testDb);
+describe("memory-side schema", () => {
+  test("ensure is idempotent — running twice leaves a usable table", () => {
+    // makeDb() already ensured the schema once; run it again.
+    ensureMemoryV3EverInjectedSchema(memorySqlite);
 
     recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000);
     expect(getActiveSlugs("conv-1")).toEqual(new Set(["topics/page-a"]));
+  });
+});
+
+describe("fail-soft without a memory database", () => {
+  test("reads return empty and writes no-op when the memory DB is unavailable", () => {
+    memoryDbAvailable = false;
+    expect(() =>
+      recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000),
+    ).not.toThrow();
+    expect(getActiveSlugs("conv-1").size).toBe(0);
+    expect(getInjected("conv-1").size).toBe(0);
+    expect(residentBytes("conv-1")).toBe(0);
+    expect(() => clearConversation("conv-1")).not.toThrow();
+  });
+});
+
+describe("fail-soft when the underlying statement fails", () => {
+  // The memory connection is present, but the relocated table is gone (a
+  // corrupt/dropped table, SQLITE_FULL, I/O error, or SQLITE_BUSY after
+  // timeout). Every write must degrade like the null-connection case — log a
+  // warning and no-op — rather than throwing out of the turn.
+  test("write paths no-op when the target table is missing", () => {
+    memorySqlite.query("DROP TABLE memory_v3_ever_injected").run();
+
+    expect(() =>
+      recordInjected("conv-1", [{ slug: "topics/page-a", bytes: 100 }], 1_000),
+    ).not.toThrow();
+    expect(() => markPruned("conv-1", ["topics/page-a"], 2_000)).not.toThrow();
+    expect(() => clearConversation("conv-1")).not.toThrow();
+    expect(() => forkEverInjected("conv-parent", "conv-child")).not.toThrow();
+    expect(() =>
+      seedEverInjectedFromSlugs(
+        "conv-parent",
+        "conv-child",
+        ["topics/page-a"],
+        5_000,
+      ),
+    ).not.toThrow();
   });
 });

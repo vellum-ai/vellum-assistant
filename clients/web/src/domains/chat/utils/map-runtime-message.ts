@@ -161,9 +161,16 @@ export function mapRuntimeToDisplayMessage(
   if (m.subagentNotification) msg.isSubagentNotification = true;
   if (m.acpNotification) msg.isAcpNotification = true;
   if (m.backgroundEventNotification) msg.isBackgroundEventNotification = true;
+  if (m.systemCard) msg.isSystemCard = true;
   if (m.slackMessage) msg.slackMessage = m.slackMessage;
   if (toolCalls) msg.toolCalls = toolCalls;
   if (timestamp != null) msg.timestamp = timestamp;
+  if (m.queueStatus) {
+    msg.queueStatus = m.queueStatus;
+  }
+  if (m.queuePosition != null) {
+    msg.queuePosition = m.queuePosition;
+  }
 
   const attachments = structuredAttachments ?? parsedAttachments;
   if (attachments) msg.attachments = attachments;

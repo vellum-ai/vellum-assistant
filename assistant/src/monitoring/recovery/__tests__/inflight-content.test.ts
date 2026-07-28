@@ -4,7 +4,7 @@
  * still owns (conversation mid-turn / fresh delta file), and GC of orphan
  * delta files.
  */
-import { existsSync } from "node:fs";
+import { existsSync, utimesSync } from "node:fs";
 import { describe, expect, mock, test } from "bun:test";
 
 import pino from "pino";
@@ -42,6 +42,19 @@ function db() {
 
 function textBlock(text: string): ContentBlock {
   return { type: "text", text };
+}
+
+/**
+ * Push a delta file's mtime firmly into the past so an age-floored fold/GC
+ * treats it as unambiguously old. The recovery age guard is `now - mtime <
+ * minAgeMs`; with `minAgeMs: 0` a file whose recorded mtime lands even a hair
+ * ahead of the captured `now` (filesystem-clock vs `Date.now()` skew on CI)
+ * yields a negative age and is wrongly preserved. Backdating removes that
+ * boundary race without weakening what the test asserts.
+ */
+function backdateDeltaFile(absPath: string): void {
+  const past = new Date(Date.now() - 60_000);
+  utimesSync(absPath, past, past);
 }
 
 function rawRow(messageId: string): { content: string; finalized: number } {
@@ -82,6 +95,7 @@ describe("recoverInflightContent — folding stranded rows", () => {
     const { conversationId, messageId, writer } = await reserveInflight();
     appendInflightSnapshot(writer, [textBlock("streamed")], 1, rlog);
     expect(existsSync(writer.absPath)).toBe(true);
+    backdateDeltaFile(writer.absPath);
 
     const result = recoverInflightContent({ minAgeMs: 0 });
 
@@ -142,6 +156,7 @@ describe("recoverInflightContent — orphan file GC", () => {
     finalizeMessageContent(messageId, JSON.stringify([textBlock("orphaned")]));
     expect(rawRow(messageId).finalized).toBe(1);
     expect(existsSync(writer.absPath)).toBe(true);
+    backdateDeltaFile(writer.absPath);
 
     const result = recoverInflightContent({ minAgeMs: 0 });
 

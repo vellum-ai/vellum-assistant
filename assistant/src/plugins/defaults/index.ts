@@ -37,6 +37,7 @@ import { documentsInjectors } from "./documents/injectors.js";
 import documentsPkg from "./documents/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
+import emptyResponseUserPromptSubmit from "./empty-response/hooks/user-prompt-submit.js";
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
 import explorationDriftPostToolUse, {
@@ -67,16 +68,14 @@ import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-mod
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryConversationDeleted from "./memory/hooks/conversation-deleted.js";
+import memoryConversationsCleared from "./memory/hooks/conversations-cleared.js";
 import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
-import {
-  memoryV3Injector,
-  memoryV3SpotlightInjector,
-} from "./memory/v3/injector.js";
+import platformHostedPkg from "./platform-hosted/package.json" with { type: "json" };
 import { sessionInjectors } from "./session/injectors.js";
 import sessionPkg from "./session/package.json" with { type: "json" };
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
@@ -156,7 +155,12 @@ export const defaultCompactionPlugin: Plugin = {
  * `empty-response` — a `post-model-call` hook that re-queries the model when a
  * turn yields with no tool calls but came back empty (or as a provider
  * refusal); the `stop` hook clears the one-shot nudge bound on a terminal stop
- * so the next run nudges afresh.
+ * so the next run nudges afresh. The `user-prompt-submit` hook runs a turn-start
+ * sweep that drops previously-refused exchanges (marked by the persisted
+ * `REFUSAL_FALLBACK_TEXT`) from the working history, so a single refusal doesn't
+ * poison the conversation by re-sending the flagged prompt every turn. It is
+ * registered before `history-repair`, which normalizes any role-alternation
+ * artifact a dropped run leaves behind.
  */
 export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
@@ -164,6 +168,7 @@ export const defaultEmptyResponsePlugin: Plugin = {
     version: emptyResponsePkg.version,
   },
   hooks: {
+    "user-prompt-submit": emptyResponseUserPromptSubmit,
     "post-model-call": emptyResponsePostModelCall,
     stop: emptyResponseStop,
   },
@@ -178,14 +183,14 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * the initial injection, and `post-compact` re-applies the injections onto
  * the compacted history after a mid-turn compaction; a `conversation-deleted`
  * hook fails the plugin's pending background jobs when a conversation is
- * deleted. It contributes its personal-memory
- * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
- * the two memory-v3 injectors) to the global injector registry via the
- * `injectors` field; the registry unions them with the domain plugins'
- * injectors and sorts by `order` into the per-turn chain, and the v3 injectors
- * self-gate on `memory.v3.live`. Registered first among the default plugins so
- * later `user-prompt-submit` hooks (history repair, title) see the fully
- * memory-injected history.
+ * deleted. Its runtime injectors (PKB context/reminder, the memory-v2 static
+ * block, and the two memory-v3 injectors) reach the global injector registry
+ * through `memory/injectors.ts` — the plugin's single injector entry point, so
+ * the host stays off the tier directories; the registry unions them with the
+ * domain plugins' injectors and sorts by `order` into the per-turn chain, and
+ * the v3 injectors self-gate on `memory.v3.live`. Registered first among the
+ * default plugins so later `user-prompt-submit` hooks (history repair, title)
+ * see the fully memory-injected history.
  */
 export const defaultMemoryPlugin: Plugin = {
   manifest: {
@@ -198,8 +203,9 @@ export const defaultMemoryPlugin: Plugin = {
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
     "conversation-deleted": memoryConversationDeleted,
+    "conversations-cleared": memoryConversationsCleared,
   },
-  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+  injectors: memoryInjectors,
 };
 
 /**
@@ -265,6 +271,19 @@ export const defaultSessionPlugin: Plugin = {
     version: sessionPkg.version,
   },
   injectors: sessionInjectors,
+};
+
+/**
+ * `platform-hosted` — contributes the platform-hosted `/reengage` route. It
+ * ships no hooks, tools, or injectors, so it registers as a manifest only;
+ * the route source is served once the assistant dispatches default-plugin
+ * routes.
+ */
+export const defaultPlatformHostedPlugin: Plugin = {
+  manifest: {
+    name: platformHostedPkg.name,
+    version: platformHostedPkg.version,
+  },
 };
 
 /**
@@ -441,6 +460,7 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultDocumentsPlugin,
     defaultChannelPlugin,
     defaultSessionPlugin,
+    defaultPlatformHostedPlugin,
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,

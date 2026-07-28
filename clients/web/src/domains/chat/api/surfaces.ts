@@ -15,7 +15,19 @@ import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 export type SurfaceActionResult =
   | { ok: false }
-  | { ok: true; applied?: boolean; reason?: string; replyText?: string };
+  | {
+      ok: true;
+      applied?: boolean;
+      reason?: string;
+      replyText?: string;
+      /**
+       * The resolved outcome action for a guardian decision (apr:*) — not
+       * necessarily the raw button (an access-request `reject` resolves to the
+       * `leave_unverified` park). Used to render the correct completion tone
+       * when the card is completed optimistically.
+       */
+      decidedAction?: string;
+    };
 
 export async function submitSurfaceAction(
   assistantId: string,
@@ -48,6 +60,7 @@ export async function submitSurfaceAction(
       ...(typeof body.applied === "boolean" ? { applied: body.applied } : {}),
       ...(body.reason ? { reason: body.reason } : {}),
       ...(body.replyText ? { replyText: body.replyText } : {}),
+      ...(body.decidedAction ? { decidedAction: body.decidedAction } : {}),
     };
   } catch {
     return { ok: false };

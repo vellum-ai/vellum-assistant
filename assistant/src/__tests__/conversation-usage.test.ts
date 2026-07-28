@@ -1,13 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-
-// Legacy-shaped fixtures (llm.default-centric resolution): pinned to the
-// flag-off cascade. Override-or-default (flag-on) semantics are pinned by
-// llm-resolver-override-or-default.test.ts and its companion suites.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const updateConversationUsageCalls: Array<{
   conversationId: string;
@@ -50,7 +41,6 @@ await initializeDb();
 // The attribution assertions resolve profiles/call sites through the real
 // workspace config, so seed the fixtures the tests reference.
 setConfig("llm", {
-  default: { model: "claude-opus-4-6" },
   profiles: {
     conversationProfile: {
       provider: "openai",
@@ -367,9 +357,11 @@ describe("recordUsage", () => {
       undefined,
       1,
       undefined,
+      // No override profile: an override wins selection at every call site
+      // (covered by the main-agent test above), so attribution lands on the
+      // call-site rung only when the turn carries no override.
       {
         callSite: "conversationSummarization",
-        overrideProfile: "conversationProfile",
       },
     );
 
@@ -430,5 +422,32 @@ describe("recordUsage", () => {
       inferenceProfile: null,
       inferenceProfileSource: "default",
     });
+  });
+
+  test("NaN token counts never reach persistence and a poisoned total self-heals", () => {
+    const usageStats = {
+      inputTokens: Number.NaN,
+      outputTokens: 5,
+      estimatedCost: Number.NaN,
+    };
+
+    recordUsage(
+      {
+        conversationId: "conv-nan-1",
+        providerName: "anthropic",
+        usageStats,
+      },
+      Number.NaN,
+      10,
+      "claude-opus-4-6",
+      () => {},
+      "main_agent",
+    );
+
+    expect(updateConversationUsageCalls).toHaveLength(1);
+    const call = updateConversationUsageCalls[0];
+    expect(call.inputTokens).toBe(0);
+    expect(call.outputTokens).toBe(15);
+    expect(Number.isFinite(call.estimatedCost)).toBe(true);
   });
 });

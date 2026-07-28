@@ -333,3 +333,51 @@ describe("mergeConsecutiveAssistantMessages", () => {
     expect(result).toHaveLength(3);
   });
 });
+
+describe("system-card boundaries", () => {
+  const cardMeta = JSON.stringify({ messageKind: "system_card" });
+
+  test("a card never merges into the preceding assistant run", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+      makeMsg(
+        "assistant",
+        JSON.stringify([{ type: "text", text: "**Conversation summarized**" }]),
+        { metadata: cardMeta },
+      ),
+    ]);
+    expect(messages).toHaveLength(2);
+  });
+
+  test("an assistant row never merges into a preceding card", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      makeMsg(
+        "assistant",
+        JSON.stringify([{ type: "text", text: "**Context Cleaned**" }]),
+        { metadata: cardMeta },
+      ),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+    ]);
+    expect(messages).toHaveLength(2);
+  });
+
+  test("findDisplayTurnEndIndex treats a card as a single-row turn", () => {
+    const rows = [
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "card" }]), {
+        metadata: cardMeta,
+      }),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+    ];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
+  });
+
+  test("findDisplayTurnEndIndex stops an assistant run before a card", () => {
+    const rows = [
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "card" }]), {
+        metadata: cardMeta,
+      }),
+    ];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
+  });
+});

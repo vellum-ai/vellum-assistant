@@ -1,10 +1,12 @@
 /**
- * Explicit prompt-cache breakpoint placement for GPT-5.6+ on the OpenAI
- * Responses transport: request-wide `prompt_cache_options`/`prompt_cache_key`
- * emission, block-level `prompt_cache_breakpoint` anchor placement (turn-start
- * / previous-turn / advancing tail, mirroring the Anthropic client), the
- * `disableCache` explicit-mode-with-zero-markers opt-out, and the unflagged-
- * model regression guard.
+ * Prompt caching on the OpenAI Responses transport: request-wide
+ * `prompt_cache_key` emission for every direct-API model (routing affinity for
+ * implicit-mode models, opt-in explicit mode for breakpoint-capable ones),
+ * explicit `prompt_cache_options` and block-level `prompt_cache_breakpoint`
+ * anchor placement for GPT-5.6+ (turn-start / previous-turn / advancing tail,
+ * mirroring the Anthropic client), the `disableCache`
+ * explicit-mode-with-zero-markers opt-out, and the unflagged-model and Codex
+ * regression guards.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -66,6 +68,23 @@ function completedEvent(): FakeStreamEvent {
 
 function userMsg(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
+}
+
+/** A user turn whose only content is an image — no text part. */
+function imageUserMsg(): Message {
+  return {
+    role: "user",
+    content: [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: "iVBORw0KGgo=",
+        },
+      },
+    ],
+  };
 }
 
 function assistantMsg(text: string): Message {
@@ -158,6 +177,34 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     );
 
     expect(breakpointedItemIndexes()).toEqual([0, 2, 4]);
+  });
+
+  test("image-only user turn is anchored on its trailing image part", async () => {
+    const provider = makeProvider("gpt-5.6-sol");
+    await provider.sendMessage([imageUserMsg()], {
+      config: { promptCacheKey: "conv-1" },
+    });
+
+    // No text part, but the trailing input_image is stampable — so the turn
+    // anchors the ladder instead of dropping off it entirely.
+    expect(breakpointedItemIndexes()).toEqual([0]);
+    const input = (lastStreamParams?.input ?? []) as WireItem[];
+    const parts = input[0].content ?? [];
+    const last = parts[parts.length - 1];
+    expect(last?.type).toBe("input_image");
+    expect(last?.prompt_cache_breakpoint).toEqual({ mode: "explicit" });
+  });
+
+  test("multi-turn with an image-only turn: every user item is marked", async () => {
+    const provider = makeProvider("gpt-5.6-sol");
+    await provider.sendMessage(
+      [imageUserMsg(), assistantMsg("r1"), userMsg("t2")],
+      { config: { promptCacheKey: "conv-1" } },
+    );
+
+    // Wire items: [user image, assistant r1, user t2]. Both user items anchor
+    // the ladder even though the first carries no text.
+    expect(breakpointedItemIndexes()).toEqual([0, 2]);
   });
 
   test("marker ladder caps at 50 boundaries, dropping the oldest", async () => {
@@ -294,15 +341,33 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(breakpointedItemIndexes()).toEqual([0]);
   });
 
-  test("unflagged model sends no cache params at all", async () => {
+  test("unflagged model sends the cache key for routing affinity but no explicit mode or breakpoints", async () => {
     const provider = makeProvider("gpt-5.5");
     await provider.sendMessage(
       [userMsg("t1"), assistantMsg("r1"), userMsg("t2")],
       { config: { mutableLatestUserMessage: true, promptCacheKey: "conv-1" } },
     );
 
+    // Implicit-caching models still get a stable prompt_cache_key so OpenAI's
+    // cache router keeps a conversation on the same shard, but they never opt
+    // into explicit mode or carry block-level breakpoints.
+    expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
     expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
+    expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
+      "prompt_cache_breakpoint",
+    );
+  });
+
+  test("unflagged model with no key sends no cache params at all", async () => {
+    const provider = makeProvider("gpt-5.5");
+    await provider.sendMessage([
+      userMsg("t1"),
+      assistantMsg("r1"),
+      userMsg("t2"),
+    ]);
+
     expect(lastStreamParams?.prompt_cache_key).toBeUndefined();
+    expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
     expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
       "prompt_cache_breakpoint",
     );

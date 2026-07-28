@@ -123,6 +123,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "db status",
   "db repair",
   "gateway",
+  "gateway status",
   "gateway logs",
   "gateway logs tail",
   "image-generation",
@@ -141,6 +142,11 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference profiles list",
   "inference profiles update",
   "inference providers",
+  "inference providers create",
+  "inference providers delete",
+  "inference providers get",
+  "inference providers list",
+  "inference providers update",
   "inference providers connections",
   "inference providers connections create",
   "inference providers connections delete",
@@ -148,6 +154,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference providers connections list",
   "inference providers connections update",
   "inference providers default",
+  "inference providers login-chatgpt",
   "inference send",
   "inference session",
   "inference session open",
@@ -167,6 +174,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp remove",
   "memory",
   "memory nodes",
+  "memory nodes stats",
   "memory nodes list",
   "memory nodes delete",
   "memory nodes update",
@@ -181,12 +189,17 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
+  "memory v2 ema",
+  "memory v2 simulate",
+  "memory v2 compare",
   "memory v3",
   "memory v3 rebuild-index",
   "memory v3 backfill-sections",
   "memory v3 eval",
+  "memory v3 eval-tally",
   "memory retrospective",
   "memory retrospective run",
+  "memory retrospective list",
   "memory worker",
   "memory worker start",
   "memory worker stop",
@@ -274,6 +287,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "trust list",
   "tts",
   "tts synthesize",
+  "tts voice",
   "ui",
   "ui request",
   "ui confirm",
@@ -508,10 +522,42 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Read-only resolution detail for one call site",
   },
   {
+    path: "inference providers login-chatgpt",
+    risk: "medium",
+    reason:
+      "Runs a browser OAuth flow and writes ChatGPT subscription credentials to CES",
+  },
+  {
     path: "inference providers default",
     risk: "medium",
     reason:
       "Reads the default provider, or replaces llm.defaultProvider when a name is passed",
+  },
+  {
+    path: "inference providers list",
+    risk: "low",
+    reason: "Read-only listing of provider entries",
+  },
+  {
+    path: "inference providers get",
+    risk: "low",
+    reason: "Read-only fetch of a single provider entry",
+  },
+  {
+    path: "inference providers create",
+    risk: "medium",
+    reason: "Inserts a provider entry referenced by inference profiles",
+  },
+  {
+    path: "inference providers update",
+    risk: "medium",
+    reason: "Mutates provider auth config in place",
+  },
+  {
+    path: "inference providers delete",
+    risk: "medium",
+    reason:
+      "Deletes a provider entry; the daemon refuses while profiles still reference it",
   },
   {
     path: "inference providers connections list",
@@ -619,6 +665,24 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Read-only diagnostic walk over concept pages and edges",
   },
   {
+    path: "memory v2 ema",
+    risk: "low",
+    reason:
+      "Read-only listing of concept pages sorted by injection-frequency EMA score",
+  },
+  {
+    path: "memory v2 simulate",
+    risk: "medium",
+    reason:
+      "Invokes runRouter which calls provider.sendMessage — spends a real LLM provider call even though no local state is written",
+  },
+  {
+    path: "memory v2 compare",
+    risk: "medium",
+    reason:
+      "Re-runs the router (one LLM call) for each sampled historical turn; user-controlled --limit means many paid provider calls can be triggered",
+  },
+  {
     path: "memory v3 backfill-sections",
     risk: "medium",
     reason:
@@ -635,6 +699,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason:
       "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
+  },
+  {
+    path: "memory v3 eval-tally",
+    risk: "medium",
+    reason:
+      "Daemon handler is read-only, but the CLI writes the tally result to a user-supplied path when --out is provided; classifying medium so file-write invocations are not auto-approved as read-only",
   },
   {
     path: "memory retrospective run",
@@ -786,6 +856,9 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "skills add", risk: "high" },
   { path: "stt transcribe", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
+  // Mutates the active provider's voice config (via config_set) — same
+  // low-risk class as `config set`.
+  { path: "tts voice", risk: "low" },
   { path: "watchers create", risk: "medium" },
   { path: "watchers update", risk: "medium" },
   { path: "watchers delete", risk: "medium" },

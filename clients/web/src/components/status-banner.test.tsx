@@ -609,6 +609,52 @@ describe("StatusBanner", () => {
     expect(screen.queryByText("Assistant is unreachable")).toBeNull();
   });
 
+  test("shows restarting banner instead of fatal error when a restart briefly reads as crash_loop", async () => {
+    // GIVEN the operational status is restarting
+    operationalStatusQueryMock = {
+      data: { state: "restarting" },
+      isError: false,
+    };
+
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the pod bounce is briefly classified as a crash loop
+    operationalStatusQueryMock = {
+      data: { state: "crash_loop" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the banner keeps showing "restarting" instead of the fatal error
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is restarting")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant fatal error")).toBeNull();
+  });
+
+  test("shows fatal error when crash_loop follows a failed restart", async () => {
+    // GIVEN the restart has terminally failed
+    operationalStatusQueryMock = {
+      data: { state: "restarting", detail_state: "failed" },
+      isError: false,
+    };
+
+    const { rerender } = render(<StatusBanner />);
+
+    // WHEN the assistant subsequently reports a crash loop
+    operationalStatusQueryMock = {
+      data: { state: "crash_loop" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the fatal error is not suppressed
+    await waitFor(() => {
+      expect(screen.getByText("Assistant fatal error")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant is restarting")).toBeNull();
+  });
+
   test("renders maintenance mode from lifecycle state when operational status is absent", () => {
     assistantStateMock = {
       kind: "active",

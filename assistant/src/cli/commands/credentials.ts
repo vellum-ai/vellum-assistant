@@ -5,21 +5,10 @@ import type { CredentialPromptResult } from "../../runtime/routes/credential-pro
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
-import { shouldOutputJson, writeOutput } from "../output.js";
+import { shouldOutputJson, writeError, writeOutput } from "../output.js";
 import { tryResolveConversationId } from "../utils/conversation-id.js";
+import { refuseAgentShellInlineSecret } from "../utils/inline-secret-guard.js";
 import { credentialsHelp } from "./credentials.help.js";
-
-// ---------------------------------------------------------------------------
-// Format-aware error output
-// ---------------------------------------------------------------------------
-
-function writeError(cmd: Command, message: string): void {
-  if (shouldOutputJson(cmd)) {
-    writeOutput(cmd, { ok: false, error: message });
-  } else {
-    process.stderr.write(`Error: ${message}\n`);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -219,9 +208,19 @@ export function registerCredentialsCommand(program: Command): void {
             label?: string;
             description?: string;
             allowedTools?: string;
+            generated?: boolean;
           },
           cmd: Command,
         ) => {
+          if (
+            refuseAgentShellInlineSecret(cmd, opts, {
+              what: "secret",
+              redirect: `Collect it securely via the app UI instead: assistant credentials prompt --service ${opts.service} --field ${opts.field} --label "…"`,
+            })
+          ) {
+            return;
+          }
+
           const allowedTools = opts.allowedTools
             ? opts.allowedTools.split(",").map((t) => t.trim())
             : undefined;
@@ -359,7 +358,7 @@ export function registerCredentialsCommand(program: Command): void {
       subcommand(credential, "reveal").action(
         async (
           id: string | undefined,
-          opts: { service?: string; field?: string },
+          opts: { service?: string; field?: string; forChat?: boolean },
           cmd: Command,
         ) => {
           if (!opts.service && !opts.field && !id) {
@@ -376,6 +375,11 @@ export function registerCredentialsCommand(program: Command): void {
               service: opts.service,
               field: opts.field,
               id,
+              ...(opts.forChat ? { forChat: true } : {}),
+              // Conversation-bound authority scope for the daemon's chat
+              // redaction seams (set by the shell tools; absent outside a
+              // conversation's tool shell, where no authority should exist).
+              revealNonce: process.env.__REVEAL_NONCE,
             },
           });
 
@@ -493,6 +497,23 @@ export function registerCredentialsCommand(program: Command): void {
                 );
               }
               process.exitCode = 130;
+              return;
+            }
+            // The daemon declined to prompt because a first-class in-app
+            // surface (the inline Connect Claude card) owns this credential.
+            // Neither an error nor a cancel: surface the guidance and exit 0 so
+            // the model defers to the card instead of retrying. This only fires
+            // in an interactive conversation, never a headless setup-skill chain.
+            if (ipc.result?.redirected) {
+              if (shouldOutputJson(cmd)) {
+                writeOutput(cmd, ipc.result);
+              } else {
+                log.info(
+                  ipc.result.message ??
+                    "The app is handling this credential via the inline Connect card.",
+                );
+              }
+              process.exitCode = 0;
               return;
             }
             writeError(cmd, ipc.result?.error ?? "Credential prompt failed");

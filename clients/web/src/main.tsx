@@ -11,11 +11,13 @@ import { RouterProvider } from "react-router";
 import { AppProviders } from "@/components/providers";
 import { WindowDragRegion } from "@/components/window-drag-region";
 import { isChunkLoadError } from "@/lib/chunk-errors";
+import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { installTranslateDomGuard } from "@/lib/translate-dom-guard";
 import { initSessionReplay } from "@/lib/session-replay/session-replay-init";
+import { setupPlatformAssistantsSync } from "@/assistant/platform-assistants-sync";
 import { setupAuthListeners, useAuthStore } from "@/stores/auth-store";
 import { setupOrganizationStore } from "@/stores/organization-store";
 import { router } from "./routes";
@@ -38,6 +40,13 @@ async function boot() {
   installConsentRefreshListeners();
 
   setupOrganizationStore();
+  // Register before initSession so no identity transition is missed: client
+  // flags are evaluated per (user, org) and must be re-fetched, not re-read,
+  // when either moves.
+  setupClientFlagScopeSync();
+  // Register before initSession so the boot `unknown → present` transition it
+  // drives is caught and the platform assistants list is loaded.
+  setupPlatformAssistantsSync();
   if (isLocalMode()) {
     await loadLockfile();
     await useAuthStore.getState().initSession();

@@ -219,10 +219,11 @@ describe("selectPool — id mapping", () => {
       toolUseResponse({ ids: [3, 1], pinned_ids: [1] }),
     );
     const result = await selectPool(makePool(), makeTurn("how's the rollout?"));
-    expect(result).toEqual([
+    expect(result.pages).toEqual([
       { slug: "topic-x", pinned: false },
       { slug: "page-a", pinned: true },
     ]);
+    expect(result.keptAll).toBe(false);
   });
 
   test("a page selected as both card and finder line dedupes to one slug, pinned ORed", async () => {
@@ -232,35 +233,42 @@ describe("selectPool — id mapping", () => {
       toolUseResponse({ ids: [1, 4], pinned_ids: [4] }),
     );
     const result = await selectPool(makePool(), makeTurn("the alpha plan"));
-    expect(result).toEqual([{ slug: "page-a", pinned: true }]);
+    expect(result.pages).toEqual([{ slug: "page-a", pinned: true }]);
+    expect(result.keptAll).toBe(false);
   });
 
-  test("omitted ids keeps ALL candidates, deduped by slug (recall-safe)", async () => {
+  test("omitted ids keeps ALL candidates, deduped by slug (recall-safe), flags keptAll", async () => {
     providerStub = makeProvider(toolUseResponse({}));
     const result = await selectPool(makePool(), makeTurn("anything"));
-    expect(result).toEqual([
+    expect(result.pages).toEqual([
       { slug: "page-a", pinned: false },
       { slug: "page-b", pinned: false },
       { slug: "topic-x", pinned: false },
     ]);
+    // The fallback fired — the model gave up judging, not "selected everything".
+    expect(result.keptAll).toBe(true);
   });
 
-  test("explicit empty ids keeps no candidates (abstention)", async () => {
+  test("explicit empty ids keeps no candidates (abstention), not keptAll", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [] }));
     const result = await selectPool(makePool(), makeTurn("nothing relevant"));
-    expect(result).toEqual([]);
+    expect(result.pages).toEqual([]);
+    // An explicit [] is a judgment, not the recall-safe fallback.
+    expect(result.keptAll).toBe(false);
   });
 
   test("out-of-range and duplicate IDs are ignored without throwing", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [2, 99, 0, -1, 2] }));
     const result = await selectPool(makePool(), makeTurn("the metrics"));
-    expect(result).toEqual([{ slug: "page-b", pinned: false }]);
+    expect(result.pages).toEqual([{ slug: "page-b", pinned: false }]);
+    expect(result.keptAll).toBe(false);
   });
 
   test("empty pool returns no pages and never calls the provider", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     const result = await selectPool({ stable: [], finder: [] }, makeTurn("hi"));
-    expect(result).toEqual([]);
+    expect(result.pages).toEqual([]);
+    expect(result.keptAll).toBe(false);
     expect(providerCalls).toHaveLength(0);
   });
 });
@@ -447,7 +455,8 @@ describe("selectPool — infrastructure failures throw", () => {
       toolUseResponse({ ids: [2] }),
     ]);
     const result = await selectPool(makePool(), makeTurn("the metrics"));
-    expect(result).toEqual([{ slug: "page-b", pinned: false }]);
+    expect(result.pages).toEqual([{ slug: "page-b", pinned: false }]);
+    expect(result.keptAll).toBe(false);
     expect(providerCalls).toHaveLength(2);
   });
 });

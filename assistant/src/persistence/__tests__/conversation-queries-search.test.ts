@@ -258,6 +258,46 @@ describe("searchConversations · qdrant lexical index", () => {
     expect(await searchConversations("flux capacitor")).toEqual([]);
   });
 
+  test("includeArchived: true surfaces archived conversations matching on content", async () => {
+    // Counterpart to the previous test: an archived conversation's content
+    // matches fold back into the result set when the caller opts in. The
+    // archived_at IS NULL filter is what this toggles, so verifying the
+    // result flips on/off across the same data proves the flag is plumbed
+    // through both the SQL fragment AND the lexical-candidate join path.
+    const arch = createConversation("Archived notes");
+    insertMessage("arch-1", arch.id, "flux capacitor archived");
+    archive(arch.id);
+    const active = createConversation("Active notes");
+    insertMessage("act-1", active.id, "flux capacitor still here");
+
+    lexicalReturns(["arch-1", "act-1"]);
+
+    const results = await searchConversations("flux capacitor", {
+      includeArchived: true,
+    });
+
+    expect(results.map((r) => r.conversationId).sort()).toEqual(
+      [arch.id, active.id].sort(),
+    );
+  });
+
+  test("includeArchived: true surfaces archived conversations matching on title only", async () => {
+    // The title LIKE arm uses the Drizzle column alias (no table prefix)
+    // and a separate `sql` predicate. The previous test exercises the raw
+    // SQL fragment; this one exercises the Drizzle arm — different code
+    // path, same opt-in semantics.
+    const archTitle = createConversation("Flux capacitor retrospective");
+    archive(archTitle.id);
+
+    lexicalReturns([]);
+
+    const results = await searchConversations("flux capacitor", {
+      includeArchived: true,
+    });
+
+    expect(results.map((r) => r.conversationId)).toEqual([archTitle.id]);
+  });
+
   test("excludes private conversations even when the index returns their messages", async () => {
     const priv = createConversation("Private notes");
     setConversationType(priv.id, "private");

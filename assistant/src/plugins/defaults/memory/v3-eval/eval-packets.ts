@@ -36,8 +36,8 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
-import { slugFromConceptPath } from "../v2/page-store.js";
+import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
+import { slugFromConceptPath } from "../substrate/page-store.js";
 import { renderCard } from "../v3/card.js";
 import { buildSectionNeedle } from "../v3/section-needle.js";
 import { buildSectionIndex } from "../v3/sections.js";

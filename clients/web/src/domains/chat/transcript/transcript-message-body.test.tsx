@@ -1,6 +1,14 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 // The transcript transitively pulls in the viewer store → the generated daemon
 // SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
@@ -30,6 +38,57 @@ mock.module("@/domains/chat/utils/background-task-actions", () => ({
   stopBackgroundTask: stopBackgroundTaskMock,
 }));
 
+// The vellum file action modal builds on the design-library Modal (Radix
+// dialog). Stub the design-library primitives with bare elements so these
+// tests exercise the modal's action wiring without pulling in Radix's portal
+// and focus machinery.
+mock.module("@vellumai/design-library/components/modal", () => {
+  const passthrough =
+    (slot: string) =>
+    ({ children }: { children?: ReactNode }) => (
+      <div data-testid={slot}>{children}</div>
+    );
+  return {
+    Modal: {
+      Root: ({
+        open,
+        children,
+      }: {
+        open?: boolean;
+        children?: ReactNode;
+      }) => (open ? <div role="dialog">{children}</div> : null),
+      Content: passthrough("modal-content"),
+      Header: passthrough("modal-header"),
+      Title: ({ children }: { children?: ReactNode }) => (
+        <div data-testid="modal-title">{children}</div>
+      ),
+      Description: passthrough("modal-description"),
+      Footer: passthrough("modal-footer"),
+    },
+  };
+});
+mock.module("@vellumai/design-library/components/button", () => ({
+  Button: ({
+    children,
+    onClick,
+  }: {
+    children?: ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
+  ),
+}));
+
+// `openWorkspaceFile` lazily imports the app router, which these tests don't
+// build. Stub it to record the workspace paths opened via the file action
+// modal's "Go to file" button.
+const openWorkspaceFileMock = mock(async (_path: string) => {});
+mock.module("@/utils/open-workspace-file", () => ({
+  openWorkspaceFile: openWorkspaceFileMock,
+}));
+
 // Captures the latest `onVellumLinkClick` handler so tests can drive the
 // vellum:// link download path directly through the mocked markdown renderer.
 let lastVellumLinkClick: ((href: string, linkText: string) => void) | undefined;
@@ -38,16 +97,21 @@ mock.module("@/domains/chat/components/chat-markdown-message", () => ({
     content,
     hardLineBreaks,
     onVellumLinkClick,
+    redactedCredentialChips,
   }: {
     content: string;
     hardLineBreaks?: boolean;
     onVellumLinkClick?: (href: string, linkText: string) => void;
+    redactedCredentialChips?: boolean;
   }) => {
     lastVellumLinkClick = onVellumLinkClick;
     return (
       <div
         data-testid="markdown"
         data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+        data-redacted-credential-chips={
+          redactedCredentialChips ? "true" : "false"
+        }
       >
         {content}
       </div>
@@ -213,8 +277,26 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const noop = () => {};
+
+/**
+ * Drives a `vellum://` link click through the mocked markdown renderer. The
+ * click stages the file in component state (opening the action modal), so it
+ * must run inside `act`.
+ */
+function clickVellumLink(href: string, linkText: string) {
+  act(() => {
+    lastVellumLinkClick?.(href, linkText);
+  });
+}
+
+/** Clicks an action button inside the vellum file action modal. */
+function clickModalAction(name: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
+}
 
 // `TranscriptMessageBody` renders a row's body by walking its unified
 // `contentBlocks` projection — the sole source of truth. Each block embeds its
@@ -1075,10 +1157,8 @@ describe("TranscriptMessageBody", () => {
 
     // Bare label + percent-encoded path: the daemon stored the DECODED
     // basename ("qa shot.png"), so the click must decode before matching.
-    lastVellumLinkClick?.(
-      "vellum://workspace/scratch/qa%20shot.png",
-      "desktop",
-    );
+    clickVellumLink("vellum://workspace/scratch/qa%20shot.png", "desktop");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
@@ -1114,7 +1194,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    lastVellumLinkClick?.("vellum://workspace/b/result.png", "second");
+    clickVellumLink("vellum://workspace/b/result.png", "second");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
@@ -1153,14 +1234,66 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    lastVellumLinkClick?.(
-      "vellum://workspace/qa-delete-desktop-dialog.png",
-      "desktop",
-    );
+    clickVellumLink("vellum://workspace/qa-delete-desktop-dialog.png", "desktop");
+    clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
     ).toMatchObject({ id: "att-real" });
+  });
+
+  test("workspace link click opens the action modal; Go to file navigates", () => {
+    downloadAttachmentMock.mockClear();
+    openWorkspaceFileMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-modal",
+          role: "assistant",
+          contentBlocks: [textBlock("see the skill")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink(
+      "vellum://workspace/skills/foo/weekly%20plan.md",
+      "weekly plan.md",
+    );
+    // Both actions are offered for a workspace file.
+    expect(screen.getByRole("button", { name: "Go to file" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
+
+    clickModalAction("Go to file");
+    // The workspace path is percent-decoded before navigation.
+    expect(openWorkspaceFileMock).toHaveBeenCalledWith(
+      "skills/foo/weekly plan.md",
+    );
+    expect(downloadAttachmentMock).not.toHaveBeenCalled();
+    // Choosing an action dismisses the modal.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
+  });
+
+  test("host link modal offers download only, not Go to file", () => {
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-host",
+          role: "assistant",
+          contentBlocks: [textBlock("host file")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink("vellum://host/Users/user1/doc.pdf", "doc.pdf");
+    // Host files cannot open in the workspace browser.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
   });
 
   test("vellum link click still matches link text and raw basename", () => {
@@ -1193,14 +1326,16 @@ describe("TranscriptMessageBody", () => {
     );
 
     // Link text still wins when it names the attachment.
-    lastVellumLinkClick?.("vellum://workspace/out/final.pdf", "report.pdf");
+    clickVellumLink("vellum://workspace/out/final.pdf", "report.pdf");
+    clickModalAction("Download file");
     expect(
       (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
     ).toMatchObject({ id: "att-label" });
 
     // Malformed percent-encoding: decodeURIComponent throws, raw basename
     // fallback still finds the attachment.
-    lastVellumLinkClick?.("vellum://workspace/qa%ZZshot.png", "shot");
+    clickVellumLink("vellum://workspace/qa%ZZshot.png", "shot");
+    clickModalAction("Download file");
     expect(
       (downloadAttachmentMock.mock.calls[1] as unknown[])[0],
     ).toMatchObject({ id: "att-raw" });
@@ -1584,5 +1719,72 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
 
     fireEvent.click(getByTestId("inline-process-card-stop"));
     expect(stopBackgroundTaskMock).toHaveBeenCalledWith("bg-1");
+  });
+});
+
+describe("TranscriptMessageBody — redacted-credential chip version gate", () => {
+  const GATE_ASSISTANT_ID = "asst-gate";
+
+  function chipFlag(
+    role: "assistant" | "user",
+    assistantId: string | null = GATE_ASSISTANT_ID,
+  ): string | null {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: `m-gate-${role}`,
+          role,
+          contentBlocks: [textBlock("some text")],
+          timestamp: 1_000,
+        }}
+        assistantId={assistantId}
+        onSurfaceAction={noop}
+      />,
+    );
+    return container
+      .querySelector("[data-testid='markdown']")!
+      .getAttribute("data-redacted-credential-chips");
+  }
+
+  function hydrateIdentity(version: string, assistantId = GATE_ASSISTANT_ID) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, assistantId);
+  }
+
+  afterEach(() => {
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  test("chips stay off while the assistant version is unknown", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips stay off against an assistant below the gate (no neutralization)", () => {
+    hydrateIdentity("0.10.8");
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips enable for the identity owner's messages at the gated version", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant")).toBe("true");
+  });
+
+  test("chips stay off when the hydrated version belongs to a different assistant", () => {
+    // Assistant-switch race: the previous assistant's supported version
+    // is still hydrated while the transcript belongs to the new one.
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION, "asst-previous");
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips stay off when the transcript has no assistant owner", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant", null)).toBe("false");
+  });
+
+  test("user messages never enable chips, even at the gated version", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("user")).toBe("false");
   });
 });

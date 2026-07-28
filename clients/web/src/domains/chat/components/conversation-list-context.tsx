@@ -12,7 +12,7 @@
 import { createContext, useContext } from "react";
 
 import type { UseDragReorderResult } from "@/domains/chat/hooks/use-drag-reorder";
-import type { Conversation } from "@/types/conversation-types";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 
 export interface ConversationListContextValue {
   activeConversationId?: string;
@@ -35,6 +35,15 @@ export interface ConversationListContextValue {
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+
+  /** Custom groups available as "Move to group" targets in each row's menu. */
+  conversationGroups?: ConversationGroup[];
+  /** Move a conversation into an existing custom group. */
+  onMoveToGroup?: (conversation: Conversation, groupId: string) => void;
+  /** Create a new custom group (via "New group…") and move the conversation in. */
+  onCreateGroupInto?: (conversation: Conversation) => void;
+  /** Remove a conversation from its current custom group (back to Recents). */
+  onRemoveFromGroup?: (conversation: Conversation) => void;
 
   /** Drag-reorder controller; rows derive their own drag props from it. */
   dragReorder: UseDragReorderResult<Conversation>;

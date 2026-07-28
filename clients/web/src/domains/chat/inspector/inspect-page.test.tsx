@@ -483,7 +483,7 @@ describe("InspectPage — dual-mode chrome", () => {
     expect(html).not.toContain("View all conversation calls");
   });
 
-  test("message mode renders the scoped subtitle, short id, and keeps the filter dropdown", () => {
+  test("message mode renders the scoped subtitle, full id, and keeps the filter dropdown", () => {
     paramsStub = { conversationId: "conv-1" };
     searchParamsMap.set("messageId", "msg-abcdef-1234567890");
     contextStub = {
@@ -505,7 +505,7 @@ describe("InspectPage — dual-mode chrome", () => {
     const html = renderInspector();
 
     expect(html).toContain("Scoped to one message");
-    expect(html).toContain("msg-abcd"); // shortMessageId
+    expect(html).toContain("msg-abcdef-1234567890");
     // The dropdown stays visible in message mode; selecting "All
     // messages" returns to conversation mode.
     expect(html).toContain("Filter to message:");

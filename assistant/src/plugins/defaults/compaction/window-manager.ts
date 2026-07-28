@@ -87,6 +87,8 @@ export interface ContextWindowResult {
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
+  /** See {@link CompactionRunResult.summaryRequestLogId}. */
+  summaryRequestLogId?: string | null;
   summaryText: string;
   reason?: string;
   summaryFailed?: boolean;
@@ -169,6 +171,12 @@ export interface ContextWindowCompactOptions {
    * for range validation).
    */
   fixedTailStartIndex?: number;
+  /**
+   * Row-space twin of `fixedTailStartIndex` — bounds the compactor's image
+   * manifest to rows before the user-chosen boundary. See
+   * {@link CompactionRunArgs.fixedBoundaryRowIndex}.
+   */
+  fixedBoundaryRowIndex?: number;
 }
 
 export interface EmergencyCompactOptions {
@@ -415,6 +423,10 @@ export class ContextWindowManager {
     return this.provider.tokenEstimationProvider ?? this.provider.name;
   }
 
+  private get estimationModel(): string | undefined {
+    return this.provider.defaultModel;
+  }
+
   private get systemPrompt(): string {
     const conversation = findConversationOrSubagent(this.conversationId);
     return conversation?.systemPrompt ?? "";
@@ -436,6 +448,7 @@ export class ContextWindowManager {
   estimateInputTokens(messages: Message[]): number {
     return estimatePromptTokens(messages, this.systemPrompt, {
       providerName: this.estimationProviderName,
+      model: this.estimationModel,
       toolTokenBudget: this.toolTokenBudget,
     });
   }
@@ -465,6 +478,7 @@ export class ContextWindowManager {
     if (!compaction.enabled) return { needed: false, estimatedTokens: 0 };
     const estimated = estimatePromptTokens(messages, this.systemPrompt, {
       providerName: this.estimationProviderName,
+      model: this.estimationModel,
       toolTokenBudget: this.toolTokenBudget,
     });
     const threshold = Math.floor(
@@ -626,6 +640,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.resolveTurnToolTokenBudget(),
       },
     );
@@ -705,6 +720,7 @@ export class ContextWindowManager {
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
@@ -766,6 +782,7 @@ export class ContextWindowManager {
         ...buildBaseArgs(),
         force: true,
         fixedTailStartIndex: options.fixedTailStartIndex,
+        fixedBoundaryRowIndex: options.fixedBoundaryRowIndex,
       });
       if (!result.compacted) return result;
       return {
@@ -913,6 +930,7 @@ export class ContextWindowManager {
     try {
       return estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     } catch (err) {

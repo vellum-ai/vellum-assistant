@@ -12,7 +12,7 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import type { CharacterTraits } from "@/types/avatar";
 
-import { toneForBg } from "@/utils/surface-tone";
+import { toneForBg } from "@/utils/avatar-tone";
 
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import {
@@ -24,7 +24,9 @@ import {
 import { VoiceAvatar } from "./voice-avatar";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import {
+  VoiceRespondingRings,
   VoiceRoomColorLook,
+  VoiceStateCaption,
   resolveVoiceRoomLook,
   type VoiceEyePlacement,
   type VoiceRespondingStyle,
@@ -36,11 +38,12 @@ import {
  * with the `amplitude` slider or the `oscillate` "simulated speech" toggle — no
  * live mic / STT / TTS session required.
  *
- * `listening` renders the bottom-edge waves (energy coming *in* from the user)
- * and the avatar stays at rest; `responding` is the avatar's own outward pulse
- * (energy going *out*). Wave `waveStyle` (fill / line) and `palette` (aurora /
- * accent) are the design knobs. `realAvatar` swaps the "V" fallback for a real
- * bundled character.
+ * `listening` renders the top-edge waves (energy coming *in* from the user)
+ * and the avatar stays at rest; `responding` radiates the concentric rings from
+ * behind the avatar (energy going *out*, the same treatment the color look's
+ * eyes use). Wave `waveStyle` (fill / line) and `palette` (aurora / accent) are
+ * the design knobs. `realAvatar` swaps the "V" fallback for a real bundled
+ * character.
  *
  * Nothing hits the network: the real avatar is seeded into the query cache
  * below, on the room's own deep-dark `data-theme="dark"` void.
@@ -143,8 +146,12 @@ interface RoomSceneProps {
 
 /**
  * A full room scene for one visual: the deep-dark void, ambient particles, the
- * bottom listening waves (only in `listening`), and the centered avatar — all
- * driven by one shared amplitude source so the avatar and waves move together.
+ * top-edge listening waves (only in `listening`), the responding rings behind
+ * the avatar (only in `responding`), the centered avatar, and the shared state
+ * caption below it — all driven by one shared amplitude source so the avatar,
+ * waves, and rings move together. Mirrors the app's void look, which shares the
+ * color look's foreground chrome (top waves + rings + caption) bar the
+ * full-screen color and eyes.
  */
 function RoomScene({
   visual,
@@ -157,8 +164,10 @@ function RoomScene({
   minHeight = 420,
 }: RoomSceneProps) {
   const getAmplitude = useAmplitudeDriver(amplitude, oscillate);
+  const { ref, size: box } = useBoxSize();
   return (
     <div
+      ref={ref}
       data-theme="dark"
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
       style={{ background: "#05060b", minHeight, ["--avatar-accent" as string]: SAMPLE_ACCENT }}
@@ -169,7 +178,15 @@ function RoomScene({
           getAmplitude={getAmplitude}
           waveStyle={waveStyle}
           palette={palette}
+          // Same top edge as the color look — positional parity.
+          placement="top"
         />
+      ) : null}
+      {/* Responding: the same concentric rings the color look radiates from
+          behind the eyes, here behind the centered avatar. Sized against the
+          story box (not the window) so they match this frame. */}
+      {visual === "responding" && box.w > 0 ? (
+        <VoiceRespondingRings getAmplitude={getAmplitude} viewport={box} />
       ) : null}
       <div className="relative z-0 flex items-center justify-center">
         <VoiceAvatar
@@ -179,6 +196,9 @@ function RoomScene({
           size={size}
         />
       </div>
+      {/* Shared caption in the room's lower text zone, matching the app's void
+          look — the same anchor the color look uses. */}
+      <VoiceStateCaption visual={visual} />
     </div>
   );
 }
@@ -322,7 +342,7 @@ const colorArgs = {
   oscillate: true,
   waveStyle: "fill" as VoiceWaveStyle,
   eyePlacement: "center" as VoiceEyePlacement,
-  wavePlacement: "center" as VoiceWavePlacement,
+  wavePlacement: "top" as VoiceWavePlacement,
   wavePalette: "tone" as VoiceWavePalette,
   respondingStyle: "rings" as VoiceRespondingStyle,
   colorId: SAMPLE_COLOR_ID,
@@ -339,9 +359,9 @@ const colorArgTypes = {
     description: "Eyes rest centered, or cut off at the bottom edge.",
   },
   wavePlacement: {
-    options: ["center", "bottom"] satisfies VoiceWavePlacement[],
+    options: ["top", "bottom", "center"] satisfies VoiceWavePlacement[],
     control: { type: "inline-radio" as const },
-    description: "Waveform: a centered band, or rising from the floor.",
+    description: "Waveform: sweeping in from the top edge, rising from the floor, or a centered band.",
   },
   wavePalette: {
     options: ["tone", "accent", "aurora"] satisfies VoiceWavePalette[],
@@ -390,23 +410,25 @@ type VoidStory = StoryObj<typeof RoomScene>;
 /**
  * Playground for the room's color-with-eyes look — every knob live. Change any
  * trait (or bump Replay) to replay the entrance: the body springs to fill, the
- * color fades in, and the eyes grow into place. In `listening`, the mic
- * waveform swells in the center and the eyes sink toward the lower rest with
- * the simulated-speech driver.
+ * color fades in, and the eyes grow into place. The eyes stay centered and
+ * change *size* per state; in `listening`, the mic waveform sweeps in from the
+ * top edge with the simulated-speech driver and a state caption fades in below.
  */
 export const Playground: Story = {};
 
 /**
- * Every session state, all sharing the simulated-speech driver:
- * - `idle` — eyes centered, no treatment.
- * - `listening` — centered waveform, eyes sunk toward the lower rest with the
- *   voice.
- * - `thinking` — eyes ride back up to center, the dot triad hangs just above
- *   them (the listening→thinking hand-off cross-fades the waves out / dots in).
- * - `responding` — eyes centered, the responding treatment radiates outward.
- * - `reconnecting` — eyes centered but dimmed.
+ * Every session state, all sharing the simulated-speech driver. The eyes stay
+ * centered throughout and express the state by size (a smooth scale tween);
+ * a soft caption names the beat below them:
+ * - `idle` — eyes centered at a resting size, no treatment or caption.
+ * - `listening` — eyes wide ("all ears"), the waveform sweeping in from the top
+ *   edge, "Listening" below.
+ * - `thinking` — eyes small, the dot triad just above them, "Thinking" below.
+ * - `responding` — eyes medium, the responding treatment radiating outward,
+ *   "Speaking" below.
+ * - `reconnecting` — eyes at the resting size but dimmed.
  *
- * Scrub `visual` in the Playground to watch the transitions between them.
+ * Scrub `visual` in the Playground to watch the size + caption cross-fade.
  */
 export const States: Story = {
   render: (args) => (
@@ -418,8 +440,10 @@ export const States: Story = {
             {...args}
             visual={visual}
             eyePlacement="center"
-            wavePlacement="center"
-            minHeight={280}
+            wavePlacement="top"
+            // Tall enough that the lower zone's caption clears the eyes in a
+            // grid cell — the zone anchors off the frame, not the centerpiece.
+            minHeight={320}
           />
         </div>
       ))}
@@ -508,7 +532,7 @@ const voidArgTypes = {
   replay: { table: { disable: true } },
 };
 
-/** Void-look playground — the centered avatar, ambient void, and bottom waves. */
+/** Void-look playground — the centered avatar, ambient void, and top waves. */
 export const VoidLookPlayground: VoidStory = {
   name: "Void Look — Playground",
   render: (args) => <RoomScene {...args} />,
@@ -526,7 +550,9 @@ export const VoidLookStates: VoidStory = {
       {VISUALS.map((visual) => (
         <div key={visual} className="flex flex-col gap-2">
           <span className="text-[13px] font-medium text-white/60">{visual}</span>
-          <RoomScene {...args} visual={visual} size={140} minHeight={260} />
+          {/* Tall enough that the lower zone's caption clears the avatar in a
+              grid cell — the zone anchors off the frame, not the centerpiece. */}
+          <RoomScene {...args} visual={visual} size={140} minHeight={360} />
         </div>
       ))}
     </div>

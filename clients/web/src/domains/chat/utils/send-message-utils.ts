@@ -5,7 +5,11 @@
  * `useSendMessage` and suitable for direct unit testing.
  */
 
-import { isSurfaceInteractive, type DisplayMessage } from "@/domains/chat/types/types";
+import {
+  isSurfaceInteractive,
+  type DisplayMessage,
+  type SurfaceCompletionTone,
+} from "@/domains/chat/types/types";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import {
@@ -104,9 +108,9 @@ export function dismissInteractiveSurfaces(
 ): { updatedMessages: DisplayMessage[]; dismissedIds: Set<string> } {
   const interactiveIds = new Set<string>();
   for (const msg of messagesForScan) {
-    if (!msg.surfaces) continue;
+    if (!msg.surfaces) {continue;}
     for (const s of msg.surfaces) {
-      if (isSurfaceInteractive(s)) interactiveIds.add(s.surfaceId);
+      if (isSurfaceInteractive(s)) {interactiveIds.add(s.surfaceId);}
     }
   }
   if (interactiveIds.size === 0) {
@@ -123,18 +127,29 @@ export function completeSubmittedSurface(
   surfaceId: string,
   actionId: string,
   replyText?: string,
+  opts?: {
+    /** Explicit completion tone (icon/color); e.g. a denied guardian decision. */
+    tone?: SurfaceCompletionTone;
+    /**
+     * Guardian decision (apr:*) completion. These are approve/deny outcomes,
+     * never a plain "Cancelled" — so the secondary-style cancellation heuristic
+     * (which would mislabel a "Deny" button click as "Cancelled") is skipped.
+     */
+    isGuardianDecision?: boolean;
+  },
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
     const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
-    if (!surface) continue;
+    if (!surface) {continue;}
     if (!OPTIMISTIC_COMPLETION_SURFACE_TYPES.includes(surface.surfaceType)) {
       return prev;
     }
     const matchedAction = surface.actions?.find((a) => a.id === actionId);
     const isCancellation =
-      actionId === "cancel" ||
-      actionId === "dismiss" ||
-      matchedAction?.style === "secondary";
+      !opts?.isGuardianDecision &&
+      (actionId === "cancel" ||
+        actionId === "dismiss" ||
+        matchedAction?.style === "secondary");
     const updated = [...prev];
     updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
       s.surfaceId === surfaceId
@@ -144,6 +159,7 @@ export function completeSubmittedSurface(
             completionSummary: isCancellation
               ? "Cancelled"
               : replyText ?? matchedAction?.label ?? undefined,
+            ...(opts?.tone ? { completionTone: opts.tone } : {}),
           }
         : s,
     );

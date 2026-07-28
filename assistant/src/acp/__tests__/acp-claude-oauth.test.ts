@@ -1,0 +1,206 @@
+/**
+ * Tests for the Claude OAuth config + capture/store helpers.
+ *
+ * The store helper reaches into secure-keys and the ACP credential policy, so
+ * we mock both (wired BEFORE importing the module under test via dynamic
+ * import) and assert the vault write targets `credential/acp/claude_oauth_token`
+ * and throws when the backend rejects the write.
+ */
+
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ---------------------------------------------------------------------------
+// Mocks — wired BEFORE importing the module via dynamic import.
+// ---------------------------------------------------------------------------
+
+let storeReturn = true;
+let getReturn: string | undefined = undefined;
+const setSecureKeyAsync = mock(
+  async (_account: string, _value: string) => storeReturn,
+);
+const getSecureKeyAsync = mock(async (_account: string) => getReturn);
+const grantAcpSpawnPolicy = mock(
+  (_field: string, _usageDescription: string) => {},
+);
+let spawnCanRead = true;
+const acpSpawnCanReadCredential = mock((_field: string) => spawnCanRead);
+
+mock.module("../../security/secure-keys.js", () => ({
+  setSecureKeyAsync,
+  getSecureKeyAsync,
+}));
+mock.module("../prepare-agent-env.js", () => ({
+  grantAcpSpawnPolicy,
+  acpSpawnCanReadCredential,
+}));
+
+const {
+  CLAUDE_OAUTH_CONFIG,
+  CLAUDE_MANUAL_REDIRECT_URI,
+  buildClaudeAuthorizeUrl,
+  parseManualClaudeCode,
+  storeAcpClaudeToken,
+  hasAcpClaudeToken,
+} = await import("../acp-claude-oauth.js");
+
+beforeEach(() => {
+  storeReturn = true;
+  getReturn = undefined;
+  spawnCanRead = true;
+  setSecureKeyAsync.mockClear();
+  getSecureKeyAsync.mockClear();
+  grantAcpSpawnPolicy.mockClear();
+  acpSpawnCanReadCredential.mockClear();
+});
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+describe("CLAUDE_OAUTH_CONFIG", () => {
+  test("matches the verified endpoints, client id, and scope", () => {
+    expect(CLAUDE_OAUTH_CONFIG.authorizeUrl).toBe(
+      "https://claude.ai/oauth/authorize",
+    );
+    expect(CLAUDE_OAUTH_CONFIG.tokenExchangeUrl).toBe(
+      "https://platform.claude.com/v1/oauth/token",
+    );
+    expect(CLAUDE_OAUTH_CONFIG.clientId).toBe(
+      "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+    );
+    expect(CLAUDE_OAUTH_CONFIG.scopes).toEqual(["user:inference"]);
+    expect(CLAUDE_OAUTH_CONFIG.scopeSeparator).toBe(" ");
+  });
+
+  test("exposes the manual redirect URI", () => {
+    expect(CLAUDE_MANUAL_REDIRECT_URI).toBe(
+      "https://platform.claude.com/oauth/code/callback",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildClaudeAuthorizeUrl
+// ---------------------------------------------------------------------------
+
+describe("buildClaudeAuthorizeUrl", () => {
+  test("produces a URL that parses back to the expected query params", () => {
+    const redirectUri = "http://localhost:54545/callback";
+    const url = buildClaudeAuthorizeUrl(redirectUri, {
+      codeChallenge: "challenge-123",
+      state: "state-abc",
+    });
+
+    const parsed = new URL(url);
+    expect(`${parsed.origin}${parsed.pathname}`).toBe(
+      "https://claude.ai/oauth/authorize",
+    );
+
+    const params = parsed.searchParams;
+    expect(params.get("response_type")).toBe("code");
+    expect(params.get("client_id")).toBe(
+      "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+    );
+    expect(params.get("redirect_uri")).toBe(redirectUri);
+    expect(params.get("scope")).toBe("user:inference");
+    expect(params.get("state")).toBe("state-abc");
+    expect(params.get("code_challenge")).toBe("challenge-123");
+    expect(params.get("code_challenge_method")).toBe("S256");
+  });
+
+  test("works with the manual redirect URI too", () => {
+    const url = buildClaudeAuthorizeUrl(CLAUDE_MANUAL_REDIRECT_URI, {
+      codeChallenge: "c",
+      state: "s",
+    });
+    expect(new URL(url).searchParams.get("redirect_uri")).toBe(
+      CLAUDE_MANUAL_REDIRECT_URI,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseManualClaudeCode
+// ---------------------------------------------------------------------------
+
+describe("parseManualClaudeCode", () => {
+  test("round-trips `code#state`", () => {
+    expect(parseManualClaudeCode("abc#xyz")).toEqual({
+      code: "abc",
+      state: "xyz",
+    });
+  });
+
+  test("throws on input missing the `#` separator", () => {
+    expect(() => parseManualClaudeCode("nohash")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// storeAcpClaudeToken
+// ---------------------------------------------------------------------------
+
+describe("storeAcpClaudeToken", () => {
+  test("writes the token and force-grants the acp_spawn policy (repairs a denied policy)", async () => {
+    await storeAcpClaudeToken("sk-ant-oat-token");
+
+    expect(setSecureKeyAsync).toHaveBeenCalledTimes(1);
+    expect(setSecureKeyAsync).toHaveBeenCalledWith(
+      "credential/acp/claude_oauth_token",
+      "sk-ant-oat-token",
+    );
+    // grant (union), not merely ensure (preserve) — so an explicit Connect
+    // repairs a credential whose allowedTools omitted acp_spawn.
+    expect(grantAcpSpawnPolicy).toHaveBeenCalledTimes(1);
+    expect(grantAcpSpawnPolicy.mock.calls[0][0]).toBe("claude_oauth_token");
+  });
+
+  test("throws when the secure store rejects the write", async () => {
+    storeReturn = false;
+
+    await expect(storeAcpClaudeToken("sk-ant-oat-token")).rejects.toThrow(
+      /Failed to store/,
+    );
+    expect(grantAcpSpawnPolicy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasAcpClaudeToken
+// ---------------------------------------------------------------------------
+
+describe("hasAcpClaudeToken", () => {
+  test("reads credential/acp/claude_oauth_token and reports true when present", async () => {
+    getReturn = "sk-ant-oat-token";
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+    expect(getSecureKeyAsync).toHaveBeenCalledWith(
+      "credential/acp/claude_oauth_token",
+    );
+  });
+
+  test("reports false when the vault field is absent", async () => {
+    getReturn = undefined;
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports false for an empty stored value", async () => {
+    getReturn = "";
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports false for a legacy Anthropic API key so Connect stays offered", async () => {
+    getReturn = "sk-ant-api03-legacy-bad-entry";
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports false when the spawn policy can't read the token (denied allowedTools)", async () => {
+    // A valid OAuth token is stored, but an explicit `allowedTools` that omits
+    // `acp_spawn` means the broker denies the spawn read. Reporting "connected"
+    // would self-dismiss the card and trap the user in a missing-token loop, so
+    // it stays not-connected to keep the repair CTA visible.
+    getReturn = "sk-ant-oat-token";
+    spawnCanRead = false;
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+});

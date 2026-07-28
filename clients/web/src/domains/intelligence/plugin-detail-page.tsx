@@ -7,12 +7,13 @@ import { routes } from "@/utils/routes";
 /**
  * Route handler for `/assistant/plugins/:name` that forwards into the in-tab
  * plugin detail: it redirects (replace) to the `?plugin=<name>` deep-link on
- * the Plugins tab (see `plugins-page.tsx` / `components/plugins/plugins-tab.tsx`),
- * so a link to a specific plugin resolves to that plugin's detail.
+ * the My Superpowers page (see `superpowers-page.tsx` /
+ * `components/superpowers/superpowers-tab.tsx`), so a link to a specific
+ * plugin resolves to that plugin's detail.
  *
- * Like `PluginsPage`, it gates on the backwards-compat plugins surface: it
- * waits for the assistant version to hydrate, then sends an assistant whose
- * daemon lacks the plugin routes to Identity rather than a dead surface.
+ * It gates on the backwards-compat plugins surface: it waits for the
+ * assistant version to hydrate, then sends an assistant whose daemon lacks
+ * the plugin routes to the (skills-only) list rather than a dead detail.
  */
 export function PluginDetailPage() {
   const version = useAssistantIdentityStore.use.version();
@@ -26,17 +27,13 @@ export function PluginDetailPage() {
     return null;
   }
 
-  if (!supportsPlugins) {
-    return <Navigate to={routes.identity} replace />;
-  }
-
-  if (!name) {
-    return <Navigate to={routes.plugins} replace />;
+  if (!supportsPlugins || !name) {
+    return <Navigate to={routes.superpowers} replace />;
   }
 
   return (
     <Navigate
-      to={`${routes.plugins}?plugin=${encodeURIComponent(name)}`}
+      to={`${routes.superpowers}?plugin=${encodeURIComponent(name)}`}
       replace
     />
   );

@@ -15,18 +15,23 @@
  * a call into `backend.getGraph()` — the contract and its route do not change.
  */
 
-import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
+import { isV3TierActive } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getPageIndex, type PageIndexEntry } from "../v2/page-index.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
-import { isSkillSlug } from "../v2/skill-store.js";
-import { isCapabilitySlug } from "../v3/capabilities.js";
+import { getPageIndex, type PageIndexEntry } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
+import { isSkillSlug } from "../substrate/skill-store.js";
+import {
+  isCapabilitySlug,
+  renderCapabilityContent,
+} from "../v3/capabilities.js";
 import { buildEdgeGraph } from "../v3/edge.js";
-import { computeLearnedEdgeGraph } from "../v3/learned-edges.js";
 import type { Slug } from "../v3/types.js";
-import { isMemoryConceptGraphEnabled } from "./flag.js";
+import {
+  buildPendingGraph,
+  PENDING_NODE_ID_PREFIX,
+  readPendingBufferEntries,
+} from "./pending-buffer.js";
 import type {
   MemoryGraph,
   MemoryGraphEdge,
@@ -34,9 +39,6 @@ import type {
   MemoryGraphNodeDetail,
 } from "./types.js";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-/** Matches the selection window the v3 shadow lanes read for learned edges. */
-const LEARNED_EDGES_WINDOW_DAYS = 90;
 /** Backend identifier stamped onto graphs produced from memory-v3. */
 const BACKEND_MEMORY_V3 = "memory-v3";
 /**
@@ -45,18 +47,6 @@ const BACKEND_MEMORY_V3 = "memory-v3";
  * are kept and `truncated` is set.
  */
 const DEFAULT_MAX_NODES = 750;
-/**
- * Viz-density scaling of the retrieval lane's learned-edges thresholds. The
- * graph deliberately admits weaker co-selection associations than retrieval
- * (half the pair-count requirement, 40% of the NPMI floor, and at least
- * {@link GRAPH_LEARNED_MIN_MAX_PER_PAGE} neighbors per page) so it reads as a
- * connected web instead of scattered orphans. Retuning
- * `memory.v3.learnedEdges` for retrieval quality therefore also shifts graph
- * density — by these factors.
- */
-const GRAPH_LEARNED_MIN_COUNT_FACTOR = 0.5;
-const GRAPH_LEARNED_NPMI_FLOOR_FACTOR = 0.4;
-const GRAPH_LEARNED_MIN_MAX_PER_PAGE = 14;
 
 /** Adjacency as produced by `buildEdgeGraph` / `computeLearnedEdgeGraph`:
  * source → (target → curated description | undefined). */
@@ -78,22 +68,16 @@ function humanizeSlug(slug: string): string {
   return words.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Node taxonomy tag used for coloring. Synthetic capability slugs (skills /
- * CLI commands) carry `modifiedAt: 0`; real concept pages carry a file mtime. */
+/** Node taxonomy tag used for coloring. Only synthetic rows (`modifiedAt: 0`)
+ * are functionality: skills carry the `skills/` prefix, other synthetics (CLI
+ * commands) are capabilities. A real on-disk page keeps a file mtime and is a
+ * concept even when it happens to sit under a reserved prefix (e.g. a user page
+ * `skills/my-notes` with no matching skill survives the page index). */
 function nodeKind(entry: PageIndexEntry): string {
-  if (isSkillSlug(entry.slug)) {
-    return "skill";
-  }
   if (entry.modifiedAt <= 0) {
-    return "capability";
+    return isSkillSlug(entry.slug) ? "skill" : "capability";
   }
   return "concept";
-}
-
-/** A real concept page: on-disk (has an mtime) and not a synthetic skill or
- * CLI-command capability slug. The graph shows concepts only. */
-function isConceptEntry(entry: PageIndexEntry): boolean {
-  return entry.modifiedAt > 0 && !isCapabilitySlug(entry.slug);
 }
 
 export interface AssembleMemoryGraphInput {
@@ -105,6 +89,12 @@ export interface AssembleMemoryGraphInput {
   learnedAdjacency?: Adjacency;
   /** Node cap; defaults to {@link DEFAULT_MAX_NODES}. */
   maxNodes?: number;
+  /**
+   * When set, drop functionality nodes (kind `skill` / `capability`) that ended
+   * up with no edges — a skill nobody links to or co-selects is inert clutter.
+   * Concept nodes are always kept, even when isolated.
+   */
+  pruneDisconnectedNonConcepts?: boolean;
 }
 
 /**
@@ -199,6 +189,12 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
     return node;
   });
 
+  // Prune disconnected functionality nodes (see the option's doc). `weight` is
+  // the node's degree, so weight 0 ⇒ no incident edges ⇒ no edge cleanup needed.
+  if (input.pruneDisconnectedNonConcepts) {
+    nodes = nodes.filter((n) => n.kind === "concept" || (n.weight ?? 0) > 0);
+  }
+
   if (nodes.length <= maxNodes) {
     return { nodes, edges };
   }
@@ -211,6 +207,20 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
   const keptEdges = edges.filter(
     (e) => kept.has(e.source) && kept.has(e.target),
   );
+
+  // Truncation can strand a functionality node whose only neighbors were
+  // dropped. Re-prune against post-truncation degree so the connected-only
+  // guarantee holds even in a capped graph. An isolated node touches no kept
+  // edge by definition, so no further edge cleanup is needed.
+  if (input.pruneDisconnectedNonConcepts) {
+    const connected = new Set<string>();
+    for (const e of keptEdges) {
+      connected.add(e.source);
+      connected.add(e.target);
+    }
+    nodes = nodes.filter((n) => n.kind === "concept" || connected.has(n.id));
+  }
+
   return { nodes, edges: keptEdges, truncated: true };
 }
 
@@ -222,16 +232,18 @@ export function assembleMemoryGraph(input: AssembleMemoryGraphInput): {
 export async function getMemoryGraph(
   config: AssistantConfig,
 ): Promise<MemoryGraph> {
-  if (!isMemoryConceptGraphEnabled(config) || !isMemoryV3Live(config)) {
+  if (!isV3TierActive(config)) {
     return { backend: null, supported: false, nodes: [], edges: [] };
   }
 
   const workspaceDir = getWorkspaceDir();
   const pageIndex = await getPageIndex(workspaceDir);
-  // Concepts only: exclude synthetic skill / CLI-command slugs so the graph is
-  // purely the assistant's learned/authored concept pages. Edges to excluded
-  // slugs drop out downstream because they aren't in the node set.
-  const conceptEntries = pageIndex.entries.filter(isConceptEntry);
+  // The Memory graph is the assistant's learned mind: concept pages and the
+  // links between them. Skills and plugins have their own dedicated pages, so
+  // synthetic capability rows (skills / CLI commands, which carry `modifiedAt: 0`)
+  // are excluded here — the map is about what the assistant knows, not what it
+  // can do.
+  const entries = pageIndex.entries.filter((e) => e.modifiedAt > 0);
 
   // Raw (frontmatter + body) page reader, matching the v3 lane build. A read
   // that rejects drops that article's authored/wikilink edges but keeps its
@@ -244,60 +256,81 @@ export async function getMemoryGraph(
     return renderPageContent(page);
   };
 
-  const staticGraph = await buildEdgeGraph(conceptEntries, pageRaw, {
+  const staticGraph = await buildEdgeGraph(entries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
 
-  // Viz-tuned learned edges (see the GRAPH_LEARNED_* constants): this endpoint
-  // is visualization-only, so surfacing weaker co-selection associations (and a
-  // little extra edge noise) is a fair trade. Floors keep the thresholds sane
-  // even when the retrieval config is aggressive or disables the lane.
-  const learned = config.memory.v3.learnedEdges;
-  const learnedGraph = computeLearnedEdgeGraph(
-    { db: getDb() },
-    {
-      halfLifeMs: learned.halfLifeDays * DAY_MS,
-      minCount: Math.max(1, learned.minCount * GRAPH_LEARNED_MIN_COUNT_FACTOR),
-      npmiFloor: Math.max(
-        0,
-        learned.npmiFloor * GRAPH_LEARNED_NPMI_FLOOR_FACTOR,
-      ),
-      maxPerPage: Math.max(learned.maxPerPage, GRAPH_LEARNED_MIN_MAX_PER_PAGE),
-      now: Date.now(),
-      windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-      knownSlugs: new Set(conceptEntries.map((e) => e.slug)),
-    },
-  );
-
+  // The graph surfaces only authored `link` edges; learned (co-selection)
+  // associations are intentionally omitted here. assembleMemoryGraph accepts an
+  // optional learned adjacency, but this endpoint does not build one.
   const assembled = assembleMemoryGraph({
-    entries: conceptEntries,
+    entries,
     staticAdjacency: staticGraph.adjacency,
-    learnedAdjacency: learnedGraph.adjacency,
   });
 
-  return { backend: BACKEND_MEMORY_V3, supported: true, ...assembled };
+  // Buffer entries awaiting consolidation ride along as `pending` nodes so a
+  // just-remembered fact appears on the map immediately instead of after the
+  // next consolidation pass. Appended after assembly (and its node cap) so
+  // fresh memories are never truncated away.
+  const pending = buildPendingGraph(
+    await readPendingBufferEntries(workspaceDir),
+    new Set(entries.map((e) => e.slug)),
+  );
+
+  return {
+    backend: BACKEND_MEMORY_V3,
+    supported: true,
+    ...assembled,
+    nodes: [...assembled.nodes, ...pending.nodes],
+    edges: [...assembled.edges, ...pending.edges],
+  };
 }
 
 /**
- * Fetch a single concept node's content (its markdown body) by id. Used when a
- * user opens a node in the graph. Concepts only — skill/capability slugs and
- * unreadable pages return `{ found: false }`.
+ * Fetch a single node's content by id. Used when a user opens a node in the
+ * graph. Concept nodes return their page's markdown body; functionality nodes
+ * (skills / CLI commands) return the rendered capability statement. Unknown or
+ * unreadable ids return `{ found: false }`.
  */
 export async function getMemoryGraphNode(
   config: AssistantConfig,
   id: string,
 ): Promise<MemoryGraphNodeDetail> {
-  if (
-    !isMemoryConceptGraphEnabled(config) ||
-    !isMemoryV3Live(config) ||
-    !id ||
-    isCapabilitySlug(id)
-  ) {
+  if (!isV3TierActive(config) || !id) {
     return { found: false };
   }
+  // Pending buffer entries: resolve the id back to its buffer fact. `found:
+  // false` when the entry is gone — consolidation filed it since the graph
+  // payload was fetched, and the refreshed graph will show its concept page.
+  if (id.startsWith(PENDING_NODE_ID_PREFIX)) {
+    const entries = await readPendingBufferEntries(getWorkspaceDir());
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) {
+      return { found: false };
+    }
+    return {
+      found: true,
+      title: "Pending memory",
+      content: `${entry.text}\n\n_Saved to your memory buffer — the next consolidation pass files it into your concept pages._`,
+    };
+  }
+  // Seeded skill/CLI capabilities take precedence over any on-disk page at the
+  // same slug: the page index drops a colliding page and lets the synthetic win
+  // (v2/page-index.ts), so a `skills/foo` node built as the capability must not
+  // surface a stale disk page. renderCapabilityContent returns the rendered
+  // statement for a seeded capability, "" for an unseeded reserved-prefix slug
+  // (a real user page), and null for a normal concept slug.
+  if (isCapabilitySlug(id)) {
+    const content = renderCapabilityContent(id);
+    if (content) {
+      return { found: true, title: humanizeSlug(id), content };
+    }
+  }
+  // A real on-disk page: a concept, or a user page under a reserved prefix that
+  // isn't a seeded capability (kept in the index with a real mtime).
   const page = await readPage(getWorkspaceDir(), id).catch(() => null);
-  if (!page) {
-    return { found: false };
+  if (page) {
+    return { found: true, title: humanizeSlug(id), content: page.body };
   }
-  return { found: true, title: humanizeSlug(id), content: page.body };
+  return { found: false };
 }

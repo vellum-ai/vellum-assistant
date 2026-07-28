@@ -18,9 +18,10 @@ import {
   SttStreamSession,
   type SttStreamSocket,
 } from "../stt/stt-stream-session.js";
-import type {
-  StreamingTranscriber,
-  SttStreamServerEvent,
+import {
+  type StreamingTranscriber,
+  SttError,
+  type SttStreamServerEvent,
 } from "../stt/types.js";
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,29 @@ class FailingTranscriber implements StreamingTranscriber {
 
   async start(_onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     throw new Error("Mock provider connection refused");
+  }
+
+  sendAudio(_audio: Buffer, _mimeType: string): void {
+    throw new Error("Should not be called");
+  }
+
+  stop(): void {
+    throw new Error("Should not be called");
+  }
+}
+
+/**
+ * Mock managed transcriber whose start() throws a userFacing SttError,
+ * mirroring the managed relay's mapped dial rejection.
+ */
+class ManagedFailingTranscriber implements StreamingTranscriber {
+  readonly providerId = "vellum" as const;
+  readonly boundaryId = "daemon-streaming" as const;
+
+  constructor(private readonly message: string) {}
+
+  async start(_onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
+    throw new SttError("auth", this.message, { userFacing: true });
   }
 
   sendAudio(_audio: Buffer, _mimeType: string): void {
@@ -321,14 +345,36 @@ describe("SttStreamSession", () => {
       const frames = ws.frames;
       expect(frames[0].type).toBe("error");
       expect(frames[0].category).toBe("provider-error");
-      expect(
-        (frames[0].message as string).includes(
-          "Mock provider connection refused",
-        ),
-      ).toBe(true);
+      // Friendly copy names the provider; the raw upstream error stays in
+      // logs and must not leak to the client.
+      expect(frames[0].message as string).toContain("Deepgram");
+      expect(frames[0].message as string).not.toContain(
+        "Mock provider connection refused",
+      );
       expect(frames[1].type).toBe("closed");
       expect(session.isClosed).toBe(true);
       expect(ws.closed).toBe(true);
+    });
+
+    test("managed start failure surfaces its remediation verbatim", async () => {
+      const { ws, session } = createSession("vellum");
+      const managedMessage =
+        "Managed speech needs a working Vellum platform connection — reconnect with 'assistant platform connect'.";
+
+      await session.start(
+        async () => new ManagedFailingTranscriber(managedMessage),
+      );
+
+      const frames = ws.frames;
+      expect(frames[0].type).toBe("error");
+      expect(frames[0].category).toBe("auth");
+      // The managed remediation passes through; the BYOK "check your API key"
+      // rewrite must not clobber it for a connection-backed provider.
+      expect(frames[0].message).toBe(managedMessage);
+      expect(frames[0].message as string).not.toContain("API key");
+      expect(frames[0].message as string).not.toContain("Settings → Voice");
+      expect(frames[1].type).toBe("closed");
+      expect(session.isClosed).toBe(true);
     });
   });
 

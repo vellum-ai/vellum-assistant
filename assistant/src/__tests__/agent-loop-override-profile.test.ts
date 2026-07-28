@@ -13,20 +13,13 @@
  * field is omitted from `providerConfig` rather than carrying `undefined`.
  */
 
-import { beforeAll, describe, expect, mock, test } from "bun:test";
-
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
-import { setConfig } from "./helpers/set-config.js";
+import { describe, expect, mock, test } from "bun:test";
 
 // These suites exercise override-profile PLUMBING through legacy-shaped
 // fixtures (llm.default-centric, no defaultProvider). Pinned to the
 // flag-off cascade; override-or-default resolution semantics are pinned by
 // llm-resolver-override-or-default.test.ts and the inference-profile loop
 // suite.
-beforeAll(() => {
-  setOverridesForTesting({ "override-or-default-resolution": false });
-});
-
 import { AgentLoop } from "../agent/loop.js";
 import type {
   Message,
@@ -35,6 +28,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const userMessage: Message = {
   role: "user",
@@ -277,14 +271,20 @@ mock.module("../providers/registry.js", () => ({
   resolveProviderFromConnection: async () => anthropicStub,
 }));
 
+import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
+
 // Connection-aware resolver path: satisfy
 // `tryResolveProviderForConnectionName` lookups so resolveDefaultProvider
-// returns a usable provider for the inline `anthropic-conn` fixture.
+// returns a usable provider for any connection name the winning profile
+// references. The managed connection must carry the provider the catalog
+// `balanced` default declares (fireworks) or resolution rejects the row as a
+// provider mismatch; other names behave as personal anthropic connections.
 mock.module("../providers/inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) => ({
     id: 1,
     name,
-    provider: "anthropic",
+    provider:
+      name === VELLUM_MANAGED_CONNECTION_NAME ? "fireworks" : "anthropic",
     auth_strategy: "user_managed_credential",
     credential_alias: null,
     metadata_json: null,
@@ -295,21 +295,16 @@ mock.module("../providers/inference/connections.js", () => ({
 
 /**
  * Seed the workspace `llm` config block for real. `activeProfile` and
- * `callSites` vary per test; the rest is the shared legacy-shaped fixture.
+ * `callSites` vary per test.
  */
 function seedLlmConfig(options?: {
   activeProfile?: string;
   callSites?: Record<string, unknown>;
 }): void {
   setConfig("llm", {
-    default: {
-      provider: "anthropic",
-      model: "claude-opus-4-7",
-      provider_connection: "anthropic-conn",
-    },
     profiles: {
-      // Disable the catalog default so resolution lands on llm.default.
-      balanced: { source: "managed", status: "disabled" },
+      // Complete (provider + model) so the profile is a usable winner at
+      // every rung of the single-winner selection chain.
       fast: {
         source: "user",
         provider: "anthropic",
@@ -457,7 +452,7 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
     }
   });
 
-  test("omits overrideProfile when neither context nor row carries it", async () => {
+  test("forwards the invoker's resolved default profile when neither context nor row carries an override", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
     let capturedConfig: Record<string, unknown> | undefined;
@@ -479,10 +474,11 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
       );
 
       expect(capturedConfig).toBeDefined();
-      // Field must be absent rather than carrying `undefined` so the
-      // SubagentConfig respects the same "field omitted when unset"
-      // contract the agent loop uses.
-      expect("overrideProfile" in capturedConfig!).toBe(false);
+      // With no explicit override anywhere, the invoker-default tier forwards
+      // the invoking call site's resolved default profile — here `mainAgent`
+      // with no active profile or pin, which resolves the catalog `balanced`
+      // default — so the subagent matches its invoker's model selection.
+      expect(capturedConfig!.overrideProfile).toBe("balanced");
     } finally {
       manager.spawn = originalSpawn;
     }
@@ -491,8 +487,9 @@ describe("executeSubagentSpawn — nested inheritance via context.overrideProfil
   test("an explicit subagentSpawn call-site pin suppresses the invoker-default inheritance", async () => {
     // With an active profile the invoker-default tier resolves ("fast"), so
     // absent a pin it is forwarded as the inherited override; with an
-    // explicit llm.callSites.subagentSpawn profile the heuristic must yield
-    // so the pin can win under override-or-default resolution.
+    // explicit llm.callSites.subagentSpawn profile the heuristic must yield —
+    // a forwarded override would outrank the pin under single-winner
+    // resolution, overriding the user's explicit call-site choice.
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
     let capturedConfig: Record<string, unknown> | undefined;

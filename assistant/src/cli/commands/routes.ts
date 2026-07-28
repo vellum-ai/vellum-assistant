@@ -11,6 +11,7 @@ import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { routesHelp } from "./routes.help.js";
+import { registerRoutesWorkerCommand } from "./routes-worker.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,11 +55,15 @@ export function registerRoutesCommand(program: Command): void {
     build: (routes) => {
       applyCommandHelp(routes, routesHelp);
 
+      registerRoutesWorkerCommand(routes);
+
       subcommand(routes, "list").action(async (opts: { json?: boolean }) => {
         const r = await cliIpcCall<{ routes: DiscoveredRoute[] }>(
           "user_routes_list",
         );
-        if (!r.ok) return exitFromIpcResult(r);
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
 
         const discovered = r.result!.routes;
 
@@ -68,7 +73,9 @@ export function registerRoutesCommand(program: Command): void {
         }
 
         if (discovered.length === 0) {
-          log.info("No route handlers found in /workspace/routes/.");
+          log.info(
+            "No route handlers found in /workspace/routes/ or /workspace/plugins/<name>/routes/.",
+          );
           log.info(
             "Create a .ts or .js file exporting named HTTP method functions (GET, POST, etc.).",
           );
@@ -108,7 +115,7 @@ export function registerRoutesCommand(program: Command): void {
             route.routePath.padEnd(routeWidth),
             formatMethods(route.methods).padEnd(methodsWidth),
             (route.description ?? "").padEnd(descWidth),
-            `routes/${route.filePath}`,
+            route.filePath,
           ].join("    ");
           log.info(`  ${cols}`);
         }
@@ -130,7 +137,7 @@ export function registerRoutesCommand(program: Command): void {
         async (routePath: string, opts: { json?: boolean }) => {
           const r = await cliIpcCall<{ route: InspectedRoute }>(
             "user_routes_inspect",
-            { path: routePath },
+            { body: { path: routePath } },
           );
           if (!r.ok) {
             if (opts.json) {

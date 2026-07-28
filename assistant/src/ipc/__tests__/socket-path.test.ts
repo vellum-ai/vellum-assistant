@@ -66,15 +66,15 @@ describe("resolveIpcSocketPath", () => {
     expect(resolved.path.startsWith(tmpdir())).toBe(true);
   });
 
-  test("derives env var name from socket name", () => {
-    process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = "/run/skill-ipc";
+  test("derives a hyphenated socket name's env var and filename", () => {
+    process.env.EXAMPLE_SERVICE_IPC_SOCKET_DIR = "/run/example-ipc";
     process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
 
-    const resolved = resolveIpcSocketPath("assistant-skill");
+    const resolved = resolveIpcSocketPath("example-service");
 
     expect(resolved.source).toBe("env-override");
-    expect(resolved.path).toBe("/run/skill-ipc/assistant-skill.sock");
+    expect(resolved.path).toBe("/run/example-ipc/example-service.sock");
 
-    delete process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
+    delete process.env.EXAMPLE_SERVICE_IPC_SOCKET_DIR;
   });
 });

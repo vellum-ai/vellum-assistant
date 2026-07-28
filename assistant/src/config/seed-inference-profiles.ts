@@ -6,6 +6,7 @@ import {
   MANAGED_CONNECTION_NAMES,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -448,10 +449,11 @@ function getHatchSelectedManagedConnection(
       : undefined;
   }
 
-  const templateConnection =
-    MANAGED_PROFILE_TEMPLATES[activeProfile]?.connectionName;
-  return templateConnection && MANAGED_CONNECTION_NAMES.has(templateConnection)
-    ? templateConnection
+  // A default-profile name with no explicit connection selects the managed
+  // route: the vellum column IS the managed column, and its profiles route
+  // through the canonical vellum row.
+  return MANAGED_PROFILE_TEMPLATES[activeProfile]
+    ? VELLUM_MANAGED_CONNECTION_NAME
     : undefined;
 }
 

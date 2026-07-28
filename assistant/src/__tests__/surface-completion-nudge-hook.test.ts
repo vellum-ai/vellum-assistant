@@ -22,6 +22,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { INTERNAL_NUDGE_OUTPUT_SUPPRESSION } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
   PostModelCallContext,
@@ -151,6 +152,24 @@ beforeEach(() => {
 });
 
 // ─── Nudges when a progress surface is left open ──────────────────────────────
+
+describe("surface-completion-nudge — internal-notice suppression", () => {
+  test("appends the shared suppression clause inside the notice wrapper", () => {
+    expect(SURFACE_COMPLETION_NUDGE_TEXT).toContain(
+      INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+    );
+    expect(SURFACE_COMPLETION_NUDGE_TEXT.startsWith("<system_notice>")).toBe(
+      true,
+    );
+    expect(SURFACE_COMPLETION_NUDGE_TEXT.endsWith("</system_notice>")).toBe(
+      true,
+    );
+    // The surface-advance + final-reply instruction still leads.
+    expect(SURFACE_COMPLETION_NUDGE_TEXT).toContain(
+      "Then give your final reply",
+    );
+  });
+});
 
 describe("surface-completion-nudge — nudges on a dangling progress surface", () => {
   test("task_progress card shown and never completed → continue with nudge", async () => {

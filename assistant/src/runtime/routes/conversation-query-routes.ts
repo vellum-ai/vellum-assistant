@@ -29,6 +29,7 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
+import { CALL_SITE_DEFAULTS } from "../../config/call-site-defaults.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -46,12 +47,18 @@ import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
 import {
   DefaultProviderSchema,
+  type LLMCallSite,
   LLMConfigBase,
   LLMConfigFragment,
   ProfileEntry,
+  routingIdentityModelIssue,
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
+import {
+  describeShadowedConfigSet,
+  findSubstrateShadowing,
+} from "../../config/substrate-twin-shadowing.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
@@ -85,9 +92,10 @@ import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embeddi
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
-import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/memory-v2-activation-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
+import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
   createConnection,
@@ -455,10 +463,10 @@ async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
  * response needs the same treatment so external clients (macOS, web, CLI)
  * see the effective value rather than `undefined` when the daemon hasn't
  * persisted an explicit choice yet. For example, on a freshly-hatched
- * platform-managed assistant, `services.image-generation.mode` may be absent
- * from disk (only `llm.profiles` was written by `seedInferenceProfiles`); the
- * fill pass ensures clients receive `"managed"` rather than falling back to
- * their own defaults.
+ * platform-managed assistant, `services.image-generation.provider` may be
+ * absent from disk (only `llm.profiles` was written by
+ * `seedInferenceProfiles`); the fill pass ensures clients receive `"vellum"`
+ * rather than falling back to their own defaults.
  *
  * Guards against `loadRawConfig()` handing us a value that is technically
  * valid JSON but not a plain object (e.g. literal `null`, a number, or an
@@ -492,8 +500,8 @@ export function applyContextDefaultsToRawConfig(raw: unknown): unknown {
 
 /**
  * Backwards-compat wire field for `GET /v1/config`. PR removed
- * `services.inference.mode` from the typed schema (routing is now governed
- * by `provider_connections` rows + `llm.default.provider_connection`), but
+ * `services.inference.mode` from the typed schema (routing is governed by
+ * `provider_connections` rows + per-profile `provider_connection`), but
  * the macOS settings client (`SettingsStore.swift:loadServiceModes`) still
  * reads this field and falls back to its `@Published` default of "your-own"
  * when absent. On a platform-managed assistant served by a newer daemon and
@@ -688,20 +696,21 @@ const ConfigGetResponseSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .optional(),
         inference: z
@@ -792,7 +801,6 @@ const ConfigPatchRequestSchema = z
       .object({
         "web-search": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
@@ -800,14 +808,16 @@ const ConfigPatchRequestSchema = z
           .optional(),
         "web-fetch": z
           .object({
-            mode: ServiceModeSchema.optional(),
             provider: z.string().optional(),
           })
           .passthrough()
           .nullable()
           .optional(),
         "image-generation": z
-          .object({ mode: ServiceModeSchema.optional() })
+          .object({
+            provider: z.string().optional(),
+            model: z.string().optional(),
+          })
           .passthrough()
           .nullable()
           .optional(),
@@ -888,6 +898,53 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
     }
     for (const key of WIRE_ONLY_PROFILE_KEYS) {
       delete entry[key];
+    }
+  }
+}
+
+/**
+ * Backfill shipped call-site tuning into NEWLY created `llm.callSites`
+ * entries in a config-write fragment, in place.
+ *
+ * The resolver's tweak layer is `llm.callSites[id] ?? CALL_SITE_DEFAULTS[id]`
+ * — an explicit entry replaces the shipped default wholesale. Workspace
+ * migrations that materialize entries therefore mirror the shipped tuning
+ * exactly (see 090-memory-router-cost-optimized-profile); a client writing a
+ * bare `{ profile }` for a site it has no entry for would silently drop
+ * shipped knobs like `memoryRouter`'s 1M input window or `recall`'s token/
+ * effort bounds. Enforce the same invariant here: when a patch creates an
+ * entry, copy in any shipped tuning key the patch doesn't set itself.
+ *
+ * `profile` is never backfilled — it is the selection discriminator, and
+ * stamping it onto a custom provider/model entry would change winner
+ * selection. Existing on-disk entries are never touched: deep-merge already
+ * preserves their keys, and their values may be deliberate customization.
+ */
+function backfillNewCallSiteEntries(
+  raw: Record<string, unknown>,
+  patch: unknown,
+): void {
+  const patchSites = readPlainObject(
+    readPlainObject(readPlainObject(patch)?.llm)?.callSites,
+  );
+  if (!patchSites) {
+    return;
+  }
+  const rawSites = readPlainObject(readPlainObject(raw.llm)?.callSites);
+  for (const [id, value] of Object.entries(patchSites)) {
+    const entry = readPlainObject(value);
+    if (!entry || rawSites?.[id] != null) {
+      continue;
+    }
+    const shipped = CALL_SITE_DEFAULTS[id as LLMCallSite];
+    if (!shipped) {
+      continue;
+    }
+    for (const [key, shippedValue] of Object.entries(shipped)) {
+      if (key === "profile" || key in entry) {
+        continue;
+      }
+      entry[key] = structuredClone(shippedValue);
     }
   }
 }
@@ -1241,8 +1298,8 @@ function mergePreservingUnknownKeys(
 
 /**
  * Custom profiles persist as complete overrides: any user-source, non-mix
- * profile entry this write creates or changes is completed against
- * `llm.default` (`completeCustomProfile`) before it lands on disk, so no
+ * profile entry this write creates or changes is completed against the
+ * workspace default base (`completeCustomProfile`) before it lands on disk, so no
  * write path can persist a new partial profile. Entries the write did not
  * touch are left byte-identical — an unrelated config write must not rewrite
  * profile entries. Entries that do not parse as a `ProfileEntry` are also
@@ -1299,6 +1356,55 @@ function completeChangedCustomProfiles(
  * Shared by `handlePatchConfig` and `handleSetConfig` so both write paths get
  * identical post-write side effects.
  */
+/**
+ * Reject writes that would store a routing-identity provider with a missing
+ * or unroutable model (see `routingIdentityModelIssue`). saveRawConfig
+ * persists without schema validation, so the parse-time rejection alone
+ * would let the pair reach disk and be stripped on the next read — a silent
+ * no-op where the user expects a saved override.
+ */
+function assertRoutableIdentityEntries(raw: Record<string, unknown>): void {
+  const llm = raw.llm as
+    | {
+        default?: { provider?: unknown; model?: unknown } | null;
+        profiles?: Record<
+          string,
+          { provider?: unknown; model?: unknown } | null | undefined
+        >;
+        callSites?: Record<
+          string,
+          { provider?: unknown; model?: unknown } | null | undefined
+        >;
+      }
+    | undefined;
+  const entries: [string, { provider?: unknown; model?: unknown }][] = [];
+  // llm.default is a raw compatibility field outside the parsed schema;
+  // profile materialization uses the on-disk blob as its fill base, so it is
+  // checked like the schema-carried sections.
+  if (llm?.default) {
+    entries.push(["llm.default", llm.default]);
+  }
+  for (const section of ["profiles", "callSites"] as const) {
+    for (const [name, entry] of Object.entries(llm?.[section] ?? {})) {
+      if (entry) {
+        entries.push([`llm.${section}.${name}`, entry]);
+      }
+    }
+  }
+  for (const [label, entry] of entries) {
+    if (typeof entry.provider !== "string") {
+      continue;
+    }
+    const issue = routingIdentityModelIssue(
+      entry.provider,
+      typeof entry.model === "string" ? entry.model : undefined,
+    );
+    if (issue) {
+      throw new BadRequestError(`${issue} (${label})`);
+    }
+  }
+}
+
 export async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
@@ -1310,6 +1416,7 @@ export async function commitConfigWrite(
   const preWrite = loadRawConfig();
   completeChangedCustomProfiles(preWrite, raw);
   assertInvariantProfilesPreserved(preWrite, raw);
+  assertRoutableIdentityEntries(raw);
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
@@ -1352,6 +1459,28 @@ export async function commitConfigWrite(
   }
 }
 
+/**
+ * Web clients pair provider writes with a legacy `mode` key so their saves
+ * stay valid on daemons whose schemas still carry it. The provider-only
+ * services (web-search, image-generation) parse-strip that key, but the
+ * deep-merge would still persist it to raw config.json on every save —
+ * scrub it so the removed field cannot be resurrected on disk.
+ */
+function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
+  const services = raw.services as
+    | Record<string, Record<string, unknown> | undefined>
+    | undefined;
+  if (!services) {
+    return;
+  }
+  for (const key of ["web-search", "image-generation"]) {
+    const entry = services[key];
+    if (entry && typeof entry === "object" && "mode" in entry) {
+      delete entry.mode;
+    }
+  }
+}
+
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -1368,7 +1497,9 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
+  backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
+  scrubRemovedServiceModes(raw);
 
   await commitConfigWrite(raw, "patch");
 
@@ -1470,6 +1601,17 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   }
 
   await commitConfigWrite(raw, "set");
+  // A `memory.v2` substrate tunable whose `memory.substrate` twin is set does
+  // not mean what an unpaired write means: the substrate namespace wins in
+  // `resolveSubstrateTuning`, and for the three twins the v2 injection engine
+  // reads directly the two namespaces diverge instead. Report which case this
+  // is alongside the success so the caller can tell the operator.
+  const shadowing = findSubstrateShadowing(raw, path);
+  if (shadowing) {
+    const warning = describeShadowedConfigSet(shadowing, path);
+    log.warn({ path, substratePath: shadowing.substratePath }, warning);
+    return { ok: true, warning };
+  }
   return { ok: true };
 }
 
@@ -1620,7 +1762,16 @@ async function handleReplaceInferenceProfile({
   // profile sharing a managed name is fully editable, so it takes the
   // derivation like any other custom profile.
   const fragment = parsed.data as Record<string, unknown>;
-  if (!isManaged && fragment.provider && !fragment.provider_connection) {
+  // Routing identities resolve their connection per-request from the
+  // provider value; deriving one here would stamp the canonical vellum row
+  // ("vellum" is its stored provider) or create a junk "<identity>-personal"
+  // connection for chatgpt.
+  if (
+    !isManaged &&
+    fragment.provider &&
+    !fragment.provider_connection &&
+    !ROUTING_IDENTITY_PROVIDERS.has(fragment.provider as string)
+  ) {
     const provider = fragment.provider as string;
     const db = getDb();
     // Exclude the orphaned legacy `*-managed` rows: they may still linger in
@@ -1934,15 +2085,26 @@ async function handleGetLlmRequestLogContext({
   return normalizeLlmContextLog(log);
 }
 
-function handleDeleteQueuedMessage({
+function resolveQueuedMessageConversationId({
   queryParams = {},
-  pathParams = {},
-}: RouteHandlerArgs) {
-  const conversationId = queryParams.conversationId;
+  body,
+  headers = {},
+}: RouteHandlerArgs): string | undefined {
+  const bodyConversationId = body?.conversationId;
+  const conversationId =
+    queryParams.conversationId ??
+    (typeof bodyConversationId === "string" ? bodyConversationId : undefined) ??
+    headers["x-vellum-conversation-id"];
+  return typeof conversationId === "string" && conversationId.length > 0
+    ? conversationId
+    : undefined;
+}
+
+function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
+  const { pathParams = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
-    throw new BadRequestError(
-      "Missing required query parameter: conversationId",
-    );
+    throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = deleteQueuedMessage(conversationId, pathParams.id ?? "");
   if (result.removed) {
@@ -1954,17 +2116,10 @@ function handleDeleteQueuedMessage({
   throw new NotFoundError("Queued message not found");
 }
 
-function handleSteerToMessage({
-  queryParams = {},
-  pathParams = {},
-  body,
-}: RouteHandlerArgs) {
-  const conversationId =
-    queryParams.conversationId ??
-    (body && typeof body === "object" && "conversationId" in body
-      ? (body as Record<string, unknown>).conversationId
-      : undefined);
-  if (!conversationId || typeof conversationId !== "string") {
+function handleSteerToMessage(args: RouteHandlerArgs) {
+  const { pathParams = {} } = args;
+  const conversationId = resolveQueuedMessageConversationId(args);
+  if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = steerToMessage(conversationId, pathParams.id ?? "");

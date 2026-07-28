@@ -17,12 +17,20 @@
  *
  * This module is the single source of truth for:
  *   - the requester identity signals persisted on guardian access requests,
- *   - the binding-strength ladder derived from `verifiedVia` provenance,
  *   - the signal-driven action list every card surface renders.
  *
- * Binding strength is provenance/audit only — it never enters the capability
- * layer (`trusted_contact` ≡ `unverified_contact` on capabilities).
+ * The binding-strength ladder and `verified_via` constants are re-exported from
+ * `@vellumai/gateway-client` (their canonical home, shared with the gateway ACL
+ * write path that enforces demotion refusal — LUM-2505). Binding strength never
+ * enters the capability layer — `trusted_contact` ≡ `unverified_contact` on
+ * capabilities.
  */
+
+import type { BindingStrength } from "@vellumai/gateway-client";
+import {
+  VERIFIED_VIA_CHANNEL_CLAIM,
+  VERIFIED_VIA_MANUAL,
+} from "@vellumai/gateway-client";
 
 import type { ApprovalAction } from "./channel-approval-types.js";
 
@@ -110,59 +118,20 @@ export function parseRequesterSignals(
 }
 
 // ---------------------------------------------------------------------------
-// Binding strength ladder
+// Binding strength ladder (shared, gateway-owned)
 // ---------------------------------------------------------------------------
 
-/**
- * Binding-strength ladder: how strongly the contact's channel identity is
- * bound to the person/agent the guardian believes they are.
- *
- *   verified_handshake > internal_workspace_match > inbound_channel_claim
- *
- * - `verified_handshake` — the contact proved control of the channel by
- *   returning a verification code (`verifiedVia: "challenge"`).
- * - `internal_workspace_match` — the platform already authenticated the
- *   identity inside the guardian's own workspace (Slack member or workspace
- *   app); the guardian vouches directly (`verifiedVia: "manual"`).
- * - `inbound_channel_claim` — the guardian trusts an identity the platform is
- *   NOT vouching for (external / Slack-Connect / restricted guest / channels
- *   without workspace identity). Recorded as
- *   `verifiedVia: "manual_channel_claim"` so a trusted-anyway external never
- *   carries the same provenance as a code-verified contact.
- */
-export type BindingStrength =
-  | "verified_handshake"
-  | "internal_workspace_match"
-  | "inbound_channel_claim";
-
-/** verifiedVia written when the guardian direct-trusts a workspace-vouched identity. */
-export const VERIFIED_VIA_MANUAL = "manual";
-
-/** verifiedVia written when the guardian trusts an identity the platform is not vouching for. */
-export const VERIFIED_VIA_CHANNEL_CLAIM = "manual_channel_claim";
-
-/** verifiedVia written by the gateway when a verification code is redeemed. */
-export const VERIFIED_VIA_CHALLENGE = "challenge";
-
-/**
- * Derive the binding strength recorded by a `verifiedVia` provenance value.
- * Returns null for provenance outside the introduction ladder (e.g. "invite",
- * "bootstrap"), which predate it and keep their own audit meaning.
- */
-export function bindingStrengthForVerifiedVia(
-  verifiedVia: string | null | undefined,
-): BindingStrength | null {
-  switch (verifiedVia) {
-    case VERIFIED_VIA_CHALLENGE:
-      return "verified_handshake";
-    case VERIFIED_VIA_MANUAL:
-      return "internal_workspace_match";
-    case VERIFIED_VIA_CHANNEL_CLAIM:
-      return "inbound_channel_claim";
-    default:
-      return null;
-  }
-}
+// The binding-strength ladder and `verified_via` provenance constants are the
+// canonical vocabulary in `@vellumai/gateway-client`
+// (`binding-strength-contract.ts`); the gateway ACL write path enforces
+// demotion refusal on the same values (LUM-2505). Re-exported here so
+// introduction-card call sites keep importing them from this module.
+export {
+  bindingStrengthForVerifiedVia,
+  VERIFIED_VIA_CHALLENGE,
+} from "@vellumai/gateway-client";
+export { VERIFIED_VIA_CHANNEL_CLAIM, VERIFIED_VIA_MANUAL };
+export type { BindingStrength };
 
 /**
  * Whether the platform itself vouches for the requester's identity inside the
@@ -259,7 +228,11 @@ export function isHandshakeOffered(
  *   external / stranger / guest:     [ Verify with a code ] [ Trust anyway ]
  *                                    [ Leave unverified ] [ Block ]
  *
- * The code option is NEVER rendered for a bot.
+ * `leave_unverified` is the silent "park" outcome: it leaves the sender an
+ * `unverified` contact and never notifies the requester. It is NOT a guaranteed
+ * keep-out — an `unverified` contact is still admitted under the permissive
+ * admission floors (`any_contact`, `strangers`); the hard keep-out is `block`
+ * (→ revoked). The code option is NEVER rendered for a bot.
  */
 export function buildIntroductionActions(
   sourceChannel: string | undefined,
@@ -323,6 +296,11 @@ export interface IntroductionModePolicy {
    * requester.
    */
   notifyRequesterOnTrust: boolean;
+  /**
+   * Whether the requester is notified when the guardian's decision resolves to
+   * a `denied` request. Applies to the `block` outcome only — `leave_unverified`
+   * is always silent (a neutral park at `unverified`), regardless of mode.
+   */
   notifyRequesterOnDeny: boolean;
   notifyRequesterOnExpiry: boolean;
   /** Guardian confirmation for Leave unverified (desktop inline reply). */
@@ -342,8 +320,11 @@ const INTRODUCTION_MODES: Record<AccessRequestTrigger, IntroductionModePolicy> =
       notifyRequesterOnTrust: true,
       notifyRequesterOnDeny: true,
       notifyRequesterOnExpiry: true,
+      // Accurate for the neutral park: an `unverified` contact is not a
+      // guaranteed keep-out (still admitted under permissive floors), so the
+      // reply does not promise they "won't be able to message."
       leaveUnverifiedGuardianReply: (requesterLabel) =>
-        `${requesterLabel} will stay unverified. They won't be able to message the assistant.`,
+        `${requesterLabel} will stay unverified.`,
     },
     admitted: {
       urgency: "medium",

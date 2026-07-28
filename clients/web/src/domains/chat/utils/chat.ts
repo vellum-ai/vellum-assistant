@@ -1,4 +1,7 @@
-import { type DisplayMessage, isSurfaceInteractive } from "@/domains/chat/types/types";
+import {
+  type DisplayMessage,
+  isSurfaceInteractive,
+} from "@/domains/chat/types/types";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
@@ -7,10 +10,12 @@ import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls
 import type {
   AllowlistOption,
   DirectoryScopeOption,
+  PendingAcpConnectState,
   PendingConfirmationState,
   PendingQuestionState,
   ScopeOption,
 } from "@/types/interaction-ui-types";
+import { ACP_CLAUDE_OAUTH_MISSING_CODE } from "@/domains/chat/utils/acp-connect";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { PendingToolConfirmation } from "@vellumai/assistant-api";
 import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
@@ -29,10 +34,19 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // (daemon emits `{ type, tab }`), so the conversation-id gate would
   // otherwise drop it before it reached `handleNavigateSettings`.
   "navigate_settings",
+  // Client directive to open/focus a conversation. Its `conversationId` is
+  // the TARGET conversation to open, not the stream the event arrived on, so
+  // the conversation-id gate (which compares against the active stream's
+  // conversation) would otherwise drop it as a mismatch before it reached
+  // `handleOpenConversation`.
+  "open_conversation",
   "identity_changed",
   "avatar_updated",
   "sync_changed",
   "disk_pressure_status_changed",
+  // App source-file change broadcast — carries an `appId`, not a
+  // `conversationId`; clients re-read the app on receipt.
+  "app_files_changed",
   "home_feed_updated",
   "relationship_state_updated",
   // Workspace-scoped prompt — the `contacts/prompt` IPC route fires it
@@ -68,6 +82,68 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // reach `handleBackgroundToolCompleted`.
   "background_tool_started",
   "background_tool_completed",
+  // Service-group upgrade lifecycle events are app-wide broadcasts with no
+  // top-level `conversationId` — they announce a daemon restart affecting every
+  // client, not a single conversation. Treat them as global so the
+  // conversation-id gate doesn't drop them as "missing conversationId".
+  "service_group_update_starting",
+  "service_group_update_progress",
+  "service_group_update_complete",
+  // Memory recall/status telemetry gauges carry no top-level `conversationId`
+  // (they describe the memory subsystem, not a conversation), so gate them as
+  // global to avoid being dropped as "missing conversationId".
+  "memory_recalled",
+  "memory_status",
+  // Bookmark create/delete broadcasts sync the bookmark list across clients
+  // (handled by useBookmarksSync). They carry no top-level `conversationId`, so
+  // gate them as global.
+  "bookmark.created",
+  "bookmark.deleted",
+  // Contacts-table invalidation broadcast — carries no `conversationId`; clients
+  // refetch their contact list on receipt.
+  "contacts_changed",
+  // Skill install/enable state-change broadcast — carries no `conversationId`;
+  // clients refetch their skill list on receipt.
+  "skills_state_changed",
+  // Host UI-snapshot proxy instructions — carry no `conversationId`; they target
+  // the desktop client, not a conversation.
+  "host_ui_snapshot_request",
+  "host_ui_snapshot_cancel",
+  // host_browser_cancel carries no `conversationId` (only a requestId), so it
+  // must be gated as global; the other host-proxy frames carry one.
+  "host_browser_cancel",
+  // Daemon status, model catalog, and schedule-created broadcasts are not tied
+  // to the active conversation stream (assistant_status / model_info carry no or
+  // optional conversationId; schedule_conversation_created announces a *new*
+  // conversation), so gate them as global.
+  "assistant_status",
+  "model_info",
+  "schedule_conversation_created",
+  // Heartbeat alert (no conversationId) and heartbeat-created conversation
+  // (announces a *new* conversation) are app-wide, not conversation-scoped.
+  "heartbeat_alert",
+  "heartbeat_conversation_created",
+  // Settings/config broadcasts (client-setting push, config.json change, sounds
+  // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
+  "client_settings_update",
+  "config_changed",
+  "sounds_config_updated",
+  // Integration/platform lifecycle broadcasts — OAuth-connect completion,
+  // platform login prompt, and platform disconnect notice — are app-wide and
+  // carry no `conversationId`, so gate them as global.
+  "oauth_connect_result",
+  "show_platform_login",
+  "platform_disconnected",
+  // Notification-created broadcasts and recording lifecycle instructions are not
+  // tied to the active conversation stream (they carry no top-level
+  // `conversationId`, or — for notification_conversation_created — announce a
+  // *different* conversation), so gate them as global rather than through the
+  // conversation-id filter.
+  "notification_conversation_created",
+  "recording_start",
+  "recording_stop",
+  "recording_pause",
+  "recording_resume",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(
@@ -370,6 +446,35 @@ export function extractWirePendingQuestion(
           entries: tc.pendingQuestion.entries,
           toolUseId: tc.id,
         };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Find the "Connect Claude Code" prompt a history snapshot carries on one of
+ * its tool calls. Unlike a confirmation/question (a live registry entry the
+ * daemon stamps and clears when resolved), this rides the failed `acp_spawn`
+ * tool call's persisted `errorCode` marker — so on a full reload or an SSE
+ * reconnect the inline card restores from history instead of vanishing with
+ * the in-memory store. Returns the prompt projected into the interaction-store
+ * shape, anchored to the carrying tool call, or null when no tool call failed
+ * for a missing Claude token. Scans latest-first for the most recent such
+ * failure. The affordance itself self-heals (retires when Claude is already
+ * connected), so re-raising a resolved prompt is harmless. Mirrors
+ * {@link extractWirePendingQuestion}.
+ */
+export function extractWirePendingAcpConnect(
+  messages: DisplayMessage[],
+): PendingAcpConnectState | null {
+  for (let mi = messages.length - 1; mi >= 0; mi--) {
+    const msg = messages[mi];
+    if (!msg?.toolCalls?.length) continue;
+    for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
+      const tc = msg.toolCalls[ti];
+      if (tc?.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && tc.id) {
+        return { toolUseId: tc.id };
       }
     }
   }

@@ -192,7 +192,7 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "2
 
 3. **Ask only if truly ambiguous** - if neither rule resolves, ask for clarification. Never silently default to "from now."
 
-- Timezones default to the system timezone if omitted. Use IANA timezone identifiers (e.g. "America/Los_Angeles").
+- Timezones default to your configured timezone (falling back to the zone your client last reported); the assistant's own clock is used only when none is known. Pass an explicit IANA timezone identifier (e.g. "America/Los_Angeles") to override.
 - Prefer RRULE for complex patterns that cron cannot express (e.g. "every other Tuesday", "last weekday of the month").
 
 ## Capability Preflight

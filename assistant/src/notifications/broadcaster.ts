@@ -29,7 +29,15 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
-import { parseInteractiveApprovalPayload } from "./guardian-question-mode.js";
+import {
+  buildQuestionOptionActionId,
+  buildToolApprovalSourceView,
+  parseGuardianQuestionPayload,
+  parseInteractiveApprovalPayload,
+  QUESTION_SKIP_ACTION_ID,
+  resolveGuardianInstructionModeFromPayload,
+  type ToolApprovalSourceView,
+} from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -50,12 +58,22 @@ const APPROVAL_ACTIONS: ApprovalUIMetadata["actions"] = [
 ];
 
 /**
+ * Structured approval data resolved once per broadcast, so channel adapters
+ * render approval cards without re-parsing `contextPayload`.
+ */
+interface ResolvedApprovalContext {
+  approval: ApprovalUIMetadata;
+  /** Source reference for tool-approval cards (guardian.question only). */
+  toolApprovalSource?: ToolApprovalSourceView;
+}
+
+/**
  * Resolve structured approval context from a notification signal.
  * Returns `undefined` when the signal does not represent an approval flow.
  */
 function resolveApprovalContext(
   signal: NotificationSignal,
-): ApprovalUIMetadata | undefined {
+): ResolvedApprovalContext | undefined {
   const payload = signal.contextPayload;
   if (!payload) {
     return undefined;
@@ -69,15 +87,27 @@ function resolveApprovalContext(
       return undefined;
     }
     return {
-      requestId,
-      actions: buildIntroductionActionsForPayload(
-        parseAccessRequestPayload(payload),
-      ),
-      plainTextFallback: buildAccessRequestContractText(payload),
+      approval: {
+        requestId,
+        actions: buildIntroductionActionsForPayload(
+          parseAccessRequestPayload(payload),
+        ),
+        plainTextFallback: buildAccessRequestContractText(payload),
+      },
     };
   }
 
   if (signal.sourceEventName === "guardian.question") {
+    // Answer-mode question with structured options (an ask_question prompt):
+    // render the options as card actions so every channel adapter shows
+    // tappable choices. Built here — once per broadcast — so adapters stay
+    // rendering-only; the reply router recognizes the action ids as answer
+    // selections (see parseQuestionAnswerActionId).
+    const questionContext = resolveQuestionOptionsContext(payload);
+    if (questionContext) {
+      return questionContext;
+    }
+
     const parsed = parseInteractiveApprovalPayload(payload);
     if (!parsed) {
       return undefined;
@@ -101,21 +131,67 @@ function resolveApprovalContext(
     }
 
     return {
-      requestId,
-      actions: APPROVAL_ACTIONS,
-      plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
-      permissionDetails: toolName
-        ? {
-            toolName,
-            riskLevel: riskLevel ?? "medium",
-            toolInput: commandPreview ? { _summary: commandPreview } : {},
-            requesterIdentifier: nonEmpty(parsed.requesterIdentifier),
-          }
-        : undefined,
+      approval: {
+        requestId,
+        actions: APPROVAL_ACTIONS,
+        plainTextFallback: `Reply "${parsed.requestCode?.toUpperCase() ?? requestId} approve" or "${parsed.requestCode?.toUpperCase() ?? requestId} reject"`,
+        permissionDetails: toolName
+          ? {
+              toolName,
+              riskLevel: riskLevel ?? "medium",
+              toolInput: commandPreview ? { _summary: commandPreview } : {},
+              requesterIdentifier: nonEmpty(parsed.requesterIdentifier),
+            }
+          : undefined,
+      },
+      toolApprovalSource: buildToolApprovalSourceView(parsed),
     };
   }
 
   return undefined;
+}
+
+/**
+ * Card actions for an answer-mode `pending_question` payload carrying
+ * structured options: one action per option plus Skip, ids in the
+ * answer-selection scheme. Returns `undefined` for approval-mode payloads,
+ * option-less questions (voice questions answer by free text), and anything
+ * that fails strict parsing — those fall through to the approval/plain-text
+ * paths.
+ */
+function resolveQuestionOptionsContext(
+  payload: Record<string, unknown>,
+): ResolvedApprovalContext | undefined {
+  const parsed = parseGuardianQuestionPayload(payload);
+  if (!parsed || parsed.requestKind !== "pending_question") {
+    return undefined;
+  }
+  if (resolveGuardianInstructionModeFromPayload(parsed).mode !== "answer") {
+    return undefined;
+  }
+  const options = parsed.options;
+  if (!options || options.length === 0) {
+    return undefined;
+  }
+  const requestId = nonEmpty(parsed.requestId);
+  if (!requestId) {
+    return undefined;
+  }
+
+  const code = parsed.requestCode?.toUpperCase() ?? requestId;
+  return {
+    approval: {
+      requestId,
+      actions: [
+        ...options.map((option, index) => ({
+          id: buildQuestionOptionActionId(index),
+          label: option.label,
+        })),
+        { id: QUESTION_SKIP_ACTION_ID, label: "Skip" },
+      ],
+      plainTextFallback: `Reply "${code} <your answer>".`,
+    },
+  };
 }
 
 /** Callback invoked immediately when a vellum notification conversation is created. */
@@ -208,7 +284,9 @@ export class NotificationBroadcaster {
       Record<NotificationChannel, RenderedChannelCopy>
     > | null = null;
 
-    const approvalContext = resolveApprovalContext(signal);
+    const resolvedApproval = resolveApprovalContext(signal);
+    const approvalContext = resolvedApproval?.approval;
+    const toolApprovalSource = resolvedApproval?.toolApprovalSource;
     const accessRequestContext =
       signal.sourceEventName === "ingress.access_request" &&
       signal.contextPayload
@@ -476,6 +554,7 @@ export class NotificationBroadcaster {
         urgency: signal.attentionHints.urgency,
         approvalContext,
         accessRequestContext,
+        toolApprovalSource,
       };
 
       // Compute conversation decision audit fields for the delivery record

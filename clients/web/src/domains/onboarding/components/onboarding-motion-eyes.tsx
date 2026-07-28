@@ -12,7 +12,7 @@
 import { useMemo } from "react";
 import { motion, useTransform, type MotionValue } from "motion/react";
 
-import { pathBBox, unionBBox, type BBox } from "@/components/avatar/eye-bbox";
+import { pathBBox, unionBBox, type BBox } from "@/utils/eye-bbox";
 import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";

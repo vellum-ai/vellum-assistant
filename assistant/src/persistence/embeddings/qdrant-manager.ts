@@ -26,6 +26,13 @@ const READYZ_POLL_INTERVAL_MS = 200;
 const READYZ_TIMEOUT_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 5_000;
 
+// Qdrant routes its own logging to stdout, including the panic reports its
+// panic hook emits on a failed start. Stderr only ever carries the jemalloc
+// allocator notice printed before Qdrant's logging initializes, so stdout is
+// where a startup failure actually explains itself and needs the larger cap.
+const STDOUT_CAPTURE_LIMIT = 16_384;
+const STDERR_CAPTURE_LIMIT = 4_096;
+
 export interface QdrantManagerConfig {
   url: string;
   storagePath?: string;
@@ -50,8 +57,9 @@ export interface QdrantManagerConfig {
  */
 export class QdrantManager {
   private process: Subprocess | null = null;
+  private stdoutBuffer = "";
   private stderrBuffer = "";
-  private stderrDrained: Promise<void> = Promise.resolve();
+  private outputDrained: Promise<void> = Promise.resolve();
   private readonly url: string;
   private readonly host: string;
   private readonly port: number;
@@ -116,11 +124,11 @@ export class QdrantManager {
         QDRANT__STORAGE__STORAGE_PATH: this.storagePath,
         QDRANT__LOG_LEVEL: "WARN",
       },
-      stdout: "ignore",
+      stdout: "pipe",
       stderr: "pipe",
     });
     this.process = proc;
-    this.drainStderrFrom(proc.stderr);
+    this.drainOutputFrom(proc.stdout, proc.stderr);
 
     if (this.process.pid) {
       this.writePid(this.process.pid);
@@ -160,6 +168,7 @@ export class QdrantManager {
     }
 
     this.process = null;
+    this.stdoutBuffer = "";
     this.stderrBuffer = "";
     this.cleanupPid();
     log.info("Qdrant stopped");
@@ -282,11 +291,10 @@ export class QdrantManager {
         : new Promise<ExitedOutcome>(() => {});
 
     const throwOnExit = async (code: number): Promise<never> => {
-      await this.stderrDrained;
-      const stderr = this.stderrBuffer.trim();
+      await this.outputDrained;
       throw new Error(
         `Qdrant process exited with code ${code} before becoming ready` +
-          (stderr ? `\nstderr:\n${stderr}` : ""),
+          this.formatCapturedOutput(),
       );
     };
 
@@ -314,30 +322,68 @@ export class QdrantManager {
       ]);
       if (sleepOutcome.type === "exited") await throwOnExit(sleepOutcome.code);
     }
-    const stderr = this.stderrBuffer.trim();
     throw new Error(
       `Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}` +
-        (stderr ? `\nstderr:\n${stderr}` : ""),
+        this.formatCapturedOutput(),
     );
   }
 
-  private drainStderrFrom(stream: ReadableStream<Uint8Array>): void {
+  private drainOutputFrom(
+    stdout: ReadableStream<Uint8Array>,
+    stderr: ReadableStream<Uint8Array>,
+  ): void {
+    // Both streams must be drained for the lifetime of the process, not just
+    // until startup settles. An unread pipe fills and then blocks Qdrant on its
+    // next write.
+    this.outputDrained = Promise.all([
+      this.drainStream(stdout, STDOUT_CAPTURE_LIMIT, (text) => {
+        this.stdoutBuffer = text;
+      }),
+      this.drainStream(stderr, STDERR_CAPTURE_LIMIT, (text) => {
+        this.stderrBuffer = text;
+      }),
+    ]).then(() => undefined);
+  }
+
+  /**
+   * Accumulates a stream into a bounded buffer, keeping the most recent
+   * `limit` characters. Qdrant prints the panic reason after the backtrace, so
+   * retaining the tail keeps the explanation and drops the frames above it.
+   */
+  private async drainStream(
+    stream: ReadableStream<Uint8Array>,
+    limit: number,
+    assign: (text: string) => void,
+  ): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
-    this.stderrDrained = (async () => {
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          this.stderrBuffer += decoder.decode(value, { stream: true });
-          if (this.stderrBuffer.length > 4096) {
-            this.stderrBuffer = this.stderrBuffer.slice(-4096);
-          }
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        if (buffer.length > limit) {
+          buffer = buffer.slice(-limit);
         }
-      } catch {
-        // Stream closed or error — expected during shutdown
+        assign(buffer);
       }
-    })();
+    } catch {
+      // Stream closed or errored, which is expected during shutdown
+    }
+  }
+
+  /**
+   * Renders whatever Qdrant printed for attachment to a startup error. Stdout
+   * leads because that is where Qdrant explains itself.
+   */
+  private formatCapturedOutput(): string {
+    const stdout = this.stdoutBuffer.trim();
+    const stderr = this.stderrBuffer.trim();
+    return (
+      (stdout ? `\nstdout:\n${stdout}` : "") +
+      (stderr ? `\nstderr:\n${stderr}` : "")
+    );
   }
 
   private getBinaryPath(): string {

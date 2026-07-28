@@ -250,9 +250,9 @@ describe("MediaStreamOutput", () => {
       expect(events).toContain("media");
       expect(events).toContain("mark");
 
-      // The mark should be end-of-turn
+      // The mark should be the first sequenced end-of-turn mark
       const markMsg = sent.find((s) => JSON.parse(s).event === "mark");
-      expect(JSON.parse(markMsg!).mark.name).toBe("end-of-turn");
+      expect(JSON.parse(markMsg!).mark.name).toBe("end-of-turn:1");
     });
 
     test("empty token with last: true sends only end-of-turn mark (no synthesis)", async () => {
@@ -266,7 +266,7 @@ describe("MediaStreamOutput", () => {
       expect(sent).toHaveLength(1);
       const parsed = JSON.parse(sent[0]);
       expect(parsed.event).toBe("mark");
-      expect(parsed.mark.name).toBe("end-of-turn");
+      expect(parsed.mark.name).toBe("end-of-turn:1");
 
       // Synthesis should NOT have been called
       expect(mockSynthesize).not.toHaveBeenCalled();
@@ -513,6 +513,49 @@ describe("MediaStreamOutput", () => {
       output.endSession();
       output.clearBufferedAudio();
       expect(sent).toHaveLength(0);
+    });
+
+    test("resolves a drain waiter for an end-of-turn mark already sent to Twilio", async () => {
+      // A mark sent to Twilio is dropped by `clear` and never echoes, so a
+      // pending end-call drain wait must resolve here rather than stall.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+      output.sendTextToken("", true); // enqueues + sends end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained();
+      output.clearBufferedAudio();
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("does not resolve a drain waiter for an end-of-turn mark not yet sent", async () => {
+      // Slow synthesis keeps the mark queued locally (not yet sent to Twilio);
+      // clearBufferedAudio preserves it, so it will still play and echo.
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  audio: makeWavBuffer([1, 2, 3, 4]),
+                  contentType: "audio/wav",
+                }),
+              50,
+            ),
+          ),
+      );
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+      output.sendTextToken("hello world", true); // mark queued behind synthesis
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      output.clearBufferedAudio(); // mark not sent yet — must stay pending
+      await drain();
+      expect(resolved).toBe(false);
     });
   });
 
@@ -1565,6 +1608,219 @@ describe("MediaStreamOutput", () => {
       good.close();
       await drain(() => countEvents(sent, "media") > 0);
       expect(countEvents(sent, "media")).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Playback drain tracking (sequenced end-of-turn marks)
+  // ---------------------------------------------------------------------------
+
+  describe("playback drain", () => {
+    /** Extract the names of all sent mark events, in order. */
+    function markNames(sent: string[]): string[] {
+      return sent
+        .map((s) => JSON.parse(s))
+        .filter((m) => m.event === "mark")
+        .map((m) => m.mark.name);
+    }
+
+    test("end-of-turn marks are sequenced in order", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      output.sendTextToken("", true);
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") >= 3);
+
+      expect(markNames(sent)).toEqual([
+        "end-of-turn:1",
+        "end-of-turn:2",
+        "end-of-turn:3",
+      ]);
+    });
+
+    test("resolves immediately when no end-of-turn mark is outstanding", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      // Never enqueued a turn — nothing outstanding.
+      await expect(output.awaitPlaybackDrained()).resolves.toBeUndefined();
+    });
+
+    test("resolves immediately when the output is already closed", async () => {
+      const { ws } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // outstanding seq 1, never echoed
+      output.endSession();
+      await expect(output.awaitPlaybackDrained()).resolves.toBeUndefined();
+    });
+
+    test("stays pending until the matching end-of-turn mark is echoed", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      let resolved = false;
+      const drained = output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      await drain();
+      expect(resolved).toBe(false);
+
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drained;
+      expect(resolved).toBe(true);
+    });
+
+    test("a higher-seq echo (still within enqueued) resolves an earlier waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained(); // targets seq 1
+      output.sendTextToken("", true); // enqueues end-of-turn:2
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      // Echoing seq 2 (which was enqueued) satisfies the seq-1 waiter too.
+      output.notePlaybackMarkEcho("end-of-turn:2");
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("ignores an echo for a seq beyond what was enqueued", async () => {
+      // A stale/forged future echo must not advance the high-water mark, or
+      // later real turns would drain immediately before their audio played.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // Out-of-range echo before we ever queued seq 3 — ignored.
+      output.notePlaybackMarkEcho("end-of-turn:3");
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+      await drain();
+      expect(resolved).toBe(false); // seq-1 waiter still pending
+
+      // The genuine seq-1 echo resolves it.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
+    });
+
+    test("a stale lower-seq echo does not resolve a higher-seq waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") >= 2);
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain();
+      expect(resolved).toBe(false);
+
+      output.notePlaybackMarkEcho("end-of-turn:2");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
+    });
+
+    test("flushing the playback queue releases a pending waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained();
+      output.clearAudio(); // flushes the playback queue
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("a waiter armed AFTER a flush does not hang on the flushed mark", async () => {
+      // Barge-in flushes an outstanding end-of-turn mark before any waiter
+      // exists. A later awaitPlaybackDrained() targeting that flushed seq
+      // must resolve (the audio was cleared, never to be echoed) rather than
+      // wait forever.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // enqueues end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      output.clearAudio(); // flushes end-of-turn:1 with no waiter present
+
+      await expect(output.awaitPlaybackDrained()).resolves.toBeUndefined();
+    });
+
+    test("a late cleared-mark echo does not prematurely resolve a fresh turn", async () => {
+      // After a flush advances the drained seq, a stale echo for the cleared
+      // mark is a no-op, and the next turn's waiter still pends until its own
+      // (higher-seq) mark is echoed.
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true); // end-of-turn:1
+      await drain(() => countEvents(sent, "mark") > 0);
+      output.clearAudio(); // flush; drained seq advances to 1
+
+      output.sendTextToken("", true); // end-of-turn:2 (next turn)
+      await drain(() => countEvents(sent, "mark") > 1);
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      // Stale echo for the cleared mark must not resolve the seq-2 waiter.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain();
+      expect(resolved).toBe(false);
+
+      // The genuine seq-2 echo resolves it.
+      output.notePlaybackMarkEcho("end-of-turn:2");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
+    });
+
+    test("endSession releases a pending waiter", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      const drained = output.awaitPlaybackDrained();
+      output.endSession();
+      await expect(drained).resolves.toBeUndefined();
+    });
+
+    test("ignores non-end-of-turn and malformed mark names without throwing", async () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      output.sendTextToken("", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      let resolved = false;
+      void output.awaitPlaybackDrained().then(() => {
+        resolved = true;
+      });
+
+      // Unrelated mark name, wrong prefix, and non-numeric seq are ignored.
+      output.notePlaybackMarkEcho("some-other-mark");
+      output.notePlaybackMarkEcho("end-of-turn");
+      output.notePlaybackMarkEcho("end-of-turn:not-a-number");
+      await drain();
+      expect(resolved).toBe(false);
+
+      // The real echo still resolves.
+      output.notePlaybackMarkEcho("end-of-turn:1");
+      await drain(() => resolved);
+      expect(resolved).toBe(true);
     });
   });
 });

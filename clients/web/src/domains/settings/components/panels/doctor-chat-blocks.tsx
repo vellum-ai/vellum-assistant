@@ -10,6 +10,8 @@ import {
   Loader2,
   MessageSquareText,
   Shield,
+  ThumbsDown,
+  ThumbsUp,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -396,6 +398,66 @@ export function FeedbackPromptBlock({
             Share Feedback
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function UserOutcomePromptBlock({
+  question,
+  answer,
+  onRespond,
+  disabled,
+}: {
+  question: string;
+  answer?: "resolved" | "not_resolved";
+  onRespond: (resolved: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-disabled)]" />
+          <span className="text-body-medium-default text-[var(--content-default)]">
+            {question}
+          </span>
+        </div>
+
+        {answer ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]">
+            {answer === "resolved" ? (
+              <>
+                <ThumbsUp className="h-4 w-4 text-[var(--system-positive-strong)]" />
+                Glad it&apos;s solved!
+              </>
+            ) : (
+              <>
+                <ThumbsDown className="h-4 w-4" />
+                Not solved
+              </>
+            )}
+          </span>
+        ) : (
+          <div className="flex shrink-0 gap-2">
+            <Button
+              variant="outlined"
+              onClick={() => onRespond(true)}
+              disabled={disabled}
+              iconOnly={<ThumbsUp />}
+              aria-label="Yes, my problem is solved"
+              title="Yes, my problem is solved"
+            />
+            <Button
+              variant="outlined"
+              onClick={() => onRespond(false)}
+              disabled={disabled}
+              iconOnly={<ThumbsDown />}
+              aria-label="No, my problem is not solved"
+              title="No, my problem is not solved"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

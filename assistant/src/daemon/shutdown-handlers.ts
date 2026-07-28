@@ -14,6 +14,7 @@ import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { runHook } from "../plugins/pipeline.js";
+import { stopRouteHost } from "../routes/control.js";
 import { stopRuntimeHttpServer } from "../runtime/http-server.js";
 import { stopScheduler } from "../schedule/scheduler.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -169,6 +170,10 @@ async function shutdown(): Promise<void> {
 
   // Stop the resource monitor process if it's actually running.
   stopMonitoring();
+
+  // Stop the route host process if it's running (spawned at boot, via the CLI,
+  // or lazily on a request) so it isn't orphaned past daemon shutdown.
+  stopRouteHost();
 
   try {
     await stopMcpServerManager();

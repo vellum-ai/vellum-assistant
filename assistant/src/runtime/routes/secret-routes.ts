@@ -10,6 +10,11 @@
 import { z } from "zod";
 
 import {
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
+import {
   getPlatformAssistantId,
   setPlatformAssistantId,
   setPlatformBaseUrl,
@@ -21,14 +26,20 @@ import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-default
 import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
 import { evictConversationsForReload } from "../../daemon/conversation-store.js";
+import {
+  isNonSecretPlatformField,
+  scrubStoredCredentialFromTranscripts,
+} from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
-import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
+import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
 import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -216,6 +227,24 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
+      } else if (name === "baseten") {
+        const validation = await validateBasetenApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
+      } else if (name === "poolside") {
+        const validation = await validatePoolsideApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
       }
 
       const stored = await setSecureKeyAsync(
@@ -227,6 +256,27 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
         );
       }
+
+      // The stored plaintext may already sit in recent transcripts (a pasted
+      // key echoed by a tool result or persisted tool_use input). The scrub
+      // runs immediately after the secure-store write, BEFORE the provider
+      // refresh: that side effect can throw, and a stored-but-unscrubbed key
+      // must not depend on it succeeding. The key IS stored at this point;
+      // the scrub is best-effort hygiene and must stay invisible to the
+      // caller. Counts only — never the value.
+      try {
+        const scrubbed = await scrubStoredCredentialFromTranscripts(value);
+        log.info(
+          { provider: name, ...scrubbed },
+          "API key stored; scrubbed value from recent transcripts",
+        );
+      } catch (err) {
+        log.warn(
+          { err, provider: name },
+          "API key stored, but transcript scrub failed",
+        );
+      }
+
       await refreshProvidersAfterSecretChange();
       log.info({ provider: name }, "API key updated via HTTP");
       return { success: true, type, name };
@@ -242,6 +292,20 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
+
+      // Reject an Anthropic API key pasted into the ACP OAuth-token field (a 401
+      // footgun) as a 400 rather than letting it persist and fail at runtime.
+      if (service === ACP_SERVICE) {
+        try {
+          assertAcpCredentialFormat(field, value);
+        } catch (err) {
+          if (err instanceof AcpCredentialFormatError) {
+            throw new BadRequestError(err.message);
+          }
+          throw err;
+        }
+      }
+
       const key = credentialKey(service, field);
 
       const TRIMMED_IDENTITY_FIELDS = new Set([
@@ -274,6 +338,26 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           throw new InternalError(
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
           );
+        }
+        if (!isNonSecretPlatformField(service, field)) {
+          // Same seam as the api_key branch: the scrub runs immediately after
+          // the secure-store write, before side effects that can throw. The
+          // value IS stored at this point; the scrub is best-effort hygiene
+          // and must stay invisible to the caller. Counts only — never the
+          // value.
+          try {
+            const scrubbed =
+              await scrubStoredCredentialFromTranscripts(effectiveValue);
+            log.info(
+              { service, field, ...scrubbed },
+              "Credential stored; scrubbed value from recent transcripts",
+            );
+          } catch (err) {
+            log.warn(
+              { err, service, field },
+              "Credential stored, but transcript scrub failed",
+            );
+          }
         }
         upsertCredentialMetadata(service, field, {});
         await syncManualTokenConnection(service);

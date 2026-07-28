@@ -23,6 +23,7 @@ import type { Conversation } from "@/types/conversation-types";
 let foregroundImpl: Conversation[] = [];
 let backgroundImpl: Conversation[] = [];
 let scheduledImpl: Conversation[] = [];
+let archivedImpl: Conversation[] = [];
 let isOrgReadyImpl = true;
 const refreshConversationRowCalls: Array<{
   assistantId: string | null;
@@ -33,6 +34,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: foregroundImpl }),
   useBackgroundConversationListQuery: () => ({ conversations: backgroundImpl }),
   useScheduledConversationListQuery: () => ({ conversations: scheduledImpl }),
+  useArchivedConversationListQuery: () => ({ conversations: archivedImpl }),
 }));
 
 mock.module("@/hooks/use-is-org-ready", () => ({
@@ -123,6 +125,21 @@ describe("useActiveConversation", () => {
 
     // THEN it returns the scheduled row and never fetches a single row
     expect(result.current?.conversationId).toBe("sch-1");
+    expect(refreshConversationRowCalls).toHaveLength(0);
+  });
+
+  test("returns an archived-cache row without fetching", () => {
+    // GIVEN the active conversation is only in the archived cache
+    archivedImpl = [makeConversation("arc-1")];
+
+    // WHEN the hook resolves the active conversation
+    const { result } = renderHook(
+      () => useActiveConversation("asst-1", "arc-1", true),
+      { wrapper },
+    );
+
+    // THEN it returns the archived row and never fetches a single row
+    expect(result.current?.conversationId).toBe("arc-1");
     expect(refreshConversationRowCalls).toHaveLength(0);
   });
 

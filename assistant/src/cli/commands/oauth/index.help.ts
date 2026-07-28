@@ -655,7 +655,7 @@ Examples:
       name: "connect",
       args: "<provider>",
       description:
-        "Initiate an OAuth authorization flow for a specified provider",
+        "Initiate a terminal/headless OAuth authorization flow for a specified provider",
       options: [
         {
           flags: "--scopes <scopes...>",
@@ -686,6 +686,12 @@ defaults entirely (use full scope URLs).
 By default, the browser opens automatically and the command waits for
 completion. Use --no-browser to print the URL instead (useful for headless
 or SSH sessions).
+
+Important for chat/UI turns: do not run this command just to let the user
+connect a managed provider. Render the first-class connect surface instead:
+call \`ui_show\` with surface_type "oauth_connect" and data.providerKey set to
+the provider (for example, "google"). That surface starts the managed OAuth UI
+and avoids pasting raw authorization links into the conversation.
 
 Examples:
   $ assistant oauth connect google

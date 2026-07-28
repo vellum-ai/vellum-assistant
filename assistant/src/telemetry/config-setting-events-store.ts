@@ -1,6 +1,4 @@
-import { APP_VERSION } from "../version.js";
-import { recordTelemetryOutboxEvent } from "./telemetry-events-outbox.js";
-import type { ConfigSettingTelemetryEvent } from "./types.js";
+import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
 
 /**
  * Server-side bounds from the platform `ConfigSettingTelemetryEventSerializer`.
@@ -23,28 +21,20 @@ export interface ConfigSettingEventRecord {
 }
 
 /**
- * Record a `config_setting` telemetry event. Builds the full wire event and
- * enqueues it on the `telemetry_events` outbox. No-ops when usage data
- * collection is disabled (the event is dropped to honor the opt-out,
- * matching the rest of telemetry). Returns whether the event was persisted,
- * so a caller with its own dedupe memo (config-setting-snapshot.ts) only
- * advances the memo on a real write and keeps retrying while consent is off
- * or the telemetry DB is unavailable.
+ * Record a `config_setting` telemetry event, enqueued on the
+ * `telemetry_events` outbox. Consent gating and degraded-mode behavior are
+ * `recordTelemetryEvent`'s. Returns whether the event was persisted, so a
+ * caller with its own dedupe memo (config-setting-snapshot.ts) only advances
+ * the memo on a real write and keeps retrying while consent is off or the
+ * telemetry DB is unavailable.
  */
 export function recordConfigSettingEvent(
   record: ConfigSettingEventRecord,
 ): boolean {
   return (
-    recordTelemetryOutboxEvent(
-      "config_setting",
-      (id, createdAt): ConfigSettingTelemetryEvent => ({
-        type: "config_setting",
-        daemon_event_id: id,
-        recorded_at: createdAt,
-        config_key: record.configKey.slice(0, MAX_CONFIG_KEY_CHARS),
-        config_value: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
-        assistant_version: APP_VERSION,
-      }),
-    ) !== null
+    recordTelemetryEvent("config_setting", {
+      config_key: record.configKey.slice(0, MAX_CONFIG_KEY_CHARS),
+      config_value: record.configValue.slice(0, MAX_CONFIG_VALUE_CHARS),
+    }) !== null
   );
 }

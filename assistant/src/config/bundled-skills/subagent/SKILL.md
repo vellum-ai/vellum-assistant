@@ -44,6 +44,8 @@ Each subagent is spawned with a role that determines its tool access. Choose the
 
 All specialized roles (`researcher`, `coder`, `planner`) include `notify_parent` for mid-run communication with the parent.
 
+Read-only roles (`researcher`, `planner`, `investigator`, `advisor`) cannot write or edit files, run commands, or otherwise persist output. If the task must **produce a file, save results, or run a command**, use `coder` (or `general`) — a read-only role finishes without producing anything, and the delegated write silently no-ops.
+
 ## Consulting the Advisor
 
 The `advisor` role is the one role you spawn on your own judgment, unprompted — you do NOT wait for the user to ask for a subagent. The other roles (`researcher`, `coder`, `planner`, `investigator`, `general`) stay delegation-driven: reach for them to offload work, typically when the user's request calls for it. The advisor is different: proactively consult it whenever the conditions below are met.

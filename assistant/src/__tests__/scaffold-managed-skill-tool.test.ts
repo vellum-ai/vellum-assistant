@@ -13,6 +13,21 @@ import type { SkillSource } from "../config/skills.js";
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const mockRefreshSkillCapabilityMemories = mock(() => {});
 
+const watchdogEvents: Array<{
+  checkName: string;
+  value?: number | null;
+  detail?: Record<string, unknown> | null;
+}> = [];
+mock.module("../telemetry/watchdog-events-store.js", () => ({
+  recordWatchdogEvent: (record: {
+    checkName: string;
+    value?: number | null;
+    detail?: Record<string, unknown> | null;
+  }) => {
+    watchdogEvents.push(record);
+  },
+}));
+
 mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));
@@ -88,6 +103,7 @@ beforeEach(() => {
   mockRefreshSkillCapabilityMemories.mockClear();
   skillCardJobUpserts = [];
   skillCardUpsertThrows = false;
+  watchdogEvents.length = 0;
 });
 
 afterEach(() => {
@@ -146,6 +162,16 @@ describe("scaffold_managed_skill tool", () => {
     expect(skill).toBeDefined();
     expect(skill!.name).toBe("Test Skill");
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+
+    // A genuine create emits the central authoring counter, attributed to
+    // the user for a non-retrospective origin.
+    expect(watchdogEvents).toEqual([
+      {
+        checkName: "skill_authored",
+        value: 1,
+        detail: { authored_by: "user" },
+      },
+    ]);
   });
 
   test("accepts legacy add_to_index input without returning index metadata", async () => {
@@ -202,6 +228,12 @@ describe("scaffold_managed_skill tool", () => {
       makeContext(),
     );
     expect(result3.isError).toBe(false);
+
+    // Only the original create counts — the overwrite refined an existing
+    // skill and must not emit a second authoring event.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_authored"),
+    ).toHaveLength(1);
   });
 
   test("rejects missing required fields", async () => {
@@ -591,6 +623,74 @@ describe("scaffold_managed_skill tool", () => {
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
   });
 
+  test("copies a companion file from an on-disk source via copy_from", async () => {
+    const sourcePath = join(TEST_DIR, "proven-script.py");
+    writeFileSync(sourcePath, "print('ok')\n", "utf-8");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "copy-from-skill",
+        name: "Copy From Skill",
+        description: "Bundles a proven script",
+        body_markdown: "Run scripts/proven-script.py.",
+        files: [{ path: "scripts/proven-script.py", copy_from: sourcePath }],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(
+      readFileSync(
+        join(
+          TEST_DIR,
+          "skills",
+          "copy-from-skill",
+          "scripts",
+          "proven-script.py",
+        ),
+        "utf-8",
+      ),
+    ).toBe("print('ok')\n");
+  });
+
+  test("rejects a files entry setting both content and copy_from", async () => {
+    const sourcePath = join(TEST_DIR, "dupe.py");
+    writeFileSync(sourcePath, "x", "utf-8");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "copy-from-both",
+        name: "Both",
+        description: "Both content and copy_from",
+        body_markdown: "Body.",
+        files: [
+          { path: "scripts/dupe.py", content: "x", copy_from: sourcePath },
+        ],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("exactly one of content or copy_from");
+    expect(existsSync(join(TEST_DIR, "skills", "copy-from-both"))).toBe(false);
+  });
+
+  test("rejects a non-string copy_from", async () => {
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "copy-from-type",
+        name: "Bad Type",
+        description: "copy_from wrong type",
+        body_markdown: "Body.",
+        files: [{ path: "scripts/x.py", copy_from: 42 }],
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("copy_from must be a string path");
+  });
+
   test("rejects companion file path traversal with no partial writes", async () => {
     const result = await executeScaffoldManagedSkill(
       {
@@ -691,6 +791,15 @@ describe("scaffold_managed_skill tool", () => {
 
     expect(result.isError).toBe(false);
     expect(installMetaFor("retro-skill")?.author).toBe("assistant");
+    // The central authoring counter attributes the create to the
+    // retrospective.
+    expect(watchdogEvents).toEqual([
+      {
+        checkName: "skill_authored",
+        value: 1,
+        detail: { authored_by: "retrospective" },
+      },
+    ]);
   });
 
   test('tags author "user" for a normal (non-retrospective) scaffold', async () => {
@@ -851,6 +960,12 @@ describe("scaffold_managed_skill tool", () => {
         ),
       ),
     ).toBe(true);
+
+    // Only the V1 create counts toward authoring — the V2 refinement of an
+    // existing skill emits no second event.
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_authored"),
+    ).toHaveLength(1);
   });
 
   // ── Conversation lineage (retrospective-authored skills) ───────────────────

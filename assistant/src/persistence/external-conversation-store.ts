@@ -263,6 +263,28 @@ export function deleteBindingByChannelChat(
 }
 
 /**
+ * Remove only the thread-less (chat-level) binding for a channel + chat,
+ * leaving bindings that carry an `externalThreadId` untouched. Used when
+ * resetting a chat's main conversation so sibling thread/topic conversations
+ * in the same chat keep their bindings.
+ */
+export function deleteBindingByChannelChatNullThread(
+  sourceChannel: string,
+  externalChatId: string,
+): void {
+  const db = getDb();
+  db.delete(externalConversationBindings)
+    .where(
+      and(
+        eq(externalConversationBindings.sourceChannel, sourceChannel),
+        eq(externalConversationBindings.externalChatId, externalChatId),
+        isNull(externalConversationBindings.externalThreadId),
+      ),
+    )
+    .run();
+}
+
+/**
  * Remove an external binding by channel + external chat ID + thread ID.
  */
 export function deleteBindingByChannelChatThread(

@@ -152,6 +152,8 @@ function useStickyAssistantCapability(
 export function usePluginsList(
   assistantId: string,
   category: string | null = null,
+  /** Disable every underlying query (e.g. daemons without the plugin surface). */
+  enabled: boolean = true,
 ): UsePluginsListResult {
   const categoryParam = category ?? undefined;
 
@@ -161,7 +163,7 @@ export function usePluginsList(
       query: { q: undefined, category: categoryParam },
     }),
     queryFn: ({ signal }) => fetchInstalled(assistantId, categoryParam, signal),
-    enabled: Boolean(assistantId),
+    enabled: Boolean(assistantId) && enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
 
@@ -172,7 +174,7 @@ export function usePluginsList(
   // (`useNewChatPlugins`) and this rail resolve to the same cache entry.
   const installedCountsQuery = useQuery({
     ...installedPluginsQueryOptions(assistantId),
-    enabled: Boolean(assistantId) && category !== null,
+    enabled: Boolean(assistantId) && enabled && category !== null,
   });
 
   const catalogQuery = useQuery({
@@ -180,7 +182,7 @@ export function usePluginsList(
       path: { assistant_id: assistantId },
       query: { q: undefined },
     }),
-    enabled: Boolean(assistantId),
+    enabled: Boolean(assistantId) && enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
 

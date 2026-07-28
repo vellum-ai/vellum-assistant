@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Loader2, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Loader2, Puzzle, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
@@ -101,9 +101,14 @@ export function PluginListRow({
                 v{item.version}
               </span>
             ) : null}
-            {/* No origin badge here: the installed-list endpoint carries no
-                source, so a list row can't tell Local from External. The detail
-                view derives origin from the plugin's own `source` instead. */}
+            {/* The rows share the My Superpowers list with skills — the badge
+                marks this one as a plugin at a glance. (No origin badge: the
+                installed-list endpoint carries no source, so a list row can't
+                tell Local from External. The detail view derives origin from
+                the plugin's own `source` instead.) */}
+            <Tag tone="neutral" leftIcon={<Puzzle aria-hidden />}>
+              Plugin
+            </Tag>
             {/* The chip is the Upgrade control; it shows on any drift,
                 regardless of the auto-include state. */}
             {updateAvailable ? (

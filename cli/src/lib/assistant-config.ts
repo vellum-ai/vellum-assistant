@@ -18,6 +18,7 @@ import {
 } from "@vellumai/local-mode/contract";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./constants.js";
+import { crossEnvironmentAssistantHint } from "./environments/detect.js";
 import {
   getDefaultPorts,
   getLockfilePath,
@@ -109,6 +110,9 @@ export type AssistantEntry = Omit<
   /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
   localUrl?: string;
+  /** Public https ingress URL recorded by `vellum tunnel` providers for this
+   *  instance. The advertised-URL default for remote-web pairing. */
+  ingressUrl?: string;
   bearerToken?: string;
   /** True when this entry was registered via `vellum connect import` (a remote
    *  pairing). Set alongside `cloud: "paired"`; also backs the re-import /
@@ -420,7 +424,7 @@ export function formatAssistantLookupError(
     return `Multiple assistants match '${identifier}': ${matches}. Use the assistant ID to disambiguate.`;
   }
 
-  return `No assistant found with name or ID '${identifier}'.`;
+  return `No assistant found with name or ID '${identifier}'.${crossEnvironmentAssistantHint() ?? ""}`;
 }
 
 export function removeAssistantEntry(assistantId: string): void {
@@ -577,7 +581,9 @@ export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
     if (all.length === 1) return all[0];
 
     if (all.length === 0) {
-      console.error("No assistant found. Run 'vellum hatch' first.");
+      console.error(
+        `No assistant found. Run 'vellum hatch' first.${crossEnvironmentAssistantHint() ?? ""}`,
+      );
     } else {
       console.error(
         `Multiple assistants found. Set an active assistant with 'vellum use <name>'.`,

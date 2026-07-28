@@ -279,7 +279,7 @@ export async function routeSetup(ctx: SetupContext): Promise<{
 
   // Floor-deny outcome shared by the unknown-caller and member-caller branches.
   // Live calls cannot await async re-verification, so the floor's
-  // `shouldChallenge` upgrade UX is not surfaced — same rationale as `escalate`.
+  // `shouldChallenge` upgrade UX is not surfaced.
   const floorDeny = (
     denyVerdict: Extract<AdmissionPolicyResult, { admitted: false }>,
   ) => {
@@ -429,29 +429,6 @@ export async function routeSetup(ctx: SetupContext): Promise<{
         action: "deny",
         message: "This number is not authorized to use this assistant.",
         logReason: "Inbound voice ACL: member policy deny",
-      },
-      resolved,
-    };
-  }
-
-  // Members with policy: 'escalate' — live calls can't wait for approval
-  if (actorTrust.memberRecord?.policy === "escalate") {
-    log.info(
-      {
-        callSessionId: ctx.callSessionId,
-        from: ctx.from,
-        channelId: actorTrust.memberRecord.channel.id,
-        trustClass: actorTrust.trustClass,
-      },
-      "Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval",
-    );
-    return {
-      outcome: {
-        action: "deny",
-        message:
-          "This number requires guardian approval for calls. Please have the account guardian update your permissions.",
-        logReason:
-          "Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval",
       },
       resolved,
     };

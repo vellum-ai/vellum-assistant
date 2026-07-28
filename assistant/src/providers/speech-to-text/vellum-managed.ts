@@ -10,7 +10,11 @@ import {
   type ManagedSpeechResult,
   managedSpeechTranscribe,
 } from "../../platform/managed-speech.js";
-import { SttError, type SttTranscribeResult } from "../../stt/types.js";
+import {
+  SttError,
+  type SttErrorCategory,
+  type SttTranscribeResult,
+} from "../../stt/types.js";
 
 type ManagedSpeechFailure = Extract<ManagedSpeechResult<never>, { ok: false }>;
 
@@ -28,15 +32,34 @@ export async function vellumManagedSpeechAvailable(): Promise<boolean> {
  *
  * `insufficient_balance` gets a user-actionable message — the fix is topping
  * up Vellum credits, not editing provider config.
+ *
+ * Managed speech has no provider API key on this machine, so the BYOK "check
+ * your API key" rewrite never applies. A failure is flagged `userFacing` —
+ * surfaced verbatim by `describeSttFailure` — when it carries actionable
+ * remediation: a platform reconnect (`unavailable`), a credit top-up
+ * (`insufficient_balance`), or the platform's own `detail` message. A failure
+ * that fell back to a bare HTTP status (no `detail`) is left non-user-facing so
+ * `describeSttFailure` emits friendly category copy instead of leaking the raw
+ * status — except a bare auth status (401/403), which would be rewritten to the
+ * wrong BYOK "check your API key" guidance, so it gets its own sanitized
+ * platform-connection message.
  */
 export function sttErrorFromManagedSpeech(
   failure: ManagedSpeechFailure,
 ): SttError {
+  const hasDetail = failure.detail !== undefined;
+  const userFacing =
+    failure.kind === "unavailable" ||
+    failure.code === "insufficient_balance" ||
+    hasDetail;
+  const managed = (category: SttErrorCategory, message: string): SttError =>
+    new SttError(category, message, { userFacing });
+
   if (failure.kind === "unavailable") {
-    return new SttError("auth", failure.message);
+    return managed("auth", failure.message);
   }
   if (failure.code === "insufficient_balance") {
-    return new SttError(
+    return managed(
       "provider-error",
       "Vellum credits are exhausted — add funds to your Vellum account to continue using managed transcription.",
     );
@@ -44,13 +67,23 @@ export function sttErrorFromManagedSpeech(
   switch (failure.status) {
     case 401:
     case 403:
-      return new SttError("auth", failure.message);
+      // A bare auth failure must stay user-facing so describeSttFailure skips
+      // its BYOK "check your API key" rewrite — managed STT has no local key.
+      // `managed()` would be non-user-facing here (see `userFacing` above), so
+      // construct the sanitized platform-connection message directly.
+      return hasDetail
+        ? managed("auth", failure.message)
+        : new SttError(
+            "auth",
+            "Vellum couldn't authenticate with the platform while transcribing — reconnect your Vellum account, then retry.",
+            { userFacing: true },
+          );
     case 429:
-      return new SttError("rate-limit", failure.message);
+      return managed("rate-limit", failure.message);
     case 413:
-      return new SttError("invalid-audio", failure.message);
+      return managed("invalid-audio", failure.message);
     default:
-      return new SttError("provider-error", failure.message);
+      return managed("provider-error", failure.message);
   }
 }
 

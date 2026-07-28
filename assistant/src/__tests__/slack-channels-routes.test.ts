@@ -18,6 +18,16 @@ mock.module("../oauth/oauth-store.js", () => ({
     connectionByProvider[key] ?? undefined,
 }));
 
+// The route handler resolves auth via messaging/providers/slack/auth.ts, which
+// imports the OAuth connection resolver. Socket Mode (bot token) never reaches
+// it, but the module must be stubbed so the import graph loads under the
+// partial secure-keys mock.
+mock.module("../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: async () => {
+    throw new Error("No OAuth connection (Socket Mode test)");
+  },
+}));
+
 let listConversationsResult: unknown = { ok: true, channels: [] };
 let userInfoResults: Map<string, unknown> = new Map();
 
@@ -30,6 +40,8 @@ mock.module("../messaging/providers/slack/client.js", () => ({
     }
     throw new Error(`User not found: ${userId}`);
   },
+  // auth.ts imports SlackApiError from the client; export it from the mock.
+  SlackApiError: class SlackApiError extends Error {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -44,11 +56,10 @@ const { handleListSlackChannels } =
 // ---------------------------------------------------------------------------
 
 function configureToken() {
-  connectionByProvider["slack"] = { id: "conn-slack-1" };
-  secureKeyValues.set(
-    "oauth_connection/conn-slack-1/access_token",
-    "xoxb-test",
-  );
+  // Socket Mode bot token — the connected Channels-page install. resolveSlackAuth
+  // returns it directly for both the presence ("bot") and share-picker ("user")
+  // paths, so no OAuth connection resolution is involved.
+  secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-test");
 }
 
 beforeEach(() => {

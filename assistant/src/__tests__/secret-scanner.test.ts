@@ -1,8 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  registerPluginSecretPatterns,
+  resetPluginSecretPatternsForTests,
+  unregisterPluginSecretPatterns,
+} from "../security/plugin-secret-patterns.js";
 import {
   _isPlaceholder,
   redactSecrets,
+  redactSecretsWith,
   scanText,
   type SecretMatch,
 } from "../security/secret-scanner.js";
@@ -425,6 +431,120 @@ describe("redaction", () => {
     const result = redactSecrets(input);
     expect(result).toContain('<redacted type="AWS Access Key" />');
     expect(result).toContain('<redacted type="GitHub Token" />');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PEM private-key body redaction — the scanner replaces the matched span in
+// place, so the match must cover header→body→footer or the base64 body and
+// END footer survive redaction (the header-only-matcher leak this fixes).
+// Synthetic fake PEM material only — never a real key.
+// ---------------------------------------------------------------------------
+describe("private-key block redaction", () => {
+  const FAKE_PEM_BODY =
+    "MIIFAKEfakefakefakefakefakefakefakefakefake\n" +
+    "FAKEfakefakefakefakefakefakefakefakefake==";
+  const FULL_PEM_BLOCK = `-----BEGIN RSA PRIVATE KEY-----\n${FAKE_PEM_BODY}\n-----END RSA PRIVATE KEY-----`;
+
+  test("redactSecrets removes the whole block — body and footer, not just the header", () => {
+    const input = `here is the key:\n${FULL_PEM_BLOCK}\nuse it well`;
+    const result = redactSecrets(input);
+    expect(result).toContain('<redacted type="Private Key" />');
+    // The base64 body must not survive.
+    expect(result).not.toContain("MIIFAKE");
+    expect(result).not.toContain("FAKEfake");
+    // Header and footer must not survive either.
+    expect(result).not.toContain("-----BEGIN");
+    expect(result).not.toContain("-----END");
+    // Surrounding text is preserved.
+    expect(result).toContain("here is the key:");
+    expect(result).toContain("use it well");
+  });
+
+  test("redactSecretsWith removes the whole block", () => {
+    const result = redactSecretsWith(FULL_PEM_BLOCK, () => "[KEY]");
+    expect(result).toBe("[KEY]");
+    expect(result).not.toContain("MIIFAKE");
+    expect(result).not.toContain("-----END");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin-declared patterns (runtime registry)
+// ---------------------------------------------------------------------------
+describe("plugin-declared patterns", () => {
+  // Synthetic token mirroring the incident's shape (never a real credential).
+  const pluginKey = "virlo_tkn_Qm7pW2xLbV9sKjR4tNcY8dZh3Fg";
+
+  const registerVirlo = () =>
+    registerPluginSecretPatterns("virlo", [
+      { label: "Virlo API Key", pattern: "virlo_tkn_[A-Za-z0-9_-]{20,}" },
+    ]);
+
+  beforeEach(() => {
+    resetPluginSecretPatternsForTests();
+  });
+
+  afterEach(() => {
+    resetPluginSecretPatternsForTests();
+  });
+
+  test("scanText detects a registered plugin key inside larger text", () => {
+    registerVirlo();
+    const input = `The setup doc pastes ${pluginKey} inline`;
+    const match = expectMatch(input, "Virlo API Key (plugin:virlo)");
+    expect(input.slice(match.startIndex, match.endIndex)).toBe(pluginKey);
+  });
+
+  test("scanText does not flag the key when the plugin is not registered", () => {
+    expectNoMatch(`The setup doc pastes ${pluginKey} inline`);
+  });
+
+  test("a token ending in '-' is matched in full, including the trailing hyphen", () => {
+    registerVirlo();
+    // \b-based wrapping would backtrack past (or miss) the non-word tail.
+    const hyphenTailKey = "virlo_tkn_Qm7pW2xLbV9sKjR4tNc--";
+    const input = `key: ${hyphenTailKey} (from setup)`;
+    const match = expectMatch(input, "Virlo API Key (plugin:virlo)");
+    expect(input.slice(match.startIndex, match.endIndex)).toBe(hyphenTailKey);
+    expect(redactSecrets(input)).toBe(
+      'key: <redacted type="Virlo API Key (plugin:virlo)" /> (from setup)',
+    );
+  });
+
+  test("a key embedded in a longer token-alphabet run is not matched", () => {
+    registerVirlo();
+    // Lookarounds treat [A-Za-z0-9_-] as the token alphabet: a key glued to
+    // surrounding token characters is part of a larger token, not a secret.
+    expectNoMatch(`prefix${pluginKey}`);
+  });
+
+  test("redactSecrets redacts a registered plugin key", () => {
+    registerVirlo();
+    const result = redactSecrets(`run with ${pluginKey} exported`);
+    expect(result).toBe(
+      'run with <redacted type="Virlo API Key (plugin:virlo)" /> exported',
+    );
+  });
+
+  test("a second registration mid-test is picked up without restart", () => {
+    registerVirlo();
+    expectMatch(`a ${pluginKey} b`, "Virlo API Key (plugin:virlo)");
+
+    const acmeKey = `acme_sec_${"Zx9".repeat(8)}`;
+    registerPluginSecretPatterns("acme", [
+      { label: "Acme Token", pattern: "acme_sec_[A-Za-z0-9]{16,}" },
+    ]);
+    expectMatch(`a ${acmeKey} b`, "Acme Token (plugin:acme)");
+    // The first plugin's pattern survives the rebuild
+    expectMatch(`a ${pluginKey} b`, "Virlo API Key (plugin:virlo)");
+  });
+
+  test("unregistering stops detection", () => {
+    registerVirlo();
+    expectMatch(`a ${pluginKey} b`, "Virlo API Key (plugin:virlo)");
+    unregisterPluginSecretPatterns("virlo");
+    expectNoMatch(`a ${pluginKey} b`);
   });
 });
 

@@ -83,27 +83,19 @@ describe("TTS provider resolution", () => {
   });
 });
 
-describe("managed TTS mode resolution", () => {
+describe("managed TTS provider resolution", () => {
   const configWith = (tts: Record<string, unknown>) =>
     ({ services: { tts } }) as unknown as Parameters<
       typeof resolveTtsConfig
     >[0];
 
-  test("managed mode resolves provider vellum regardless of the BYOK choice", () => {
-    const config = configWith({
-      mode: "managed",
-      provider: "elevenlabs",
-      providers: {},
-    });
+  test("resolves the vellum provider", () => {
+    const config = configWith({ provider: "vellum", providers: {} });
     expect(resolveTtsConfig(config).provider).toBe("vellum");
   });
 
-  test("your-own mode still resolves the configured provider", () => {
-    const config = configWith({
-      mode: "your-own",
-      provider: "deepgram",
-      providers: {},
-    });
+  test("resolves a BYOK provider", () => {
+    const config = configWith({ provider: "deepgram", providers: {} });
     expect(resolveTtsConfig(config).provider).toBe("deepgram");
   });
 });

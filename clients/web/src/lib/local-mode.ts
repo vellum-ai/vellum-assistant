@@ -9,6 +9,7 @@ import {
   getGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
+import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
@@ -57,14 +58,7 @@ const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
 
-export function getPlatformRuntimeUrl(): string {
-  const injected = (
-    window as unknown as {
-      __VELLUM_CONFIG__?: { platformUrl?: string };
-    }
-  ).__VELLUM_CONFIG__;
-  return injected?.platformUrl || window.location.origin;
-}
+export { getPlatformRuntimeUrl };
 
 function getInjectedConfig(): {
   disablePlatform?: boolean;

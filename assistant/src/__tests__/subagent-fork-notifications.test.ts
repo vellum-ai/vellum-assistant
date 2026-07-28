@@ -29,7 +29,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -42,7 +42,7 @@ interface FakeManagedSubagent {
       role: string;
       content: Array<{ type: string; text: string }>;
     }>;
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     loadFromDb?: () => Promise<void>;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
@@ -51,9 +51,10 @@ interface FakeManagedSubagent {
       outputTokens: number;
       estimatedCost: number;
     };
+    subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
 }
 
 /** Type-safe accessor for SubagentManager's private internals via bracket notation. */
@@ -72,7 +73,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
 ): void {
   const fakeSession: FakeManagedSubagent["conversation"] = {
     abort: () => {},
@@ -80,6 +81,7 @@ function injectFakeSubagent(
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
+    subagentDeniedToolNames: new Set<string>(),
   };
 
   const internals = asInternals(manager);

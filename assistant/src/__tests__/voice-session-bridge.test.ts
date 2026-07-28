@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { persistUserMessage as persistUserMessageImpl } from "../daemon/conversation-messaging.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { setConfig } from "./helpers/set-config.js";
 
 /** Seed the config the voice bridge reads: disclosure copy, plus disabled
@@ -36,8 +36,10 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
+import {
+  assistantEventHub,
+  broadcastMessage,
+} from "../runtime/assistant-event-hub.js";
 
 await initializeDb();
 
@@ -45,7 +47,7 @@ await initializeDb();
  * Build a session that emits multiple events via the onEvent callback,
  * simulating assistant text deltas followed by message_complete.
  */
-function makeStreamingSession(events: ServerMessage[]): Conversation {
+function makeStreamingSession(events: AssistantEvent[]): Conversation {
   return {
     isProcessing: () => false,
     persistUserMessage: async () => ({
@@ -64,7 +66,7 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       for (const event of events) {
@@ -78,7 +80,7 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
 
 function makePersistingStreamingSession(
   conversationId: string,
-  events: ServerMessage[],
+  events: AssistantEvent[],
 ): Conversation & { callSessionId?: string } {
   type PersistUserMessageContext = Parameters<typeof persistUserMessageImpl>[0];
 
@@ -119,7 +121,7 @@ function makePersistingStreamingSession(
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       for (const event of events) {
@@ -161,7 +163,6 @@ describe("voice-session-bridge", () => {
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
-    pendingInteractions.clear();
   });
 
   test("throws when deps not injected", async () => {
@@ -173,7 +174,7 @@ describe("voice-session-bridge", () => {
 
   test("startVoiceTurn forwards text deltas to onTextDelta callback", async () => {
     const conversation = createConversation("voice bridge delta test");
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       {
         type: "assistant_text_delta",
         text: "Hello ",
@@ -214,7 +215,7 @@ describe("voice-session-bridge", () => {
 
   test("startVoiceTurn forwards error events to onError callback", async () => {
     const conversation = createConversation("voice bridge error test");
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "error", message: "Provider unavailable" },
     ];
     const session = makeStreamingSession(events);
@@ -281,7 +282,7 @@ describe("voice-session-bridge", () => {
 
   test("startVoiceTurn passes callSite: 'callAgent' to runAgentLoop", async () => {
     const conversation = createConversation("voice bridge callSite test");
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "message_complete", conversationId: conversation.id },
     ];
 
@@ -295,7 +296,7 @@ describe("voice-session-bridge", () => {
       ) => {
         capturedOptions = options;
         const onEvent =
-          (options as { onEvent?: (msg: ServerMessage) => void })?.onEvent ??
+          (options as { onEvent?: (msg: AssistantEvent) => void })?.onEvent ??
           (() => {});
         for (const event of events) {
           onEvent(event);
@@ -374,7 +375,7 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge channel context test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "message_complete", conversationId: conversation.id },
     ];
 
@@ -409,7 +410,7 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge phone metadata default test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "message_complete", conversationId: conversation.id },
     ];
     const session = makePersistingStreamingSession(conversation.id, events);
@@ -450,7 +451,7 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge local live voice metadata test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       {
         type: "assistant_text_delta",
         text: "Hi",
@@ -472,20 +473,22 @@ describe("voice-session-bridge", () => {
 
     voiceConversationFactory = () => session;
 
-    const textDeltaEvents: ServerMessage[] = [];
-    const completeEvents: ServerMessage[] = [];
+    const textDeltaEvents: AssistantEvent[] = [];
+    const completeEvents: AssistantEvent[] = [];
     let persistedUserMessageId: string | undefined;
     let persistedAssistantMessageId: string | undefined;
 
     await startVoiceTurn({
       conversationId: conversation.id,
-      voiceSessionId: "local-live-voice-session-1",
+      voiceSessionId: "live-voice-session-1",
       userMessageChannel: "vellum",
       assistantMessageChannel: "vellum",
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
-      voiceControlPrompt:
-        "You are speaking in a local live voice session. Keep replies brief and conversational.",
+      // Synthetic fixture — this test only asserts pass-through of a
+      // caller-supplied prompt, not the production live-voice prompt (that
+      // string is pinned in live-voice-events.test.ts).
+      voiceControlPrompt: "test control prompt",
       content: "Hello from local live voice",
       isInbound: true,
       callbacks: {
@@ -503,10 +506,8 @@ describe("voice-session-bridge", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(capturedVoiceSessionId).toBe("local-live-voice-session-1");
-    expect(capturedPrompts[0]).toBe(
-      "You are speaking in a local live voice session. Keep replies brief and conversational.",
-    );
+    expect(capturedVoiceSessionId).toBe("live-voice-session-1");
+    expect(capturedPrompts[0]).toBe("test control prompt");
     expect(textDeltaEvents).toEqual([events[0]]);
     expect(completeEvents).toEqual([events[1]]);
     expect(persistedAssistantMessageId).toBe("assistant-msg-1");
@@ -528,7 +529,7 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge guardian context test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "message_complete", conversationId: conversation.id },
     ];
 
@@ -571,7 +572,7 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge inbound opener framing test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "message_complete", conversationId: conversation.id },
     ];
 
@@ -632,7 +633,7 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge inbound disclosure rewrite test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "message_complete", conversationId: conversation.id },
     ];
 
@@ -683,7 +684,7 @@ describe("voice-session-bridge", () => {
       "voice bridge auto-deny non-guardian test",
     );
 
-    let clientHandler: (msg: ServerMessage) => void = () => {};
+    let clientHandler: (msg: AssistantEvent) => void = () => {};
     const handleConfirmationCalls: Array<{
       requestId: string;
       decision: string;
@@ -703,7 +704,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: ServerMessage) => void) => {
+      updateClient: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
       },
       ensureActorScopedHistory: async () => {},
@@ -718,7 +719,7 @@ describe("voice-session-bridge", () => {
           riskLevel: "high",
           allowlistOptions: [],
           scopeOptions: [],
-        } as ServerMessage);
+        } as AssistantEvent);
         // The auto-deny resolves the prompter immediately, so the agent loop
         // can continue. In production the loop would continue; here we just
         // return to simulate completion.
@@ -763,6 +764,95 @@ describe("voice-session-bridge", () => {
     expect(handleConfirmationCalls[0].decision).toBe("deny");
     expect(handleConfirmationCalls[0].decisionContext).toContain("voice call");
     expect(handleConfirmationCalls[0].decisionContext).toContain("host_bash");
+    // Phone callers get the guardian-access framing, not the local-session
+    // could-not-verify copy.
+    expect(handleConfirmationCalls[0].decisionContext).toContain(
+      "requires guardian-level access",
+    );
+  });
+
+  test("auto-denies with could-not-verify copy for local live-voice (vellum) turns", async () => {
+    const conversation = createConversation(
+      "voice bridge auto-deny vellum copy test",
+    );
+
+    let clientHandler: (msg: AssistantEvent) => void = () => {};
+    const handleConfirmationCalls: Array<{
+      requestId: string;
+      decision: string;
+      decisionContext?: string;
+    }> = [];
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setTrustContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      setVoiceCallControlPrompt: () => {},
+      updateClient: (handler: (msg: AssistantEvent) => void) => {
+        clientHandler = handler;
+      },
+      ensureActorScopedHistory: async () => {},
+      runAgentLoop: async () => {
+        clientHandler({
+          type: "confirmation_request",
+          requestId: "req-voice-vellum",
+          toolName: "host_bash",
+          input: { command: "touch /tmp/x" },
+          riskLevel: "medium",
+          allowlistOptions: [],
+          scopeOptions: [],
+        } as AssistantEvent);
+      },
+      handleConfirmationResponse: (
+        requestId: string,
+        decision: string,
+        options?: { decisionContext?: string },
+      ) => {
+        handleConfirmationCalls.push({
+          requestId,
+          decision,
+          decisionContext: options?.decisionContext,
+        });
+      },
+      abort: () => {},
+    } as unknown as Conversation;
+
+    injectDeps(() => session);
+
+    // No trustContext: the local session's guardian trust could not be
+    // resolved (fresh install, gateway unreachable). The turn is still the
+    // device owner's own client, so the deny copy must say verification
+    // failed rather than implying they lack guardian access.
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      userMessageChannel: "vellum",
+      userMessageInterface: "macos",
+      content: "run a command",
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(handleConfirmationCalls.length).toBe(1);
+    expect(handleConfirmationCalls[0].decision).toBe("deny");
+    expect(handleConfirmationCalls[0].decisionContext).toContain(
+      "could not be verified for this voice session",
+    );
+    expect(handleConfirmationCalls[0].decisionContext).toContain("text chat");
+    expect(handleConfirmationCalls[0].decisionContext).not.toContain(
+      "requires guardian-level access",
+    );
   });
 
   test("auto-denies confirmation requests for unverified_channel voice turns", async () => {
@@ -770,7 +860,7 @@ describe("voice-session-bridge", () => {
       "voice bridge auto-deny unverified test",
     );
 
-    let clientHandler: (msg: ServerMessage) => void = () => {};
+    let clientHandler: (msg: AssistantEvent) => void = () => {};
     const handleConfirmationCalls: Array<{
       requestId: string;
       decision: string;
@@ -789,7 +879,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: ServerMessage) => void) => {
+      updateClient: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
       },
       ensureActorScopedHistory: async () => {},
@@ -802,7 +892,7 @@ describe("voice-session-bridge", () => {
           riskLevel: "medium",
           allowlistOptions: [],
           scopeOptions: [],
-        } as ServerMessage);
+        } as AssistantEvent);
       },
       handleConfirmationResponse: (requestId: string, decision: string) => {
         handleConfirmationCalls.push({ requestId, decision });
@@ -837,7 +927,7 @@ describe("voice-session-bridge", () => {
       "voice bridge auto-deny unknown actor test",
     );
 
-    let clientHandler: (msg: ServerMessage) => void = () => {};
+    let clientHandler: (msg: AssistantEvent) => void = () => {};
     const handleConfirmationCalls: Array<{
       requestId: string;
       decision: string;
@@ -856,7 +946,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: ServerMessage) => void) => {
+      updateClient: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
       },
       ensureActorScopedHistory: async () => {},
@@ -869,7 +959,7 @@ describe("voice-session-bridge", () => {
           riskLevel: "medium",
           allowlistOptions: [],
           scopeOptions: [],
-        } as ServerMessage);
+        } as AssistantEvent);
       },
       handleConfirmationResponse: (requestId: string, decision: string) => {
         handleConfirmationCalls.push({ requestId, decision });
@@ -895,111 +985,12 @@ describe("voice-session-bridge", () => {
     expect(handleConfirmationCalls[0].decision).toBe("deny");
   });
 
-  test("publishes local live voice confirmation requests without auto-resolving them", async () => {
-    const conversation = createConversation(
-      "voice bridge local live voice approval test",
-    );
-
-    let clientHandler: (msg: ServerMessage) => void = () => {};
-    const handleConfirmationCalls: Array<{
-      requestId: string;
-      decision: string;
-    }> = [];
-    const publishedMessages: ServerMessage[] = [];
-    const subscription = assistantEventHub.subscribe({
-      type: "process",
-      filter: {
-        conversationId: conversation.id,
-      },
-      callback: (event) => {
-        publishedMessages.push(event.message);
-      },
-    });
-
-    const session = {
-      isProcessing: () => false,
-      persistUserMessage: async () => ({
-        id: "test-msg-id",
-        deduplicated: false,
-      }),
-      setChannelCapabilities: () => {},
-      setAssistantId: () => {},
-      setTrustContext: () => {},
-      setCommandIntent: () => {},
-      setTurnChannelContext: () => {},
-      setTurnInterfaceContext: () => {},
-      setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: ServerMessage) => void) => {
-        clientHandler = handler;
-      },
-      ensureActorScopedHistory: async () => {},
-      runAgentLoop: async () => {
-        clientHandler({
-          type: "confirmation_request",
-          requestId: "req-local-live-voice",
-          toolName: "host_bash",
-          input: { command: "ls" },
-          riskLevel: "low",
-          allowlistOptions: [],
-          scopeOptions: [],
-          conversationId: conversation.id,
-        } as ServerMessage);
-      },
-      handleConfirmationResponse: (requestId: string, decision: string) => {
-        handleConfirmationCalls.push({ requestId, decision });
-      },
-      abort: () => {},
-    } as unknown as Conversation;
-
-    try {
-      injectDeps(() => session);
-
-      await startVoiceTurn({
-        conversationId: conversation.id,
-        approvalMode: "local-live-voice",
-        content: "List files",
-        isInbound: true,
-        trustContext: {
-          sourceChannel: "phone",
-          trustClass: "guardian",
-          guardianExternalUserId: "+12125550142",
-          guardianChatId: "+12125550142",
-        },
-        onTextDelta: () => {},
-        onComplete: () => {},
-        onError: () => {},
-      });
-
-      await new Promise((r) => setTimeout(r, 50));
-
-      expect(handleConfirmationCalls).toHaveLength(0);
-      expect(
-        publishedMessages.some(
-          (message) =>
-            message.type === "confirmation_request" &&
-            message.requestId === "req-local-live-voice",
-        ),
-      ).toBe(true);
-      expect(pendingInteractions.get("req-local-live-voice")).toMatchObject({
-        conversationId: conversation.id,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: "host_bash",
-          riskLevel: "low",
-        },
-      });
-    } finally {
-      pendingInteractions.resolve("req-local-live-voice");
-      subscription.dispose();
-    }
-  });
-
   test("auto-allows confirmation requests for guardian voice turns", async () => {
     const conversation = createConversation(
       "voice bridge auto-allow guardian test",
     );
 
-    let clientHandler: (msg: ServerMessage) => void = () => {};
+    let clientHandler: (msg: AssistantEvent) => void = () => {};
     const handleConfirmationCalls: Array<{
       requestId: string;
       decision: string;
@@ -1018,7 +1009,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: ServerMessage) => void) => {
+      updateClient: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
       },
       ensureActorScopedHistory: async () => {},
@@ -1031,7 +1022,7 @@ describe("voice-session-bridge", () => {
           riskLevel: "low",
           allowlistOptions: [],
           scopeOptions: [],
-        } as ServerMessage);
+        } as AssistantEvent);
         // For verified guardian voice turns, the confirmation should be
         // auto-approved so the run can continue without a chat approval UI.
       },
@@ -1065,12 +1056,153 @@ describe("voice-session-bridge", () => {
     expect(handleConfirmationCalls[0].decision).toBe("allow");
   });
 
+  // Wire-order invariant under test: the bridge must broadcast the
+  // `confirmation_request` BEFORE resolving it — canonical rationale on the
+  // broadcast in voice-session-bridge.ts's confirmation_request branch. The
+  // fake's handleConfirmationResponse mirrors production's synchronous
+  // `interaction_resolved` broadcast so the wire order is observable through
+  // the event hub, which serializes publishes in call order.
+  function makeConfirmationOrderingSession(
+    conversationId: string,
+    requestId: string,
+  ): Conversation {
+    let clientHandler: (msg: AssistantEvent) => void = () => {};
+    return {
+      isProcessing: () => false,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setTrustContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      setVoiceCallControlPrompt: () => {},
+      updateClient: (handler: (msg: AssistantEvent) => void) => {
+        clientHandler = handler;
+      },
+      ensureActorScopedHistory: async () => {},
+      runAgentLoop: async () => {
+        clientHandler({
+          type: "confirmation_request",
+          requestId,
+          toolName: "host_bash",
+          input: { command: "ls" },
+          riskLevel: "low",
+          allowlistOptions: [],
+          scopeOptions: [],
+          conversationId,
+        } as AssistantEvent);
+      },
+      handleConfirmationResponse: (resolvedRequestId: string) => {
+        broadcastMessage({
+          type: "interaction_resolved",
+          requestId: resolvedRequestId,
+          conversationId,
+          kind: "confirmation",
+          state: "approved",
+        } as AssistantEvent);
+      },
+      abort: () => {},
+    } as unknown as Conversation;
+  }
+
+  async function collectConfirmationWireOrder(
+    conversationId: string,
+    turn: () => Promise<unknown>,
+  ): Promise<{ requestIndex: number; resolvedIndex: number }> {
+    const published: AssistantEvent[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      filter: { conversationId },
+      callback: (event) => {
+        published.push(event.message);
+      },
+    });
+    try {
+      await turn();
+      await new Promise((r) => setTimeout(r, 50));
+    } finally {
+      subscription.dispose();
+    }
+    return {
+      requestIndex: published.findIndex(
+        (m) => m.type === "confirmation_request",
+      ),
+      resolvedIndex: published.findIndex(
+        (m) => m.type === "interaction_resolved",
+      ),
+    };
+  }
+
+  test("broadcasts the confirmation_request before auto-allowing it (guardian)", async () => {
+    const conversation = createConversation(
+      "voice bridge confirmation order allow test",
+    );
+    injectDeps(() =>
+      makeConfirmationOrderingSession(conversation.id, "req-order-allow"),
+    );
+
+    const { requestIndex, resolvedIndex } = await collectConfirmationWireOrder(
+      conversation.id,
+      () =>
+        startVoiceTurn({
+          conversationId: conversation.id,
+          content: "List files",
+          isInbound: true,
+          trustContext: {
+            sourceChannel: "phone",
+            trustClass: "guardian",
+            guardianExternalUserId: "+15555550100",
+            guardianChatId: "+15555550100",
+          },
+          onTextDelta: () => {},
+          onComplete: () => {},
+          onError: () => {},
+        }),
+    );
+
+    expect(requestIndex).toBeGreaterThanOrEqual(0);
+    expect(resolvedIndex).toBeGreaterThan(requestIndex);
+  });
+
+  test("broadcasts the confirmation_request before auto-denying it (non-guardian)", async () => {
+    const conversation = createConversation(
+      "voice bridge confirmation order deny test",
+    );
+    injectDeps(() =>
+      makeConfirmationOrderingSession(conversation.id, "req-order-deny"),
+    );
+
+    const { requestIndex, resolvedIndex } = await collectConfirmationWireOrder(
+      conversation.id,
+      () =>
+        startVoiceTurn({
+          conversationId: conversation.id,
+          content: "List files",
+          isInbound: true,
+          trustContext: {
+            sourceChannel: "phone",
+            trustClass: "trusted_contact",
+          },
+          onTextDelta: () => {},
+          onComplete: () => {},
+          onError: () => {},
+        }),
+    );
+
+    expect(requestIndex).toBeGreaterThanOrEqual(0);
+    expect(resolvedIndex).toBeGreaterThan(requestIndex);
+  });
+
   test("auto-resolves secret requests for voice turns (no secret-entry UI)", async () => {
     const conversation = createConversation(
       "voice bridge secret auto-resolve test",
     );
 
-    let clientHandler: (msg: ServerMessage) => void = () => {};
+    let clientHandler: (msg: AssistantEvent) => void = () => {};
     const handleSecretCalls: Array<{
       requestId: string;
       value?: string;
@@ -1090,7 +1222,7 @@ describe("voice-session-bridge", () => {
       setTurnChannelContext: () => {},
       setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
-      updateClient: (handler: (msg: ServerMessage) => void) => {
+      updateClient: (handler: (msg: AssistantEvent) => void) => {
         clientHandler = handler;
       },
       ensureActorScopedHistory: async () => {},
@@ -1101,7 +1233,7 @@ describe("voice-session-bridge", () => {
           service: "github",
           field: "token",
           label: "GitHub Token",
-        } as ServerMessage);
+        } as AssistantEvent);
       },
       handleConfirmationResponse: () => {},
       handleSecretResponse: (
@@ -1376,7 +1508,7 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge user echo ordering test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       {
         type: "assistant_text_delta",
         text: "Hi ",
@@ -1392,7 +1524,7 @@ describe("voice-session-bridge", () => {
     const session = makeStreamingSession(events);
     injectDeps(() => session);
 
-    const published: ServerMessage[] = [];
+    const published: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       filter: { conversationId: conversation.id },
@@ -1439,13 +1571,13 @@ describe("voice-session-bridge", () => {
     const conversation = createConversation(
       "voice bridge opener echo suppression test",
     );
-    const events: ServerMessage[] = [
+    const events: AssistantEvent[] = [
       { type: "message_complete", conversationId: conversation.id },
     ];
     const session = makeStreamingSession(events);
     injectDeps(() => session);
 
-    const published: ServerMessage[] = [];
+    const published: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       filter: { conversationId: conversation.id },

@@ -48,9 +48,9 @@ source channel, event name, and attention hints. The decision engine evaluates
 whether and where to deliver the notification based on connected channels,
 urgency, and user preferences.
 
-Minimal usage: only --message is required. Add --urgent for a push + visual
-flag in the inbox. Source channel/event name fall back to assistant_tool /
-assistant.share when omitted.
+Minimal usage: only --message is required. Add --urgent for a push +
+visual flag in the Vellum Home feed. Source channel/event name fall back
+to assistant_tool / assistant.share when omitted.
 
 Examples:
   $ assistant notifications send --message "Build finished"
@@ -71,7 +71,7 @@ Examples:
         {
           flags: "--urgent",
           description:
-            "Mark this notification as urgent (fires push + visual flag in inbox)",
+            "Mark this notification as urgent (fires push + visual flag in Vellum Home)",
           defaultValue: false,
         },
         {
@@ -176,7 +176,7 @@ Examples:
     {
       name: "list",
       description:
-        "List notifications surfaced to the user via the home feed. Excludes dismissed items by default.",
+        "List Vellum Home feed notifications surfaced by the assistant. Excludes dismissed items by default.",
       options: [
         {
           flags: "--all",
@@ -231,11 +231,11 @@ Examples:
         },
       ],
       helpText: `
-Reads the home feed at $VELLUM_WORKSPACE_DIR/data/home-feed.json — the
-user's notification inbox. Items are ordered by priority then recency,
-matching what the user sees in the macOS Home page. The home feed covers
-background/async notifications mirrored from the unified pipeline;
-real-time chat pushes that did not mirror to the feed will not appear.
+Reads Vellum's Home feed at $VELLUM_WORKSPACE_DIR/data/home-feed.json.
+Items are ordered by priority then recency, matching what the user sees
+in the macOS Home page. This is only the assistant's Vellum notification
+feed; it does not read email inboxes, Gmail, Outlook, or other external
+message providers. Use OAuth/provider-specific commands for external mail.
 
 Examples:
   $ assistant notifications list

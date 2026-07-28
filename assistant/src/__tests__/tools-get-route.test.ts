@@ -77,7 +77,8 @@ const handler = (() => {
  */
 function registerFakeConversation(id: string, toolNames: string[]): void {
   setConversation(id, {
-    getRegisteredToolNames: () => new Set(toolNames),
+    getRegisteredToolDefinitions: () =>
+      toolNames.map((name) => ({ name, description: "", input_schema: {} })),
   } as unknown as Conversation);
 }
 

@@ -375,3 +375,52 @@ describe("executeCommentReply", () => {
     expect(body.comment.content).toBe("Answer");
   });
 });
+
+// ── model-input schema validation (LUM-2854) ────────────────────────
+
+describe("comment tools — model-input schema validation", () => {
+  test("comment_list rejects a missing surface_id instead of 'Document not found'", () => {
+    const result = executeCommentList({}, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "comment_list"');
+    expect(result.content).toContain("surface_id");
+  });
+
+  test("comment_resolve rejects a non-string comment_id", () => {
+    const result = executeCommentResolve(
+      { surface_id: SURFACE_ID, comment_id: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "comment_resolve"',
+    );
+    expect(result.content).toContain("comment_id");
+  });
+
+  test("comment_reply rejects a non-string content instead of persisting it", () => {
+    const parent = createComment({
+      surfaceId: SURFACE_ID,
+      conversationId: CONVERSATION_ID,
+      author: "user",
+      content: "Question",
+    });
+
+    const result = executeCommentReply(
+      { surface_id: SURFACE_ID, comment_id: parent.id, content: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "comment_reply"');
+    expect(result.content).toContain("content");
+    expect(listComments(SURFACE_ID, {}).length).toBe(1);
+  });
+
+  test("comment tools pass unknown keys through (loose schema)", () => {
+    const result = executeCommentList(
+      { surface_id: SURFACE_ID, activity: "checking comments" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+  });
+});

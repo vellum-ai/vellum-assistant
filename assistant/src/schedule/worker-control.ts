@@ -22,6 +22,25 @@ import {
 const log = getLogger("schedule-worker-control");
 
 /**
+ * True when an operator explicitly stopped the worker (via
+ * `assistant schedules worker stop`). The liveness watchdog must not respawn it
+ * while this is set, or a manual stop would be silently undone within one tick.
+ * Process-local: it resets to false on daemon restart and is cleared by the
+ * `schedules worker start` route — a restart is treated as a fresh start.
+ */
+let administrativelyStopped = false;
+
+/** Whether the schedule worker has been administratively stopped by an operator. */
+export function isScheduleWorkerAdministrativelyStopped(): boolean {
+  return administrativelyStopped;
+}
+
+/** Set/clear the administratively-stopped flag (set by stop, cleared by start). */
+export function setScheduleWorkerAdministrativelyStopped(value: boolean): void {
+  administrativelyStopped = value;
+}
+
+/**
  * Inspect the PID file to determine whether the schedule worker process is
  * alive. A stale PID file (pointing at a dead process) is cleaned up and
  * reported as not_running.
@@ -32,11 +51,22 @@ export function probeScheduleWorker(): WorkerProcessStatus {
 
 export class ScheduleWorkerSpawnError extends WorkerProcessSpawnError {}
 
+/** The single in-flight spawn attempt, or null when none is running. */
+let inFlightSpawn: Promise<{ pid: number; alreadyRunning: boolean }> | null =
+  null;
+
 /**
  * Spawn the schedule worker as a background process. If a worker is already
  * running, returns its PID with `alreadyRunning: true` rather than spawning a
  * second one. Throws {@link ScheduleWorkerSpawnError} if the child crashes
  * during startup or never writes its PID file within the wait window.
+ *
+ * Concurrent calls coalesce onto one in-flight spawn. The daemon's boot spawn
+ * and the liveness watchdog's first tick both run before a cold worker has
+ * written its PID file, so `spawnWorkerProcess`'s PID-file guard cannot see the
+ * sibling spawn; without this latch each would start a worker — double schedule
+ * execution plus an orphan on shutdown. Coalesced callers report
+ * `alreadyRunning: true`, so the watchdog logs no spurious respawn.
  *
  * See {@link SpawnWorkerProcessOptions} for the generic option semantics. The
  * daemon's boot spawn leaves `terminateOnTimeout` unset: a worker that comes up
@@ -44,6 +74,23 @@ export class ScheduleWorkerSpawnError extends WorkerProcessSpawnError {}
  */
 export async function spawnScheduleWorkerProcess(
   opts: SpawnWorkerProcessOptions = {},
+): Promise<{ pid: number; alreadyRunning: boolean }> {
+  const existing = inFlightSpawn;
+  if (existing) {
+    const { pid } = await existing;
+    return { pid, alreadyRunning: true };
+  }
+  const spawn = spawnScheduleWorkerProcessUncoalesced(opts);
+  inFlightSpawn = spawn;
+  try {
+    return await spawn;
+  } finally {
+    inFlightSpawn = null;
+  }
+}
+
+async function spawnScheduleWorkerProcessUncoalesced(
+  opts: SpawnWorkerProcessOptions,
 ): Promise<{ pid: number; alreadyRunning: boolean }> {
   try {
     return await spawnWorkerProcess({

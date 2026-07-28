@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { z } from "zod";
+
 import {
   addDocumentConversation,
   deleteDocument,
@@ -14,6 +16,10 @@ import {
   updateDocumentContent,
 } from "../../documents/document-store.js";
 import { canActOnPrivilegedDocuments } from "../../runtime/effective-capabilities.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function isPrivilegedDocumentActor(context: ToolContext): boolean {
@@ -62,14 +68,83 @@ function validateSurfaceId(
   return input.surface_id;
 }
 
+// ── Model-input schemas ─────────────────────────────────────────────
+//
+// One schema per tool entry point, `safeParse`d at the top of each
+// `execute*`. Skill-owned tools are skipped by the central
+// `TOOL_INPUT_SCHEMAS` gate, so validation lives in the executor
+// (`ask_question` pre-registry precedent); the advertised `input_schema`
+// stays hand-written in the document-editor skill's `TOOLS.json`, and
+// `document-tool-input-schemas.test.ts` guards the two against structural
+// drift.
+//
+// Tolerance matches the executors' own reads — the schemas only reject
+// values the executors would otherwise pass downstream unchecked
+// (`document_find`'s `query` reaching `.toLowerCase()` as a non-string) or
+// persist unvalidated (`document_create`'s `title`):
+//
+// - `nullAsOmitted` on optionals where null and absent are equivalent under
+//   the falsy/`??` reads — including `surface_id`, whose bespoke
+//   `validateSurfaceId` / `resolveUpdateSurfaceId` error messages stay the
+//   contract for the missing/empty cases.
+// - `.catch(undefined)` on `document_list`'s `query`, which the executor
+//   silently ignores when malformed (falls back to the conversation list).
+// - `document_update`'s `mode` is deliberately UNDECLARED (loose
+//   passthrough): its bespoke check owns the error message and the
+//   `{ mode: null }` tolerance that mirrors `validateInputAgainstSchema`.
+
+export const documentOpenInputSchema = z.looseObject({
+  surface_id: nullAsOmitted(z.string()),
+});
+
+export const documentCreateInputSchema = z.looseObject({
+  title: nullAsOmitted(z.string()),
+  initial_content: nullAsOmitted(z.string()),
+});
+
+export const documentUpdateInputSchema = z.looseObject({
+  surface_id: nullAsOmitted(z.string()),
+  content: nullAsOmitted(z.string()),
+});
+
+export const documentReadInputSchema = documentOpenInputSchema;
+
+export const documentListInputSchema = z.looseObject({
+  query: z.string().optional().catch(undefined),
+});
+
+export const documentDeleteInputSchema = documentOpenInputSchema;
+
+export const documentFindInputSchema = z.looseObject({
+  surface_id: nullAsOmitted(z.string()),
+  query: z.string(),
+  regex: nullAsOmitted(z.boolean()),
+  case_sensitive: nullAsOmitted(z.boolean()),
+});
+
+export const documentReplaceTextInputSchema = z.looseObject({
+  surface_id: nullAsOmitted(z.string()),
+  find: z.string(),
+  replace: nullAsOmitted(z.string()),
+  regex: nullAsOmitted(z.boolean()),
+  case_sensitive: nullAsOmitted(z.boolean()),
+  max_replacements: nullAsOmitted(z.number()),
+});
+
 // ── Exported execute functions ──────────────────────────────────────
 
 export function executeDocumentOpen(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
+  const parsedInput = documentOpenInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_open", parsedInput.error);
+  }
   const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  if (typeof surfaceIdOrError !== "string") {
+    return surfaceIdOrError;
+  }
   const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -140,17 +215,23 @@ function maybeReuseEmptyDocument(
   initialContent: string,
   context: ToolContext,
 ): ToolExecutionResult | null {
-  if (initialContent.length === 0) return null;
+  if (initialContent.length === 0) {
+    return null;
+  }
   const existing = findRecentEmptyDocumentByTitle(
     context.conversationId,
     title,
     EMPTY_DOCUMENT_DEDUPE_WINDOW_MS,
   );
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
 
   const surfaceId = existing.surfaceId;
   const update = updateDocumentContent(surfaceId, initialContent, "replace");
-  if (!update.success) return null;
+  if (!update.success) {
+    return null;
+  }
 
   // Defensive idempotent insert (saveDocument from the create-new path already
   // ran addDocumentConversation; INSERT OR IGNORE makes this a safe no-op).
@@ -200,11 +281,17 @@ export function executeDocumentCreate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const title = (input.title as string | undefined) || "Untitled Document";
-  const initialContent = (input.initial_content as string | undefined) || "";
+  const parsedInput = documentCreateInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_create", parsedInput.error);
+  }
+  const title = parsedInput.data.title || "Untitled Document";
+  const initialContent = parsedInput.data.initial_content || "";
 
   const reused = maybeReuseEmptyDocument(title, initialContent, context);
-  if (reused) return reused;
+  if (reused) {
+    return reused;
+  }
 
   const surfaceId = `doc-${randomUUID()}`;
 
@@ -298,11 +385,17 @@ export function executeDocumentUpdate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
+  const parsedInput = documentUpdateInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_update", parsedInput.error);
+  }
   if (typeof input.content !== "string") {
     return invalidInput("content is required and must be a string");
   }
   const surfaceIdOrError = resolveUpdateSurfaceId(input, context);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  if (typeof surfaceIdOrError !== "string") {
+    return surfaceIdOrError;
+  }
   const surfaceId = surfaceIdOrError;
   // Loose `!= null` to match validateInputAgainstSchema, which treats null as
   // "absent" for enum checks — without this, { mode: null } passes the
@@ -368,8 +461,14 @@ export function executeDocumentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
+  const parsedInput = documentReadInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_read", parsedInput.error);
+  }
   const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  if (typeof surfaceIdOrError !== "string") {
+    return surfaceIdOrError;
+  }
   const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -396,10 +495,11 @@ export function executeDocumentList(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const query =
-    typeof input.query === "string" && input.query.trim().length > 0
-      ? input.query.trim()
-      : undefined;
+  const parsedInput = documentListInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_list", parsedInput.error);
+  }
+  const query = parsedInput.data.query?.trim() || undefined;
   const docs = query
     ? searchDocumentsByTitle(
         query,
@@ -427,8 +527,14 @@ export function executeDocumentDelete(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
+  const parsedInput = documentDeleteInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_delete", parsedInput.error);
+  }
   const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  if (typeof surfaceIdOrError !== "string") {
+    return surfaceIdOrError;
+  }
   const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -452,12 +558,18 @@ export function executeDocumentFind(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
+  const parsedInput = documentFindInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_find", parsedInput.error);
+  }
   const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  if (typeof surfaceIdOrError !== "string") {
+    return surfaceIdOrError;
+  }
   const surfaceId = surfaceIdOrError;
-  const query = input.query as string;
-  const regex = (input.regex as boolean | undefined) ?? false;
-  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
+  const query = parsedInput.data.query;
+  const regex = parsedInput.data.regex ?? false;
+  const caseSensitive = parsedInput.data.case_sensitive ?? false;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -505,14 +617,20 @@ export function executeDocumentReplaceText(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
+  const parsedInput = documentReplaceTextInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("document_replace_text", parsedInput.error);
+  }
   const surfaceIdOrError = validateSurfaceId(input);
-  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  if (typeof surfaceIdOrError !== "string") {
+    return surfaceIdOrError;
+  }
   const surfaceId = surfaceIdOrError;
-  const find = input.find as string;
-  const replace = (input.replace as string) ?? "";
-  const regex = (input.regex as boolean | undefined) ?? false;
-  const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
-  const maxReplacements = input.max_replacements as number | undefined;
+  const find = parsedInput.data.find;
+  const replace = parsedInput.data.replace ?? "";
+  const regex = parsedInput.data.regex ?? false;
+  const caseSensitive = parsedInput.data.case_sensitive ?? false;
+  const maxReplacements = parsedInput.data.max_replacements;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);

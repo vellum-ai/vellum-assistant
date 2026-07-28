@@ -1,7 +1,6 @@
 /**
  * Route handlers for shareable app pages and cloud sharing.
  */
-import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
@@ -9,10 +8,10 @@ import JSZip from "jszip";
 import { z } from "zod";
 
 import {
-  getApp,
-  getAppDirPath,
-  isMultifileApp,
-  readAppFileBytes,
+  isLegacySingleFileDir,
+  readAppFileBytesFromDir,
+  resolveAppSource,
+  UNSUPPORTED_LEGACY_APP_HTML,
 } from "../../apps/app-store.js";
 import {
   createSharedAppLink,
@@ -21,16 +20,9 @@ import {
   incrementDownloadCount,
 } from "../../apps/shared-app-links-store.js";
 import type { AppManifest } from "../../bundler/manifest.js";
-import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
-import type {
-  ResponseHeaderArgs,
-  RouteDefinition,
-  RouteHandlerArgs,
-} from "./types.js";
-
-const log = getLogger("runtime-http");
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const HTML_ESCAPE_MAP: Record<string, string> = {
   "<": "&lt;",
@@ -38,23 +30,6 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
   "&": "&amp;",
   '"': "&quot;",
 };
-
-let designSystemCssCache: string | null = null;
-
-function loadDesignSystemCss(): string {
-  if (designSystemCssCache != null) return designSystemCssCache;
-  try {
-    const cssPath = join(
-      import.meta.dirname ?? __dirname,
-      "assets/vellum-design-system.css",
-    );
-    designSystemCssCache = readFileSync(cssPath, "utf-8");
-  } catch {
-    log.warn("Design system CSS not found, pages will render without styles");
-    designSystemCssCache = "";
-  }
-  return designSystemCssCache;
-}
 
 // ---------------------------------------------------------------------------
 // CSP helpers (shared between handlers and responseHeaders)
@@ -74,18 +49,12 @@ function buildCsp(scriptSrc: string): string {
   ].join("; ");
 }
 
-function servePageHeaders({
-  pathParams,
-}: ResponseHeaderArgs): Record<string, string> {
-  const appId = pathParams?.appId as string;
-  const app = getApp(appId);
-  // Multifile apps use external scripts — no 'unsafe-inline' for script-src.
-  // Legacy apps contain inline event handlers that require 'unsafe-inline'.
-  const scriptSrc =
-    app && isMultifileApp(app) ? "'self'" : "'self' 'unsafe-inline'";
+function servePageHeaders(): Record<string, string> {
+  // Apps load external compiled scripts only — no 'unsafe-inline' for
+  // script-src.
   return {
     "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": buildCsp(scriptSrc),
+    "Content-Security-Policy": buildCsp("'self'"),
   };
 }
 
@@ -95,52 +64,25 @@ function servePageHeaders({
 
 function handleServePage({ pathParams }: RouteHandlerArgs): string {
   const appId = pathParams?.appId as string;
-  const app = getApp(appId);
-  if (!app) {
+  const source = resolveAppSource(appId);
+  if (!source) {
     throw new NotFoundError("App not found");
   }
 
-  // Multifile apps serve the compiled dist/index.html directly.
-  if (isMultifileApp(app)) {
-    return serveMultifileApp(appId, app.name);
-  }
-
-  const css = loadDesignSystemCss();
-  const escapedName = app.name.replace(
-    /[<>&"]/g,
-    (c) => HTML_ESCAPE_MAP[c] ?? c,
-  );
-
-  // Per-response nonce for inline <style> and <script> tags.
-  const nonce = randomBytes(16).toString("base64");
-
-  // Inject the nonce into any inline <script> tags from the app HTML definition
-  // so they are allowed by the nonce-based CSP without 'unsafe-inline'.
-  const noncedHtml = app.htmlDefinition.replace(
-    /<script(?=[\s>])/gi,
-    `<script nonce="${nonce}"`,
-  );
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapedName}</title>
-  <style nonce="${nonce}">${css}</style>
-</head>
-<body>
-${noncedHtml}
-</body>
-</html>`;
+  return serveCompiledApp(source.id, source.sourceDir, source.name);
 }
 
 /**
- * Serve compiled output for multifile TSX apps.
- * Falls back to a "not compiled yet" message if dist/index.html is missing.
+ * Serve an app's compiled dist/ output. Falls back to a "not compiled yet"
+ * message if dist/index.html is missing, or an "unsupported format" message
+ * for apps in the retired single-file HTML format.
  */
-function serveMultifileApp(appId: string, appName: string): string {
-  const distDir = join(getAppDirPath(appId), "dist");
+function serveCompiledApp(
+  appId: string,
+  appDir: string,
+  appName: string,
+): string {
+  const distDir = join(appDir, "dist");
   const indexPath = join(distDir, "index.html");
 
   if (!existsSync(indexPath)) {
@@ -148,9 +90,12 @@ function serveMultifileApp(appId: string, appName: string): string {
       /[<>&"]/g,
       (c) => HTML_ESCAPE_MAP[c] ?? c,
     );
+    const body = isLegacySingleFileDir(appDir)
+      ? UNSUPPORTED_LEGACY_APP_HTML
+      : `<p>App has not been compiled yet. Edit a source file to trigger a build.</p>`;
     return (
       `<!DOCTYPE html><html><head><title>${escapedName}</title></head>` +
-      `<body><p>App has not been compiled yet. Edit a source file to trigger a build.</p></body></html>`
+      `<body>${body}</body></html>`
     );
   }
 
@@ -236,7 +181,12 @@ function handleServeDistFile({ pathParams }: RouteHandlerArgs): Uint8Array {
     throw new BadRequestError("Invalid filename");
   }
 
-  const filePath = join(getAppDirPath(appId), "dist", filename);
+  const source = resolveAppSource(appId);
+  if (!source) {
+    throw new NotFoundError("App not found");
+  }
+
+  const filePath = join(source.sourceDir, "dist", filename);
   if (!existsSync(filePath)) {
     throw new NotFoundError("File not found");
   }
@@ -250,7 +200,7 @@ const MAX_APP_ASSET_BYTES = 25 * 1024 * 1024;
 /**
  * Serve a bundled file from anywhere in an app's directory (e.g.
  * `assets/intro.mp4`), for binary media an app can't practically inline as a
- * data-URI. `readAppFileBytes` runs the app-store path validation
+ * data-URI. `readAppFileBytesFromDir` runs the app-store path validation
  * (rejects `..`, absolute paths, symlink escapes, and the protected
  * `records/` directory), so authors bundle assets under the app dir and load
  * them via `window.vellum.asset(path)`.
@@ -272,9 +222,14 @@ function handleServeAppAsset({ pathParams }: RouteHandlerArgs): Uint8Array {
     throw new BadRequestError("Invalid asset path");
   }
 
+  const source = resolveAppSource(appId);
+  if (!source) {
+    throw new NotFoundError("Asset not found");
+  }
+
   let bytes: Buffer;
   try {
-    bytes = readAppFileBytes(appId, assetPath);
+    bytes = readAppFileBytesFromDir(source.sourceDir, assetPath);
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
     if (message.includes("not found")) {

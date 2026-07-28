@@ -22,27 +22,25 @@ import {
 } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { effectiveSttProvider } from "../config/schemas/stt.js";
 import {
   getDbMigrationReadiness,
   isDbMigrationGateBypassed,
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
-import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
-import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
 import {
-  type LiveVoiceClientFrame,
-  type LiveVoiceProtocolError,
-  LiveVoiceProtocolErrorCode,
-  type LiveVoiceServerFrame,
-  parseLiveVoiceBinaryAudioFrame,
-  parseLiveVoiceClientTextFrame,
-} from "../live-voice/protocol.js";
+  createLiveVoiceConnection,
+  type LiveVoiceConnection,
+} from "../live-voice/live-voice-connection.js";
+import { getLiveVoiceSessionManager } from "../live-voice/live-voice-manager.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   activeSttStreamSessions,
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
+import {
+  startTelegramWebhookHealthSweep,
+  stopTelegramWebhookHealthSweep,
+} from "../telegram/webhook-health.js";
 import { getLogger } from "../util/logger.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
@@ -90,7 +88,6 @@ import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
 } from "./routes/inference-profile-session-reaper.js";
-import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -162,8 +159,6 @@ interface SttStreamWebSocketData {
  */
 interface LiveVoiceWebSocketData {
   wsType: "live-voice";
-  sessionId?: string;
-  lastSeq: number;
 }
 
 export class RuntimeHttpServer {
@@ -175,16 +170,23 @@ export class RuntimeHttpServer {
   private sweepInProgress = false;
   private sweepsStarted = false;
 
-  private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
+  /**
+   * Live voice handlers, one per open `/v1/live-voice` socket, keyed by the
+   * socket. The server owns this registry (mirroring the media-stream / STT
+   * session maps) rather than parking the handler on `ws.data`; the manager's
+   * single-active-session lock still bounds how many can hold a session.
+   */
+  private readonly liveVoiceConnections = new Map<
+    ServerWebSocket<LiveVoiceWebSocketData>,
+    LiveVoiceConnection
+  >();
+
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
 
-    this.liveVoiceSessionManager = new LiveVoiceSessionManager({
-      createSession: (context) => createLiveVoiceSession(context),
-    });
     this.router = new HttpRouter();
   }
 
@@ -237,9 +239,7 @@ export class RuntimeHttpServer {
             // reads config inside SttStreamSession.start()'s own guarded path.
             let configuredProvider: string | undefined;
             try {
-              configuredProvider = effectiveSttProvider(
-                getConfig().services.stt,
-              );
+              configuredProvider = getConfig().services.stt.provider;
 
               // Mismatch telemetry: when the optional requested provider
               // disagrees with the configured provider, log a warning so
@@ -298,6 +298,15 @@ export class RuntimeHttpServer {
             return;
           }
           if (data.wsType === "live-voice") {
+            const liveVoiceWs = ws as ServerWebSocket<LiveVoiceWebSocketData>;
+            this.liveVoiceConnections.set(
+              liveVoiceWs,
+              createLiveVoiceConnection({
+                send: (frame) => {
+                  ws.send(JSON.stringify(frame));
+                },
+              }),
+            );
             log.info("Live voice WebSocket opened");
             return;
           }
@@ -333,22 +342,10 @@ export class RuntimeHttpServer {
             return;
           }
           if (data.wsType === "live-voice") {
-            void this.handleLiveVoiceMessage(
+            const connection = this.liveVoiceConnections.get(
               ws as ServerWebSocket<LiveVoiceWebSocketData>,
-              message,
-            ).catch((err) => {
-              log.warn(
-                { error: err instanceof Error ? err.message : String(err) },
-                "Live voice WebSocket message handler failed",
-              );
-              this.sendLiveVoiceError(
-                ws as ServerWebSocket<LiveVoiceWebSocketData>,
-                {
-                  code: LiveVoiceProtocolErrorCode.InvalidFrame,
-                  message: "Live voice frame handling failed",
-                },
-              );
-            });
+            );
+            void connection?.handleMessage(message);
             return;
           }
           log.warn("WebSocket message on unknown data type — closing");
@@ -407,15 +404,18 @@ export class RuntimeHttpServer {
             return;
           }
           if (data.wsType === "live-voice") {
+            const liveVoiceWs = ws as ServerWebSocket<LiveVoiceWebSocketData>;
+            const connection = this.liveVoiceConnections.get(liveVoiceWs);
+            this.liveVoiceConnections.delete(liveVoiceWs);
             log.info(
               {
-                sessionId: data.sessionId,
+                sessionId: connection?.sessionId,
                 code,
                 reason: reason?.toString(),
               },
               "Live voice WebSocket closed",
             );
-            this.releaseLiveVoiceSession(data, "websocket_close");
+            connection?.release();
             return;
           }
           log.warn(
@@ -508,11 +508,15 @@ export class RuntimeHttpServer {
 
     startInferenceProfileSessionReaper();
     log.info("Inference profile session reaper started");
+
+    startTelegramWebhookHealthSweep();
+    log.info("Telegram webhook health sweep started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
+    stopTelegramWebhookHealthSweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
@@ -526,9 +530,10 @@ export class RuntimeHttpServer {
       activeSttStreamSessions.delete(sessionId);
     }
 
-    const liveVoiceSessionId = this.liveVoiceSessionManager.activeSessionId;
+    const liveVoiceManager = getLiveVoiceSessionManager();
+    const liveVoiceSessionId = liveVoiceManager.activeSessionId;
     if (liveVoiceSessionId) {
-      await this.liveVoiceSessionManager.releaseSession(
+      await liveVoiceManager.releaseSession(
         liveVoiceSessionId,
         "manager_shutdown",
       );
@@ -654,20 +659,6 @@ export class RuntimeHttpServer {
         }
         throw err;
       }
-    }
-
-    // Skill-registered routes (e.g. meet-bot event ingress). Handled before
-    // JWT auth because skills may use their own auth (e.g. per-meeting bearer
-    // tokens minted by a session manager).
-    const skillMatch = matchSkillRoute(path, req.method);
-    if (skillMatch) {
-      if (skillMatch.kind === "methodMismatch") {
-        return new Response("Method Not Allowed", {
-          status: 405,
-          headers: { Allow: skillMatch.allow.join(", ") },
-        });
-      }
-      return await skillMatch.route.handler(req, skillMatch.match);
     }
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
@@ -911,160 +902,12 @@ export class RuntimeHttpServer {
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "live-voice",
-        lastSeq: 0,
       } satisfies LiveVoiceWebSocketData,
     });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
     return undefined!;
-  }
-
-  private async handleLiveVoiceMessage(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    message: string | ArrayBuffer | ArrayBufferView,
-  ): Promise<void> {
-    if (typeof message === "string") {
-      const result = parseLiveVoiceClientTextFrame(message);
-      if (!result.ok) {
-        this.sendLiveVoiceError(ws, result.error);
-        return;
-      }
-      await this.dispatchLiveVoiceClientFrame(ws, result.frame);
-      return;
-    }
-
-    const result = parseLiveVoiceBinaryAudioFrame(message);
-    if (!result.ok) {
-      this.sendLiveVoiceError(ws, result.error);
-      return;
-    }
-
-    const sessionId = ws.data.sessionId;
-    if (!sessionId) {
-      this.sendLiveVoiceStateError(
-        ws,
-        "Live voice binary audio received before start",
-      );
-      return;
-    }
-
-    const handled = await this.liveVoiceSessionManager.handleBinaryAudio(
-      sessionId,
-      result.frame.data,
-    );
-    if (handled.status === "not_found") {
-      ws.data.sessionId = undefined;
-      this.sendLiveVoiceStateError(ws, "Live voice session is not active");
-    }
-  }
-
-  private async dispatchLiveVoiceClientFrame(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    frame: LiveVoiceClientFrame,
-  ): Promise<void> {
-    if (frame.type === "start") {
-      if (ws.data.sessionId) {
-        // A session that failed after `ready` releases its manager slot
-        // without a frame crossing this socket — heal the stale binding so
-        // the client can retry on the same connection.
-        if (this.liveVoiceSessionManager.isSessionActive(ws.data.sessionId)) {
-          this.sendLiveVoiceStateError(
-            ws,
-            "Live voice session already started",
-          );
-          return;
-        }
-        ws.data.sessionId = undefined;
-      }
-
-      const result = await this.liveVoiceSessionManager.startSession(frame, {
-        sendFrame: async (serverFrame) => {
-          this.sendLiveVoiceFrame(ws, serverFrame);
-        },
-      });
-      if (result.status === "accepted") {
-        ws.data.sessionId = result.sessionId;
-      }
-      return;
-    }
-
-    const sessionId = ws.data.sessionId;
-    if (!sessionId) {
-      this.sendLiveVoiceStateError(
-        ws,
-        `Live voice ${frame.type} frame received before start`,
-      );
-      return;
-    }
-
-    const handled = await this.liveVoiceSessionManager.handleClientFrame(
-      sessionId,
-      frame,
-    );
-    if (handled.status === "not_found") {
-      ws.data.sessionId = undefined;
-      this.sendLiveVoiceStateError(ws, "Live voice session is not active");
-      return;
-    }
-
-    if (frame.type === "end") {
-      ws.data.sessionId = undefined;
-    }
-  }
-
-  private sendLiveVoiceStateError(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    message: string,
-  ): void {
-    this.sendLiveVoiceError(ws, {
-      code: LiveVoiceProtocolErrorCode.InvalidFrame,
-      message,
-    });
-  }
-
-  private sendLiveVoiceError(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    error: Pick<LiveVoiceProtocolError, "code" | "message">,
-  ): void {
-    this.sendLiveVoiceFrame(ws, {
-      type: "error",
-      seq: ws.data.lastSeq + 1,
-      code: error.code,
-      message: error.message,
-    });
-  }
-
-  private sendLiveVoiceFrame(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    frame: LiveVoiceServerFrame,
-  ): void {
-    const seq = Math.max(ws.data.lastSeq + 1, frame.seq);
-    ws.data.lastSeq = seq;
-    ws.send(JSON.stringify({ ...frame, seq }));
-  }
-
-  private releaseLiveVoiceSession(
-    data: LiveVoiceWebSocketData,
-    reason: "websocket_close",
-  ): void {
-    const sessionId = data.sessionId;
-    data.sessionId = undefined;
-    if (!sessionId) {
-      return;
-    }
-
-    void this.liveVoiceSessionManager
-      .releaseSession(sessionId, reason)
-      .catch((err) => {
-        log.warn(
-          {
-            error: err instanceof Error ? err.message : String(err),
-            sessionId,
-          },
-          "Failed to release live voice session",
-        );
-      });
   }
 
   private async handleTwilioWebhook(

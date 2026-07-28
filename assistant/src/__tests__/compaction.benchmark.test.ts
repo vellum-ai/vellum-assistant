@@ -25,6 +25,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 }));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, Provider } from "../providers/types.js";
@@ -98,7 +99,7 @@ function makeLongMessages(turns: number): Message[] {
 
 function makeConfig() {
   return {
-    ...DEFAULT_CONFIG.llm.default.contextWindow,
+    ...resolveCallSiteConfig("mainAgent", DEFAULT_CONFIG.llm).contextWindow,
     maxInputTokens: 6000,
     targetBudgetRatio: 0.4,
     compactThreshold: 0.6,

@@ -15,6 +15,7 @@ import {
   isUserCancellation,
 } from "../daemon/conversation-error.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
+import { normalizeOpenAIAPIError } from "../providers/openai/api-error-normalization.js";
 import {
   type AbortReasonKind,
   createAbortReason,
@@ -376,6 +377,24 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("IMAGE_TOO_LARGE");
       expect(result.errorCategory).toBe("image_dimensions_too_large");
       expect(result.retryable).toBe(false);
+    });
+
+    it("classifies Anthropic 400 media-type mismatch as image_media_type_mismatch (non-retryable)", () => {
+      // The rejection for an image whose declared media type disagrees with
+      // its bytes (e.g. a JPEG renamed to .png before upload). It must route
+      // to the image-recovery classification so the relabel path fires, not
+      // loop through the generic PROVIDER_API branch.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.50.content.0.image.source.base64.data: Image does not match the provided media type image/png"},"request_id":"req_011Ccs00000000000000000"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("IMAGE_TOO_LARGE");
+      expect(result.errorCategory).toBe("image_media_type_mismatch");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("invalid_request_error");
+      expect(result.userMessage.toLowerCase()).toContain("image");
     });
 
     it("classifies Anthropic 400 'Could not process image' as image_unprocessable (non-retryable)", () => {
@@ -812,6 +831,36 @@ describe("classifyConversationError", () => {
       }
     });
 
+    it("classifies OpenRouter 403 spend-cap ('Key limit exceeded') as provider_billing, not invalid key", () => {
+      providerRoutingSources.openrouter = "user-key";
+      // Derive the reason the way the provider does — run the raw 403 body
+      // through normalizeOpenAIAPIError — so this exercises the deriveReason
+      // spend-cap regex end to end rather than asserting a hardcoded reason. A
+      // reason-less 403 would otherwise short-circuit to the invalid-key path.
+      const normalized = normalizeOpenAIAPIError(
+        {
+          status: 403,
+          message: "403 status code",
+          headers: new Headers(),
+        } as unknown as Parameters<typeof normalizeOpenAIAPIError>[0],
+        '{"error":{"code":403,"message":"Key limit exceeded"}}',
+      );
+      expect(normalized.reason).toBe("insufficient_credits");
+
+      const err = new ProviderError(
+        "OpenRouter API error (403): Key limit exceeded",
+        "openrouter",
+        403,
+        { reason: normalized.reason },
+      );
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("provider_billing");
+      expect(result.retryable).toBe(false);
+      expect(result.code).not.toBe("PROVIDER_INVALID_KEY");
+    });
+
     it("classifies managed-proxy OpenRouter insufficient_balance bodies as credits_exhausted", () => {
       providerRoutingSources.openrouter = "managed-proxy";
       const err = new ProviderError(
@@ -964,6 +1013,59 @@ describe("classifyConversationError", () => {
       // Falls through to the 4xx context-too-large branch, unchanged.
       expect(result.code).toBe("CONTEXT_TOO_LARGE");
       expect(result.errorCategory).toBe("context_too_large");
+    });
+
+    it("routes reason=daily_limit_reached to PROVIDER_BILLING/daily_limit_reached under managed-proxy", () => {
+      providerRoutingSources["vercel-ai-gateway"] = "managed-proxy";
+      const err = new ProviderError(
+        'Vercel AI Gateway API error (402): {"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        "vercel-ai-gateway",
+        402,
+        { reason: "daily_limit_reached" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("daily_limit_reached");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("daily credit limit");
+      expect(result.userMessage).toContain("Billing settings");
+    });
+
+    it("classifies reason=daily_limit_reached as daily_limit_reached even when the routing map says user-key", () => {
+      // Per-connection platform-auth routes can leave the global routing map
+      // at user-key; the stamped reason comes only from the platform proxy's
+      // body code, so it must win regardless of the map.
+      providerRoutingSources.openai = "user-key";
+      const err = new ProviderError(
+        'OpenAI API error (402): {"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        "openai",
+        402,
+        { reason: "daily_limit_reached" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("daily_limit_reached");
+      expect(result.retryable).toBe(false);
+    });
+
+    it("keeps a plain managed-proxy 402 without the daily-limit code as credits_exhausted", () => {
+      providerRoutingSources.openrouter = "managed-proxy";
+      const err = new ProviderError(
+        "OpenRouter API error (402): Payment Required",
+        "openrouter",
+        402,
+        { reason: "insufficient_credits" },
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.errorCategory).toBe("credits_exhausted");
+      expect(result.retryable).toBe(false);
     });
 
     it("honors a stamped reason on a statusless ProviderError (no HTTP status)", () => {

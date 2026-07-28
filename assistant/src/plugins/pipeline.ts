@@ -25,6 +25,7 @@ import { getHookEntriesFor } from "../hooks/registry.js";
 import type { BaseHookContext } from "../hooks/types.js";
 import { type HookName, HOOKS } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
+import { runInPluginContext } from "./plugin-execution-context.js";
 import type { HookEntry } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
@@ -352,8 +353,15 @@ export async function runHook<TInput extends object>(
       broadcast: makeHookBroadcast({ conversationId, hookName: name, owner }),
     };
     try {
+      // Mark the contributing plugin as in context so host APIs the hook
+      // reaches (e.g. resolveCredential) can scope to it. Standalone workspace
+      // hooks are not plugins and establish no context.
+      const invokeHook =
+        owner.kind === "plugin"
+          ? () => runInPluginContext(owner.id, () => fn(draft))
+          : () => fn(draft);
       const result = await callWithTimeout(
-        () => fn(draft),
+        invokeHook,
         HOOK_TIMEOUT_MS,
         `plugin hook '${name}' (${owner.id}) timed out after ${HOOK_TIMEOUT_MS}ms`,
       );

@@ -2,6 +2,7 @@
  * Approval prompt delivery: rich UI (buttons) with plain-text fallback.
  */
 import type { ChannelId } from "../../channels/types.js";
+import { channelSupportsInlineOptions } from "../../daemon/channel-ui-capability.js";
 import { recordApprovalCardDelivery } from "../../notifications/guardian-delivery-recorder.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
@@ -11,7 +12,6 @@ import type {
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
 } from "../channel-approval-types.js";
-import { channelSupportsRichApprovalUI } from "../channel-approvals.js";
 import {
   deliverApprovalPrompt,
   deliverChannelReply,
@@ -116,7 +116,7 @@ export async function deliverGeneratedApprovalPrompt(
   } = params;
   const keywords = requiredDecisionKeywords(uiMetadata.actions);
 
-  if (channelSupportsRichApprovalUI(sourceChannel)) {
+  if (channelSupportsInlineOptions(sourceChannel)) {
     const richText = await composeApprovalMessageGenerative(
       { ...messageContext, channel: sourceChannel, richUi: true },
       { fallbackText: prompt.promptText },

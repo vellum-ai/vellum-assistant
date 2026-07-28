@@ -9,7 +9,6 @@ describe("shouldSuppressRootStatusBanner", () => {
       routes.onboarding.hosting,
       routes.onboarding.apiKey,
       routes.onboarding.privacy,
-      routes.onboarding.prechat,
       routes.onboarding.hatching,
       `${routes.assistant}/onboarding`,
     ]) {

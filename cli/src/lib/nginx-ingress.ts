@@ -17,6 +17,8 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
+import { waitForDaemonReady } from "./http-client.js";
+import { loadRawConfig, saveRawConfig } from "./ingress-config.js";
 
 /**
  * CLI-managed nginx reverse proxy that fronts the gateway for remote web
@@ -56,28 +58,6 @@ export function getIngressPaths(workspaceDir: string): IngressPaths {
     pidPath: join(dir, "nginx.pid"),
     logPath: join(workspaceDir, "data", "logs", "nginx-ingress.log"),
   };
-}
-
-function getConfigPath(workspaceDir: string): string {
-  return join(workspaceDir, "config.json");
-}
-
-function loadRawConfig(workspaceDir: string): Record<string, unknown> {
-  const configPath = getConfigPath(workspaceDir);
-  if (!existsSync(configPath)) return {};
-  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-    string,
-    unknown
-  >;
-}
-
-function saveRawConfig(
-  workspaceDir: string,
-  config: Record<string, unknown>,
-): void {
-  const configPath = getConfigPath(workspaceDir);
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
 /**
@@ -229,6 +209,13 @@ http {
   server {
     listen 127.0.0.1:${opts.listenPort};
     client_max_body_size 512m;
+
+    # This edge sits behind a TLS-terminating front (tunnel or tailscale serve),
+    # so redirects must be relative: emit "Location: /assistant/" and let the
+    # client resolve it against the origin it used, rather than an absolute URL
+    # built from nginx's own loopback scheme and port.
+    absolute_redirect off;
+    port_in_redirect off;
 
 ${serverLocations}
   }
@@ -552,6 +539,95 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
 
   clearStoppedIngress(workspaceDir, paths.pidPath);
   return true;
+}
+
+/** Probe budget for confirming the freshly-spawned edge answers /healthz. */
+export const INGRESS_READY_TIMEOUT_MS = 5_000;
+
+/**
+ * Outcome of an attempt to bring up the remote-web nginx ingress edge. Callers
+ * render their own messaging per variant: `nginx-ingress up` prints
+ * install/build guidance and exits non-zero, while the wake restore path warns
+ * and continues.
+ */
+export type StartRemoteWebIngressResult =
+  | {
+      status: "started";
+      listenPort: number;
+      webDistDir: string;
+      version: string;
+    }
+  | { status: "already-running"; listenPort: number }
+  | { status: "nginx-missing" }
+  | { status: "web-dist-missing" }
+  | { status: "unreachable"; listenPort: number; logPath: string };
+
+/**
+ * Generate the nginx config and start the remote-web ingress edge, then probe
+ * /healthz through it to prove the ingress → gateway path is live. A spawned
+ * but unreachable nginx is rolled back so a failed attempt leaves no half-up
+ * edge behind.
+ *
+ * Pure mechanism: it performs no console output and never exits the process, so
+ * both the `nginx-ingress up` command and the wake restore path can share one
+ * implementation and map the returned result to their own UX.
+ */
+export async function startRemoteWebIngress(opts: {
+  workspaceDir: string;
+  gatewayPort: number;
+  listenPort?: number;
+  readyTimeoutMs?: number;
+  /**
+   * Invoked once, after every preflight check passes and immediately before
+   * nginx is spawned, so callers can emit their own "starting" progress line
+   * with the resolved version/dist/port. Never fires on a preflight bail-out
+   * (nginx-missing, already-running, web-dist-missing).
+   */
+  onStarting?: (info: {
+    version: string;
+    webDistDir: string;
+    listenPort: number;
+  }) => void;
+}): Promise<StartRemoteWebIngressResult> {
+  const listenPort = opts.listenPort ?? getNginxIngressPort();
+
+  const version = getNginxVersion();
+  if (!version) {
+    return { status: "nginx-missing" };
+  }
+
+  if (isIngressRunning(opts.workspaceDir)) {
+    return { status: "already-running", listenPort };
+  }
+
+  const webDistDir = findWebDistDir();
+  if (!webDistDir) {
+    return { status: "web-dist-missing" };
+  }
+
+  opts.onStarting?.({ version, webDistDir, listenPort });
+
+  const child = startIngressNginx({
+    workspaceDir: opts.workspaceDir,
+    gatewayPort: opts.gatewayPort,
+    listenPort,
+    remoteWebIngress: { webDistDir },
+  });
+  child.unref();
+
+  // /healthz proxies through nginx to the gateway, so a 200 proves the whole
+  // ingress → gateway path works.
+  const ready = await waitForDaemonReady(
+    listenPort,
+    opts.readyTimeoutMs ?? INGRESS_READY_TIMEOUT_MS,
+  );
+  if (!ready) {
+    const { logPath } = getIngressPaths(opts.workspaceDir);
+    await stopIngressNginx(opts.workspaceDir);
+    return { status: "unreachable", listenPort, logPath };
+  }
+
+  return { status: "started", listenPort, webDistDir, version };
 }
 
 /**

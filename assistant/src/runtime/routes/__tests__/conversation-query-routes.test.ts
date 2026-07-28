@@ -53,13 +53,16 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
 import { loadRawConfig } from "../../../config/loader.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
-import { getDb, getLogsDb } from "../../../persistence/db-connection.js";
+import {
+  getDb,
+  getLogsDb,
+  getMemorySqlite,
+} from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
 import {
   conversationKeys,
   conversations,
   llmRequestLogs,
-  memoryV2ActivationLogs,
   messages,
   providerConnections,
 } from "../../../persistence/schema/index.js";
@@ -68,7 +71,7 @@ import {
   type MemoryV2ConceptRowRecord,
   type MemoryV2ConfigSnapshot,
   recordMemoryV2ActivationLog,
-} from "../../../plugins/defaults/memory/memory-v2-activation-log-store.js";
+} from "../../../plugins/defaults/memory/v2/activation-log-store.js";
 import {
   createConnection,
   getConnection,
@@ -95,6 +98,34 @@ const replaceProfileRoute = ROUTES.find(
   (r) => r.operationId === "config_llm_profiles_replace",
 )!;
 
+const deleteQueuedMessageRoute = ROUTES.find(
+  (r) => r.operationId === "messages_queued_delete",
+)!;
+
+const steerQueuedMessageRoute = ROUTES.find(
+  (r) => r.operationId === "messages_queued_steer",
+)!;
+
+describe("queued message conversation context", () => {
+  test("delete accepts the forwarded conversation header when the query is absent", () => {
+    expect(() =>
+      deleteQueuedMessageRoute.handler({
+        pathParams: { id: "request-1" },
+        headers: { "x-vellum-conversation-id": "missing-conversation" },
+      }),
+    ).toThrow("Conversation not found");
+  });
+
+  test("steer accepts the forwarded conversation header when the query is absent", () => {
+    expect(() =>
+      steerQueuedMessageRoute.handler({
+        pathParams: { id: "request-1" },
+        headers: { "x-vellum-conversation-id": "missing-conversation" },
+      }),
+    ).toThrow("Conversation not found");
+  });
+});
+
 function dispatchLlmContext(messageId: string) {
   return llmContextRoute.handler({ pathParams: { id: messageId } });
 }
@@ -106,7 +137,7 @@ function dispatchConversationLlmContext(queryParams: Record<string, string>) {
 function clearTables(): void {
   const db = getDb();
   getLogsDb()!.delete(llmRequestLogs).run();
-  db.delete(memoryV2ActivationLogs).run();
+  getMemorySqlite()!.exec(`DELETE FROM memory_v2_activation_logs`);
   db.delete(messages).run();
   db.delete(conversationKeys).run();
   db.delete(conversations).run();
@@ -1393,6 +1424,88 @@ describe("custom profile write normalization (complete overrides)", () => {
       body: first as Record<string, unknown>,
     });
     expect(savedProfiles().mine).toEqual(first);
+  });
+});
+
+describe("call-site override tuning backfill", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  const savedCallSites = () =>
+    (
+      loadRawConfig().llm as {
+        callSites?: Record<string, Record<string, unknown>>;
+      }
+    ).callSites ?? {};
+
+  beforeEach(() => {
+    rawConfigFixture = { llm: {} };
+    seedRawConfig();
+  });
+
+  test("PATCH creating a bare { profile } entry backfills shipped tuning", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            memoryRouter: { profile: "mine", provider: null, model: null },
+            commitMessage: { profile: "mine", provider: null, model: null },
+          },
+        },
+      },
+    });
+    const memoryRouter = savedCallSites().memoryRouter!;
+    expect(memoryRouter.profile).toBe("mine");
+    expect(memoryRouter.contextWindow).toEqual({ maxInputTokens: 1_000_000 });
+    const commitMessage = savedCallSites().commitMessage!;
+    expect(commitMessage.profile).toBe("mine");
+    expect(commitMessage.maxTokens).toBe(120);
+    expect(commitMessage.effort).toBe("low");
+  });
+
+  test("explicit patch values win over shipped tuning on a new entry", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: { commitMessage: { profile: "mine", maxTokens: 500 } },
+        },
+      },
+    });
+    const saved = savedCallSites().commitMessage!;
+    expect(saved.maxTokens).toBe(500);
+    expect(saved.temperature).toBe(0.2);
+  });
+
+  test("existing entries are never backfilled — customization is preserved", async () => {
+    rawConfigFixture = {
+      llm: { callSites: { recall: { profile: "old", maxTokens: 200 } } },
+    };
+    seedRawConfig();
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            recall: { profile: "mine", provider: null, model: null },
+          },
+        },
+      },
+    });
+    const saved = savedCallSites().recall!;
+    expect(saved.profile).toBe("mine");
+    expect(saved.maxTokens).toBe(200);
+    expect(saved.disableCache).toBeUndefined();
+  });
+
+  test("deleting an entry (null) is untouched by the backfill", async () => {
+    rawConfigFixture = {
+      llm: { callSites: { recall: { profile: "old" } } },
+    };
+    seedRawConfig();
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { recall: null } } },
+    });
+    expect(savedCallSites().recall).toBeUndefined();
   });
 });
 

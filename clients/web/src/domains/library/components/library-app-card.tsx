@@ -1,17 +1,10 @@
-import {
-    ArrowUp,
-    Ellipsis,
-    Globe,
-    Pin,
-    PinOff,
-    Trash2,
-} from "lucide-react";
+import { ArrowUp, Ellipsis, Globe, Pin, PinOff, Trash2 } from "lucide-react";
 import { type MouseEvent, useCallback, useState } from "react";
 
 import { AppPreviewThumbnail } from "@/components/app-card";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { AppSummary } from "@/types/app-types";
+import { type AppSummary, isReadOnlyApp } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { cn } from "@/utils/misc";
@@ -19,11 +12,11 @@ import { shareApp } from "@/utils/share-app";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
 import {
-    BottomSheet,
-    Button,
-    Menu,
-    PanelItem,
-    toast,
+  BottomSheet,
+  Button,
+  Menu,
+  PanelItem,
+  toast,
 } from "@vellumai/design-library";
 
 interface LibraryAppCardProps {
@@ -50,6 +43,13 @@ export function LibraryAppCard({
   onAnimationEnd,
 }: LibraryAppCardProps) {
   const [isSharing, setIsSharing] = useState(false);
+  // Plugin-bundled apps are read-only: the daemon rejects delete/share/deploy
+  // against them, so drop those actions here rather than render buttons that
+  // error. Pin/Open stay — pinning is a client-only preference and opening is
+  // always allowed.
+  const readOnly = isReadOnlyApp(app.origin);
+  const deleteAction = readOnly ? undefined : onDelete;
+  const deployAction = readOnly ? undefined : onDeploy;
   const loadHtml = useCallback(
     () => getCachedAppHtml(assistantId, app.id),
     [assistantId, app.id],
@@ -87,14 +87,14 @@ export function LibraryAppCard({
           icon: isPinned ? PinOff : Pin,
           onSelect: () => onPin(app),
         },
-        ...(onDelete
+        ...(deleteAction
           ? [
               {
                 id: "delete",
                 label: "Delete",
                 icon: Trash2,
                 variant: "destructive" as const,
-                onSelect: () => onDelete(app),
+                onSelect: () => deleteAction(app),
               },
             ]
           : []),
@@ -102,10 +102,7 @@ export function LibraryAppCard({
     : [];
 
   return (
-    <SwipeActionReveal
-      trailingActions={trailingActions}
-      className="rounded-xl"
-    >
+    <SwipeActionReveal trailingActions={trailingActions} className="rounded-xl">
       <div
         className={cn(
           "group relative flex flex-col gap-2",
@@ -142,9 +139,9 @@ export function LibraryAppCard({
             open={menuOpen}
             onOpenChange={setMenuOpen}
             onPin={() => onPin(app)}
-            onDelete={onDelete ? () => onDelete(app) : undefined}
-            onShare={handleShare}
-            onDeploy={onDeploy}
+            onDelete={deleteAction ? () => deleteAction(app) : undefined}
+            onShare={readOnly ? undefined : handleShare}
+            onDeploy={deployAction}
             isMobile={isMobile}
           />
         </div>

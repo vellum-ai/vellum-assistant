@@ -26,6 +26,13 @@
  * when present the segment after it is the ref and the remainder is the
  * sub-path. Otherwise everything past `<owner>/<repo>` is the sub-path and the
  * ref defaults to the repository's default branch ({@link DEFAULT_DIRECT_REF}).
+ *
+ * The `/tree/<ref>/<path>` form cannot express a ref that contains a slash
+ * (`feature/x`): the URL is genuinely ambiguous about where the ref ends and
+ * the sub-path begins. Pass `refOverride` (from the CLI's `--ref`) to state the
+ * ref explicitly — it then wins over whatever the URL implies, and when the
+ * URL's `/tree/<ref>/…` segments start with that ref they are stripped so the
+ * remainder is taken as the sub-path.
  */
 
 /**
@@ -54,6 +61,19 @@ export interface GitHubPluginSpec {
    * case the caller asks the user to supply `--name`.
    */
   readonly defaultName: string;
+  /**
+   * Raw path segments after `/tree/` (or `/blob/`) when the ref/sub-path split
+   * is only a heuristic guess a remote lookup can improve — a `/tree/…` URL with
+   * no explicit ref and more than one trailing segment, where the ref could be
+   * any leading prefix (a branch like `feature/x` spans several segments). The
+   * install path resolves the real split against the repository's ref list,
+   * exactly as github.com does; {@link GitHubPluginSpec.ref} /
+   * {@link GitHubPluginSpec.path} carry the offline first-segment guess as a
+   * fallback for when the remote can't be listed. Absent when the ref is already
+   * unambiguous: an explicit `refOverride`, a single trailing segment, the
+   * non-`tree` form, or a bare repo.
+   */
+  readonly ambiguousTreeSegments?: readonly string[];
 }
 
 /** The locator could not be parsed as a GitHub plugin source. */
@@ -81,12 +101,37 @@ export function looksLikeGitHubSpec(arg: string): boolean {
 }
 
 /**
+ * Drop `ref`'s own path segments from the front of `segments` when they match,
+ * so a copied `/tree/<ref>/<sub/path>` URL yields just the sub-path once the
+ * ref is known explicitly. A non-matching prefix (the URL names a different or
+ * shorter ref than the override) is left intact — every segment is then the
+ * sub-path, since the override already fully specifies the ref.
+ */
+function stripRefPrefix(segments: string[], ref: string): string[] {
+  const refParts = ref.split("/").filter((p) => p.length > 0);
+  if (refParts.length === 0 || refParts.length > segments.length) {
+    return segments;
+  }
+  for (let i = 0; i < refParts.length; i++) {
+    if (segments[i] !== refParts[i]) return segments;
+  }
+  return segments.slice(refParts.length);
+}
+
+/**
  * Parse a GitHub locator into the coordinates a direct install clones from.
  * Throws {@link InvalidGitHubPluginSpecError} when the string is not a usable
  * GitHub source (wrong host, missing owner/repo, or a sub-path that escapes the
  * repo).
+ *
+ * `refOverride` (the CLI's `--ref`) disambiguates a ref that contains a slash,
+ * which the `/tree/<ref>/<path>` URL form cannot express on its own; when given
+ * it becomes the ref verbatim.
  */
-export function parseGitHubPluginSpec(input: string): GitHubPluginSpec {
+export function parseGitHubPluginSpec(
+  input: string,
+  refOverride?: string,
+): GitHubPluginSpec {
   const raw = input.trim();
   if (raw === "") {
     throw new InvalidGitHubPluginSpecError(input, "empty locator.");
@@ -132,17 +177,31 @@ export function parseGitHubPluginSpec(input: string): GitHubPluginSpec {
   }
 
   const rest = segments.slice(2);
+  const override = refOverride?.trim() || undefined;
   let ref = DEFAULT_DIRECT_REF;
   let pathSegments: string[];
+  let ambiguousTreeSegments: readonly string[] | undefined;
   // `/tree/<ref>/<path>` (and the equivalent `/blob/…`) is GitHub's canonical
   // encoding of a ref + sub-path. A ref containing slashes (e.g. `feature/x`)
-  // is not expressible this way — the first segment after `tree` is taken as
-  // the whole ref — so such refs must instead be a single segment or a commit
-  // SHA. The non-`tree` form treats everything past the repo as the sub-path.
+  // spans several segments, and the URL alone can't say where it ends. github.com
+  // resolves this by consulting the repo's refs; an explicit `refOverride`
+  // states it directly. Absent both, take the first segment as the ref but
+  // surface the raw tail (`ambiguousTreeSegments`) so the install path can
+  // resolve the real split against the remote. The non-`tree` form treats
+  // everything past the repo as the sub-path.
   if (rest.length > 0 && (rest[0] === "tree" || rest[0] === "blob")) {
-    if (rest.length >= 2) ref = rest[1]!;
-    pathSegments = rest.slice(2);
+    const afterMarker = rest.slice(1);
+    if (override) {
+      ref = override;
+      pathSegments = stripRefPrefix(afterMarker, override);
+    } else {
+      if (afterMarker.length >= 1) ref = afterMarker[0]!;
+      pathSegments = afterMarker.slice(1);
+      // Only meaningful when a prefix beyond the first segment could be the ref.
+      if (afterMarker.length >= 2) ambiguousTreeSegments = afterMarker;
+    }
   } else {
+    if (override) ref = override;
     pathSegments = rest;
   }
 
@@ -159,5 +218,12 @@ export function parseGitHubPluginSpec(input: string): GitHubPluginSpec {
   const leaf = pathSegments.at(-1) ?? repo;
   const defaultName = leaf.toLowerCase();
 
-  return { owner, repo, path, ref, defaultName };
+  return {
+    owner,
+    repo,
+    path,
+    ref,
+    defaultName,
+    ...(ambiguousTreeSegments ? { ambiguousTreeSegments } : {}),
+  };
 }

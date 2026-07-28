@@ -18,8 +18,8 @@ import {
   AcpSessionNotFoundError,
 } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { getConfig } from "../../config/loader.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { createGuardianRequestForConfirmation } from "../../permissions/confirmation-guardian-request.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getDb } from "../../persistence/db-connection.js";
@@ -159,7 +159,7 @@ function awaitRouteApproval(args: {
         settle(decision, decision === "allow" ? "approved" : "rejected"),
     });
 
-    const confirmationMsg: ServerMessage & {
+    const confirmationMsg: AssistantEvent & {
       type: "confirmation_request";
     } = {
       type: "confirmation_request",

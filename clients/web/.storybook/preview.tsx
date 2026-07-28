@@ -12,6 +12,7 @@ import { create, themes } from "storybook/theming";
 import { addons } from "storybook/preview-api";
 import { GLOBALS_UPDATED } from "storybook/internal/core-events";
 import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { PropsWithChildren } from "react";
 import type { ReactRenderer } from "@storybook/react-vite";
@@ -24,6 +25,13 @@ const themesAddon = themesAddonImport as unknown as () => ReturnType<
 >;
 
 import "./preview.css";
+
+// Some surfaces (e.g. OAuthConnectSurface) call `useQueryClient()`, which throws
+// without a provider. Give every story a shared client so Storybook/Chromatic
+// renders don't break; retries off keeps failed queries from looping in stories.
+const storybookQueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
 
 const lightTheme = create({
   base: "light",
@@ -108,9 +116,11 @@ export default definePreview({
       attributeName: "data-theme",
     }),
     (Story) => (
-      <MemoryRouter>
-        <Story />
-      </MemoryRouter>
+      <QueryClientProvider client={storybookQueryClient}>
+        <MemoryRouter>
+          <Story />
+        </MemoryRouter>
+      </QueryClientProvider>
     ),
   ],
   parameters: {

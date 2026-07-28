@@ -12,6 +12,7 @@
 import { z } from "zod";
 
 import { getDb } from "../../persistence/db-connection.js";
+import { CHATGPT_SUBSCRIPTION_CONNECTION_NAME } from "../../providers/inference/auth.js";
 import {
   createConnection,
   getConnection,
@@ -45,7 +46,7 @@ const OPENAI_OAUTH_CONFIG: OAuth2Config = {
 };
 
 const REDIRECT_URI = "http://localhost:1455/auth/callback";
-const CONNECTION_NAME = "chatgpt-subscription";
+const CONNECTION_NAME = CHATGPT_SUBSCRIPTION_CONNECTION_NAME;
 
 // ---------------------------------------------------------------------------
 // Module-level PKCE state storage

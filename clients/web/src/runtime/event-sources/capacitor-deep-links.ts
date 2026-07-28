@@ -2,6 +2,7 @@ import { publish } from "@/lib/event-bus";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import {
   OAUTH_COMPLETE_DEEP_LINK_EVENT,
+  parseBillingCheckoutCompleteDeepLink,
   parseOAuthCompleteDeepLink,
 } from "@/runtime/native-deep-link";
 
@@ -10,7 +11,10 @@ import {
  *
  * OAuth-complete URLs (`vellum-assistant://oauth-complete?…`) dispatch
  * the `OAUTH_COMPLETE_DEEP_LINK_EVENT` window CustomEvent that
- * `useOAuthCompleteDeepLinkListener` already consumes; any other URL
+ * `useOAuthCompleteDeepLinkListener` already consumes;
+ * `vellum-assistant://billing/checkout-complete?…` publishes
+ * `deeplink.billingCheckoutComplete` (the same event the Electron shell
+ * emits, consumed by `useGlobalDeepLinkConsumer`); any other URL
  * publishes `deeplink.unknown { url }` on the bus (query/fragment
  * stripped).
  *
@@ -32,6 +36,15 @@ function handleUrl(url: string): void {
     window.dispatchEvent(
       new CustomEvent(OAUTH_COMPLETE_DEEP_LINK_EVENT, { detail: payload }),
     );
+    return;
+  }
+
+  // Must precede the `unknown` fallback: that path strips the query, which
+  // would destroy the Session id the billing consumer needs to open the Pro
+  // onboarding wizard.
+  const checkout = parseBillingCheckoutCompleteDeepLink(url);
+  if (checkout !== null) {
+    publish("deeplink.billingCheckoutComplete", checkout);
     return;
   }
   // A malformed OAuth-complete URL can carry one-time auth codes in its

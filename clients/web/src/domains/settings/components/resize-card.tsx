@@ -98,9 +98,7 @@ export function ResizeCard({
     null,
   );
   const displaySize = selectedSize ?? largestSize ?? currentSize;
-  const [upgradeModalOpen, setUpgradeModalOpen] = useState<
-    "storage" | "machine" | null
-  >(null);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [resizeError, setResizeError] = useState<string | null>(null);
 
   const resizeMutation = useAssistantsResizeMutation({
@@ -223,7 +221,7 @@ export function ResizeCard({
     <Button
       variant="ghost"
       size="compact"
-      onClick={() => setUpgradeModalOpen("storage")}
+      onClick={() => setUpgradeModalOpen(true)}
     >
       Resize
     </Button>
@@ -254,7 +252,7 @@ export function ResizeCard({
     <Button
       variant="ghost"
       size="compact"
-      onClick={() => setUpgradeModalOpen("machine")}
+      onClick={() => setUpgradeModalOpen(true)}
     >
       Resize
     </Button>
@@ -385,28 +383,27 @@ export function ResizeCard({
 
       {/* Upgrade modal (free plan) */}
       <Modal.Root
-        open={upgradeModalOpen != null}
+        open={upgradeModalOpen}
         onOpenChange={(o) => {
-          if (!o) setUpgradeModalOpen(null);
+          if (!o) setUpgradeModalOpen(false);
         }}
       >
         <Modal.Content size="sm">
           <Modal.Header>
-            <Modal.Title>Upgrade to Pro</Modal.Title>
+            <Modal.Title>Upgrade your plan</Modal.Title>
             <Modal.Description>
-              {upgradeModalOpen === "storage"
-                ? "Upgrade to the Pro plan to increase your storage allocation and get more space for your assistant."
-                : "Upgrade to the Pro plan to unlock larger machine sizes with more CPU and memory for your assistant."}
+              Move to a higher plan for more power, more storage, and a larger
+              credit bundle.
             </Modal.Description>
           </Modal.Header>
           <Modal.Footer>
-            <Button variant="ghost" onClick={() => setUpgradeModalOpen(null)}>
+            <Button variant="ghost" onClick={() => setUpgradeModalOpen(false)}>
               Cancel
             </Button>
             <Button
               onClick={() => {
-                setUpgradeModalOpen(null);
-                void navigate(`${routes.settings.billing}?adjust_plan=1`);
+                setUpgradeModalOpen(false);
+                void navigate(routes.plans);
               }}
             >
               Upgrade
@@ -457,12 +454,12 @@ export function ResizeCard({
               {canGrowStorage ? (
                 <Notice tone="info">
                   {currentGib != null
-                    ? `Storage will be expanded from ${currentGib} GiB to ${availableGib} GiB.`
-                    : `Storage will be expanded to ${availableGib} GiB.`}
+                    ? `Storage will be expanded from ${currentGib} GB to ${availableGib} GB.`
+                    : `Storage will be expanded to ${availableGib} GB.`}
                 </Notice>
               ) : currentGib != null ? (
                 <Notice tone="neutral">
-                  Storage is already at its provisioned size ({currentGib} GiB)
+                  Storage is already at its provisioned size ({currentGib} GB)
                   and will not change.
                 </Notice>
               ) : (
@@ -475,7 +472,7 @@ export function ResizeCard({
             <span className="text-label-small-default text-[var(--content-tertiary)]">
               Need more?{" "}
               <Link
-                to={`${routes.settings.billing}?adjust_plan=1`}
+                to={routes.plans}
                 className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
                 onClick={() => setResizeModalOpen(false)}
               >

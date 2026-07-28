@@ -14,6 +14,7 @@ export type LiveVoiceSessionCloseReason =
   | "client_end"
   | "error"
   | "websocket_close"
+  | "transport_closed"
   | "manager_shutdown";
 
 export interface LiveVoiceSession {

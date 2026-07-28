@@ -124,22 +124,27 @@ describe("selectPool", () => {
           input: { ids: [1] },
         },
       ]);
-    expect(await selectPool(pool, turn)).toEqual([
-      { slug: "page-a", pinned: false },
-    ]);
+    expect(await selectPool(pool, turn)).toEqual({
+      pages: [{ slug: "page-a", pinned: false }],
+      keptAll: false,
+    });
   });
 
-  test("omitted ids keep all candidates (recall-safe)", async () => {
+  test("omitted ids keep all candidates (recall-safe) and flag keptAll", async () => {
     sendMessageImpl = async () =>
       response([
         { type: "tool_use", id: "call-1", name: "select_pages", input: {} },
       ]);
-    expect(await selectPool(pool, turn)).toEqual([
-      { slug: "page-a", pinned: false },
-    ]);
+    expect(await selectPool(pool, turn)).toEqual({
+      pages: [{ slug: "page-a", pinned: false }],
+      keptAll: true,
+    });
   });
 
   test("an empty candidate pool returns no selections", async () => {
-    expect(await selectPool({ stable: [], finder: [] }, turn)).toEqual([]);
+    expect(await selectPool({ stable: [], finder: [] }, turn)).toEqual({
+      pages: [],
+      keptAll: false,
+    });
   });
 });

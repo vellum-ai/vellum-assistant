@@ -767,6 +767,27 @@ describe("handleUpsertContact (gateway-native)", () => {
     expect(contactStoreUpsertMock).not.toHaveBeenCalled();
   });
 
+  test('rejects a channel carrying policy "escalate" with a 400', async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Alice",
+          channels: [
+            { type: "email", address: "alice@example.com", policy: "escalate" },
+          ],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toMatch(/Invalid channel policy/);
+    expect(contactStoreUpsertMock).not.toHaveBeenCalled();
+  });
+
   test("rejects unsupported species (e.g. openclaw)", async () => {
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleUpsertContact(
@@ -1293,7 +1314,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
                     type: "telegram",
                     address: "@alice",
                     status: "active",
-                    policy: "escalate",
+                    policy: "deny",
                     verifiedAt: 9999,
                     verifiedVia: "manual",
                     revokedReason: null,
@@ -1316,7 +1337,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
     expect(body.contacts[0].role).toBe("guardian");
     const ch = body.contacts[0].channels[0];
     expect(ch.status).toBe("active");
-    expect(ch.policy).toBe("escalate");
+    expect(ch.policy).toBe("deny");
     expect(ch.verifiedAt).toBe(9999);
     expect(ch.verifiedVia).toBe("manual");
     expect(contactStoreGetAclMock).toHaveBeenCalledTimes(1);
@@ -1642,7 +1663,7 @@ describe("handleListContacts ACL overlay (filtered/search path)", () => {
                     type: "telegram",
                     address: "@alice",
                     status: "active",
-                    policy: "escalate",
+                    policy: "deny",
                     verifiedAt: 9999,
                     verifiedVia: "manual",
                     revokedReason: null,
@@ -1871,6 +1892,24 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
     const body = await res.json();
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toMatch(/policy/);
+  });
+
+  test('rejects policy "escalate" with a 400', async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpdateContactChannel(
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ policy: "escalate" }),
+      }),
+      "ch_1",
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toMatch(/policy/);
+    expect(contactStoreUpdateChannelMock).not.toHaveBeenCalled();
   });
 
   test("returns 400 when neither status nor policy provided", async () => {

@@ -11,6 +11,11 @@ import {
   toolInvocations,
 } from "../persistence/schema/index.js";
 
+// Prune fires the `conversation-deleted` hook per pruned id; the memory
+// plugin's hook is what purges the relocated per-conversation tables. That
+// cascade is covered directly in the memory plugin's
+// `conversation-memory-purge.test.ts`, so this suite only asserts the
+// persistence-owned deletes.
 await initializeDb();
 
 const STALE_ID = "conv-prune-job-stale";
@@ -91,5 +96,17 @@ describe("pruneOldConversationsJob", () => {
     expect(countRows(FRESH_ID)).toEqual({ invocations: 1, telemetryRows: 1 });
     const remaining = getDb().select().from(conversations).all();
     expect(remaining.map((c) => c.id)).toEqual([FRESH_ID]);
+  });
+
+  test("retentionDays of 0 is a no-op (keep forever)", () => {
+    const ancientUpdatedAt = Date.now() - 999 * 86_400_000;
+    seedConversation(STALE_ID, ancientUpdatedAt);
+
+    pruneOldConversationsJob(JOB, {
+      memory: { cleanup: { conversationRetentionDays: 0 } },
+    } as unknown as AssistantConfig);
+
+    const remaining = getDb().select().from(conversations).all();
+    expect(remaining.map((c) => c.id)).toEqual([STALE_ID]);
   });
 });

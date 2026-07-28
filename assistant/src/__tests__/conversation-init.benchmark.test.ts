@@ -415,7 +415,9 @@ describe("End-to-end session creation benchmark", () => {
       if (i === 0) {
         // Tool infrastructure is wired (the executor records audit/telemetry
         // and profiler timings directly to their module-level terminals).
-        expect(session.coreToolNames.size).toBeGreaterThan(0);
+        expect(session.getRegisteredToolDefinitions().length).toBeGreaterThan(
+          0,
+        );
       }
       session.dispose();
     }

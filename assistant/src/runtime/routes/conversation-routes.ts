@@ -16,6 +16,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../../agent/message-types.js";
+import type { AssistantEvent } from "../../api/index.js";
 import {
   BackgroundToolCompletionSchema,
   type ConversationContentBlock,
@@ -52,6 +53,7 @@ import {
   buildModelInfoEvent,
   formatCleanResult,
   formatCompactResult,
+  isBackgroundEventMetadata,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
@@ -80,7 +82,6 @@ import {
   shouldAttachHostProxyForCapability,
 } from "../../daemon/host-proxy-preactivation.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
@@ -114,6 +115,7 @@ import {
   hasMessages,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
@@ -123,6 +125,7 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
@@ -139,7 +142,6 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
-import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { getCurrentSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -454,11 +456,26 @@ async function collectGuardianRequestHintIds(
 async function expireOrphanedGuardianRequests(
   conversationId: string,
 ): Promise<void> {
-  const sourceScoped = await listGuardianRequestsOrEmpty({
-    sourceConversationId: conversationId,
-    status: "pending",
-    kind: "tool_approval",
-  });
+  const [toolApprovals, pendingQuestions] = await Promise.all([
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "tool_approval",
+    }),
+    listGuardianRequestsOrEmpty({
+      sourceConversationId: conversationId,
+      status: "pending",
+      kind: "pending_question",
+    }),
+  ]);
+
+  // Voice-call questions (callSessionId present) track their lifecycle in the
+  // calls domain, not `pendingInteractions` — never treat them as orphaned
+  // here. Only ask_question rows are interaction-bound.
+  const sourceScoped = [
+    ...toolApprovals,
+    ...pendingQuestions.filter((req) => !req.callSessionId),
+  ];
 
   for (const req of sourceScoped) {
     // Skip requests that still have a live in-memory pending interaction —
@@ -491,7 +508,7 @@ async function tryConsumeGuardianReply(params: {
     filePath?: string;
   }>;
   conversation: Conversation;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   approvalConversationGenerator?: ApprovalConversationGenerator;
   /** Verified actor identity from actor-token middleware. */
   verifiedActorExternalUserId?: string;
@@ -872,18 +889,24 @@ export function handleListMessages({
     let acpNotification: { acpSessionId: string; agent?: string } | undefined;
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
+    let systemCard: boolean | undefined;
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") {
           sentAt = meta.sentAt;
         }
+        // Daemon-authored status cards (compact/clean/summarize results)
+        // render as standalone system notices, not persona speech.
+        if (isSystemCardMetadata(meta)) {
+          systemCard = true;
+        }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
         // row so clients hide it from the transcript like a subagent/ACP
         // notification — the user-facing "Conversation Woke" card (or, for a
         // backgrounded bash run, the inline terminal card) carries the status.
-        if (typeof meta.backgroundEventSource === "string") {
+        if (isBackgroundEventMetadata(meta)) {
           backgroundEventNotification = true;
         }
         // `persistWakeTriggerMessage` stamps the structured completion onto the
@@ -949,6 +972,7 @@ export function handleListMessages({
       acpNotification,
       backgroundEventNotification,
       backgroundToolCompletion,
+      systemCard,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1250,6 +1274,7 @@ export function persistOnboardingArtifacts(onboarding: {
   cohort?: string;
   websiteUrl?: string;
   contentSourceUrl?: string;
+  researchFindings?: string[];
 }): void {
   writeOnboardingSidecar(onboarding);
 
@@ -1377,6 +1402,7 @@ export async function handleSendMessage(
       tasks: string[];
       tone: string;
       userName?: string;
+      occupation?: string;
       assistantName?: string;
       googleConnected?: boolean;
       googleScopes?: string[];
@@ -1387,6 +1413,7 @@ export async function handleSendMessage(
       bootstrapTemplate?: string;
       initialMessage?: string;
       skills?: string[];
+      researchFindings?: string[];
       title?: string;
     };
   };
@@ -1950,10 +1977,7 @@ export async function handleSendMessage(
         recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "canned-greeting queue drain",
-        );
+        void conversation.kickDrainQueue("loop_complete", "canned_greeting");
 
         conversation.warmPromptCache();
       }, 0);
@@ -1967,7 +1991,7 @@ export async function handleSendMessage(
     } finally {
       if (!cleanupDeferred && conversation.isProcessing()) {
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
@@ -2279,7 +2303,7 @@ export async function handleSendMessage(
         recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
+        void conversation.kickDrainQueue("loop_complete", "slash_command");
       }, 0);
 
       cleanupDeferred = true;
@@ -2289,7 +2313,7 @@ export async function handleSendMessage(
       // setTimeout above), but still needed for error paths.
       if (!cleanupDeferred && conversation.isProcessing()) {
         conversation.setProcessing(false);
-        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+        void conversation.kickDrainQueue("loop_complete", "send_error_path");
       }
     }
   }
@@ -2316,12 +2340,12 @@ export async function handleSendMessage(
       // throw from this initial persist never reaches it — reset here so the
       // conversation isn't stranded in queued mode.
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      void conversation.kickDrainQueue("loop_complete", "compact_command");
       throw err;
     }
     if (persisted.deduplicated) {
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "compact-dedup queue drain");
+      void conversation.kickDrainQueue("loop_complete", "compact_dedup");
       return {
         accepted: true,
         messageId: persisted.id,
@@ -2349,13 +2373,17 @@ export async function handleSendMessage(
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact();
-        await persistCannedAssistantCard({
+        const cardId = await persistCannedAssistantCard({
           conversation,
           conversationId,
           text: formatCompactResult(result),
           metadata: channelMeta,
-          originClientId,
         });
+        // Attribute the compaction LLM call to the card it produced — same
+        // linkage as the summarize-up-to route.
+        if (result.summaryRequestLogId) {
+          linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
+        }
       } catch (err) {
         log.error({ err, conversationId }, "Compact command failed");
         broadcastMessage({
@@ -2367,10 +2395,7 @@ export async function handleSendMessage(
         });
       } finally {
         conversation.setProcessing(false);
-        silentlyWithLog(
-          conversation.drainQueue(),
-          "compact-command queue drain",
-        );
+        void conversation.kickDrainQueue("loop_complete", "compact_command");
       }
     })();
 
@@ -2429,7 +2454,6 @@ export async function handleSendMessage(
           conversationId,
           text: formatCleanResult(result),
           metadata: channelMeta,
-          originClientId,
         });
       } catch (err) {
         log.error({ err, conversationId }, "Clean command failed");
@@ -2449,7 +2473,7 @@ export async function handleSendMessage(
       };
     } finally {
       conversation.setProcessing(false);
-      silentlyWithLog(conversation.drainQueue(), "clean-command queue drain");
+      void conversation.kickDrainQueue("loop_complete", "clean_command");
     }
   }
 
@@ -2540,6 +2564,7 @@ async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
   priorUserText: string | null,
+  conversationId: string,
 ): Promise<string | null> {
   const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncatedAssistant = escapeXmlContent(
@@ -2595,6 +2620,7 @@ async function generateLlmSuggestion(
       systemPrompt,
       config: {
         callSite: "replySuggestion",
+        conversationId,
         max_tokens: 60,
         stop_sequences: ["</reply>"],
         temperature: 0.7,
@@ -2742,7 +2768,12 @@ export async function handleGetSuggestion(
         // Deduplicate concurrent requests
         let promise = suggestionInFlight.get(msg.id);
         if (!promise) {
-          promise = generateLlmSuggestion(provider, text, priorUserText);
+          promise = generateLlmSuggestion(
+            provider,
+            text,
+            priorUserText,
+            resolvedConversationId,
+          );
           suggestionInFlight.set(msg.id, promise);
         }
 
@@ -2984,6 +3015,12 @@ export const ROUTES: RouteDefinition[] = [
           "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
         ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      bypassSecretCheck: z
+        .boolean()
+        .optional()
+        .describe(
+          'When true, skip the secret-ingress scan for this message only. Set exclusively when the user explicitly confirms a client-side blocked send (the composer\'s "Send anyway" action); it is per-message and never persisted.',
+        ),
       hidden: z
         .boolean()
         .optional()
@@ -3007,6 +3044,12 @@ export const ROUTES: RouteDefinition[] = [
           bootstrapTemplate: z.string().optional(),
           initialMessage: z.string().optional(),
           skills: z.array(z.string()).optional(),
+          researchFindings: z
+            .array(z.string())
+            .optional()
+            .describe(
+              "Findings from pre-chat onboarding research that the user explicitly kept on the results screen. Written into the persona's onboarding section so the first turn can reference them.",
+            ),
           title: z
             .string()
             .optional()

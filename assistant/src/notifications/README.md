@@ -314,7 +314,7 @@ Connected channels are resolved at signal emission time by `getConnectedChannels
 
 ## Conversation Materialization
 
-The system uses a single conversation materialization path for **all** notifications -- there are no legacy bypass paths or dual-broadcast mechanisms. Every notification, including guardian questions and ingress escalation alerts, flows through `emitNotificationSignal()`:
+The system uses a single conversation materialization path for **all** notifications -- there are no legacy bypass paths or dual-broadcast mechanisms. Every notification, including guardian questions and access-request alerts, flows through `emitNotificationSignal()`:
 
 1. `emitNotificationSignal()` evaluates the signal and dispatches to channels.
 2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`, executing the per-channel conversation action (start_new or reuse_existing).
@@ -550,6 +550,6 @@ from the unified `llm` block. Override defaults by setting either of:
 | `llm.callSites.notificationDecision` | object | _(unset)_ | Provider/model/effort/etc. override for the decision engine call site      |
 | `llm.callSites.preferenceExtraction` | object | _(unset)_ | Provider/model/effort/etc. override for the preference extractor call site |
 
-When a call site override is unset, the resolver falls back to `llm.default`.
+When a call site override is unset, the resolver falls back to the shipped call-site default profile.
 
 The notification pipeline is always active -- signals are processed and dispatched as soon as the daemon is running. The audit trail (events, decisions, deliveries) is written for every signal.

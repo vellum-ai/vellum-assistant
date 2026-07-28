@@ -8,11 +8,13 @@ import {
 } from "@/domains/chat/turn-selectors";
 import {
   type TurnState,
+  type TurnPhase,
   type DomainEvent,
   INITIAL_TURN_STATE,
   turnReducer,
   isSending,
   isThinking,
+  useTurnStore,
 } from "@/domains/chat/turn-store";
 
 // ---------------------------------------------------------------------------
@@ -427,6 +429,28 @@ describe("ACTIVITY_STATE_THINKING", () => {
     });
     expect(state.phase).toBe("idle");
     expect(state).toBe(INITIAL_TURN_STATE);
+  });
+
+  test("starts server-driven activity from idle when canStartFromIdle", () => {
+    const state = turnReducer(INITIAL_TURN_STATE, {
+      type: "ACTIVITY_STATE_THINKING",
+      statusText: "Summarizing conversation",
+      canStartFromIdle: true,
+    });
+    expect(state.phase).toBe("thinking");
+    expect(state.statusText).toBe("Summarizing conversation");
+    expect(state.activeTurnId).toBeNull();
+  });
+
+  test("server-driven activity still tears down on turn completion", () => {
+    const thinking = turnReducer(INITIAL_TURN_STATE, {
+      type: "ACTIVITY_STATE_THINKING",
+      statusText: "Summarizing conversation",
+      canStartFromIdle: true,
+    });
+    const state = turnReducer(thinking, { type: "MESSAGE_COMPLETE" });
+    expect(state.phase).toBe("idle");
+    expect(state.statusText).toBeNull();
   });
 
   test("is discarded when errored with null activeTurnId", () => {
@@ -1687,5 +1711,38 @@ describe("queue management", () => {
     const result = turnReducer(idle, { type: "MESSAGE_DEQUEUED" });
     expect(result.phase).toBe("idle");
     expect(result.pendingQueuedCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recoverFromAwaitingUserInput (live store action)
+// ---------------------------------------------------------------------------
+
+describe("recoverFromAwaitingUserInput", () => {
+  const resetStore = () => {
+    useTurnStore.setState({ ...INITIAL_TURN_STATE });
+  };
+
+  test("recovers awaiting_user_input to thinking", () => {
+    resetStore();
+    useTurnStore.setState({ phase: "awaiting_user_input" });
+    useTurnStore.getState().recoverFromAwaitingUserInput();
+    expect(useTurnStore.getState().phase).toBe("thinking");
+  });
+
+  test("no-ops on every other phase", () => {
+    const otherPhases: TurnPhase[] = [
+      "idle",
+      "thinking",
+      "streaming",
+      "queued",
+      "errored",
+    ];
+    for (const phase of otherPhases) {
+      resetStore();
+      useTurnStore.setState({ phase });
+      useTurnStore.getState().recoverFromAwaitingUserInput();
+      expect(useTurnStore.getState().phase).toBe(phase);
+    }
   });
 });

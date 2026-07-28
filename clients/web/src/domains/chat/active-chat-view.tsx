@@ -21,7 +21,6 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -50,11 +49,15 @@ import { useDraftPersistence } from "@/domains/chat/hooks/use-draft-persistence"
 import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-orchestrator";
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
+import { useAssistantCapability } from "@/hooks/use-assistant-capability";
+import { useSupportsSummarizeUpToHere } from "@/lib/backwards-compat/use-supports-summarize-up-to-here";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useMessageLifecycle } from "@/domains/chat/hooks/use-message-lifecycle";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
+import { useAcpAutoContinue } from "@/domains/chat/hooks/use-acp-auto-continue";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
+import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
@@ -70,6 +73,7 @@ const AddCreditsModal = lazy(() =>
     default: m.AddCreditsModal,
   })),
 );
+
 const DeployDialogs = lazy(() =>
   import("@/components/deploy-dialogs").then((m) => ({
     default: m.DeployDialogs,
@@ -105,10 +109,9 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
   // -------------------------------------------------------------------------
-  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
-
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
+  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
   // -------------------------------------------------------------------------
   // Zustand store selectors
@@ -155,7 +158,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     didOnboarding,
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     onboardingConversationId,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
@@ -303,6 +306,16 @@ export function ActiveChatView() {
       peekPendingPreChatContext()?.initialMessageHidden === true,
   });
 
+  // Auto-continue after the inline "Connect Claude Code" card finishes: the card
+  // flips a store flag (it can't reach `sendMessage`), and here we turn that into
+  // a hidden continuation send so the assistant re-runs the failed spawn without
+  // the user typing "retry".
+  const sendAcpContinue = useCallback(
+    () => void sendMessage(ACP_CONNECT_CONTINUE_PROMPT, [], { hidden: true }),
+    [sendMessage],
+  );
+  useAcpAutoContinue(sendAcpContinue);
+
   // Onboarding deep-link attribution: emit the research-onboarding check-in
   // funnel step when the user lands here from the Day-2 calendar event's CTA.
   useOnboardingAttribution({
@@ -390,6 +403,7 @@ export function ActiveChatView() {
     handleForkConversation,
     handleForkConversationFromMenu,
     handleSummarizeUpToMessage,
+    handleRetryLatestTurn,
     handleOpenInNewWindow,
     handleInspectConversation,
     handleInspectMessage,
@@ -402,12 +416,11 @@ export function ActiveChatView() {
   // "Summarize up to here" confirm dialog. The hover action only records the
   // target message; the POST fires from the dialog's confirm button — a
   // misfired summarize mutates the assistant's live context with no undo, so
-  // it always goes through an explicit confirmation. Gated by the
-  // `summarize-up-to-here` flag at the callback source: with the flag off no
-  // `onSummarizeUpToHere` is provided, so the hover button never renders and
-  // the dialog is unreachable.
-  const summarizeUpToHereEnabled =
-    useClientFeatureFlagStore.use.summarizeUpToHere();
+  // it always goes through an explicit confirmation. Version-gated at the
+  // callback source: assistants below the endpoint's release get no
+  // `onSummarizeUpToHere`, so the hover button never renders and the dialog
+  // is unreachable.
+  const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
   const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
     useState<string | null>(null);
   const [summarizePending, setSummarizePending] = useState(false);
@@ -425,6 +438,30 @@ export function ActiveChatView() {
   }, [pendingSummarizeMessageId, handleSummarizeUpToMessage]);
   const handleCancelSummarize = useCallback(() => {
     setPendingSummarizeMessageId(null);
+  }, []);
+
+  // "Retry" confirm dialog. Same shape as summarize: the hover action only
+  // opens the dialog; the POST fires from its confirm button — retry
+  // permanently discards the latest assistant response, so it always goes
+  // through an explicit confirmation. Capability-gated at the callback
+  // source: daemons without the retry endpoint get no `onRetryLatestTurn`,
+  // so the hover button never renders and the dialog is unreachable.
+  const supportsRetryTurn = useAssistantCapability("retryLastTurn");
+  const [retryConfirmOpen, setRetryConfirmOpen] = useState(false);
+  const [retryPending, setRetryPending] = useState(false);
+  const handleRetryLatestTurnRequested = useCallback(() => {
+    setRetryConfirmOpen(true);
+  }, []);
+  const handleConfirmRetry = useCallback(() => {
+    setRetryPending(true);
+    // Errors toast inside the handler; the dialog just closes.
+    void handleRetryLatestTurn().finally(() => {
+      setRetryPending(false);
+      setRetryConfirmOpen(false);
+    });
+  }, [handleRetryLatestTurn]);
+  const handleCancelRetry = useCallback(() => {
+    setRetryConfirmOpen(false);
   }, []);
 
   // Manual "Refresh" menu item — re-fetch the latest history page through the
@@ -491,8 +528,11 @@ export function ActiveChatView() {
 
     // Conversation secondary actions
     handleForkConversation,
-    onSummarizeUpToHere: summarizeUpToHereEnabled
+    onSummarizeUpToHere: supportsSummarizeUpToHere
       ? handleSummarizeUpToHere
+      : undefined,
+    onRetryLatestTurn: supportsRetryTurn
+      ? handleRetryLatestTurnRequested
       : undefined,
     handleInspectMessage: showLlmInspector ? handleInspectMessage : undefined,
 
@@ -503,8 +543,8 @@ export function ActiveChatView() {
     diskPressure,
 
     // Upward signals
-    setShowAddCreditsModal,
     setRefreshEpoch,
+    setShowAddCreditsModal,
 
     // Shared refs
     inputRef,
@@ -514,7 +554,7 @@ export function ActiveChatView() {
     uiContextRef,
 
     // Onboarding
-    onboardingTasksEmpty,
+    onboardingChoiceEligible,
     didOnboarding,
     onboardingConversationId,
   };
@@ -522,6 +562,7 @@ export function ActiveChatView() {
   return (
     <>
       <ChatContentLayout {...chatRouteProps} />
+
       {showAddCreditsModal ? (
         <LazyBoundary>
           <AddCreditsModal
@@ -548,6 +589,15 @@ export function ActiveChatView() {
         isPending={summarizePending}
         onConfirm={handleConfirmSummarize}
         onCancel={handleCancelSummarize}
+      />
+      <ConfirmDialog
+        open={retryConfirmOpen}
+        title="Retry this response?"
+        message="The latest response will be discarded and regenerated. This can't be undone."
+        confirmLabel="Retry"
+        isPending={retryPending}
+        onConfirm={handleConfirmRetry}
+        onCancel={handleCancelRetry}
       />
       <MobileChatOverlays />
     </>
