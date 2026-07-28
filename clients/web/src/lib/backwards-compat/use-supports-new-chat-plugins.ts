@@ -19,12 +19,11 @@
  * on the send path so the decision awaits version hydration rather than
  * optimistically assuming support.
  *
- * MIN_VERSION targets 0.11.0 — the manage-plugins surface (this new-chat
+ * MIN_VERSION targets 0.12.0. The manage-plugins surface (this new-chat
  * picker plus the in-chat plugin pill) ships in that release, so the gate
- * holds until the active assistant is on 0.11.0 or newer. That keeps the
+ * holds until the active assistant is on 0.12.0 or newer. That keeps the
  * picker and send-path inclusion hidden on every older assistant until
- * the surface lands; bump MIN_VERSION to the release that finalizes
- * per-chat plugin selection when it is ready.
+ * the surface lands, including on 0.11.x, which cuts without it.
  */
 import {
   assistantSupports,
@@ -32,7 +31,7 @@ import {
   whenAssistantVersionKnown,
 } from "./utils";
 
-export const MIN_VERSION = "0.11.0";
+export const MIN_VERSION = "0.12.0";
 
 /**
  * Returns `true` when the active assistant accepts the per-chat plugin

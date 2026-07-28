@@ -30,6 +30,7 @@ import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -127,6 +128,8 @@ function SearchButton() {
  *     • Show more/less — page through recent conversations
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
+ *     • ───────────────
+ *     • Group ▾        — one collapsible section per custom group
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -239,7 +242,11 @@ export function AssistantSideMenu({
   const buildGroupMenu = (
     groupName: string,
     conversations: Conversation[],
-    options?: { onRename?: () => void; onDelete?: () => void },
+    options?: {
+      onRename?: () => void;
+      onDelete?: () => void;
+      onCopyGroupId?: () => void;
+    },
   ): GroupMenuItemsProps => ({
     onMarkAllRead: onMarkAllReadInGroup
       ? () => onMarkAllReadInGroup(conversations)
@@ -253,6 +260,7 @@ export function AssistantSideMenu({
     hasConversations: conversations.length > 0,
     onRename: options?.onRename,
     onDelete: options?.onDelete,
+    onCopyGroupId: options?.onCopyGroupId,
   });
 
   const selectAndClose = useCallback(
@@ -514,48 +522,48 @@ export function AssistantSideMenu({
               {sidebar.customGroups.length > 0 ? (
                 <>
                   <SideMenu.Separator />
-                  <SideMenu.Section title="Your Groups">
-                    <CollapsibleNavSection.Root
-                      type="multiple"
-                      className="gap-3"
-                      value={sidebar.effectiveOpenCustomGroups}
-                      onValueChange={sidebar.onOpenCustomGroupsChange}
-                    >
-                      {sidebar.customGroups.map((group) => {
-                        const groupMenu = buildGroupMenu(
-                          group.name,
-                          group.conversations,
-                          {
-                            onRename: onRenameGroup
-                              ? () => onRenameGroup(group.id)
-                              : undefined,
-                            onDelete: onDeleteGroup
-                              ? () => onDeleteGroup(group.id)
-                              : undefined,
-                          },
-                        );
-                        return (
-                          <ConversationNavSection
-                            key={group.id}
-                            value={group.id}
-                            label={group.name}
-                            /* The "…" button and the header's right-click menu
-                               both render from `groupMenu`. */
-                            trailing={
-                              <GroupActionsMenu
-                                label={group.name}
-                                {...groupMenu}
-                              />
-                            }
-                            groupMenu={groupMenu}
-                            items={group.conversations}
-                            dragSection={`group:${group.id}`}
-                            collapsedIndicator={collapsedActivityDot(group.conversations)}
-                          />
-                        );
-                      })}
-                    </CollapsibleNavSection.Root>
-                  </SideMenu.Section>
+                  <CollapsibleNavSection.Root
+                    type="multiple"
+                    className="gap-3"
+                    value={sidebar.effectiveOpenCustomGroups}
+                    onValueChange={sidebar.onOpenCustomGroupsChange}
+                  >
+                    {sidebar.customGroups.map((group) => {
+                      const groupMenu = buildGroupMenu(
+                        group.name,
+                        group.conversations,
+                        {
+                          onRename: onRenameGroup
+                            ? () => onRenameGroup(group.id)
+                            : undefined,
+                          onDelete: onDeleteGroup
+                            ? () => onDeleteGroup(group.id)
+                            : undefined,
+                          onCopyGroupId: () =>
+                            copyIdToClipboard(group.id, "Group ID"),
+                        },
+                      );
+                      return (
+                        <ConversationNavSection
+                          key={group.id}
+                          value={group.id}
+                          label={group.name}
+                          /* The "…" button and the header's right-click menu
+                             both render from `groupMenu`. */
+                          trailing={
+                            <GroupActionsMenu
+                              label={group.name}
+                              {...groupMenu}
+                            />
+                          }
+                          groupMenu={groupMenu}
+                          items={group.conversations}
+                          dragSection={`group:${group.id}`}
+                          collapsedIndicator={collapsedActivityDot(group.conversations)}
+                        />
+                      );
+                    })}
+                  </CollapsibleNavSection.Root>
                 </>
               ) : null}
             </>

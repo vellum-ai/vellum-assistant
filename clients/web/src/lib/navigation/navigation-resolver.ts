@@ -14,13 +14,6 @@ export interface NavigationState {
   isRemoteGateway: boolean;
   remoteGatewayPublicPathPrefix: string;
   isGatewayAuth: boolean;
-  /**
-   * Whether this is the native Capacitor shell (iOS/Android).
-   *
-   * The research onboarding is not wired for the native shell (see
-   * `onboarding-destination.ts`), so the paid provisioning funnel forks on it.
-   */
-  isNative: boolean;
   hasAssistants: boolean;
   /**
    * Whether the active organization has a **platform-hosted** assistant — the
@@ -189,26 +182,21 @@ export const POST_CHECKOUT_HATCH_PARAM = "post_checkout";
  * already changed hands, which is what lets the hatch treat a still-base
  * subscription read as a pending webhook rather than a free org.
  */
-function managedProvisioningDestination(state: NavigationState): string {
-  // The same shell fork the consent step takes: native has no research flow and
-  // keeps the foreground hatching screen, while web and Electron take the
-  // headless research entry, which runs the purchased-provisioning wait behind
+function managedProvisioningDestination(): string {
+  // The headless research entry runs the purchased-provisioning wait behind
   // the onboarding form. `isLocalHatch` is false by construction —
-  // `hosting=vellum-cloud` forces the managed hatch.
+  // `hosting=vellum-cloud` forces the managed hatch on every client.
   const route = onboardingDestinationAfterConsent({
-    isNative: state.isNative,
     isLocalHatch: false,
   });
   return `${route}?hosting=vellum-cloud&${POST_CHECKOUT_HATCH_PARAM}=1`;
 }
 
 /**
- * The provisioning funnel entries a paid return can name: the foreground
- * hatching screen (native only) and the headless research onboarding (web and
- * Electron). The shell is the only fork — {@link managedProvisioningDestination}
- * always resolves a managed hatch, so hosting never picks the entry. Both
- * provision the purchased assistant, so both are consent-gated and both are
- * resumable from the privacy screen.
+ * The provisioning funnel entries a paid return can name: the headless research
+ * onboarding and the foreground hatching screen retained for return URLs
+ * stashed by older clients. Both provision the purchased assistant, so both are
+ * consent-gated and resumable from the privacy screen.
  */
 const PROVISIONING_FUNNEL_PATHS: Set<string> = new Set([
   routes.onboarding.hatching,
@@ -440,7 +428,7 @@ function requirePostCheckoutProvisioning(
       return null;
     }
   }
-  return { action: "redirect", to: managedProvisioningDestination(state) };
+  return { action: "redirect", to: managedProvisioningDestination() };
 }
 
 /**
@@ -629,12 +617,12 @@ function enforceFunnelConsent(
   }
 
   // A stale toggle must be re-reviewed before a hatch the user paid for.
-  // Research-only: the hatching entry — the native paid return, and a
-  // `returnTo` stashed by an older client — reaches a screen whose own
-  // `hatch-gate` already re-reviews stale terms, so gating it twice would only
-  // change where it lands. Gated on the paid marker so the ordinary funnel
-  // keeps its exemption, and on a live platform session for the same reason as
-  // `requireConsent`: there is nothing to re-review against without one.
+  // Research-only: the hatching entry — where a `returnTo` stashed by an older
+  // client may still point — reaches a screen whose own `hatch-gate` already
+  // re-reviews stale terms, so gating it twice would only change where it
+  // lands. Gated on the paid marker so the ordinary funnel keeps its exemption,
+  // and on a live platform session for the same reason as `requireConsent`:
+  // there is nothing to re-review against without one.
   if (
     path === routes.onboarding.research &&
     postCheckoutHatchReturnTo(pathnameWithSearch) &&

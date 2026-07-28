@@ -51,10 +51,8 @@ export function PrivacyScreen() {
   const takeover = useMarketingPricingTakeover();
 
   useEffect(() => {
-    if (!isNative) {
-      getOnboardingFunnelSessionId();
-    }
-  }, [isNative]);
+    getOnboardingFunnelSessionId();
+  }, []);
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);
@@ -74,11 +72,9 @@ export function PrivacyScreen() {
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
     saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
-    if (!isNative) {
-      emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
-        userId,
-      });
-    }
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+      userId,
+    });
 
     // A completed checkout with nothing provisioned is funneled to the hatching
     // screen; an unconsented user is bounced here, and the funnel URL rides
@@ -110,7 +106,6 @@ export function PrivacyScreen() {
     const isLocalHatch =
       isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
     const destination = onboardingDestinationAfterConsent({
-      isNative,
       isLocalHatch,
     });
     const onboardingNext = `${destination}${qs ? `?${qs}` : ""}`;
@@ -152,7 +147,6 @@ export function PrivacyScreen() {
   }, [
     privacyConsent,
     hasPlatformSession,
-    isNative,
     isPreview,
     navigate,
     searchParams,

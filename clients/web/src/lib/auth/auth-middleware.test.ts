@@ -111,8 +111,8 @@ const postCheckoutBilling = `${routes.settings.root}/billing?session_id=cs_test_
 
 // The funnel entry carries the managed-hatch marker so a local-mode client
 // provisions on the platform rather than letting its own gateway answer for
-// the assistant. Non-native shells land on the headless research onboarding,
-// which runs the purchased-provisioning wait behind the form.
+// the assistant. Every client lands on the headless research onboarding, which
+// runs the purchased-provisioning wait behind the form.
 const managedFunnel = `${routes.onboarding.research}?hosting=vellum-cloud&post_checkout=1`;
 
 /**

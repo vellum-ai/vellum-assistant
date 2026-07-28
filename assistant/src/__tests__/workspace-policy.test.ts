@@ -1,6 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
 import * as envRegistry from "../config/env-registry.js";
@@ -534,6 +540,81 @@ describe("isControlPlaneWorkspaceWrite / prompt surfaces", () => {
     expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
       true,
     );
+  });
+
+  // The section override layer: any `<section-id>.md` under prompts/system/
+  // replaces the bundled section of the same id — or, stripped to nothing,
+  // silences it — including the security-policy sections. A brand-new id
+  // adds a workspace-only section, so the whole directory is a prompt
+  // surface, not just the bundled ids.
+  test.each([
+    ["a security-section override", "prompts/system/06-credential-security.md"],
+    [
+      "the non-guardian boundary override",
+      "prompts/system/10a-non-guardian-boundary.md",
+    ],
+    ["a workspace-only addition", "prompts/system/99-injected-section.md"],
+    [
+      "the container /workspace form",
+      "/workspace/prompts/system/07-external-content.md",
+    ],
+  ])("blocks %s — %s", (_label, path) => {
+    expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
+      true,
+    );
+    expect(isControlPlaneWorkspaceWrite("file_edit", { path }, wsRoot)).toBe(
+      true,
+    );
+  });
+
+  // The reverse symlink dodge: the control-plane *name* is itself a link to
+  // a benign path. The write's bytes land at the destination, but the
+  // renderer and the loaders open the control-plane name and follow the
+  // link — so the addressed name must match the baselines even though the
+  // canonical destination does not.
+  test.each([
+    ["a section override", "prompts/system/06-credential-security.md"],
+    ["an executable sink entry", "hooks/on-boot.ts"],
+    ["a per-user context file", "users/someone.md"],
+  ])(
+    "blocks a write addressed at %s that is a symlink to a benign path",
+    (_label, addressedPath) => {
+      const parentDir = join(wsRoot, dirname(addressedPath));
+      const parentExisted = existsSync(parentDir);
+      mkdirSync(parentDir, { recursive: true });
+      const destination = join(wsRoot, "notes-real", "decoy.txt");
+      symlinkSync(destination, join(wsRoot, addressedPath));
+      try {
+        expect(
+          isControlPlaneWorkspaceWrite(
+            "file_write",
+            { path: addressedPath },
+            wsRoot,
+          ),
+        ).toBe(true);
+      } finally {
+        rmSync(join(wsRoot, addressedPath), { force: true });
+        if (!parentExisted) {
+          rmSync(parentDir, { recursive: true, force: true });
+        }
+      }
+    },
+  );
+
+  // Drift guard: the override path for every bundled section id must be
+  // covered, so adding a section cannot silently open a writable override
+  // for it.
+  test("covers the override path of every bundled system section", () => {
+    expect(BUNDLED_SYSTEM_SECTIONS.length).toBeGreaterThan(0);
+    for (const section of BUNDLED_SYSTEM_SECTIONS) {
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: `prompts/system/${section.id}.md` },
+          wsRoot,
+        ),
+      ).toBe(true);
+    }
   });
 
   // A surface that is itself a symlink is read through the link by the
