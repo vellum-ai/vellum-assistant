@@ -18,10 +18,10 @@ import {
   SurfaceTypeSchema,
 } from "../api/surfaces.js";
 import {
-  addAppConversationId,
   getApp,
   getAppDirPath,
   getAppPreview,
+  linkAppToConversationLineage,
   listAppsByConversation,
   resolveAppDir,
   resolveEffectiveAppHtml,
@@ -3411,7 +3411,7 @@ export async function surfaceProxyResolver(
 
     // Track conversation association (best-effort — failures must not break open flow).
     try {
-      addAppConversationId(appId, ctx.conversationId);
+      linkAppToConversationLineage(appId, ctx.conversationId);
     } catch (err) {
       log.warn({ err, appId }, "Failed to track conversation ID on app_open");
     }

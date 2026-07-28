@@ -34,12 +34,15 @@ import {
   resolve,
 } from "node:path";
 
+import { resolveConversationLineage } from "../daemon/conversation-lineage.js";
 import { rawAll } from "../persistence/raw-query.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
+
+const log = getLogger("app-store");
 
 export interface AppDefinition {
   id: string;
@@ -1253,6 +1256,32 @@ export function addAppConversationId(
 }
 
 /**
+ * Associate an app with the conversation that produced it and every subagent
+ * ancestor above it. A background subagent (e.g. the live-voice duplex
+ * continuation) runs in a forked conversation the user never sees, so linking
+ * only the fork leaves the app unopenable from the thread the user actually
+ * has in front of them. Associations are additive and de-duplicated, so
+ * linking the whole chain is safe.
+ *
+ * Best-effort per id: a link failure must never break app creation or opening.
+ */
+export function linkAppToConversationLineage(
+  appId: string,
+  conversationId: string,
+): void {
+  for (const id of resolveConversationLineage(conversationId)) {
+    try {
+      addAppConversationId(appId, id);
+    } catch (err) {
+      log.warn(
+        { err, appId, conversationId: id },
+        "Failed to associate app with conversation",
+      );
+    }
+  }
+}
+
+/**
  * Return all apps associated with a given conversation ID.
  */
 export function listAppsByConversation(
@@ -1280,8 +1309,6 @@ export function listAppsByConversation(
  * Wrapped in try/catch so failures never block daemon start.
  */
 export function backfillAppConversationIds(): void {
-  const log = getLogger("app-store");
-
   // Check sentinel — skip the potentially expensive scan when already done.
   const sentinelPath = join(getAppsDir(), ".conversation-ids-backfilled");
   if (existsSync(sentinelPath)) {
