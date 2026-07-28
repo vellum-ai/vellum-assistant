@@ -3335,14 +3335,22 @@ function purgeMessageSegments(messageIds: string[], context: string): string[] {
   if (!memoryDb || messageIds.length === 0) {
     return [];
   }
+  let ids: string[] = [];
   try {
-    const ids = memoryDb
+    ids = memoryDb
       .select({ id: memorySegments.id })
       .from(memorySegments)
       .where(inArray(memorySegments.messageId, messageIds))
       .all()
       .map((r) => r.id);
-    if (ids.length > 0) {
+  } catch (err) {
+    log.warn(
+      { err, context },
+      "Failed to read memory segments for deleted messages; continuing",
+    );
+  }
+  if (ids.length > 0) {
+    try {
       memoryDb
         .delete(memoryEmbeddings)
         .where(
@@ -3352,19 +3360,27 @@ function purgeMessageSegments(messageIds: string[], context: string): string[] {
           ),
         )
         .run();
-      memoryDb
-        .delete(memorySegments)
-        .where(inArray(memorySegments.messageId, messageIds))
-        .run();
+    } catch (err) {
+      log.warn(
+        { err, context },
+        "Failed to delete segment embeddings for deleted messages; continuing",
+      );
     }
-    return ids;
+  }
+  // Independent of the embedding delete above: a missing or partially migrated
+  // embedding cache must not leave the plaintext segment rows behind.
+  try {
+    memoryDb
+      .delete(memorySegments)
+      .where(inArray(memorySegments.messageId, messageIds))
+      .run();
   } catch (err) {
     log.warn(
       { err, context },
-      "Failed to purge memory segments for deleted messages; continuing",
+      "Failed to delete memory segments for deleted messages; continuing",
     );
-    return [];
   }
+  return ids;
 }
 
 /**
