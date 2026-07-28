@@ -22,7 +22,7 @@
  * - https://web.dev/articles/sign-out-best-practices
  */
 
-import { clearTakeoverAvatarStash } from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 
 const USER_PREFIX = "vellum:";
 

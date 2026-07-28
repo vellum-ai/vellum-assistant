@@ -41,7 +41,7 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import {
   clearTakeoverAvatarStash,
   readTakeoverAvatarStash,
-} from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+} from "@/lib/billing/takeover-avatar-stash";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,

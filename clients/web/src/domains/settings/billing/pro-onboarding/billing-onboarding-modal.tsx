@@ -31,7 +31,7 @@ import {
   TAKEOVER_SURFACE,
   TAKEOVER_SURFACE_VAR,
 } from "./provisioning-state";
-import { clearTakeoverAvatarStash } from "./takeover-avatar-stash";
+import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { TakeoverBackdrop } from "./takeover-backdrop";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";

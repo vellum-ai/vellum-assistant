@@ -125,7 +125,7 @@ const {
   clearTakeoverAvatarStash,
   readTakeoverAvatarStash,
   saveTakeoverAvatarStash,
-} = await import("./pro-onboarding/takeover-avatar-stash");
+} = await import("@/lib/billing/takeover-avatar-stash");
 const { CheckoutPage } = await import("./checkout-page");
 
 const AVATAR_TRAITS: CharacterTraits = {

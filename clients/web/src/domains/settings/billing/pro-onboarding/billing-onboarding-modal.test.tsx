@@ -301,7 +301,7 @@ const {
   clearTakeoverAvatarStash,
   readTakeoverAvatarStash,
   saveTakeoverAvatarStash,
-} = await import("./takeover-avatar-stash");
+} = await import("@/lib/billing/takeover-avatar-stash");
 
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably

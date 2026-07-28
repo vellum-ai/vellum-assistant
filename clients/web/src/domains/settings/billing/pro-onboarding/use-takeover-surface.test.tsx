@@ -31,7 +31,7 @@ const { useTakeoverSurface } = await import("./use-takeover-surface");
 // Dynamic like the hook above: a static import is hoisted over `mock.module`,
 // which would load the real avatar hook that the stash module imports.
 const { clearTakeoverAvatarStash, saveTakeoverAvatarStash } = await import(
-  "./takeover-avatar-stash"
+  "@/lib/billing/takeover-avatar-stash"
 );
 
 const GREEN_SURFACE = "#1d281d";

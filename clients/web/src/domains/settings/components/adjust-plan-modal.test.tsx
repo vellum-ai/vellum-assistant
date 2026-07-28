@@ -94,7 +94,7 @@ mock.module("@/runtime/browser", () => ({
 import {
   clearTakeoverAvatarStash,
   readTakeoverAvatarStash,
-} from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+} from "@/lib/billing/takeover-avatar-stash";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import {
   clearCheckoutIntent,

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   readTakeoverAvatarStash,
   saveTakeoverAvatarStash,
-} from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+} from "@/lib/billing/takeover-avatar-stash";
 import type { CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 

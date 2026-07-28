@@ -12,7 +12,7 @@ import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 import {
   readTakeoverAvatarStash,
   takeoverAvatarStashVersion,
-} from "./takeover-avatar-stash";
+} from "@/lib/billing/takeover-avatar-stash";
 
 /**
  * The avatar payload the takeover draws: the live query's once it lands, or the

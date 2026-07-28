@@ -34,7 +34,7 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
-import { captureTakeoverAvatarStash } from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";

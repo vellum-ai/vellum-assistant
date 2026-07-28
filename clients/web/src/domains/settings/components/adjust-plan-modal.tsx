@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { captureTakeoverAvatarStash } from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
