@@ -167,6 +167,9 @@ Each module owns one feature's old/new split. Current registry:
 | `use-supports-credentials-settings.ts` | `0.10.8`                       | No credentials-page daemon routes or `credential-requests` mint route; the Settings → Credentials tab is hidden and the page renders NotFound | Routes exist; the Credentials tab, page, and one-time credential-link actions render |
 | `use-supports-redacted-credential-chips.ts` | `0.10.10`                 | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
 | `use-supports-noninteractive-voice-turns.ts` | `0.11.0`                 | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
+| `channel-access-controls.ts`        | `0.11.0`                          | Channel list renders without Assistant Access controls (no tier badges, picker, or legend card)           | Two-level Assistant Access picker on the Channels tab, backed by the assistant-side collapse contract |
+| `subagent-recovery.ts`              | `0.11.0`                          | Recovered subagent stubs render from live stream events only (generic label, no history backfill)         | Detail + reconcile routes carry per-child identity; missed-spawn subagents rebuild fully    |
+| `use-supports-image-gen-vellum-provider.ts` | `0.11.0`                  | Vellum image-gen selection persists as legacy `{ mode: "managed" }` with no provider field                | Save path writes `provider: "vellum"`, which the config enum accepts                        |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.

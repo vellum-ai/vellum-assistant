@@ -6,7 +6,7 @@
  * dies (the avatar row expands to nothing and the detail panel can't open).
  *
  * The backwards-compat gate decides whether the stub is armed for detail
- * backfill with the parent conversation id: only 0.10.13+ daemons resolve
+ * backfill with the parent conversation id: only 0.11.0+ daemons resolve
  * the subagent's own conversation themselves, so on older daemons the stub
  * must stay un-armed (a fetch with the parent id would parse the parent's
  * messages as the subagent's).
@@ -53,7 +53,7 @@ describe("handleSubagentEvent — unknown subagent id", () => {
     expect(entry?.events).toEqual([]);
   });
 
-  it("materializes an un-armed stub on a pre-0.10.13 daemon", () => {
+  it("materializes an un-armed stub on a pre-0.11.0 daemon", () => {
     selfLookupSupported = false;
 
     handleSubagentEvent(event, ctx);
