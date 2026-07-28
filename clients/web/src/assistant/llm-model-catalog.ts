@@ -325,13 +325,8 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 131_072,
       supportsThinking: true,
     },
-    {
-      id: "accounts/fireworks/models/kimi-k2p5",
-      displayName: "Kimi K2.5",
-      contextWindowTokens: 256_000,
-      defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 32_768,
-    },
+    // Kimi K2.5 (kimi-k2p5) removed 2026-07-28: Fireworks withdrew its
+    // serverless deployment, so calls 404. Mirrors the daemon catalog.
     {
       id: "accounts/fireworks/models/minimax-m3",
       displayName: "MiniMax M3",
@@ -935,7 +930,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
   ollama: "llama3.2",
-  fireworks: "accounts/fireworks/models/kimi-k2p5",
+  fireworks: "accounts/fireworks/models/deepseek-v4-flash",
   together: "MiniMaxAI/MiniMax-M3",
   openrouter: "x-ai/grok-4.20",
   "vercel-ai-gateway": "anthropic/claude-sonnet-4.6",
