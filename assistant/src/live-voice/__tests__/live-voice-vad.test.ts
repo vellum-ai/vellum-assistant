@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 
 import type { TurnDetectorConfig } from "../../calls/media-turn-detector.js";
@@ -20,6 +22,7 @@ import type {
   SttStreamServerEvent,
 } from "../../stt/types.js";
 import { __resetRegistryForTesting } from "../../tools/registry.js";
+import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type { VoiceFrontDecider } from "../front-decision.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
@@ -309,6 +312,75 @@ async function waitFor(
 
 async function flushAsyncCallbacks(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+/**
+ * Write a skill into the (per-process temp) workspace skills dir so the
+ * `skill_load` contention gate resolves it from the real on-disk catalog.
+ */
+function installSkillFixture(id: string, body: string): void {
+  const directory = join(getWorkspaceSkillsDir(), id);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(
+    join(directory, "SKILL.md"),
+    `---\nname: ${id}\ndescription: Fixture skill for the contention gate\n---\n\n${body}\n`,
+  );
+}
+
+/**
+ * Barge in during thinking so the interrupted turn detaches a continuation,
+ * then hand back the follow-up turn's options plus the continuation's abort
+ * signal — the two handles every foreground-wins assertion needs. The
+ * continuation hangs until its signal aborts, so it is still in flight while
+ * the follow-up turn starts tools.
+ */
+async function startForegroundWinsScenario(): Promise<{
+  followUp: VoiceTurnOptions | undefined;
+  signal: AbortSignal | undefined;
+}> {
+  setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
+  const spawnBackgroundContinuation = mock(
+    (args: {
+      parentConversationId: string;
+      objective: string;
+      label: string;
+      signal: AbortSignal;
+    }): Promise<string> =>
+      new Promise<string>((resolve) => {
+        args.signal.addEventListener("abort", () => resolve(""), {
+          once: true,
+        });
+      }),
+  );
+  const calls: VoiceTurnOptions[] = [];
+  const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+    calls.push(options);
+    return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+  });
+  const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+    options.onAudioChunk(makeTtsChunk("assistant audio"));
+    return makeTtsResult("assistant audio");
+  });
+  const { frames, session } = createHarness({
+    finals: ["first question", "second question"],
+    startVoiceTurn,
+    streamTtsAudio,
+    spawnBackgroundContinuation,
+  });
+
+  await session.start();
+  await session.handleBinaryAudio(LOUD_CHUNK);
+  await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+  await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+  await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+  await waitFor(() => calls.some((c) => c.content === "second question"));
+
+  const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
+  expect(signal?.aborted).toBe(false);
+  return {
+    followUp: calls.find((c) => c.content === "second question"),
+    signal,
+  };
 }
 
 describe("LiveVoiceSession server VAD", () => {
@@ -1428,57 +1500,13 @@ describe("LiveVoiceSession server VAD", () => {
   });
 
   test("voice-duplex-handoff on: a foreground consequential tool start aborts an in-flight continuation", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
-    // Hang the continuation so it is still running when the follow-up turn
-    // starts mutating; resolve it when its signal aborts.
-    const spawnBackgroundContinuation = mock(
-      (args: {
-        parentConversationId: string;
-        objective: string;
-        label: string;
-        signal: AbortSignal;
-      }): Promise<string> =>
-        new Promise<string>((resolve) => {
-          args.signal.addEventListener("abort", () => resolve(""), {
-            once: true,
-          });
-        }),
-    );
-    const calls: VoiceTurnOptions[] = [];
-    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
-      calls.push(options);
-      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
-    });
-    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
-      options.onAudioChunk(makeTtsChunk("assistant audio"));
-      return makeTtsResult("assistant audio");
-    });
-    const { frames, session } = createHarness({
-      finals: ["first question", "second question"],
-      startVoiceTurn,
-      streamTtsAudio,
-      spawnBackgroundContinuation,
-    });
-
-    await session.start();
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
-
-    // Barge in during thinking: the continuation detaches, the follow-up turn
-    // launches while it is still in flight.
-    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
-    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
-    await waitFor(() => calls.some((c) => c.content === "second question"));
-
-    const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
-    expect(signal?.aborted).toBe(false);
+    const { followUp, signal } = await startForegroundWinsScenario();
 
     // The follow-up turn starts a consequential tool: foreground wins the
     // workspace, so the still-running continuation is aborted before the two
     // can race on writes. `remember` is deliberately NOT on the core
     // side-effect name list — the classification must fail closed on any
     // tool that is not provably read-only, not just named writers.
-    const followUp = calls.find((c) => c.content === "second question");
     followUp?.callbacks?.tool_use_start?.("remember", {
       toolUseId: "tool-1",
     });
@@ -1486,59 +1514,12 @@ describe("LiveVoiceSession server VAD", () => {
   });
 
   test("voice-duplex-handoff on: a read-only built-in leaves the continuation running; an unclassified tool fails closed", async () => {
-    setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
-    let abortListenerArmed = false;
-    const spawnBackgroundContinuation = mock(
-      (args: {
-        parentConversationId: string;
-        objective: string;
-        label: string;
-        signal: AbortSignal;
-      }): Promise<string> =>
-        new Promise<string>((resolve) => {
-          abortListenerArmed = true;
-          args.signal.addEventListener("abort", () => resolve(""), {
-            once: true,
-          });
-        }),
-    );
-    const calls: VoiceTurnOptions[] = [];
-    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
-      calls.push(options);
-      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
-    });
-    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
-      options.onAudioChunk(makeTtsChunk("assistant audio"));
-      return makeTtsResult("assistant audio");
-    });
-    const { frames, session } = createHarness({
-      finals: ["first question", "second question"],
-      startVoiceTurn,
-      streamTtsAudio,
-      spawnBackgroundContinuation,
-    });
-
-    await session.start();
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
-    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
-    await waitFor(() => abortListenerArmed);
-    await waitFor(() => calls.some((c) => c.content === "second question"));
+    const { followUp, signal } = await startForegroundWinsScenario();
 
     // A provably read-only built-in cannot contend on the workspace: the
     // continuation survives (this is the topic-change case the handoff
     // exists for).
-    const followUp = calls.find((c) => c.content === "second question");
     followUp?.callbacks?.tool_use_start?.("file_read", { toolUseId: "tool-1" });
-    const signal = spawnBackgroundContinuation.mock.calls[0]?.[0]?.signal;
-    expect(signal?.aborted).toBe(false);
-
-    // skill_load is non-contending too: it only registers tool definitions,
-    // and it is the first call of a follow-up turn that re-enters the skill
-    // the interrupted turn was using — it must not kill the continuation.
-    followUp?.callbacks?.tool_use_start?.("skill_load", {
-      toolUseId: "tool-2",
-    });
     expect(signal?.aborted).toBe(false);
 
     // web_fetch is a network read: it cannot corrupt local state, so it does
@@ -1555,6 +1536,61 @@ describe("LiveVoiceSession server VAD", () => {
     // provably non-contending: fail closed and abort.
     followUp?.callbacks?.tool_use_start?.("calendar_lookup", {
       toolUseId: "tool-4",
+    });
+    expect(signal?.aborted).toBe(true);
+  });
+
+  test("voice-duplex-handoff on: an installed static skill_load leaves the continuation running", async () => {
+    installSkillFixture("static-fixture-skill", "Plain instructions.");
+    const { followUp, signal } = await startForegroundWinsScenario();
+
+    // Re-entering a skill that is installed locally and renders no inline
+    // commands is a pure read — and it is the first call of nearly every
+    // barge-in follow-up, so it must not kill the continuation.
+    followUp?.callbacks?.tool_use_start?.("skill_load", {
+      toolUseId: "tool-1",
+      input: { skill: "static-fixture-skill" },
+    });
+    expect(signal?.aborted).toBe(false);
+
+    // web_fetch is exempt by name regardless of input.
+    followUp?.callbacks?.tool_use_start?.("web_fetch", {
+      toolUseId: "tool-2",
+      input: { url: "https://example.com" },
+    });
+    expect(signal?.aborted).toBe(false);
+
+    // skill_execute is a dispatcher whose resolved inner tool can mutate.
+    followUp?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-3",
+      input: { skill: "static-fixture-skill" },
+    });
+    expect(signal?.aborted).toBe(true);
+  });
+
+  test("voice-duplex-handoff on: a skill_load with inline command expansions aborts the continuation", async () => {
+    installSkillFixture(
+      "dynamic-fixture-skill",
+      "Current status: !`git status --short`",
+    );
+    const { followUp, signal } = await startForegroundWinsScenario();
+
+    // Inline expansions run shell at load time, so this load writes to the
+    // host and contends like any other mutator.
+    followUp?.callbacks?.tool_use_start?.("skill_load", {
+      toolUseId: "tool-1",
+      input: { skill: "dynamic-fixture-skill" },
+    });
+    expect(signal?.aborted).toBe(true);
+  });
+
+  test("voice-duplex-handoff on: a skill_load with no input aborts the continuation", async () => {
+    const { followUp, signal } = await startForegroundWinsScenario();
+
+    // Without the input there is no way to tell a pure read from an
+    // auto-installing load: fail closed.
+    followUp?.callbacks?.tool_use_start?.("skill_load", {
+      toolUseId: "tool-1",
     });
     expect(signal?.aborted).toBe(true);
   });
