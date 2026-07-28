@@ -1860,9 +1860,9 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   }
 
   db.transaction((tx) => {
-    // memory_segments does not cascade from messages/conversations; it lives
-    // on the memory connection and is purged by the conversation-deleted
-    // hook below. The main-DB cascade still removes message_attachments.
+    // memory_segments does not cascade from messages/conversations; it lives on
+    // the memory connection and is purged directly below. The main-DB cascade
+    // still removes message_attachments.
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
       .run();
@@ -1870,24 +1870,33 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
 
-  // Delete the segment embeddings on the memory connection after the main delete
-  // succeeds. Best-effort: a memory-DB failure must not abort the disk cleanup
-  // and conversation-deleted hook below.
-  if (memoryDb && result.segmentIds.length > 0) {
+  // Delete the conversation's segments and their embeddings on the memory
+  // connection after the main delete succeeds, rather than leaving the segment
+  // rows to the conversation-deleted hook: that hook is a no-op when the memory
+  // plugin is disabled and would keep the plaintext content in the memory
+  // database. Best-effort: a memory-DB failure must not abort the disk cleanup
+  // or the hook below.
+  if (memoryDb) {
     try {
+      if (result.segmentIds.length > 0) {
+        memoryDb
+          .delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "segment"),
+              inArray(memoryEmbeddings.targetId, result.segmentIds),
+            ),
+          )
+          .run();
+      }
       memoryDb
-        .delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
+        .delete(memorySegments)
+        .where(eq(memorySegments.conversationId, id))
         .run();
     } catch (err) {
       log.warn(
         { err, conversationId: id },
-        "Failed to delete segment embeddings for deleted conversation; continuing",
+        "Failed to delete memory segments for deleted conversation; continuing",
       );
     }
   }
@@ -2011,7 +2020,7 @@ export async function deleteConversationGently(
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
   // to message_attachments, bookmarks, channel_inbound_events (memory_segments
-  // is on the memory connection and is purged by the hook below).
+  // is on the memory connection and is purged directly below).
   const del = await deleteConversationRowsInBatches({
     conversationId: id,
     table: "messages",
@@ -2033,25 +2042,33 @@ export async function deleteConversationGently(
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
 
-  // Delete the segment embeddings on the memory connection (memory_embeddings is
-  // not FK-linked to segments, so nothing cascades them). Best-effort, after the
-  // main delete succeeds. A memory-DB failure must not abort the hook/disk
-  // cleanup below.
-  if (memoryDb && result.segmentIds.length > 0) {
+  // Delete the conversation's segments and their embeddings on the memory
+  // connection, rather than leaving the segment rows to the conversation-deleted
+  // hook: that hook is a no-op when the memory plugin is disabled and would keep
+  // the plaintext content in the memory database. Best-effort, after the main
+  // delete succeeds. A memory-DB failure must not abort the hook/disk cleanup
+  // below.
+  if (memoryDb) {
     try {
+      if (result.segmentIds.length > 0) {
+        memoryDb
+          .delete(memoryEmbeddings)
+          .where(
+            and(
+              eq(memoryEmbeddings.targetType, "segment"),
+              inArray(memoryEmbeddings.targetId, result.segmentIds),
+            ),
+          )
+          .run();
+      }
       memoryDb
-        .delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
+        .delete(memorySegments)
+        .where(eq(memorySegments.conversationId, id))
         .run();
     } catch (err) {
       log.warn(
         { err, conversationId: id },
-        "Failed to delete segment embeddings for deleted conversation; continuing",
+        "Failed to delete memory segments for deleted conversation; continuing",
       );
     }
   }
