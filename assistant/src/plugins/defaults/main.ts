@@ -32,14 +32,27 @@ let cachedNames: readonly string[] | null = null;
 let cachedDirToManifest: ReadonlyMap<string, string> | null = null;
 
 /**
+ * Directory-less built-in defaults: daemon-owned behaviors whose code lives
+ * under `src/agent/` (not a `plugins/defaults/<name>/` directory) but which are
+ * still registered as bundled defaults and participate in the per-conversation
+ * enabled-plugin set. They have no directory to scan, so they are listed here
+ * explicitly — kept in lockstep with the barrel (`defaults/index.ts`), which
+ * the `default-plugin-names-guard` test enforces.
+ */
+const DIRECTORYLESS_BUILTIN_DEFAULT_NAMES: readonly string[] = [
+  "default-history-repair",
+];
+
+/**
  * Names of every first-party default plugin (their `package.json` names,
- * e.g. `default-memory`), read from the `plugins/defaults/` directory tree.
- * Read once and memoized: the plugin set is fixed for the lifetime of the
- * process — the source tree does not change under a running assistant.
+ * e.g. `default-memory`), read from the `plugins/defaults/` directory tree,
+ * plus the directory-less built-in defaults. Read once and memoized: the plugin
+ * set is fixed for the lifetime of the process — the source tree does not
+ * change under a running assistant.
  */
 export function getAllDefaultPluginNames(): readonly string[] {
   if (cachedNames === null) {
-    const names: string[] = [];
+    const names: string[] = [...DIRECTORYLESS_BUILTIN_DEFAULT_NAMES];
     for (const entry of readdirSync(DEFAULTS_DIR, { withFileTypes: true })) {
       if (!entry.isDirectory()) {
         continue;

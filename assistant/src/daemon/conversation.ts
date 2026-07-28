@@ -15,6 +15,7 @@
  * - conversation-usage.ts        — recordUsage
  */
 
+import { repairHistory } from "../agent/history-repair/history-repair.js";
 import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
@@ -63,7 +64,6 @@ import {
   type ContextWindowResult,
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import {
   unwrapMemoryBlock,

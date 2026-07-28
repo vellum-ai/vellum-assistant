@@ -23,13 +23,18 @@
  * empty-response hook; only a provider rejection is this hook's to act on.
  */
 
-import type { HookFunction, PostModelCallContext } from "@vellumai/plugin-api";
-
+import type {
+  HookFunction,
+  PostModelCallContext,
+} from "../../../plugin-api/types.js";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+} from "../history-repair.js";
 import {
   isOrderingRepairAttempted,
   markOrderingRepairAttempted,
 } from "../repair-state-store.js";
-import { deepRepairHistory, isRepairableOrderingError } from "../terminal.js";
 
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (
