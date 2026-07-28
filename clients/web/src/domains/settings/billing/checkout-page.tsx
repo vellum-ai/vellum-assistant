@@ -2,8 +2,12 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import {
+  captureTakeoverAvatarStash,
+  clearTakeoverAvatarStash,
+} from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
@@ -108,6 +112,7 @@ export function CheckoutPage() {
   const bailLabel =
     bailTarget === routes.plans ? "View plans" : "Continue setup";
 
+  const queryClient = useQueryClient();
   const { mutateAsync } = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
@@ -152,6 +157,8 @@ export function CheckoutPage() {
         // Stash the selection so the post-checkout provisioning screen can show
         // the purchased package before the subscribe webhook lands.
         saveCheckoutIntent({ kind: "package", packageKey });
+        // Snapshot the avatar so the takeover can draw it on a cold return.
+        captureTakeoverAvatarStash(queryClient);
         setAwaitingReturn(returnTarget === "native");
         void openUrl(result.checkout_url);
         return;
@@ -161,6 +168,7 @@ export function CheckoutPage() {
       // off rather than stranding the user on a blank splash.
       phaseRef.current = "settled";
       clearCheckoutIntent();
+      clearTakeoverAvatarStash();
       navigate(bailTarget, { replace: true });
     } catch {
       if (phaseRef.current !== "running") {
@@ -169,7 +177,7 @@ export function CheckoutPage() {
       phaseRef.current = "settled";
       setFailed(true);
     }
-  }, [bailTarget, mutateAsync, navigate, packageKey]);
+  }, [bailTarget, mutateAsync, navigate, packageKey, queryClient]);
 
   // The retry the failure and hand-off UIs offer. A failed or abandoned attempt
   // re-runs the upgrade; a missing organization re-runs org resolution instead,

@@ -22,6 +22,8 @@ import * as platformGateMod from "@/hooks/use-platform-gate";
 import type { PlatformGateStateWithPending } from "@/hooks/use-platform-gate";
 import * as takeoverMod from "@/hooks/use-marketing-pricing-takeover";
 import type { MarketingPricingTakeoverState } from "@/hooks/use-marketing-pricing-takeover";
+import type { CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 const INTENT_KEY = "vellum.pro-checkout-intent";
@@ -112,7 +114,33 @@ mock.module("@/hooks/use-marketing-pricing-takeover", () => ({
 }));
 
 const { useOrganizationStore } = await import("@/stores/organization-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { avatarQueryKey } = await import("@/hooks/use-assistant-avatar");
+const {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+  saveTakeoverAvatarStash,
+} = await import("./pro-onboarding/takeover-avatar-stash");
 const { CheckoutPage } = await import("./checkout-page");
+
+const AVATAR_TRAITS: CharacterTraits = {
+  bodyShape: "blob",
+  eyeStyle: "default",
+  color: "purple",
+};
+
+/**
+ * The cached avatar the hand-off snapshots. The live query key appends a
+ * `supportsManifest` boolean, so the seed has to carry one too.
+ */
+function seedCachedAvatar(client: QueryClient, assistantId: string) {
+  client.setQueryData([...avatarQueryKey(assistantId), true], {
+    components: BUNDLED_COMPONENTS,
+    traits: AVATAR_TRAITS,
+    customImageUrl: null,
+  });
+}
 
 function LocationProbe() {
   const location = useLocation();
@@ -179,6 +207,9 @@ beforeEach(() => {
   heldUpgrade = null;
   upgradeData = { status: "redirect", checkout_url: CHECKOUT_URL, message: "" };
   sessionStorage.removeItem(INTENT_KEY);
+  // Also resets the stash module's in-memory mirror, which outlives storage.
+  clearTakeoverAvatarStash();
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 afterEach(() => {
@@ -186,8 +217,11 @@ afterEach(() => {
 });
 
 describe("CheckoutPage", () => {
-  test("valid package + full gate fires the upgrade, stashes intent, opens Stripe", async () => {
-    renderCheckout("/assistant/checkout?package=super");
+  test("valid package + full gate fires the upgrade, stashes intent and avatar, opens Stripe", async () => {
+    const client = freshQueryClient();
+    seedCachedAvatar(client, "a1");
+    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    render(checkoutTree("/assistant/checkout?package=super", client));
 
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
     expect(upgradeCalls[0]!.body).toEqual({
@@ -206,6 +240,9 @@ describe("CheckoutPage", () => {
       kind: "package",
       packageKey: "super",
     });
+    // The avatar goes with it, so the post-checkout takeover can draw the
+    // creature on a cold return instead of holding an empty stage.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("holds the upgrade while org is resolving, then fires once it hydrates", async () => {
@@ -281,6 +318,11 @@ describe("CheckoutPage", () => {
       packageKey: "super",
       resumeAfterOnboarding: true,
     });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
     const { getByTestId } = renderCheckout("/assistant/checkout?package=super");
 
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
@@ -289,6 +331,9 @@ describe("CheckoutPage", () => {
     );
     expect(openedUrl).toBeNull();
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    // The avatar snapshot is stashed for a checkout return that is no longer
+    // coming, so it goes out with the intent.
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("an error renders the retry UI, and Try again re-fires the upgrade", async () => {

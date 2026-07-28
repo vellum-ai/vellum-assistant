@@ -31,6 +31,7 @@ import type {
   PlanListResponse,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { readCheckoutIntent, saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -64,6 +65,7 @@ let avatarComponents: CharacterComponents | null = null;
 let avatarTraits: CharacterTraits | null = null;
 let avatarCustomImageUrl: string | null = null;
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: () => ({
     components: avatarComponents,
     traits: avatarTraits,
@@ -285,6 +287,11 @@ const { BillingOnboardingModal } = await import("./billing-onboarding-modal");
 const { TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } = await import(
   "./provisioning-state"
 );
+const {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+  saveTakeoverAvatarStash,
+} = await import("./takeover-avatar-stash");
 
 /**
  * Fast celebration dwell. Long enough for waitFor (50ms polls) to reliably
@@ -351,6 +358,9 @@ beforeEach(() => {
   dateNowOffsetMs = 0;
   toastInfoCalls.length = 0;
   sessionStorage.clear();
+  // Resets the stash module's in-memory mirror, which sessionStorage.clear()
+  // leaves behind.
+  clearTakeoverAvatarStash();
 });
 
 afterEach(() => {
@@ -419,8 +429,13 @@ describe("BillingOnboardingModal", () => {
     expect(queryByText("Super package")).toBeNull();
   });
 
-  test("domain_setup_available false skips straight to complete and clears the intent stash", async () => {
+  test("domain_setup_available false skips straight to complete and clears the intent and avatar stashes", async () => {
     saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    saveTakeoverAvatarStash({
+      assistantId: "assistant-1",
+      components: BUNDLED_COMPONENTS,
+      traits: null,
+    });
     subscriptionPlanId = "pro";
     onboardingResponse = makeOnboarding({ domain_setup_available: false });
     const { client, getByText, queryByText } = renderModal();
@@ -443,6 +458,7 @@ describe("BillingOnboardingModal", () => {
     });
     expect(queryByText("Assistant Email")).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
     // Checkout mode never fires the modal-level domains query.
     expect(domainsCalls).toBe(0);
   });

@@ -31,6 +31,7 @@ import {
   TAKEOVER_SURFACE,
   TAKEOVER_SURFACE_VAR,
 } from "./provisioning-state";
+import { clearTakeoverAvatarStash } from "./takeover-avatar-stash";
 import { TakeoverBackdrop } from "./takeover-backdrop";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
@@ -147,7 +148,10 @@ export function BillingOnboardingModal({
   );
 
   useEffect(() => {
-    if (step === "complete") clearCheckoutIntent();
+    if (step === "complete") {
+      clearCheckoutIntent();
+      clearTakeoverAvatarStash();
+    }
   }, [step]);
 
   // Domain/email/guardian registration must run while the assistant's machine

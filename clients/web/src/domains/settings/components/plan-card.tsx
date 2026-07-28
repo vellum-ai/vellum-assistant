@@ -25,6 +25,7 @@ import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/pack
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { packageSpecs } from "@/domains/settings/billing/plan-spec";
 import { PlanSpecCard } from "@/domains/settings/billing/plan-spec-card";
+import { captureTakeoverAvatarStash } from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
   formatGraceDate,
@@ -270,6 +271,8 @@ function RecommendedUpgrade({
           kind: "package",
           packageKey: recommended.key,
         });
+        // Snapshot the avatar so the takeover can draw it on a cold return.
+        captureTakeoverAvatarStash(queryClient);
         // Stripe returns with a `session_id`, which opens the
         // post-checkout Pro onboarding wizard — via the billing page on
         // web, via the `billing/checkout-complete` deep link on macOS.
