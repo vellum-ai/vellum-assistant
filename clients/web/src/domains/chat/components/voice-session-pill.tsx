@@ -3,10 +3,11 @@
  * Presentational — the mounting host owns store wiring and visibility rules.
  *
  * Layout, left → right: two-line context label (primary action text over the
- * owning thread's name), optional circular stop control (only when the host
- * provides `onStop` and the assistant is `speaking`), mic glyph + compact
- * timeline waveform, red ✕ (end session), green ↑ (manual turn release —
- * enabled only while `listening`).
+ * owning thread's name), mic glyph + the voice room's listening waves in a
+ * compact strip, red ✕ (end session), and the turn slot — green ↑ (manual
+ * turn release, enabled only while `listening`), replaced in place by a
+ * circular ■ stop while the assistant is `speaking` and the host provides
+ * `onStop`.
  *
  * The pill lives inside `ChatLayoutHeader`, which doubles as the Electron
  * macOS title bar (`-webkit-app-region: drag`). The root opts the whole
@@ -18,6 +19,8 @@
  * 44px min-height with 32px controls, so the pill must never stretch it.
  */
 
+import type { CSSProperties } from "react";
+
 import { ArrowUp, Mic, MicOff, Square, TriangleAlert, X } from "lucide-react";
 
 import { Button, Tag, Typography, cn } from "@vellumai/design-library";
@@ -26,7 +29,13 @@ import {
   isLiveVoiceMicLive,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { VoiceTimelineWaveform } from "@/domains/chat/voice/voice-timeline-waveform";
+import { VoiceListeningWaves } from "@/domains/chat/voice/voice-room/voice-listening-waves";
+import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+
+// While the mic is not live (muted, assistant speaking) the waves read a
+// steady zero and settle into their quiet drift — the room's own resting
+// listening band — instead of freezing.
+const SILENT_AMPLITUDE = () => 0;
 
 export interface VoiceSessionPillProps {
   /**
@@ -45,10 +54,11 @@ export interface VoiceSessionPillProps {
   onToggleMute: () => void;
   /**
    * Stop the in-flight assistant response without ending the session. The
-   * ■ control is hidden when absent — the host wires it only for hands-free
-   * sessions, where the interrupt is turn-scoped; a manual session's
-   * interrupt ends the whole session, so there the ✕ (`onEnd`) is the only
-   * stop.
+   * ■ control takes the send button's slot while `speaking` (send is
+   * unusable then anyway) and is hidden when absent — the host wires it only
+   * for hands-free sessions, where the interrupt is turn-scoped; a manual
+   * session's interrupt ends the whole session, so there the ✕ (`onEnd`) is
+   * the only stop.
    */
   onStop?: () => void;
   /** End the voice session. */
@@ -57,6 +67,12 @@ export interface VoiceSessionPillProps {
   onSend: () => void;
   /** Invoked when the label area is clicked (navigate to the owning thread). */
   onNavigate?: () => void;
+  /**
+   * Accent hex matching the avatar the voice room renders (see
+   * `resolveWaveAccentHex`), so the pill's waves keep the room's tint.
+   * Null/omitted falls back to the app-wide accent, then aurora.
+   */
+  waveAccentHex?: string | null;
 }
 
 export function VoiceSessionPill({
@@ -70,6 +86,7 @@ export function VoiceSessionPill({
   onEnd,
   onSend,
   onNavigate,
+  waveAccentHex,
 }: VoiceSessionPillProps) {
   const labelContent = (
     <>
@@ -113,19 +130,6 @@ export function VoiceSessionPill({
       ) : (
         <div className={labelClass}>{labelContent}</div>
       )}
-      {onStop && state === "speaking" ? (
-        <Button
-          variant="primary"
-          iconOnly={<Square fill="currentColor" />}
-          className="rounded-full"
-          // Compact title-bar affordance: keep desktop sizing so the pill
-          // never exceeds the header row height on touch-mobile web.
-          expandOnMobile={false}
-          aria-label="Stop assistant response"
-          tooltip="Stop assistant response"
-          onClick={onStop}
-        />
-      ) : null}
       <div className="flex items-center gap-1">
         {/* The mic glyph doubles as the mute toggle — the one control a hot
             open mic must always offer, wherever the session surface is. */}
@@ -147,12 +151,25 @@ export function VoiceSessionPill({
             muted ? "[--vbtn-fg:var(--system-negative-strong)]" : undefined
           }
         />
-        <VoiceTimelineWaveform
-          compact
-          active={isLiveVoiceMicLive(state) && !muted}
-          getAmplitude={getAmplitude}
-          className="w-24"
-        />
+        {/* The room's listening-wave band in a compact strip: needs a
+            positioned box to fill (the component is absolutely positioned)
+            and overflow-hidden so the drifting layers clip to it. */}
+        <div
+          className="relative h-4 w-24 overflow-hidden"
+          style={
+            waveAccentHex
+              ? ({ [AVATAR_ACCENT_CSS_VAR]: waveAccentHex } as CSSProperties)
+              : undefined
+          }
+        >
+          <VoiceListeningWaves
+            getAmplitude={
+              isLiveVoiceMicLive(state) && !muted ? getAmplitude : SILENT_AMPLITUDE
+            }
+            palette="accent"
+            placement="inline"
+          />
+        </div>
       </div>
       <Button
         variant="danger"
@@ -163,16 +180,33 @@ export function VoiceSessionPill({
         tooltip="End voice session"
         onClick={onEnd}
       />
-      <Button
-        variant="primary"
-        iconOnly={<ArrowUp strokeWidth={2.5} />}
-        className="rounded-full"
-        expandOnMobile={false}
-        disabled={state !== "listening"}
-        aria-label="Send now"
-        tooltip="Send now"
-        onClick={onSend}
-      />
+      {/* Turn slot: ↑ releases the turn while listening; while the assistant
+          speaks (send unusable) the ■ stop takes its place instead of
+          stacking beside a disabled send. `expandOnMobile={false}` keeps
+          desktop sizing so the pill never exceeds the header row height on
+          touch-mobile web. */}
+      {onStop && state === "speaking" ? (
+        <Button
+          variant="primary"
+          iconOnly={<Square fill="currentColor" />}
+          className="rounded-full"
+          expandOnMobile={false}
+          aria-label="Stop assistant response"
+          tooltip="Stop assistant response"
+          onClick={onStop}
+        />
+      ) : (
+        <Button
+          variant="primary"
+          iconOnly={<ArrowUp strokeWidth={2.5} />}
+          className="rounded-full"
+          expandOnMobile={false}
+          disabled={state !== "listening"}
+          aria-label="Send now"
+          tooltip="Send now"
+          onClick={onSend}
+        />
+      )}
     </div>
   );
 }

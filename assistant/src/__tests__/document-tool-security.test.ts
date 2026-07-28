@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { getDocumentById } from "../documents/document-store.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import {
+  executeDocumentCreate,
   executeDocumentDelete,
+  executeDocumentFind,
   executeDocumentList,
   executeDocumentRead,
+  executeDocumentReplaceText,
   executeDocumentUpdate,
 } from "../tools/document/document-tool.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
@@ -336,5 +339,97 @@ describe("executeDocumentUpdate — input validation", () => {
     expect(result.isError).toBe(true);
     const body = parseResult<{ error: string }>(result);
     expect(body.error).toContain("Invalid input: surface_id is required");
+  });
+});
+
+// ── model-input schema validation (LUM-2854) ─────────────────────────
+
+describe("document tools — model-input schema validation", () => {
+  beforeEach(() => {
+    bootstrapDocumentTables();
+    seedFixtureDocuments();
+  });
+
+  test("document_find rejects a non-string query instead of crashing downstream", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-current", query: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "document_find"');
+    expect(result.content).toContain("query");
+  });
+
+  test("document_find rejects a missing query cleanly", () => {
+    const result = executeDocumentFind(
+      { surface_id: "doc-current" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "document_find"');
+  });
+
+  test("document_find treats null option flags as omitted", () => {
+    const result = executeDocumentFind(
+      {
+        surface_id: "doc-current",
+        query: "current",
+        regex: null,
+        case_sensitive: null,
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+    const body = parseResult<{ total_matches: number }>(result);
+    expect(body.total_matches).toBe(1);
+  });
+
+  test("document_create rejects a non-string title instead of persisting it", () => {
+    const result = executeDocumentCreate(
+      { title: 42, initial_content: "hello" },
+      makeContext({ conversationId: "conv-current" }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "document_create"',
+    );
+    expect(result.content).toContain("title");
+  });
+
+  test("document_update rejects a non-string content before the bespoke checks", () => {
+    const result = executeDocumentUpdate(
+      { surface_id: "doc-current", content: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "document_update"',
+    );
+  });
+
+  test("document_list still silently ignores a malformed query", () => {
+    const result = executeDocumentList({ query: 42 }, makeContext());
+    expect(result.isError).toBe(false);
+    const body = parseResult<{ documents: Array<{ surface_id: string }> }>(
+      result,
+    );
+    expect(body.documents.map((d) => d.surface_id)).toEqual(["doc-current"]);
+  });
+
+  test("document_replace_text rejects a non-number max_replacements", () => {
+    const result = executeDocumentReplaceText(
+      {
+        surface_id: "doc-current",
+        find: "current",
+        replace: "new",
+        max_replacements: "3",
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "document_replace_text"',
+    );
+    expect(result.content).toContain("max_replacements");
   });
 });

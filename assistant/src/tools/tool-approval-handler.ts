@@ -6,9 +6,25 @@ import {
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
-import { isDynamicSkillLoadInvocation } from "../permissions/checker.js";
-import { isOutOfWorkspaceFileInvocation } from "../permissions/workspace-policy.js";
+import {
+  buildChannelPermissionCellQuery,
+  effectiveChannelCellThreshold,
+} from "../permissions/channel-permission-query.js";
+import {
+  isDynamicSkillLoadInvocation,
+  isToolOwnerSkillBundled,
+} from "../permissions/checker.js";
+import {
+  channelNoCellDefault,
+  resolveChannelPermissionCell,
+} from "../permissions/gateway-threshold-reader.js";
+import {
+  isControlPlaneWorkspaceWrite,
+  isOutOfWorkspaceFileInvocation,
+  isWorkspaceWriteTool,
+} from "../permissions/workspace-policy.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
@@ -23,8 +39,10 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { recordToolDenied, recordToolError } from "../telemetry/tool-audit.js";
 import { getLogger } from "../util/logger.js";
 import { resolveExecutionTarget } from "./execution-target.js";
+import { channelCoordinatesFromToolContext } from "./policy-context.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
+import { parseToolInput } from "./tool-input-schemas.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import { suggestToolName } from "./tool-name-aliases.js";
 import { recordToolCompletion } from "./tool-profiler.js";
@@ -239,26 +257,40 @@ async function stampFollowupState(
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
 
 /**
- * Tool-sensitivity predicate: does invoking this tool require an approval
- * decision at all? This is about the tool, where it executes, and — for
- * `skill_load` — whether the invocation will execute embedded shell at load
- * time (inline command expansions run outside the tool pipeline, so they must
- * be gated like other code execution). Actor identity never feeds in here; it
- * enters the decision only through the `CapabilitySet` floor, see
- * {@link resolveSensitiveToolDecision}.
+ * How far a sensitive invocation reaches — the axis that decides whether a
+ * channel's approval cell may lift its floor. See {@link sensitiveToolReach}.
  */
-export function isSensitiveTool(
+export type SensitiveToolReach = "none" | "sandbox" | "host";
+
+/**
+ * Classify how far a sensitive invocation reaches. This is about the tool,
+ * where it executes, and — for `skill_load` — whether the invocation will
+ * execute embedded shell at load time (inline command expansions run outside
+ * the tool pipeline, so they must be gated like other code execution). Actor
+ * identity never feeds in here; it enters the decision only through the
+ * `CapabilitySet` floor, see {@link resolveSensitiveToolDecision}.
+ *
+ * - `"none"`: not sensitive.
+ * - `"sandbox"`: side effects confined to the assistant's own workspace. An
+ *   owner can delegate these per room, so a cell may lift the floor.
+ * - `"host"`: reaches the guardian's own machine and accounts — host
+ *   execution, and sandbox file tools escaping the workspace, which the
+ *   host-fallback path policy turns into real host access. No cell lifts
+ *   this: a room-level posture is about what the assistant may do in that
+ *   room, never a grant of the owner's own machine.
+ */
+export function sensitiveToolReach(
   toolName: string,
   executionTarget: ExecutionTarget,
   input?: Record<string, unknown>,
   workingDir?: string,
-): boolean {
+): SensitiveToolReach {
   // UI surface tools are passive, user-visible operations (cards, forms,
   // tables). User input is voluntary and user-controlled — they are not
   // sensitive, so they work during fresh onboarding before trust is
   // established.
   if (UI_SURFACE_TOOLS.has(toolName)) {
-    return false;
+    return "none";
   }
 
   // An inline-command ("dynamic") skill_load executes embedded shell at load
@@ -273,7 +305,7 @@ export function isSensitiveTool(
     input &&
     isDynamicSkillLoadInvocation(toolName, input)
   ) {
-    return true;
+    return "host";
   }
 
   // A sandbox file tool targeting a path outside the workspace reaches the
@@ -288,12 +320,52 @@ export function isSensitiveTool(
     workingDir &&
     isOutOfWorkspaceFileInvocation(toolName, input, workingDir)
   ) {
-    return true;
+    return "host";
   }
 
-  // Side-effect tools are sensitive. Read-only host execution is too,
-  // because it can leak sensitive local information (e.g. shell/file reads).
-  return isSideEffectTool(toolName) || executionTarget === "host";
+  // Read-only host execution is sensitive too, because it can leak sensitive
+  // local information (e.g. shell/file reads).
+  if (executionTarget === "host") {
+    return "host";
+  }
+
+  // Extension-owned code that is not first-party bundled is unvetted: its
+  // manifest declares its own risk, and nothing reviewed it. It is sensitive
+  // whatever it is named — a novel name is in no side-effect list, so without
+  // this it would not be gated at all, and the risk its own manifest claims
+  // would be the only thing standing between it and an auto-approval.
+  if (isUnvettedExtensionTool(toolName)) {
+    return "sandbox";
+  }
+
+  // Side-effect tools are sensitive, and what is left here acts only on the
+  // assistant's own workspace.
+  return isSideEffectTool(toolName) ? "sandbox" : "none";
+}
+
+/**
+ * Whether a tool comes from code nobody in-repo reviewed. Vetted is an
+ * allowlist — the built-in default set and first-party bundled skills —
+ * and every other owner is unvetted: third-party and workspace skills,
+ * plugins, workspace tools (arbitrary on-disk code imported into the
+ * daemon), MCP servers, and owner kinds that do not exist yet. An
+ * allowlist fails closed when the owner vocabulary grows, the same reason
+ * the read-only subagent gate (`conversation-tool-setup.ts`) allowlists
+ * names and verifies `ownerKind === "default"` rather than naming the
+ * kinds it distrusts.
+ *
+ * An absent owner record is the built-in registration path, so it reads
+ * as `default`; a tool that is not registered at all cannot execute.
+ */
+function isUnvettedExtensionTool(toolName: string): boolean {
+  const kind = getToolOwner(toolName)?.kind;
+  if (kind === undefined || kind === "default") {
+    return false;
+  }
+  if (kind === "skill") {
+    return !isToolOwnerSkillBundled(getTool(toolName));
+  }
+  return true;
 }
 
 /**
@@ -316,37 +388,179 @@ export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
 
 /**
  * Single composition point for the sensitive-tool approval decision:
- * approval-cell threshold × tool risk level × `CapabilitySet` floor.
+ * `CapabilitySet` floor × the actor's approval-matrix cell.
  *
- * The decision is about the tool; actor identity feeds in only through the
- * already-resolved `sensitiveToolApproval` capability. That floor is
- * deterministic and cannot be lifted by the other axes: when the capability
- * is not `"self"`, a sensitive invocation without a grant always escalates
- * or denies. `cellThreshold` and `riskLevel` are composition axes the
- * decision does not consult — no threshold/risk combination may lift the
- * outcome above the floor.
+ * The floor is the starting point — a sensitive invocation by a non-guardian
+ * needs a scoped grant. The cell is what can lift it: an owner who has given
+ * this contact type a non-`none` level in this room has said the assistant
+ * may act there without minting a per-call grant.
+ *
+ * Three things no cell lifts:
+ * - `host` reach. A room-level posture says what the assistant may do in that
+ *   room; it is never a grant of the owner's own machine or accounts, so host
+ *   execution and workspace escapes stay floored at every level.
+ * - `deny` — an actor with no established identity has no cell to stand on.
+ * - A `none` cell authorizes nothing, so the floor stands unchanged.
+ *
+ * Lifting is not approval. It decides only that a scoped grant is not the
+ * mechanism; the risk/threshold policy in `permissions/approval-policy.ts`
+ * then applies that same cell against the fully-classified risk. Whatever the
+ * cell does not cover still reaches the guardian — a lane-B `"prompt"` is
+ * promoted to a guardian-bound `tool_approval` request
+ * (`permissions/confirmation-guardian-request.ts`), the same principal the
+ * escalation path would have asked.
  */
 export function resolveSensitiveToolDecision(input: {
-  sensitive: boolean;
+  /** How far the invocation reaches; see {@link sensitiveToolReach}. */
+  reach: SensitiveToolReach;
   /**
-   * Approval-matrix cell axis. The decision does not consult it — the floor
-   * alone resolves the outcome — so callers pass `undefined` rather than
-   * paying a threshold lookup to populate it.
+   * Threshold of the approval-matrix cell governing this invocation.
+   * `undefined` when no cell covers it — including when the cell could not be
+   * read, since an unreadable cell must never lift the floor.
    */
   cellThreshold: ApprovalCellThreshold | undefined;
-  /**
-   * Risk level as known at gate time. The full risk classification runs
-   * after this gate (in the permission checker), so callers may only have
-   * the pre-classification level here — composing decisions on this axis
-   * requires moving classification ahead of the gate first.
-   */
-  riskLevel: string;
   sensitiveToolApproval: SensitiveToolApproval;
 }): SensitiveToolDecision {
-  if (!input.sensitive || input.sensitiveToolApproval === "self") {
+  if (input.reach === "none" || input.sensitiveToolApproval === "self") {
     return "proceed";
   }
-  return input.sensitiveToolApproval;
+  if (input.sensitiveToolApproval === "deny" || input.reach === "host") {
+    return input.sensitiveToolApproval;
+  }
+  if (input.cellThreshold === undefined || input.cellThreshold === "none") {
+    return input.sensitiveToolApproval;
+  }
+  return "proceed";
+}
+
+/**
+ * Sandbox tools that execute code. Running code in the workspace is how you
+ * write everything else in it — including the directories
+ * {@link isControlPlaneWorkspaceWrite} covers — so a cell that lifted one of
+ * these would lift those by the back door.
+ *
+ * `skill_execute` is deliberately absent rather than overlooked: it is
+ * dispatch indirection, and `conversation-tool-setup` resolves it to its inner
+ * tool name before the gate runs, so the gate already classifies the tool the
+ * skill actually calls rather than the wrapper.
+ */
+const CODE_EXECUTION_TOOLS: ReadonlySet<string> = new Set(["bash"]);
+
+/**
+ * Whether an invocation reaches the private network — localhost, which is the
+ * daemon's own HTTP surface, the gateway, and whatever else listens on the
+ * guardian's machine. Keyed on the input rather than the tool, because the
+ * same tool is delegable against a public URL.
+ */
+function reachesPrivateNetwork(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  return toolName === "web_fetch" && input.allow_private_network === true;
+}
+
+/**
+ * Whether a channel's approval cell may lift the floor for this invocation.
+ *
+ * The cell delegates ordinary work in the assistant's own workspace. Three
+ * sandbox side effects are not ordinary, because each is a way back out of
+ * the sandbox — and excluding only some of them would be a false safeguard,
+ * since any one reaches the others:
+ *
+ * - `bash` runs code. A room that can run code in the workspace can write
+ *   anything into it, including the executable directories below, so lifting
+ *   bash would lift those by the back door.
+ * - Control-plane workspace writes ({@link isControlPlaneWorkspaceWrite}) —
+ *   the directories the daemon imports and executes, and the prompt surfaces
+ *   it reads as its own instructions. Approving the write approves the later
+ *   execution.
+ * - Unvetted extension-owned tools ({@link isUnvettedExtensionTool}). Nothing
+ *   reviewed them, so the risk their own manifest claims must not be what
+ *   decides whether a room may run them unattended.
+ * - `web_fetch` with `allow_private_network`. The private network is the
+ *   guardian's own machine — the daemon's HTTP surface, the gateway, whatever
+ *   else is listening on it. Fetching a public URL is delegable; reaching
+ *   localhost is the machine floor by another door.
+ *
+ * Each stays on the capability floor, so a channel actor escalates to the
+ * guardian for them at every level. None of this touches the guardian's own
+ * lane — it decides what a *cell* may delegate, not how risk is classified.
+ */
+function isChannelLiftable(
+  reach: SensitiveToolReach,
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir: string | undefined,
+): boolean {
+  if (reach !== "sandbox") {
+    return false;
+  }
+  if (CODE_EXECUTION_TOOLS.has(toolName)) {
+    return false;
+  }
+  // A write is liftable only when its target can be resolved and resolves
+  // outside the control plane. With no workingDir there is no way to see
+  // where the write lands, so the check fails closed rather than being
+  // skipped.
+  if (
+    isWorkspaceWriteTool(toolName) &&
+    (!workingDir || isControlPlaneWorkspaceWrite(toolName, input, workingDir))
+  ) {
+    return false;
+  }
+  if (isUnvettedExtensionTool(toolName)) {
+    return false;
+  }
+  if (reachesPrivateNetwork(toolName, input)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Threshold of the approval-matrix cell governing this invocation, read only
+ * when it can change the outcome: a channel-liftable invocation whose actor
+ * sits on the escalate floor. Guardians, non-sensitive tools, host reach,
+ * everything {@link isChannelLiftable} excludes, and identity-less actors
+ * return early, so the gateway lookup never lands on the paths where it could
+ * only add latency — grant consumption for an already-approved call, and voice
+ * abort handling.
+ *
+ * The permission checker reads this same cell later in the turn, within the
+ * reader's cache window, so the lift costs at most one lookup per turn.
+ *
+ * Returns `undefined` when the turn has no channel coordinates or a lookup
+ * fails — nothing lifts the floor then. A successful walk that finds no cell
+ * resolves the room's default — the owner's global setting collapsed to the
+ * channel's two levels — so an unconfigured room behaves exactly as the
+ * picker's "· default" marker and the legend present it
+ * ({@link effectiveChannelCellThreshold}).
+ */
+async function resolveApprovalCellThreshold(
+  reach: SensitiveToolReach,
+  toolName: string,
+  input: Record<string, unknown>,
+  sensitiveToolApproval: SensitiveToolApproval,
+  context: ToolContext,
+): Promise<ApprovalCellThreshold | undefined> {
+  if (
+    sensitiveToolApproval !== "escalate-and-wait" ||
+    !isChannelLiftable(reach, toolName, input, context.workingDir)
+  ) {
+    return undefined;
+  }
+  const query = buildChannelPermissionCellQuery(
+    channelCoordinatesFromToolContext(context),
+  );
+  if (!query) {
+    return undefined;
+  }
+  const cell = await resolveChannelPermissionCell(query);
+  return effectiveChannelCellThreshold(
+    cell,
+    query.contactType,
+    await channelNoCellDefault(cell, query.contactType),
+  );
 }
 
 /**
@@ -364,7 +578,18 @@ function sensitiveToolDeniedMessage(
 }
 
 export type PreExecutionGateResult =
-  | { allowed: true; tool: Tool; grantConsumed?: boolean }
+  | {
+      allowed: true;
+      tool: Tool;
+      grantConsumed?: boolean;
+      /**
+       * Input parsed against the tool's registered schema in
+       * `TOOL_INPUT_SCHEMAS` (with `.catch()` recoveries applied). Set only
+       * for built-in tools with a registered schema; the executor substitutes
+       * it for the raw input so validation and execution see the same value.
+       */
+      parsedInput?: Record<string, unknown>;
+    }
   | { allowed: false; result: ToolExecutionResult };
 
 /** Configuration for the inline grant wait behavior. */
@@ -523,21 +748,22 @@ export class ToolApprovalHandler {
       | Parameters<typeof consumeGrantForInvocation>[0]
       | null = null;
 
-    const sensitive = isSensitiveTool(
+    const reach = sensitiveToolReach(
       name,
       executionTarget,
       input,
       context.workingDir,
     );
     const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
-    // cellThreshold stays unresolved: the decision does not consult it
-    // (the floor is deterministic), and resolving a live threshold here
-    // would block grant consumption — including already-approved calls and
-    // voice abort handling — on a gateway IPC read.
     const sensitiveDecision = resolveSensitiveToolDecision({
-      sensitive,
-      cellThreshold: undefined,
-      riskLevel,
+      reach,
+      cellThreshold: await resolveApprovalCellThreshold(
+        reach,
+        name,
+        input,
+        sensitiveToolApproval,
+        context,
+      ),
       sensitiveToolApproval,
     });
 
@@ -592,7 +818,7 @@ export class ToolApprovalHandler {
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
       let memoryEnabled = true;
       try {
-        memoryEnabled = getConfig().memory?.enabled !== false;
+        memoryEnabled = isMemoryEnabled(getConfig());
       } catch {
         // Config unavailable — leave the memory hint out rather than guess.
       }
@@ -638,10 +864,36 @@ export class ToolApprovalHandler {
       }
     }
 
-    // All policy gates passed. Now consume the scoped grant if one is
-    // required. Deferring consumption to this point ensures a downstream
-    // rejection (allowedToolNames, task-run preflight, registry lookup)
-    // does not waste the one-time-use grant.
+    // All deterministic policy gates passed. Parse model-generated input for
+    // built-in tools with a registered schema BEFORE the grant consumption
+    // and guardian escalation below: a malformed invocation can never
+    // execute, so failing it here means it cannot burn a one-time grant or
+    // interrupt the guardian with an approval card (and up to a 60s inline
+    // wait) for a call validation would reject anyway. Extension-owned and
+    // workspace-override tools own their input contracts and are skipped.
+    let parsedInput: Record<string, unknown> | undefined;
+    if (getToolOwner(name)?.kind === "default") {
+      const parsed = parseToolInput(name, input);
+      if (!parsed.ok) {
+        this.auditGateError(
+          context,
+          name,
+          input,
+          riskLevel,
+          startTime,
+          parsed.message,
+        );
+        return {
+          allowed: false,
+          result: { content: parsed.message, isError: true },
+        };
+      }
+      parsedInput = parsed.data;
+    }
+
+    // Now consume the scoped grant if one is required. Deferring consumption
+    // to this point ensures a prior gate rejection (allowedToolNames, input
+    // validation, registry lookup) does not waste the one-time-use grant.
     //
     // Retry polling is scoped to the voice channel where a race condition
     // exists between fire-and-forget turn execution and LLM fallback grant
@@ -666,7 +918,7 @@ export class ToolApprovalHandler {
           "Scoped grant consumed - allowing untrusted actor tool invocation",
         );
 
-        return { allowed: true, tool, grantConsumed: true };
+        return { allowed: true, tool, grantConsumed: true, parsedInput };
       }
 
       // Treat abort as a cancellation - not a grant denial. This matches
@@ -760,7 +1012,7 @@ export class ToolApprovalHandler {
               },
               "Inline grant wait succeeded - allowing trusted contact tool invocation",
             );
-            return { allowed: true, tool, grantConsumed: true };
+            return { allowed: true, tool, grantConsumed: true, parsedInput };
           }
 
           if (waitResult.outcome === "aborted") {
@@ -847,6 +1099,6 @@ export class ToolApprovalHandler {
       return { allowed: false, result: { content: reason, isError: true } };
     }
 
-    return { allowed: true, tool };
+    return { allowed: true, tool, parsedInput };
   }
 }

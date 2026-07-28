@@ -33,7 +33,7 @@ import { z } from "zod";
 
 import { getConfig } from "../../../../config/loader.js";
 import {
-  isMemoryGraphSupported,
+  isV3TierActive,
   usesConceptPageMemory,
 } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
@@ -81,7 +81,8 @@ import { consolidationBackoffRemainingMs } from "../jobs-worker.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
-import { getPageIndex } from "../v3/substrate/page-index.js";
+import { getPageIndex } from "../substrate/page-index.js";
+import { resolveSubstrateTuning } from "../substrate/tuning.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -211,13 +212,19 @@ async function searchNodesSemantic(
     // search (the caller's `null` branch) instead of querying the v1
     // collection, which is in active retirement and a corrupted sparse
     // segment can OOM-crash the shared Qdrant process.
-    if (usesConceptPageMemory(config.memory)) return null;
+    if (usesConceptPageMemory(config.memory)) {
+      return null;
+    }
     const backendStatus = await getMemoryBackendStatus(config);
-    if (!backendStatus.provider) return null;
+    if (!backendStatus.provider) {
+      return null;
+    }
 
     const embedded = await embedWithBackend(config, [query]);
     const queryVector = embedded.vectors[0];
-    if (!queryVector) return null;
+    if (!queryVector) {
+      return null;
+    }
 
     const sparse = generateSparseEmbedding(query);
     const sparseVector = { indices: sparse.indices, values: sparse.values };
@@ -320,7 +327,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
   }
 
   const db = memoryDbOrNull("listMemoryItems");
-  if (!db) throw new Error("memory database unavailable");
+  if (!db) {
+    throw new Error("memory database unavailable");
+  }
 
   // Build fidelity filter based on status param
   const fidelityFilter =
@@ -343,7 +352,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
       const kindCountConditions = [
         inArray(memoryGraphNodes.id, semanticResult.ids),
       ];
-      if (fidelityFilter) kindCountConditions.push(fidelityFilter);
+      if (fidelityFilter) {
+        kindCountConditions.push(fidelityFilter);
+      }
 
       const kindCountRows = db
         .select({ kind: memoryGraphNodes.type, count: count() })
@@ -365,7 +376,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
         if (kindParam) {
           filterConditions.push(eq(memoryGraphNodes.type, kindParam));
         }
-        if (fidelityFilter) filterConditions.push(fidelityFilter);
+        if (fidelityFilter) {
+          filterConditions.push(fidelityFilter);
+        }
 
         if (filterConditions.length > 1) {
           const validIdSet = new Set(
@@ -393,9 +406,12 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
       // Hydrate nodes from DB
       const hydrationConditions = [inArray(memoryGraphNodes.id, pageIds)];
-      if (fidelityFilter) hydrationConditions.push(fidelityFilter);
-      if (kindParam)
+      if (fidelityFilter) {
+        hydrationConditions.push(fidelityFilter);
+      }
+      if (kindParam) {
         hydrationConditions.push(eq(memoryGraphNodes.type, kindParam));
+      }
 
       const rows = db
         .select()
@@ -419,7 +435,9 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   // ── Kind counts for SQL path ───────────────────────────────────────
   const kindCountConditions = [];
-  if (fidelityFilter) kindCountConditions.push(fidelityFilter);
+  if (fidelityFilter) {
+    kindCountConditions.push(fidelityFilter);
+  }
   if (searchParam) {
     kindCountConditions.push(
       like(memoryGraphNodes.content, `%${searchParam}%`),
@@ -441,8 +459,12 @@ async function handleListMemoryItems(queryParams: Record<string, string>) {
 
   // ── SQL path (default or fallback) ──────────────────────────────────
   const conditions = [];
-  if (fidelityFilter) conditions.push(fidelityFilter);
-  if (kindParam) conditions.push(eq(memoryGraphNodes.type, kindParam));
+  if (fidelityFilter) {
+    conditions.push(fidelityFilter);
+  }
+  if (kindParam) {
+    conditions.push(eq(memoryGraphNodes.type, kindParam));
+  }
   if (searchParam) {
     conditions.push(like(memoryGraphNodes.content, `%${searchParam}%`));
   }
@@ -497,7 +519,7 @@ function handleGetMemoryItem(id: string) {
  * concept graph is deliberately kept off identity-page load.
  *
  * `graph_supported` reports whether the memory-concept graph is available for
- * this assistant — the same `isMemoryGraphSupported` condition under which
+ * this assistant — the same `isV3TierActive` condition under which
  * `GET /memory-graph` returns `supported: true` (memory enabled + v3 live). It
  * is a cheap config read (no page I/O), so glanceable surfaces can gate the
  * graph entry point on real availability without triggering the graph build.
@@ -507,7 +529,7 @@ async function handleGetMemoryStats(
 ): Promise<{ concepts: number; graph_supported: boolean }> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const concepts = pageIndex.entries.filter((e) => e.modifiedAt > 0).length;
-  return { concepts, graph_supported: isMemoryGraphSupported(config) };
+  return { concepts, graph_supported: isV3TierActive(config) };
 }
 
 async function handleCreateMemoryItem(body: Record<string, unknown>) {
@@ -538,7 +560,9 @@ async function handleCreateMemoryItem(body: Record<string, unknown>) {
 
   // Check for duplicate content
   const db = memoryDbOrNull("createMemoryItem");
-  if (!db) throw new Error("memory database unavailable");
+  if (!db) {
+    throw new Error("memory database unavailable");
+  }
   const existing = db
     .select({ id: memoryGraphNodes.id })
     .from(memoryGraphNodes)
@@ -658,7 +682,9 @@ async function handleUpdateMemoryItem(
   if (contentChanged || reactivating) {
     const contentToCheck = changes.content ?? existing.content;
     const db = memoryDbOrNull("updateMemoryItem");
-    if (!db) throw new Error("memory database unavailable");
+    if (!db) {
+      throw new Error("memory database unavailable");
+    }
     const collision = db
       .select({ id: memoryGraphNodes.id })
       .from(memoryGraphNodes)
@@ -705,14 +731,20 @@ async function handleUpdateMemoryItem(
  */
 function maybeEnqueueConsolidationForCreate(config: AssistantConfig): void {
   try {
-    if (!usesConceptPageMemory(config.memory) || !isMemoryEnabled()) {
+    // `usesConceptPageMemory` already covers the memory-off case (an explicit
+    // `memory.enabled === false` makes it false), so a second
+    // `isMemoryEnabled()` clause would be unreachable.
+    if (!usesConceptPageMemory(config.memory)) {
       return;
     }
     if (hasActiveJobOfType("memory_v2_consolidate")) {
       return;
     }
     const intervalMs =
-      config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000;
+      resolveSubstrateTuning(config.memory).consolidation_interval_hours *
+      60 *
+      60 *
+      1000;
     if (consolidationBackoffRemainingMs(intervalMs, Date.now()) > 0) {
       return;
     }

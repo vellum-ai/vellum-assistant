@@ -26,8 +26,8 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   }),
 }));
 
-mock.module("@/hooks/use-managed-oauth-platform-assistant-id", () => ({
-  useManagedOAuthPlatformAssistantId: () => ({
+mock.module("@/hooks/use-platform-assistant-id", () => ({
+  usePlatformAssistantId: () => ({
     platformAssistantId: "platform-assistant-123",
     isLoading: false,
   }),

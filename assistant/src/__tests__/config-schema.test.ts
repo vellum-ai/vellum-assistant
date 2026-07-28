@@ -943,6 +943,8 @@ describe("AssistantConfigSchema", () => {
           enabled: true,
           opsThreshold: 3,
           idleIntervalMs: 5000,
+          maxSilenceMs: 35000,
+          longOpMs: 15000,
           minGapMs: 6000,
           generationTimeoutMs: 1500,
         },

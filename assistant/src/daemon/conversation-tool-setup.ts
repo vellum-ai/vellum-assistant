@@ -13,6 +13,7 @@ import {
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
@@ -179,8 +180,8 @@ export function getEffectiveEnabledPluginSet(conv: {
 // ── read-only pass classification ────────────────────────────────────
 
 /**
- * The ONLY tools allowed in a read-only subagent pass (the live-voice background
- * continuation, `subagentDenySideEffects`). This is a strict fail-safe allowlist
+ * The ONLY tools allowed in a read-only subagent pass
+ * (`subagentDenySideEffects`). This is a strict fail-safe allowlist
  * of tools known to be read-only. Everything else is refused, because:
  * - A side-effect denylist is inherently incomplete — low-risk core mutators
  *   (`remember`, `notify_parent`, `computer_use_*`, `delete_memory_page`, …) are
@@ -722,7 +723,7 @@ export function isToolActiveForContext(
   }
   if (name === "remember") {
     try {
-      return getConfig().memory?.enabled !== false;
+      return isMemoryEnabled(getConfig());
     } catch {
       return true;
     }

@@ -833,6 +833,22 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p6",
         displayName: "Kimi K2.6",
         contextWindowTokens: 262144,

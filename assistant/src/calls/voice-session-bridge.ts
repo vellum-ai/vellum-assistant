@@ -48,6 +48,7 @@ import {
   CALL_VERIFICATION_COMPLETE_MARKER,
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
+  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
@@ -474,8 +475,84 @@ function buildVoiceCallControlPrompt(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Front-door transcript hygiene
+// Transcript hygiene
 // ---------------------------------------------------------------------------
+
+/** The concatenated text of a row's text blocks. */
+function joinedTextOfBlocks(blocks: ContentBlock[]): string {
+  return blocks
+    .map((block) => (block.type === "text" ? block.text : ""))
+    .join("");
+}
+
+/**
+ * Strip internal speech markers from every text block, dropping text blocks
+ * the strip leaves empty; non-text blocks pass through untouched. Shared by
+ * the front-door stray-token rewrite and the main-leg minimize-marker
+ * rewrite.
+ */
+function stripMarkersFromBlocks(blocks: ContentBlock[]): ContentBlock[] {
+  const kept: ContentBlock[] = [];
+  for (const block of blocks) {
+    if (block.type !== "text") {
+      kept.push(block);
+      continue;
+    }
+    const cleaned = stripInternalSpeechMarkers(block.text);
+    if (cleaned.trim().length > 0) {
+      kept.push({ ...block, text: cleaned });
+    }
+  }
+  return kept;
+}
+
+/**
+ * Remove the terminal MINIMIZE_ROOM_MARKER from the end of a row's text,
+ * walking text blocks from the last one backward so a marker split across
+ * block boundaries (e.g. `"Done [-"` + `"1]"`) is removed whole — the
+ * per-block strip in {@link stripMarkersFromBlocks} only sees fragments and
+ * would leave both halves in place. Callers must have established that the
+ * row's joined text ends with the marker after trimming trailing whitespace.
+ */
+function stripTerminalMinimizeMarker(blocks: ContentBlock[]): ContentBlock[] {
+  const result = blocks.map((block) => ({ ...block }));
+  const joined = joinedTextOfBlocks(result);
+  const cutAt = joined.trimEnd().length - MINIMIZE_ROOM_MARKER.length;
+  let blockEnd = joined.length;
+  for (let i = result.length - 1; i >= 0 && blockEnd > cutAt; i--) {
+    const block = result[i]!;
+    if (block.type !== "text") {
+      continue;
+    }
+    const blockStart = blockEnd - block.text.length;
+    block.text = block.text.slice(0, Math.max(0, cutAt - blockStart));
+    blockEnd = blockStart;
+  }
+  return result;
+}
+
+/**
+ * Trim whitespace stranded at a rewritten row's outer edges by a stripped
+ * edge marker (e.g. "Done, take a look [-1]"), leaving inter-block spacing
+ * untouched.
+ */
+function trimOuterTextEdges(blocks: ContentBlock[]): ContentBlock[] {
+  const result = blocks.map((block) => ({ ...block }));
+  for (const block of result) {
+    if (block.type === "text") {
+      block.text = block.text.trimStart();
+      break;
+    }
+  }
+  for (let i = result.length - 1; i >= 0; i--) {
+    const block = result[i]!;
+    if (block.type === "text") {
+      block.text = block.text.trimEnd();
+      break;
+    }
+  }
+  return result;
+}
 
 /**
  * Reduce a front-door leg's persisted content to what was actually spoken
@@ -493,9 +570,7 @@ function buildVoiceCallControlPrompt(opts: {
 export function cutFrontDoorContentAtVerdict(
   blocks: ContentBlock[],
 ): { blocks: ContentBlock[]; spokenText: string } | null {
-  const joinedText = blocks
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("");
+  const joinedText = joinedTextOfBlocks(blocks);
   if (joinedText.trimStart().startsWith(ESCALATE_VERDICT_TOKEN)) {
     const spokenText = spokenBridgeText(joinedText);
     return {
@@ -509,21 +584,8 @@ export function cutFrontDoorContentAtVerdict(
   ) {
     return null;
   }
-  const kept: ContentBlock[] = [];
-  for (const block of blocks) {
-    if (block.type !== "text") {
-      kept.push(block);
-      continue;
-    }
-    const cleaned = stripInternalSpeechMarkers(block.text);
-    if (cleaned.trim().length > 0) {
-      kept.push({ ...block, text: cleaned });
-    }
-  }
-  const spokenText = kept
-    .map((block) => (block.type === "text" ? block.text : ""))
-    .join("")
-    .trim();
+  const kept = stripMarkersFromBlocks(blocks);
+  const spokenText = joinedTextOfBlocks(kept).trim();
   return { blocks: kept, spokenText };
 }
 
@@ -1171,6 +1233,14 @@ export async function startVoiceTurn(
    *   never the verdict token or the text streamed past the cap (issue
    *   #37850). A row with no spoken bridge (canned-fallback case — that
    *   bridge is audio-only) is deleted.
+   * - Any leg whose row ENDS with the `[-1]` minimize marker (swallowed
+   *   before TTS on the live path) has its text blocks rewritten through
+   *   `stripInternalSpeechMarkers` so the marker never renders in the chat
+   *   transcript. This covers front-door answers too: that leg is never
+   *   taught the marker, but it can parrot one from visible conversation
+   *   history, and the parroted marker is never spoken and never minimizes
+   *   the room. Deliberately scoped to that marker: rows without it
+   *   persist byte-identical.
    *
    * After a rewrite, in-memory history is reloaded from the clean DB before
    * the escalated leg — blocked on this turn's teardown — snapshots it, so
@@ -1191,9 +1261,6 @@ export async function startVoiceTurn(
       }
       return;
     }
-    if (!discarded && opts.routingLeg !== "front-door") {
-      return;
-    }
     try {
       let action = "none";
       if (discarded) {
@@ -1201,8 +1268,13 @@ export async function startVoiceTurn(
         action = "delete_discarded";
       } else {
         const row = getMessageById(reservedAssistantRowId, opts.conversationId);
-        const cut = row ? cutFrontDoorContentAtVerdict(row.content) : null;
-        if (cut) {
+        const cut =
+          row && opts.routingLeg === "front-door"
+            ? cutFrontDoorContentAtVerdict(row.content)
+            : null;
+        if (!row) {
+          action = "row_missing";
+        } else if (cut) {
           if (cut.spokenText.length > 0) {
             updateMessageContent(
               reservedAssistantRowId,
@@ -1213,20 +1285,53 @@ export async function startVoiceTurn(
             deleteMessageById(reservedAssistantRowId);
             action = "delete_empty";
           }
-        } else if (!row) {
-          action = "row_missing";
+        } else if (
+          // Terminal position only — mirrors the live latch in
+          // createControlMarkerHoldback: a reply whose CONTENT contains
+          // "[-1]" mid-text never minimized the room, so its transcript
+          // keeps that content untouched too. Front-door answer rows (no
+          // verdict token to cut) take this branch as well.
+          joinedTextOfBlocks(row.content)
+            .trimEnd()
+            .endsWith(MINIMIZE_ROOM_MARKER)
+        ) {
+          // Terminal marker first (boundary-aware — it may span text blocks),
+          // then the per-block strip for any interior complete markers.
+          const cleaned = trimOuterTextEdges(
+            stripMarkersFromBlocks(stripTerminalMinimizeMarker(row.content)),
+          );
+          // A marker-only reply (the model said nothing beyond "[-1]") strips
+          // to nothing at all; keeping the row would render a blank assistant
+          // bubble, so delete it like the front-door empty case. Any surviving
+          // block — including non-text blocks like tool_use — keeps the row.
+          if (cleaned.length === 0) {
+            deleteMessageById(reservedAssistantRowId);
+            action = "delete_empty";
+          } else {
+            updateMessageContent(
+              reservedAssistantRowId,
+              JSON.stringify(cleaned),
+            );
+            action = "strip_minimize_marker";
+          }
         }
       }
-      log.info(
-        {
-          turnId,
-          messageId: reservedAssistantRowId,
-          routingLeg: opts.routingLeg ?? null,
-          discarded,
-          action,
-        },
-        "Voice leg transcript hygiene",
-      );
+      // Main legs run the pass on every voice turn; keep the no-op case
+      // out of the logs.
+      const isMainLegNoOp =
+        action === "none" && !discarded && opts.routingLeg !== "front-door";
+      if (!isMainLegNoOp) {
+        log.info(
+          {
+            turnId,
+            messageId: reservedAssistantRowId,
+            routingLeg: opts.routingLeg ?? null,
+            discarded,
+            action,
+          },
+          "Voice leg transcript hygiene",
+        );
+      }
       if (action !== "none" && action !== "row_missing") {
         await conversation.loadFromDb();
         publishConversationMessagesChanged(opts.conversationId);

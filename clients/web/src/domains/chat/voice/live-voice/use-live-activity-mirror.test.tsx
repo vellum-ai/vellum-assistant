@@ -87,7 +87,7 @@ const ORANGE_AVATAR: Avatar = {
 function renderMirror(avatar: Avatar = ORANGE_AVATAR) {
   return renderHook(
     ({ components, traits }: Avatar) => {
-      useAvatarAccentVar(components, traits);
+      useAvatarAccentVar(components, traits, null);
       useLiveActivityMirror();
     },
     { initialProps: avatar },

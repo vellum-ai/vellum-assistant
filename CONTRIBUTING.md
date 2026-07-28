@@ -116,9 +116,14 @@ If you can build it as a skill in your own workspace, do that first. If you thin
 - Implements a feature you've discussed in an issue or on Discord
 - Adds a broadly useful primitive or a reusable skill to [`skills/`](skills/)
 
-### Large Initiatives
+### When to seek feedback
 
-If there's a larger body of work that you'd like to champion, we'd love to help you see it through! We do request to hop on a call to understand the full context and be able to advise most effectively. Reach out to a member of the core team to coordinate scheduling.
+**Small changes (single PR, ~300 source lines or fewer):** go straight to a PR. The PR itself is the discussion medium and serves as the explicit go-ahead from the core team. No need to coordinate ahead of time.
+
+**Large changes (multiple PRs, ~1,000+ source lines):** loop us in before you start. This helps us confirm (1) we aren't already planning to tackle the same area this week, and (2) your approach doesn't conflict with future plans we have in flight. You can:
+
+- DM a member of the core team directly to coordinate a call, or
+- start a thread in the [#contributors](https://discord.com/channels/1471183263174234245/1503398277092081875) channel on Discord.
 
 ## Code of Conduct
 

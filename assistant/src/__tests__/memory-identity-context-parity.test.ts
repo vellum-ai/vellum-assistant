@@ -27,7 +27,7 @@ mock.module("../prompts/persona-resolver.js", () => ({
 const { buildCoreIdentityContext } =
   await import("../prompts/system-prompt.js");
 const { buildIdentityContext } =
-  await import("../plugins/defaults/memory/identity-context.js");
+  await import("../plugins/defaults/memory/v1/identity-context.js");
 
 // ── Workspace fixtures ─────────────────────────────────────────────────
 

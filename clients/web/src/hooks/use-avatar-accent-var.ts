@@ -41,11 +41,19 @@ export function resolveAvatarAccentHex(
  * avatar.
  *
  * Null for custom-image / no-character avatars — there is no color to match.
+ * `customImageUrl` gates that explicitly rather than being inferred from the
+ * absence of components: an uploaded avatar can carry lingering character
+ * components, but the image is what renders, so no character color must leak
+ * into a surface tinting itself to "the avatar you are looking at".
  */
 export function resolveRenderedAvatarAccentHex(
   components: CharacterComponents | null,
   traits: CharacterTraits | null,
+  customImageUrl: string | null,
 ): string | null {
+  if (customImageUrl) {
+    return null;
+  }
   return (
     resolveAvatarAccentHex(components, traits) ??
     components?.colors?.[0]?.hex ??
@@ -97,6 +105,7 @@ export function getRenderedAvatarAccentHex(): string | null {
 export function useAvatarAccentVar(
   components: CharacterComponents | null,
   traits: CharacterTraits | null,
+  customImageUrl: string | null,
 ): void {
   const hex = resolveAvatarAccentHex(components, traits);
   useEffect(() => {
@@ -111,7 +120,11 @@ export function useAvatarAccentVar(
     };
   }, [hex]);
 
-  const renderedHex = resolveRenderedAvatarAccentHex(components, traits);
+  const renderedHex = resolveRenderedAvatarAccentHex(
+    components,
+    traits,
+    customImageUrl,
+  );
   // Publish-only, with no cleanup. "One publisher" is a convention, not
   // something the module can enforce, and clearing on unmount makes a second or
   // transient mount wipe the surviving publisher's value on the way out — which

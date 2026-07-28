@@ -178,6 +178,7 @@ mock.module("../../credential-health/credential-health-service.js", () => ({
 // Stub the heartbeat-run-store so the tests don't need a populated SQLite
 // schema. Each function is a no-op that returns sensible defaults.
 let heartbeatRunIdCounter = 0;
+let lastRunAtFromHistory: number | null = null;
 const skipHeartbeatRunCalls: Array<{ runId: string; reason: string }> = [];
 mock.module("../heartbeat-run-store.js", () => ({
   insertPendingHeartbeatRun: () => `heartbeat-run-${++heartbeatRunIdCounter}`,
@@ -192,6 +193,7 @@ mock.module("../heartbeat-run-store.js", () => ({
   countCompletedHeartbeatRuns: () => 10,
   countCompletedRunsToday: () => 0,
   countRecentConsecutiveRuns: () => 0,
+  getLastHeartbeatRunAt: () => lastRunAtFromHistory,
 }));
 
 // Stub the pre-first-message gate so tests can flip it on/off without
@@ -225,6 +227,7 @@ beforeEach(() => {
   onBroadcast = null;
   runBackgroundJobCalls.length = 0;
   skipHeartbeatRunCalls.length = 0;
+  lastRunAtFromHistory = null;
   preFirstMessageGateOpen = true;
   seedHeartbeat();
   runBackgroundJobImpl = async () => ({
@@ -268,6 +271,24 @@ describe("HeartbeatService", () => {
     });
     expect(call.prompt).toContain("<heartbeat-checklist>");
     expect(call.prompt).toContain("<heartbeat-disposition>");
+  });
+
+  test("lastRunAt rehydrates from run history when unset in memory", async () => {
+    const historicalRunAt = Date.now() - 60 * 60 * 1000;
+    lastRunAtFromHistory = historicalRunAt;
+
+    const service = new HeartbeatService();
+    expect(service.lastRunAt).toBe(historicalRunAt);
+
+    // An in-process run takes over from the rehydrated value.
+    await service.runOnce({ force: true });
+    expect(service.lastRunAt).toBeGreaterThan(historicalRunAt);
+  });
+
+  test("lastRunAt is null when no run has ever executed", () => {
+    lastRunAtFromHistory = null;
+    const service = new HeartbeatService();
+    expect(service.lastRunAt).toBeNull();
   });
 
   test("fires onConversationCreated synchronously via the runner BEFORE the runner returns", async () => {

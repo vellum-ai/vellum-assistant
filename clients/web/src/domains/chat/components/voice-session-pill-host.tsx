@@ -13,14 +13,17 @@
  *
  * Visibility is the exact complement of the owning-composer voice surface — the
  * one the full-screen voice room also renders against — so that in the main
- * window, for any active session, exactly one of {room, pill} renders. Both
- * derive from the shared {@link useOwningComposerSurfaceVisible} predicate
- * (session active AND the on-screen composer owns it): the pill shows when a
- * session is active and it is `false`, the room when it is `true` and this is
- * the main window. Because the pill keys off that popout-free primitive (not
- * the room's own `!isPopout` gate), a headerless pop-out's standalone pill
- * still hides while the composer's voice bar owns the session — no double
- * control. Concretely, the pill shows when:
+ * window, for any active session, exactly one of {room, voice bar, pill} is
+ * the visible control. The room and the pill both derive from the shared
+ * {@link useOwningComposerSurfaceVisible} predicate (session active AND the
+ * on-screen composer owns it): the pill shows when a session is active and it
+ * is `false`; the room when it is `true`, this is the main window, and the
+ * room is not minimized. Because the pill keys off that primitive alone — not
+ * the room's own `!isPopout` / `!roomMinimized` gates — a headerless
+ * pop-out's standalone pill still hides while the composer's voice bar owns
+ * the session, and minimizing the room on the owning thread hands control to
+ * the voice bar underneath, not the pill — no double control. Concretely, the
+ * pill shows when:
  *
  * - the user is viewing a different conversation than the session's,
  * - the user is off the chat routes entirely (Home, Library, …) or on a
@@ -82,6 +85,8 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
+import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 
 export interface VoiceSessionPillHostProps {
   /**
@@ -138,6 +143,20 @@ export function VoiceSessionPillHost({
     visible && sessionConversationId !== null,
   );
 
+  // Wave accent for the pill's listening waves — the same avatar-matched tint
+  // the room resolves (see wave-accent.ts). Fetch-gated to a visible pill;
+  // the query is shared with every other avatar consumer.
+  const {
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarCustomImageUrl,
+  } = useAssistantAvatar(visible ? sessionAssistantId : null);
+  const waveAccentHex = resolveWaveAccentHex(
+    avatarComponents,
+    avatarTraits,
+    avatarCustomImageUrl,
+  );
+
   const handleNavigate = useCallback(() => {
     if (sessionConversationId) {
       navigateToConversation(navigate, sessionConversationId);
@@ -164,6 +183,7 @@ export function VoiceSessionPillHost({
         onEnd={endLiveVoiceSession}
         onSend={releaseLiveVoiceTurn}
         onNavigate={sessionConversationId ? handleNavigate : undefined}
+        waveAccentHex={waveAccentHex}
       />
     );
   }

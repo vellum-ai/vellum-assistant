@@ -13,7 +13,7 @@ import {
 } from "../../../../../persistence/db-singleton.js";
 import { migrateActivationState } from "../../../../../persistence/migrations/232-activation-state.js";
 import * as schema from "../../../../../persistence/schema/index.js";
-import type { ActivationState } from "../../v3/substrate/types.js";
+import type { ActivationState } from "../../substrate/types.js";
 import {
   clearEverInjected,
   forkActivationState,

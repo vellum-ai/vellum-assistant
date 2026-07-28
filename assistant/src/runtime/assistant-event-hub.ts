@@ -41,11 +41,13 @@ export function capabilityForMessageType(
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
 import type { AssistantEventEnvelope } from "../api/index.js";
+import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
+import { isMainDaemonProcess } from "./process-role.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -305,6 +307,14 @@ export class AssistantEventHub {
     event: AssistantEventEnvelope,
     options?: AssistantEventPublishOptions,
   ): Promise<void> {
+    // Only the main daemon owns the subscribers real clients connect to. In any
+    // other process (a sidecar worker, the route host) this hub has no SSE
+    // subscriber, so hand the event to the daemon — it republishes on the hub
+    // clients actually observe. Best-effort: a transport failure is logged, not
+    // thrown, and never blocks the caller.
+    if (!isMainDaemonProcess()) {
+      return forwardEventPublishToDaemon(event, options);
+    }
     if (event.conversationId) {
       try {
         appendEventToStream(event.conversationId, event);

@@ -126,6 +126,7 @@ import { registerConversationNotifiers } from "./conversation-notifiers.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
+  kickQueueDrain as kickQueueDrainImpl,
   processMessage as processMessageImpl,
 } from "./conversation-process.js";
 import type {
@@ -164,10 +165,7 @@ import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { shouldAttachHostProxyForCapability } from "./host-proxy-preactivation.js";
-import type {
-  SurfaceType,
-  UsageStats,
-} from "./message-protocol.js";
+import type { SurfaceType, UsageStats } from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
@@ -345,6 +343,15 @@ export class Conversation {
    * @internal
    */
   subagentDenySideEffects?: boolean;
+  /**
+   * When true, mid-run subagent → parent notifications (`notify_parent`) are
+   * suppressed for this child. Set on synchronous (spawnAndAwait) subagents:
+   * the awaiting caller is their only parent channel, so injecting a
+   * user-role turn into the live parent mid-await would start an unsolicited
+   * parent run. Checked in `notifyParentFromChild`.
+   * @internal
+   */
+  subagentSuppressParentNotifications?: boolean;
   /**
    * Tool names a subagent attempted but that its role allowlist
    * ({@link subagentAllowedTools}) denied. Recorded by the tool executor;
@@ -1465,6 +1472,10 @@ export class Conversation {
     this.subagentDenySideEffects = deny;
   }
 
+  setSubagentSuppressParentNotifications(suppress: boolean): void {
+    this.subagentSuppressParentNotifications = suppress;
+  }
+
   /**
    * Set the conversation's per-chat plugin scope, updating both the persisted
    * `enabled_plugins` row and the live instance (source of truth for the
@@ -2491,6 +2502,18 @@ export class Conversation {
 
   drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
     return drainQueueImpl(this, reason);
+  }
+
+  /**
+   * Never-rejecting drain trigger for fire-and-forget call sites. See
+   * `kickQueueDrain` in conversation-process.ts for the retry/notify
+   * semantics.
+   */
+  kickDrainQueue(
+    reason: QueueDrainReason = "loop_complete",
+    origin?: string,
+  ): Promise<void> {
+    return kickQueueDrainImpl(this, reason, origin);
   }
 
   async processMessage(options: ProcessMessageOptions): Promise<string> {

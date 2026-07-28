@@ -190,6 +190,27 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
   });
 
+  test("the [-1] teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      escalated: ["The detailed answer is 42."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const frontDoorPrompt =
+      starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    const escalatedPrompt =
+      starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
+    // The toolless fast leg has nothing to show and its decision rule promises
+    // verbatim speech — it must never learn the marker.
+    expect(frontDoorPrompt).not.toContain("[-1]");
+    expect(escalatedPrompt).toContain("[-1]");
+  });
+
   test("the verdict token and any text past the bridge cap never reach the transcript", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: [

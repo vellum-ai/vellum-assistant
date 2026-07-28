@@ -10,7 +10,7 @@ import type { ChannelId } from "./types.js";
 
 export type InboundChannelId = Extract<
   ChannelId,
-  "telegram" | "whatsapp" | "slack" | "email" | "a2a"
+  "telegram" | "whatsapp" | "slack" | "email" | "a2a" | "discord"
 >;
 
 interface InboundEventBase<C extends InboundChannelId> {
@@ -84,10 +84,18 @@ export type WhatsAppInboundEvent = InboundEventBase<"whatsapp">;
 export type SlackInboundEvent = InboundEventBase<"slack">;
 export type EmailInboundEvent = InboundEventBase<"email">;
 export type A2aInboundEvent = InboundEventBase<"a2a">;
+/**
+ * Constructed by `discord/normalize.ts`. `conversationExternalId` is the
+ * channel snowflake — the parent channel when the message is in a thread —
+ * `actorExternalId` the author's user snowflake, and `source.threadId` the
+ * thread or forum-post snowflake for thread messages.
+ */
+export type DiscordInboundEvent = InboundEventBase<"discord">;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent
   | WhatsAppInboundEvent
   | SlackInboundEvent
   | EmailInboundEvent
-  | A2aInboundEvent;
+  | A2aInboundEvent
+  | DiscordInboundEvent;

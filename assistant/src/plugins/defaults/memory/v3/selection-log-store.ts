@@ -22,12 +22,12 @@ import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir } from "../paths.js";
+import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3SectionContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import { buildSectionIndex } from "./sections.js";
-import { readPage } from "./substrate/page-store.js";
 import {
   type Section,
   SELECTION_SOURCES,
@@ -63,7 +63,9 @@ function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
 }
 
 function rowsForMessageIds(messageIds: string[]): SelectionRow[] {
-  if (messageIds.length === 0) return [];
+  if (messageIds.length === 0) {
+    return [];
+  }
   const raw = memorySqliteOrNull("rowsForMessageIds");
   if (!raw) {
     return [];
@@ -87,7 +89,9 @@ const MAX_FORK_HOPS = 64;
  * stamps onto every message a fork copies, for the given message ids.
  */
 function forkSourceIdsOf(messageIds: string[]): string[] {
-  if (messageIds.length === 0) return [];
+  if (messageIds.length === 0) {
+    return [];
+  }
   const placeholders = messageIds.map(() => "?").join(", ");
   const rows = getSqliteFrom(getDb())
     .query(
@@ -117,10 +121,16 @@ function rowsViaForkSource(messageIds: string[]): SelectionRow[] {
   const visited = new Set(messageIds);
   for (let hop = 0; hop < MAX_FORK_HOPS; hop++) {
     const sources = forkSourceIdsOf(frontier).filter((id) => !visited.has(id));
-    if (sources.length === 0) return [];
-    for (const id of sources) visited.add(id);
+    if (sources.length === 0) {
+      return [];
+    }
+    for (const id of sources) {
+      visited.add(id);
+    }
     const rows = rowsForMessageIds(sources);
-    if (rows.length > 0) return rows;
+    if (rows.length > 0) {
+      return rows;
+    }
     frontier = sources;
   }
   return [];
@@ -140,7 +150,9 @@ async function reconstructMatchedSections(
   const sectionSlugs = rows
     .filter((r) => r.section_ordinal != null)
     .map((r) => r.slug);
-  if (sectionSlugs.length === 0) return new Map();
+  if (sectionSlugs.length === 0) {
+    return new Map();
+  }
 
   const workspaceDir = getWorkspaceDir();
   const pageBody = (slug: Slug): Promise<string> =>
@@ -155,9 +167,13 @@ async function reconstructMatchedSections(
 
   const sectionBySlug = new Map<Slug, Section>();
   for (const row of rows) {
-    if (row.section_ordinal == null) continue;
+    if (row.section_ordinal == null) {
+      continue;
+    }
     const section = sectionByOrdinal(index, row.slug, row.section_ordinal);
-    if (section) sectionBySlug.set(row.slug, section);
+    if (section) {
+      sectionBySlug.set(row.slug, section);
+    }
   }
   return sectionBySlug;
 }
@@ -165,7 +181,9 @@ async function reconstructMatchedSections(
 async function buildSelectionLog(
   rows: SelectionRow[],
 ): Promise<MemoryV3SelectionLog | null> {
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    return null;
+  }
 
   const config = getConfig();
   const selections = rows.map((r) => ({
@@ -226,7 +244,9 @@ export async function getMemoryV3SelectionForInspector(
   conversationId: string,
   turn: number | null | undefined,
 ): Promise<MemoryV3SelectionLog | null> {
-  if (turn == null) return null;
+  if (turn == null) {
+    return null;
+  }
   return buildSelectionLog(rowsForTurn(conversationId, turn));
 }
 
@@ -280,7 +300,9 @@ export function summarizeSelections(conversationId: string): SelectionSummary {
   const turns = new Set<number>();
   const slugs = new Set<string>();
   for (const row of rows) {
-    if (isSelectionSource(row.source)) bySource[row.source] += 1;
+    if (isSelectionSource(row.source)) {
+      bySource[row.source] += 1;
+    }
     turns.add(row.turn);
     slugs.add(row.slug);
   }

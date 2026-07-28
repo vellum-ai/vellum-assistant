@@ -25,13 +25,14 @@ describe("resolveRenderedAvatarAccentHex", () => {
       resolveRenderedAvatarAccentHex(
         BUNDLED_COMPONENTS,
         traitsWithColor("orange"),
+        null,
       ),
     ).toBe(orange);
   });
 
   test("falls back to the first palette color for a default (traits-less) avatar — matching what ChatAvatar renders, so accented surfaces don't drift to indigo", () => {
     const firstColor = BUNDLED_COMPONENTS.colors[0]!.hex;
-    expect(resolveRenderedAvatarAccentHex(BUNDLED_COMPONENTS, null)).toBe(
+    expect(resolveRenderedAvatarAccentHex(BUNDLED_COMPONENTS, null, null)).toBe(
       firstColor,
     );
     // The strict form is what `--avatar-accent` publishes, and it deliberately
@@ -40,7 +41,20 @@ describe("resolveRenderedAvatarAccentHex", () => {
   });
 
   test("returns null when there is no character to color (custom image / not yet loaded)", () => {
-    expect(resolveRenderedAvatarAccentHex(null, null)).toBeNull();
+    expect(resolveRenderedAvatarAccentHex(null, null, null)).toBeNull();
+  });
+
+  test("a custom image wins over lingering character components, so no color leaks into accented surfaces", () => {
+    // An uploaded avatar can still carry the character components it replaced.
+    // The image is what renders, so the waves and the iOS Live Activity must
+    // stay uncolored rather than tint themselves to an avatar nobody can see.
+    expect(
+      resolveRenderedAvatarAccentHex(
+        BUNDLED_COMPONENTS,
+        traitsWithColor("orange"),
+        "https://example.com/avatar.png",
+      ),
+    ).toBeNull();
   });
 });
 
@@ -54,12 +68,12 @@ describe("publishing the rendered accent", () => {
     // published, and the survivor never re-publishes (its dep did not change),
     // so the island would silently fall back to the native neutral gray.
     renderHook(() =>
-      useAvatarAccentVar(BUNDLED_COMPONENTS, traitsWithColor("orange")),
+      useAvatarAccentVar(BUNDLED_COMPONENTS, traitsWithColor("orange"), null),
     );
     expect(getRenderedAvatarAccentHex()).toBe(ORANGE);
 
     const second = renderHook(() =>
-      useAvatarAccentVar(BUNDLED_COMPONENTS, traitsWithColor("orange")),
+      useAvatarAccentVar(BUNDLED_COMPONENTS, traitsWithColor("orange"), null),
     );
     second.unmount();
 
@@ -74,7 +88,7 @@ describe("publishing the rendered accent", () => {
     };
     const view = renderHook(
       ({ traits }: { traits: CharacterTraits | null }) =>
-        useAvatarAccentVar(BUNDLED_COMPONENTS, traits),
+        useAvatarAccentVar(BUNDLED_COMPONENTS, traits, null),
       { initialProps },
     );
     expect(getRenderedAvatarAccentHex()).toBe(ORANGE);

@@ -32,6 +32,7 @@ import {
   MEMORY_CONTEXT_PHASE_KEY,
   TurnLatencyTracker,
 } from "../../../../../daemon/turn-latency-tracker.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
@@ -39,7 +40,6 @@ import type { V3GateConfig } from "../gate.js";
 import type { OrchestrateDeps } from "../orchestrate.js";
 import { buildSectionNeedle } from "../section-needle.js";
 import { buildSectionIndex } from "../sections.js";
-import type { PageIndexEntry } from "../substrate/page-index.js";
 import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 // ---------------------------------------------------------------------------

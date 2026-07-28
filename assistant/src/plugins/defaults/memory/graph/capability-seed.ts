@@ -10,6 +10,7 @@ import { and, eq, like, sql } from "drizzle-orm";
 
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryV1Active } from "../../../../config/memory-v3-gate.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
 import {
   loadSkillCatalog,
@@ -17,7 +18,7 @@ import {
 } from "../../../../config/skills.js";
 import {
   enqueueMemoryJob,
-  isMemoryEnabled,
+  upsertEmbedGraphNodeJob,
 } from "../../../../persistence/jobs-store.js";
 import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import {
@@ -26,7 +27,7 @@ import {
 } from "../../../../skills/catalog-cache.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
-import type { SkillCapabilityInput } from "../v3/substrate/skill-content.js";
+import type { SkillCapabilityInput } from "../substrate/skill-content.js";
 import { createNode } from "./store.js";
 import {
   CAPABILITY_CLI_SOURCE_PREFIX as CLI_SOURCE_PREFIX,
@@ -259,10 +260,17 @@ function buildSkillContent(input: SkillCapabilityInput): string {
  *
  * We store the sourceKey in sourceConversations[0] as a stable identifier
  * (capability nodes aren't tied to a real conversation).
+ *
+ * The node write itself is all-tier — the `list_memory` surface reads
+ * capability nodes on every tier. The `embed_graph_node` enqueue is v1-only:
+ * those rows target the v1 Qdrant collection, and dispatch discards them
+ * while concept-page memory is active.
  */
 function upsertCapabilityNode(sourceKey: string, content: string): void {
   const db = memoryDbOrNull("upsertCapabilityNode");
-  if (!db) return;
+  if (!db) {
+    return;
+  }
 
   // Find existing node by sourceKey stored in source_conversations JSON
   const existing = db
@@ -304,8 +312,8 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
       })
       .where(eq(memoryGraphNodes.id, existing.id))
       .run();
-    if (isMemoryEnabled()) {
-      enqueueMemoryJob("embed_graph_node", { nodeId: existing.id });
+    if (isMemoryV1Active(getConfig())) {
+      upsertEmbedGraphNodeJob({ nodeId: existing.id });
     }
     return;
   }
@@ -338,8 +346,8 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
     imageRefs: null,
   });
 
-  if (isMemoryEnabled()) {
-    enqueueMemoryJob("embed_graph_node", { nodeId: node.id });
+  if (isMemoryV1Active(getConfig())) {
+    upsertEmbedGraphNodeJob({ nodeId: node.id });
   }
   log.info({ sourceKey, nodeId: node.id }, "Created capability graph node");
 }
@@ -349,7 +357,9 @@ function upsertCapabilityNode(sourceKey: string, content: string): void {
  */
 function deleteCapabilityNode(sourceKey: string): void {
   const db = memoryDbOrNull("deleteCapabilityNode");
-  if (!db) return;
+  if (!db) {
+    return;
+  }
   const existing = db
     .select()
     .from(memoryGraphNodes)
@@ -380,7 +390,9 @@ function deleteCapabilityNode(sourceKey: string): void {
  */
 function cleanupOldFormatCapabilityNodes(): void {
   const db = memoryDbOrNull("cleanupOldFormatCapabilityNodes");
-  if (!db) return;
+  if (!db) {
+    return;
+  }
   const now = Date.now();
 
   // --- skill:* old-format nodes ---
@@ -447,7 +459,9 @@ function cleanupOldFormatCapabilityNodes(): void {
  */
 function pruneStaleCapabilities(prefix: string, activeKeys: Set<string>): void {
   const db = memoryDbOrNull("pruneStaleCapabilities");
-  if (!db) return;
+  if (!db) {
+    return;
+  }
   const allCapabilities = db
     .select()
     .from(memoryGraphNodes)

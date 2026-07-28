@@ -3,6 +3,15 @@ import { basename, dirname, normalize, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { resolveTrailingLinkTarget } from "../util/fs-symlinks.js";
+import {
+  getMonitoringDataDir,
+  getWorkspaceHooksDir,
+  getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+  getWorkspaceSkillsDir,
+  getWorkspaceToolsDir,
+  getWorkspaceWorkflowsDir,
+} from "../util/platform.js";
 
 /**
  * Resolve a path to its canonical form. A trailing (possibly dangling)
@@ -34,6 +43,20 @@ function canonicalizeExisting(abs: string): string {
 }
 
 /**
+ * Whether a canonical path is a canonical directory or falls under it. The
+ * trailing separator keeps `/workspace-extra` from matching `/workspace`.
+ * Both arguments must already be canonicalized — comparing a canonical path
+ * against a lexical directory would re-open the symlink dodge.
+ */
+function isAtOrUnderCanonicalDir(
+  canonicalPath: string,
+  canonicalDir: string,
+): boolean {
+  const prefix = canonicalDir.endsWith("/") ? canonicalDir : `${canonicalDir}/`;
+  return canonicalPath === canonicalDir || canonicalPath.startsWith(prefix);
+}
+
+/**
  * Resolve a file path to its canonical form (resolving symlinks and
  * normalizing segments like `.` and `..`), then check whether it falls
  * within the given workspace root.
@@ -45,18 +68,9 @@ export function isPathWithinWorkspaceRoot(
   if (!filePath || !workspaceRoot) {
     return false;
   }
-
-  const canonicalPath = canonicalize(filePath);
-  const canonicalRoot = canonicalize(workspaceRoot);
-
-  // Ensure the root ends with a separator so `/workspace-extra` doesn't
-  // match `/workspace`.
-  const rootPrefix = canonicalRoot.endsWith("/")
-    ? canonicalRoot
-    : `${canonicalRoot}/`;
-
-  return (
-    canonicalPath === canonicalRoot || canonicalPath.startsWith(rootPrefix)
+  return isAtOrUnderCanonicalDir(
+    canonicalize(filePath),
+    canonicalize(workspaceRoot),
   );
 }
 
@@ -64,6 +78,14 @@ export function isPathWithinWorkspaceRoot(
 
 /** File-path tools whose workspace-scoped-ness depends on the file_path input. */
 const PATH_SCOPED_TOOLS = new Set(["file_read", "file_write", "file_edit"]);
+
+/** Sandbox file tools that write. Reads never plant code. */
+const WORKSPACE_WRITE_TOOLS = new Set(["file_write", "file_edit"]);
+
+/** Whether a tool is a sandbox file tool that writes. */
+export function isWorkspaceWriteTool(toolName: string): boolean {
+  return WORKSPACE_WRITE_TOOLS.has(toolName);
+}
 
 /** Network-accessing tools — never workspace-scoped. */
 const NETWORK_TOOLS = new Set(["web_search", "web_fetch", "network_request"]);
@@ -157,6 +179,105 @@ export function isOutOfWorkspaceFileInvocation(
   }
   const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
   return filePath !== "" && !isPathWithinWorkspaceRoot(filePath, workspaceRoot);
+}
+
+/**
+ * The workspace directories the daemon imports and executes — hooks,
+ * plugins, skills, tools, routes, workflows — plus the monitoring data
+ * directory, whose source-versions sentinel steers which plugin code the
+ * daemon imports. A write to any of them is code that runs later with the
+ * daemon's own reach. The list mirrors the file risk classifier's
+ * code-injection sinks.
+ */
+function executableSinkDirs(): string[] {
+  return [
+    getWorkspaceHooksDir(),
+    getWorkspacePluginsDir(),
+    getWorkspaceSkillsDir(),
+    getWorkspaceToolsDir(),
+    getWorkspaceRoutesDir(),
+    getWorkspaceWorkflowsDir(),
+    getMonitoringDataDir(),
+  ];
+}
+
+/**
+ * Workspace-root files and directories the prompt renderer reads into the
+ * system prompt at render time (`prompts/templates/system-sections.ts`
+ * `workspacePath` entries — a drift-guard test walks the real section list
+ * against this predicate). A write to any of them rewrites the assistant's
+ * standing instructions, per-user context, or per-channel context.
+ */
+const PROMPT_SURFACE_FILES = [
+  "IDENTITY.md",
+  "SOUL.md",
+  "VOICE.md",
+  "BOOTSTRAP.md",
+  // Read by the heartbeat service as its checklist — instructions executed
+  // unattended (`runtime/routes/heartbeat-routes.ts`).
+  "HEARTBEAT.md",
+  // The scratchpad the heartbeat checklist reads its to-dos from, injected
+  // into every full-mode guardian turn by the `now-md` injector
+  // (`plugins/defaults/workspace/injectors.ts`). Injector-fed rather than a
+  // system section, so the drift guard cannot see it — this entry is the
+  // coverage.
+  "NOW.md",
+];
+const PROMPT_SURFACE_DIRS = ["users", "channels"];
+
+// `memory/**` is deliberately data-plane, not control-plane: memory pages
+// inject into guardian sessions as past-record rather than standing
+// instructions, consolidation owns and rewrites those files, and the gated
+// write path is `remember()` (provenance-checked in the indexer). If direct
+// file writes to memory pages ever become a delegation surface, they join
+// this list.
+
+/**
+ * Whether a sandbox file-tool invocation writes a workspace control-plane
+ * target: an executable sink directory (code the daemon executes) or a
+ * prompt surface (instructions it obeys). The two categories are one
+ * delegation a layer apart — approving the write approves everything the
+ * planted code or rewritten instructions cause later.
+ *
+ * Unlike {@link isOutOfWorkspaceFileInvocation} this holds in containerized
+ * mode too: the workspace boundary is what contains an escaping *path*, and
+ * these paths do not escape — the daemon acts on them from inside.
+ *
+ * Both sides are canonicalized before comparing, for the same reason
+ * {@link isPathWithinWorkspaceRoot} canonicalizes: a symlink whose name
+ * looks benign but whose target is a control-plane path is a write to that
+ * path, and a lexical prefix check does not see it.
+ */
+export function isControlPlaneWorkspaceWrite(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  workspaceRoot: string,
+): boolean {
+  if (!isWorkspaceWriteTool(toolName)) {
+    return false;
+  }
+  const filePath = resolvePathScopedTarget(toolInput, workspaceRoot);
+  if (filePath === "") {
+    return false;
+  }
+  const target = canonicalize(filePath);
+  const root = canonicalize(workspaceRoot);
+  // The baselines are canonicalized too, not just the target: a prompt
+  // surface may itself be a symlink (SOUL.md → personas/current.md), and the
+  // renderer reads through it — so a write to either name must match. A
+  // lexical baseline would miss both the through-link write (target
+  // canonicalizes past it) and the direct write to the link's destination.
+  return (
+    executableSinkDirs().some((dir) =>
+      isAtOrUnderCanonicalDir(target, canonicalize(dir)),
+    ) ||
+    PROMPT_SURFACE_FILES.some(
+      (file) => target === canonicalize(`${root}/${file}`),
+    ) ||
+    PROMPT_SURFACE_DIRS.some((dir) =>
+      isAtOrUnderCanonicalDir(target, canonicalize(`${root}/${dir}`)),
+    )
+  );
 }
 
 /**

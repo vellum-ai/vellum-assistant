@@ -252,9 +252,7 @@ export function ChatLayout({
   const headerControlsHidden = useInChatOnboardingStore(
     selectHeaderControlsHidden,
   );
-  const headerCenterHidden = useInChatOnboardingStore(
-    selectHeaderCenterHidden,
-  );
+  const headerCenterHidden = useInChatOnboardingStore(selectHeaderCenterHidden);
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
   const tourActive = useInChatOnboardingStore(selectTourActive);
 
@@ -363,7 +361,8 @@ export function ChatLayout({
 
   // Voice-room visibility. The room is a full-viewport takeover on every
   // platform (mounted at layout scope below): it covers the header and
-  // sidebar, and ending the session is the only way out of it.
+  // sidebar until the session ends or the room is minimized (the session
+  // then continues behind the composer voice bar / title-bar pill).
   const voiceRoomVisible = useIsVoiceRoomVisible();
 
   const drawerVisible = isMobile && drawerOpen;
@@ -426,7 +425,10 @@ export function ChatLayout({
   useEdgeSwipeDrawer({
     panelRef: drawerRef,
     enabled:
-      isMobile && !drawerOpen && backSwipeOwnerCount === 0 && openRowCount === 0,
+      isMobile &&
+      !drawerOpen &&
+      backSwipeOwnerCount === 0 &&
+      openRowCount === 0,
     onDragStart: () => setDrawerDragging(true),
     onOpen: () => {
       // Same as the button path: swiping the drawer in over a focused
@@ -798,9 +800,10 @@ export function ChatLayout({
       // Hidden during the avatar tour for the same reason (plus noise) —
       // the tour owns the sidebar's attention.
       tipCard={
-        (args.variant === "overlay" && !drawerOpen) || navTourActive
-          ? undefined
-          : <SidebarTipCard />
+        (args.variant === "overlay" && !drawerOpen) ||
+        navTourActive ? undefined : (
+          <SidebarTipCard />
+        )
       }
       onClose={args.onClose}
     />
@@ -942,7 +945,11 @@ export function ChatLayout({
             // Hiding eases smoothly; revealing uses a back-ease so the rail
             // lands with a slight bounce (the tour's takeover moment).
             style={{
-              width: chatFocusActive ? 0 : effectiveCollapsed ? 48 : sidebarWidth,
+              width: chatFocusActive
+                ? 0
+                : effectiveCollapsed
+                  ? 48
+                  : sidebarWidth,
               opacity: chatFocusActive ? 0 : 1,
               marginRight: chatFocusActive ? -16 : 0,
               transition: chatFocusActive

@@ -361,6 +361,7 @@ function RecommendedUpgrade({
           open={confirmOpen}
           relation={relation}
           packageName={recommended.name}
+          targetPackage={recommended}
           pending={isPending}
           onConfirm={() => void handleConfirmChange()}
           onCancel={() => setConfirmOpen(false)}

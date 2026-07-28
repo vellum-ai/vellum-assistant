@@ -77,7 +77,7 @@ import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounti
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v3/substrate/constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./substrate/constants.js";
 
 const log = getLogger("memory-retrospective-sweep");
 

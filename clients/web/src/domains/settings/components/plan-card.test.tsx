@@ -38,7 +38,13 @@ import type {
 } from "@/generated/api/types.gen";
 import * as runtimeBrowser from "@/runtime/browser";
 import * as toastModule from "@vellumai/design-library/components/toast";
+import { UPGRADE_CAPTION } from "@/domains/settings/billing/plans/package-switch-copy";
 import { PLAN_TIER_COPY } from "@/domains/settings/billing/plans/plans-copy";
+import {
+  makeProPackage,
+  makeSuperPackage,
+  makeUltraPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import { routes } from "@/utils/routes";
 
 // Capture navigate() targets so the action-button wiring can be asserted
@@ -172,27 +178,7 @@ function basePlansResponse(): PlanListResponse {
         included_features: [],
         machine_tiers: [],
         storage_tiers: [],
-        packages: [
-          {
-            key: "mighty",
-            name: "Mighty",
-            description:
-              "10 GB of storage and $25 in monthly credits on the standard machine.",
-            version: 1,
-            machine_tier: null,
-            storage_tier: "xs",
-            credit_tier: "credits_25",
-            machine_size: null,
-            storage_gib: 10,
-            credits_usd: 25,
-            include_platform_fee: false,
-            base_price_cents: 4000,
-            machine_price_cents: 0,
-            storage_price_cents: 0,
-            credit_price_cents: 0,
-            total_price_cents: 4000,
-          },
-        ],
+        packages: [makeProPackage()],
       },
     ],
   };
@@ -215,25 +201,7 @@ function plansWithSuper(): PlanListResponse {
   const plans = basePlansResponse();
   const pro = plans.plans.find((p) => p.id === "pro");
   if (pro && "packages" in pro && pro.packages) {
-    pro.packages.push({
-      key: "super",
-      name: "Super",
-      description:
-        "Medium machine, 30 GB of storage, and $45 in monthly credits.",
-      version: 1,
-      machine_tier: "medium",
-      storage_tier: "s",
-      credit_tier: "credits_45",
-      machine_size: "medium",
-      storage_gib: 30,
-      credits_usd: 45,
-      include_platform_fee: true,
-      base_price_cents: 1000,
-      machine_price_cents: 3500,
-      storage_price_cents: 1000,
-      credit_price_cents: 4500,
-      total_price_cents: 10000,
-    });
+    pro.packages.push(makeSuperPackage());
   }
   return plans;
 }
@@ -257,25 +225,7 @@ function plansWithUltra(): PlanListResponse {
   const plans = plansWithSuper();
   const pro = plans.plans.find((p) => p.id === "pro");
   if (pro && "packages" in pro && pro.packages) {
-    pro.packages.push({
-      key: "ultra",
-      name: "Ultra",
-      description:
-        "Large machine, 60 GB of storage, and $115 in monthly credits.",
-      version: 1,
-      machine_tier: "large",
-      storage_tier: "l",
-      credit_tier: "credits_115",
-      machine_size: "large",
-      storage_gib: 60,
-      credits_usd: 115,
-      include_platform_fee: true,
-      base_price_cents: 1000,
-      machine_price_cents: 7000,
-      storage_price_cents: 2000,
-      credit_price_cents: 11500,
-      total_price_cents: 20000,
-    });
+    pro.packages.push(makeUltraPackage());
   }
   return plans;
 }
@@ -910,8 +860,10 @@ describe("PlanCard recommended upgrade — change-package", () => {
     // The banner CTA opens a confirm dialog (no immediate mutation). A clean pin
     // keeps the directional upgrade copy.
     fireEvent.click(await findByTestId("recommended-upgrade-button"));
-    await findByText("Upgrade to Super?");
-    await findByText("You'll be charged the prorated difference now.");
+    // Assert on copy unique to the dialog — the promo card behind it already
+    // renders the "Upgrade to Super" heading, so the title alone matches twice.
+    await findByText(UPGRADE_CAPTION);
+    await findByText(PLAN_TIER_COPY.super.tagline);
     expect(changePackageBody).toBeNull();
 
     // Confirming posts the recommended package key to change-package.
@@ -1178,7 +1130,9 @@ describe("PlanCard recommended upgrade — change-package", () => {
       expect(onManage).toHaveBeenCalledTimes(1);
     });
     // No configurator opened, no navigation.
-    expect(document.querySelector("[data-testid='confirm-package-switch-button']")).toBeNull();
+    expect(
+      document.querySelector("[data-testid='confirm-package-switch-button']"),
+    ).toBeNull();
     expect(navigateArgs).toEqual([]);
   });
 

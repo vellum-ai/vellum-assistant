@@ -1,9 +1,11 @@
 /**
  * Voice-session composer bar (Light 53): while a live-voice session is
  * active the composer's action row is replaced by this bar — a mic mute
- * toggle and muted state label on the left, the dotted timeline waveform
- * filling the middle, and the session controls on the right: optional
- * ■ stop-response (while the assistant speaks), end (✕), and send-now (↑).
+ * toggle and muted state label on the left, the voice room's listening
+ * waves filling the middle (the same layered accent-tinted band, scaled to
+ * the strip), and the session controls on the right: optional expand back
+ * to the voice room, end (✕), and the turn slot — send-now (↑), replaced in
+ * place by ■ stop-response while the assistant speaks.
  *
  * Purely presentational: the composer observes the live-voice store and
  * wires `state`, an amplitude poll function, and the callbacks. The green ↑
@@ -15,7 +17,9 @@
  * layout shift.
  */
 
-import { ArrowUp, Mic, MicOff, Square, X } from "lucide-react";
+import type { CSSProperties } from "react";
+
+import { ArrowUp, Maximize2, Mic, MicOff, Square, X } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -24,7 +28,13 @@ import {
   isLiveVoiceMicLive,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { VoiceTimelineWaveform } from "@/domains/chat/voice/voice-timeline-waveform";
+import { VoiceListeningWaves } from "@/domains/chat/voice/voice-room/voice-listening-waves";
+import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+
+// While the mic is not live (muted, assistant speaking) the waves read a
+// steady zero and settle into their quiet drift — the room's own resting
+// listening band — instead of freezing.
+const SILENT_AMPLITUDE = () => 0;
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
@@ -40,10 +50,23 @@ export interface VoiceComposerBarProps {
   onSend: () => void;
   /**
    * ■ — stop the in-flight assistant response without ending the session.
-   * Rendered only while `speaking`; the composer passes it only for
-   * hands-free sessions, where the interrupt is turn-scoped.
+   * Takes the send button's slot while `speaking` (send is unusable then
+   * anyway); the composer passes it only for hands-free sessions, where the
+   * interrupt is turn-scoped.
    */
   onStop?: () => void;
+  /**
+   * Return to the full-screen voice room. The composer passes it only where
+   * the room can render (never in pop-out windows), so the control never
+   * ships dead.
+   */
+  onExpand?: () => void;
+  /**
+   * Accent hex matching the avatar the voice room renders (see
+   * `resolveWaveAccentHex`), so the bar's waves keep the room's tint.
+   * Null/omitted falls back to the app-wide accent, then aurora.
+   */
+  waveAccentHex?: string | null;
 }
 
 export function VoiceComposerBar({
@@ -54,6 +77,8 @@ export function VoiceComposerBar({
   onEnd,
   onSend,
   onStop,
+  onExpand,
+  waveAccentHex,
 }: VoiceComposerBarProps) {
   return (
     <div
@@ -88,19 +113,33 @@ export function VoiceComposerBar({
           {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
         </span>
       </div>
-      <VoiceTimelineWaveform
-        getAmplitude={getAmplitude}
-        active={isLiveVoiceMicLive(state)}
-        className="min-w-0 flex-1"
-      />
+      {/* The room's listening-wave band, inline: needs a positioned box to
+          fill (the component is absolutely positioned) and overflow-hidden so
+          the drifting layers clip to the strip. */}
+      <div
+        className="relative h-6 min-w-0 flex-1 overflow-hidden"
+        style={
+          waveAccentHex
+            ? ({ [AVATAR_ACCENT_CSS_VAR]: waveAccentHex } as CSSProperties)
+            : undefined
+        }
+      >
+        <VoiceListeningWaves
+          getAmplitude={
+            isLiveVoiceMicLive(state) ? getAmplitude : SILENT_AMPLITUDE
+          }
+          palette="accent"
+          placement="inline"
+        />
+      </div>
       <div className="flex shrink-0 items-center gap-1">
-        {onStop && state === "speaking" ? (
+        {onExpand ? (
           <Button
-            variant="primary"
-            iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-            onClick={onStop}
-            aria-label="Stop assistant response"
-            tooltip="Stop assistant response"
+            variant="ghost"
+            iconOnly={<Maximize2 className="h-4 w-4" />}
+            onClick={onExpand}
+            aria-label="Open voice room"
+            tooltip="Open voice room"
           />
         ) : null}
         <Button
@@ -109,13 +148,26 @@ export function VoiceComposerBar({
           onClick={onEnd}
           aria-label="End voice session"
         />
-        <Button
-          variant="primary"
-          iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
-          onClick={onSend}
-          disabled={state !== "listening"}
-          aria-label="Send now"
-        />
+        {/* Turn slot: ↑ releases the turn while listening; while the
+            assistant speaks (send unusable) the ■ stop takes its place
+            instead of stacking beside a disabled send. */}
+        {onStop && state === "speaking" ? (
+          <Button
+            variant="primary"
+            iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+            onClick={onStop}
+            aria-label="Stop assistant response"
+            tooltip="Stop assistant response"
+          />
+        ) : (
+          <Button
+            variant="primary"
+            iconOnly={<ArrowUp className="h-4 w-4" strokeWidth={2.5} />}
+            onClick={onSend}
+            disabled={state !== "listening"}
+            aria-label="Send now"
+          />
+        )}
       </div>
     </div>
   );

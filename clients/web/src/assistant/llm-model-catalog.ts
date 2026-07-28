@@ -301,6 +301,15 @@ export const MODELS_BY_PROVIDER = {
   ],
   fireworks: [
     {
+      id: "accounts/fireworks/models/kimi-k3",
+      displayName: "Kimi K3",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+    },
+    {
       id: "accounts/fireworks/models/kimi-k2p6",
       displayName: "Kimi K2.6",
       contextWindowTokens: 262_144,

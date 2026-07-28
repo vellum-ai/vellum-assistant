@@ -18,7 +18,9 @@ import {
   isLiveVoiceSessionOwnedBy,
   liveVoiceStateLabel,
   liveVoiceSurfaceLabel,
+  minimizeVoiceRoom,
   releaseLiveVoiceTurn,
+  restoreVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   subscribeSettledLiveVoiceState,
@@ -165,6 +167,39 @@ describe("useLiveVoiceStore — mute + handsFree", () => {
     useLiveVoiceStore.getState().setMuted(true);
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
     expect(useLiveVoiceStore.getState().muted).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — room minimize", () => {
+  test("defaults to not minimized — a new session opens in the room", () => {
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("minimizeVoiceRoom sets the flag during an active session", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+  });
+
+  test("minimizeVoiceRoom no-ops when idle", () => {
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("restoreVoiceRoom clears the flag", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    restoreVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("reset restores roomMinimized to false — a new session always opens in the room", () => {
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
   });
 });
 

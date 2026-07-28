@@ -253,9 +253,12 @@ describe("LiveVoiceSession archive and metrics events", () => {
       assistantMessageChannel: "vellum",
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
-      // Pins the full production control prompt, including the no-UI rule
-      // (voice turns are non-interactive — everything is conveyed in speech)
-      // and the shared no-setup-flows rule (no OAuth/browser flows mid-call).
+      // Pins the full production control prompt for the FRONT-DOOR leg (the
+      // first leg of every routed turn): the no-UI rule (voice turns are
+      // non-interactive — everything is conveyed in speech) and the shared
+      // no-setup-flows rule (no OAuth/browser flows mid-call). The [-1]
+      // room-minimize teaching is deliberately absent — only the escalated
+      // leg learns it (see live-voice-triage-escalate.test.ts).
       voiceControlPrompt:
         "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. " +
         VOICE_NO_SETUP_FLOWS_RULE,

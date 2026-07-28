@@ -41,13 +41,11 @@
  */
 
 import type { AssistantEventEnvelope } from "../api/index.js";
-import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
 import {
   type AssistantEventFilter,
   type AssistantEventHub,
   assistantEventHub,
 } from "../runtime/assistant-event-hub.js";
-import { isMainDaemonProcess } from "../runtime/process-role.js";
 
 /**
  * The subset of {@link AssistantEventHub} workspace plugins may use. Picking
@@ -168,14 +166,9 @@ export const pluginAssistantEventHub: PluginEventHub = Object.freeze({
         `Plugins may not publish daemon-to-client host-proxy control events (type "${blockedType}").`,
       );
     }
-    // Outside the main daemon (a sidecar worker, the route host) this process's
-    // hub reaches no SSE subscriber, so hand the already-guarded,
-    // wire-canonicalized event to the daemon — it republishes on the hub real
-    // clients subscribe to. The `host_*` guard above runs on both paths (the
-    // daemon's publish route is a raw transport that does not re-check it).
-    if (!isMainDaemonProcess()) {
-      return forwardEventPublishToDaemon(snapshot, snapshotOptions);
-    }
+    // `assistantEventHub.publish` forwards to the daemon when this is not the
+    // main process, so the guarded snapshot reaches real subscribers whether
+    // published here or from a sidecar worker.
     return assistantEventHub.publish(snapshot, snapshotOptions);
   },
 

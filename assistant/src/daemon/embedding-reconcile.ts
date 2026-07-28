@@ -19,7 +19,11 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
+import {
+  isMemoryEnabled,
+  isMemoryV2ExplicitlyDisabled,
+  isMemoryV3Live,
+} from "../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
   probeBackendDimension,
@@ -31,13 +35,13 @@ import {
   hasActiveJobOfType,
 } from "../persistence/jobs-store.js";
 import {
+  ensureConceptPageCollection,
+  recreateConceptPageCollection,
+} from "../plugins/defaults/memory/substrate/qdrant.js";
+import {
   ensureSectionCollection,
   recreateSectionCollection,
 } from "../plugins/defaults/memory/v3/section-dense-store.js";
-import {
-  ensureConceptPageCollection,
-  recreateConceptPageCollection,
-} from "../plugins/defaults/memory/v3/substrate/qdrant.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("embedding-reconcile");
@@ -157,7 +161,7 @@ async function defaultRecreateCollectionsAtDim(
  * the same type. `memory_v2_reembed` can be enqueued from two startup sites that
  * both guard on this in-flight check: the credential-arrival reconcile retry
  * (reconcile-vs-reconcile), and the lifecycle reconcile-then-rebuild interleaving
- * where `maybeRebuildMemoryV2Concepts` also enqueues a reembed when it finds the
+ * where `maybeRebuildConceptCollection` also enqueues a reembed when it finds the
  * just-(re)created collection empty. The guard keeps the corpus re-embed to a
  * single round-trip across either path.
  */
@@ -226,7 +230,7 @@ export async function reconcileEmbeddingIdentity(
   // persist/recreate/enqueue. `memory.enabled` defaults to true; gate strictly
   // on the explicit `false`. This gate covers both the lifecycle startup call
   // and the credential-arrival retry call.
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     log.info("Memory disabled — skipping embedding-identity reconcile");
     return { action: "noop", dim: null };
   }
@@ -239,8 +243,9 @@ export async function reconcileEmbeddingIdentity(
   // dimension recreate). Running here would enqueue `memory_v2_reembed` against
   // the disabled v2 index and persist a `vectorSize` after the v1 client was
   // already initialized at the old dimension. Defaults to true; gate strictly
-  // on the explicit `false` (and tolerate a missing `v2` node in test configs).
-  if (config.memory.v2?.enabled === false) {
+  // on the explicit `false` (and tolerate a missing `v2` node in test
+  // configs) — the semantics `isMemoryV2ExplicitlyDisabled` names.
+  if (isMemoryV2ExplicitlyDisabled(config)) {
     log.info(
       "Memory v2 disabled — skipping embedding-identity reconcile; v1 path owns its collection dimension",
     );

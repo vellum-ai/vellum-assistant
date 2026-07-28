@@ -41,6 +41,7 @@ import {
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
   releaseLiveVoiceTurn,
+  restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
@@ -50,14 +51,18 @@ import {
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
+import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
+import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isNativeIOS } from "@/runtime/platform-detection";
 import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
 import {
@@ -300,6 +305,20 @@ export function ChatComposer({
   // shares the global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
+  // Wave accent for the voice bar's listening waves — the same avatar-matched
+  // tint the room resolves (see wave-accent.ts), so the minimized session
+  // keeps the room's color language. Fetch-gated to live sessions; the query
+  // is shared with every other avatar consumer.
+  const {
+    components: avatarComponents,
+    traits: avatarTraits,
+    customImageUrl: avatarCustomImageUrl,
+  } = useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
+  const voiceWaveAccentHex = resolveWaveAccentHex(
+    avatarComponents,
+    avatarTraits,
+    avatarCustomImageUrl,
+  );
   // Mic mute state (controller-published) for the voice bar's toggle.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
   // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
@@ -347,6 +366,11 @@ export function ChatComposer({
   // the first-run card path defers the actual start to its own handler.
   const liveVoiceEntryOriginRef = useRef<{ x: number; y: number } | null>(null);
   const navigate = useNavigate();
+  // Window-lifetime, not mount-time: the composer is a per-route component
+  // that can remount after an in-window navigation has dropped `?popout=1`,
+  // so a mount-time capture could misread a pop-out as a main window and ship
+  // a dead expand-to-room control (pop-outs never render the voice room).
+  const isPopout = isPopoutWindowLifetime();
   // "Configure voice" copy surfaced when the pre-open preflight returns
   // `not-ready` — the daemon's human-readable `userMessage`. Non-null renders
   // the notice below (with a deep-link to voice settings) and the room stays
@@ -463,11 +487,26 @@ export function ChatComposer({
   // calls; defaults to end-of-input for the initial render.
   const cursorRef = useRef(input.length);
 
+  // The Doctor is platform-hosted only, so `/doctor` is not offered when the
+  // active assistant is self-hosted (the Doctor tab doesn't exist there).
+  const doctorGated =
+    usePlatformGate({ platformHostedOnly: true }) === "gated";
+  const searchSlashCommands = useCallback(
+    (filter: string) => {
+      const commands = filteredCommands(filter);
+      if (!doctorGated) {
+        return commands;
+      }
+      return commands.filter((command) => command.name !== "doctor");
+    },
+    [doctorGated],
+  );
+
   // Slash and emoji popups — state is derived from the input text, not stored.
   const slash = useTextPopup({
     text: input,
     trigger: SLASH_PREFIX_RE,
-    search: filteredCommands,
+    search: searchSlashCommands,
   });
 
   // Cursor position is a DOM property tracked via onSelect; using state
@@ -894,6 +933,11 @@ export function ChatComposer({
                 // Turn-scoped stop is hands-free-only; a manual session's
                 // interrupt ends the whole session (✕ owns that).
                 onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
+                // Expand back to the full-screen room — omitted in pop-out
+                // windows, where the room never renders (the standalone pill
+                // is their only session surface).
+                onExpand={isPopout ? undefined : restoreVoiceRoom}
+                waveAccentHex={voiceWaveAccentHex}
               />
             ) : (
               <div className="flex items-center justify-between gap-1 px-2 pb-2">
