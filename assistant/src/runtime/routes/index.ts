@@ -85,6 +85,7 @@ import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as IMAGE_GENERATION_ROUTES } from "./image-generation-routes.js";
 import { ROUTES as INFERENCE_CALLSITES_ROUTES } from "./inference-callsites-routes.js";
+import { ROUTES as INFERENCE_CREDENTIAL_PROBE_ROUTES } from "./inference-credential-probe-routes.js";
 import { ROUTES as INFERENCE_MODELS_ROUTES } from "./inference-models-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "./inference-profile-session-routes.js";
 import { ROUTES as INFERENCE_PROFILES_ROUTES } from "./inference-profiles-routes.js";
@@ -236,6 +237,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INFERENCE_PROFILE_SESSION_ROUTES,
   ...INFERENCE_PROFILES_ROUTES,
   ...INFERENCE_PROVIDER_CONNECTION_ROUTES,
+  ...INFERENCE_CREDENTIAL_PROBE_ROUTES,
   ...INFERENCE_SEND_ROUTES,
   ...INTERNAL_OAUTH_ROUTES,
   ...INTERNAL_TELEMETRY_ROUTES,

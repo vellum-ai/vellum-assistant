@@ -22,7 +22,8 @@ export interface VercelAIGatewayProviderOptions {
   useNativeWebSearch?: boolean;
 }
 
-const DEFAULT_VERCEL_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+export const DEFAULT_VERCEL_AI_GATEWAY_BASE_URL =
+  "https://ai-gateway.vercel.sh/v1";
 
 export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
   private readonly gatewayApiKey: string;

@@ -27,6 +27,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import type {
+  ModelAccessProbeRequest,
+  ModelAccessProbeResult,
   SecureKeyBackend,
   SecureKeyDeleteResult,
 } from "@vellumai/credential-storage";
@@ -596,6 +598,27 @@ export async function getSecureKeyResultAsync(
     },
     { value: undefined, unreachable: true },
   );
+}
+
+/**
+ * Ask the resolved backend to call a provider's model-listing endpoint with
+ * a stored credential and report which of `request.models` that credential
+ * can reach.
+ *
+ * The credential is read and used inside whichever process owns the store:
+ * with CES that is the sidecar, so the secret never reaches the assistant.
+ * Returns null when no backend could run the probe, which callers report as
+ * an undetermined result rather than a failed credential.
+ */
+export async function probeModelAccessAsync(
+  request: ModelAccessProbeRequest,
+): Promise<ModelAccessProbeResult | null> {
+  return withCredentialTimeout(async () => {
+    const backend = await resolveBackendAsync();
+    const result = await backend.probeModelAccess(request);
+    updateCesHttpReachability(backend, result === null);
+    return result;
+  }, null);
 }
 
 /**

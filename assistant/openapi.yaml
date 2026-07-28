@@ -14748,6 +14748,98 @@ paths:
           description: Invalid auth schema, or attempt to change auth on a managed connection
         "404":
           description: Connection not found
+  /v1/inference/provider-connections/{name}/probe-model-access:
+    post:
+      operationId: inference_providerconnections_by_name_probemodelaccess_post
+      summary: Probe a connection's stored credential against the provider
+      description:
+        Call the provider's model-listing endpoint with the credential stored for this connection and report
+        whether the credential is still valid and whether each model can be reached with it. The credential is used
+        inside the credential executor and is never returned. Defaults to the models the connection's profiles
+        reference; pass `models` to check specific ids.
+      tags:
+        - inference
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                models:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connection:
+                    type: string
+                  provider:
+                    type: string
+                  outcome:
+                    type: string
+                    enum:
+                      - valid
+                      - invalid
+                      - missing_credential
+                      - inconclusive
+                      - unsupported
+                  status:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  detail:
+                    type: string
+                  accessibleModelCount:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        model:
+                          type: string
+                        access:
+                          type: string
+                          enum:
+                            - accessible
+                            - not_accessible
+                            - unknown
+                        profiles:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - model
+                        - access
+                        - profiles
+                      additionalProperties: false
+                  summary:
+                    type: string
+                required:
+                  - connection
+                  - provider
+                  - outcome
+                  - models
+                  - summary
+                additionalProperties: false
+        "404":
+          description: Connection not found
   /v1/inference/send:
     post:
       operationId: inference_send_post

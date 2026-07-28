@@ -211,3 +211,20 @@ export {
   persistRefreshedTokens,
 } from "./oauth-runtime.js";
 export type { RefreshBreakerState } from "./oauth-runtime.js";
+
+// ---------------------------------------------------------------------------
+// Stored-credential model-access probe
+// ---------------------------------------------------------------------------
+
+export {
+  extractModelIds,
+  isModelListed,
+  probeModelAccess,
+} from "./model-access-probe.js";
+export type {
+  ModelAccess,
+  ModelAccessProbeRequest,
+  ModelAccessProbeResult,
+  ProbeCredentialInjection,
+  ProbeOutcome,
+} from "./model-access-probe.js";

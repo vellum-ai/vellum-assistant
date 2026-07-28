@@ -4,6 +4,12 @@
  * is in use.
  */
 
+import {
+  type ModelAccessProbeRequest,
+  type ModelAccessProbeResult,
+  probeModelAccess,
+} from "@vellumai/credential-storage";
+
 import { deleteKey, getKey, listKeys, setKey } from "./encrypted-store.js";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +58,16 @@ export interface CredentialBackend {
   bulkSet?(
     credentials: Array<{ account: string; value: string }>,
   ): Promise<Array<{ account: string; ok: boolean }>>;
+
+  /**
+   * Call a provider's model-listing endpoint with a stored credential and
+   * report which of `models` the credential can reach. The credential stays
+   * inside whichever process owns the store. Returns null when the backend
+   * cannot run the probe (e.g. it is unreachable).
+   */
+  probeModelAccess(
+    request: ModelAccessProbeRequest,
+  ): Promise<ModelAccessProbeResult | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +111,19 @@ class EncryptedStoreBackend implements CredentialBackend {
     } catch {
       return { accounts: [], unreachable: true };
     }
+  }
+
+  /**
+   * The encrypted store lives in this process, so the probe runs here. It is
+   * the fallback backend, selected only when no CES sidecar is available to
+   * hold the credential on the assistant's behalf.
+   */
+  async probeModelAccess(
+    request: ModelAccessProbeRequest,
+  ): Promise<ModelAccessProbeResult> {
+    return probeModelAccess(request, {
+      get: async (account: string) => getKey(account),
+    });
   }
 }
 
