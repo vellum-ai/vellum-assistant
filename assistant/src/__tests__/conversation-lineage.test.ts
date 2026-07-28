@@ -6,16 +6,38 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 /**
- * Resident conversations, mapped to the id they were forked from. A key
- * absent from the map stands for a conversation that is not resident.
+ * Resident top-level conversations, mapped to the id they were forked from —
+ * the eviction-managed store. A key absent from the map stands for a
+ * conversation that is not resident there.
  */
 let residents = new Map<string, string | undefined>();
 
+/**
+ * Resident subagent conversations, in the separate index `SubagentManager`
+ * owns. A background subagent's id lives only here, never in `residents`.
+ */
+let subagentResidents = new Map<string, string | undefined>();
+
 mock.module("../daemon/conversation-registry.js", () => ({
-  findConversation: (id: string | undefined) =>
-    id !== undefined && residents.has(id)
-      ? { parentConversationId: residents.get(id) }
-      : undefined,
+  findConversationOrSubagent: (id: string | undefined) => {
+    if (id === undefined) {
+      return undefined;
+    }
+    // Mirrors the registry: top-level store first, then the subagent index.
+    if (residents.has(id)) {
+      return { parentConversationId: residents.get(id) };
+    }
+    if (subagentResidents.has(id)) {
+      return { parentConversationId: subagentResidents.get(id) };
+    }
+    return undefined;
+  },
+  /** Present so a lookup through the top-level-only accessor fails loudly. */
+  findConversation: () => {
+    throw new Error(
+      "lineage must resolve through findConversationOrSubagent, not findConversation",
+    );
+  },
 }));
 
 const { MAX_LINEAGE_DEPTH, resolveConversationLineage } =
@@ -24,6 +46,7 @@ const { MAX_LINEAGE_DEPTH, resolveConversationLineage } =
 describe("resolveConversationLineage", () => {
   beforeEach(() => {
     residents = new Map();
+    subagentResidents = new Map();
   });
 
   test("a plain conversation is its own lineage", () => {
@@ -51,6 +74,30 @@ describe("resolveConversationLineage", () => {
       "conv-child",
       "conv-mid",
       "conv-root",
+    ]);
+  });
+
+  test("a background subagent id reaches its user-visible parent", () => {
+    // The live-voice duplex continuation: the seed id is registered only in
+    // the subagent index, never in the eviction-managed top-level store.
+    subagentResidents.set("conv-subagent", "conv-visible");
+    residents.set("conv-visible", undefined);
+
+    expect(resolveConversationLineage("conv-subagent")).toEqual([
+      "conv-subagent",
+      "conv-visible",
+    ]);
+  });
+
+  test("nested subagents walk out of the subagent index into the store", () => {
+    subagentResidents.set("conv-inner", "conv-outer");
+    subagentResidents.set("conv-outer", "conv-visible");
+    residents.set("conv-visible", undefined);
+
+    expect(resolveConversationLineage("conv-inner")).toEqual([
+      "conv-inner",
+      "conv-outer",
+      "conv-visible",
     ]);
   });
 
