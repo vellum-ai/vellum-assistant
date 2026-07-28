@@ -174,6 +174,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     sourceWatch?.stop();
     sampler?.stop();
+    stopDbIntegritySampler();
     cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
@@ -183,6 +184,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     sourceWatch?.stop();
     sampler?.stop();
+    stopDbIntegritySampler();
     cleanupWorkerPidFile(getMonitoringPidPath());
     process.exit(1);
   });
@@ -191,6 +193,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     sourceWatch?.stop();
     sampler?.stop();
+    stopDbIntegritySampler();
     cleanupWorkerPidFile(getMonitoringPidPath());
   });
 }
