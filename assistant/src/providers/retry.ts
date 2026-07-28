@@ -4,6 +4,7 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
+import { resolveSubagentAttribution } from "../usage/subagent-attribution.js";
 import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -41,6 +42,12 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   resolvedProvider: "X-Vellum-Resolved-Provider",
   resolvedModel: "X-Vellum-Resolved-Model",
   resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
+  // Delegated-work attribution. Every subagent variety shares
+  // `llm_call_site = "subagentSpawn"`, so on the authoritative billing path
+  // these two orthogonal dimensions are the only way to tell an advisor
+  // consult from a fork from a regular spawn.
+  subagentRole: "X-Vellum-Subagent-Role",
+  subagentSpawnMode: "X-Vellum-Subagent-Spawn-Mode",
 } as const;
 
 /** Providers whose transports consume `promptCacheKey` (OpenAI Responses
@@ -414,6 +421,10 @@ function normalizeSendMessageOptions(
     // downstream as a wire-format field.
     delete nextConfig.callSite;
     if (normalizeOptions.forwardUsageAttributionHeaders === true) {
+      // Read from the conversation row rather than the live SubagentManager:
+      // the row is durable and the lookup is a memoized primary-key read that
+      // can never throw, so billing attribution cannot destabilize dispatch.
+      const subagent = resolveSubagentAttribution(config.conversationId);
       const usageAttributionHeaders = buildUsageAttributionHeaders({
         callSite: attribution.callSite,
         appliedProfile: attribution.appliedProfile,
@@ -421,6 +432,8 @@ function normalizeSendMessageOptions(
         resolvedProvider: attribution.resolvedProvider,
         resolvedModel: attribution.resolvedModel,
         resolvedMixArm: attribution.resolvedMixArm,
+        subagentRole: subagent.subagentRole,
+        subagentSpawnMode: subagent.subagentSpawnMode,
       });
       if (Object.keys(usageAttributionHeaders).length > 0) {
         nextConfig.usageAttributionHeaders = usageAttributionHeaders;
@@ -746,6 +759,8 @@ function buildUsageAttributionHeaders(input: {
   resolvedProvider: string;
   resolvedModel: string;
   resolvedMixArm: string | null;
+  subagentRole: string | null;
+  subagentSpawnMode: string | null;
 }): Record<string, string> {
   const headers: Record<string, string> = {};
   addSanitizedHeader(
@@ -779,6 +794,16 @@ function buildUsageAttributionHeaders(input: {
     headers,
     USAGE_ATTRIBUTION_HEADER_NAMES.resolvedMixArm,
     input.resolvedMixArm,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.subagentRole,
+    input.subagentRole,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.subagentSpawnMode,
+    input.subagentSpawnMode,
   );
   return headers;
 }

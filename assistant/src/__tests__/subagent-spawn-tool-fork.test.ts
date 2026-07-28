@@ -301,6 +301,63 @@ describe("subagent_spawn fork parameter", () => {
     }
   });
 
+  // Spawn mode is what makes delegated LLM spend separable: every variety
+  // emits under `llm_call_site = "subagentSpawn"`, so the mode declared here
+  // is the only thing distinguishing a fresh spawn from a context-inheriting
+  // fork downstream.
+  test("declares spawnMode 'fork' for a forked spawn", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "fork-mode-id";
+    };
+
+    clearConversations();
+    setConversation("spawn-mode-parent", {
+      messages: FAKE_PARENT_MESSAGES,
+      getCurrentSystemPrompt: () => "You are a helpful assistant.",
+    } as any);
+
+    try {
+      await executeSubagentSpawn(
+        { label: "Forked", objective: "Continue", fork: true },
+        makeContext("spawn-mode-parent", { sendToClient: () => {} }),
+      );
+
+      expect(capturedConfig!.spawnMode).toBe("fork");
+    } finally {
+      manager.spawn = originalSpawn;
+      clearConversations();
+    }
+  });
+
+  test("declares spawnMode 'regular' for a non-forked spawn", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "regular-mode-id";
+    };
+
+    try {
+      await executeSubagentSpawn(
+        { label: "Plain", objective: "Do work", role: "researcher" },
+        makeContext("spawn-mode-conv", { sendToClient: () => {} }),
+      );
+
+      expect(capturedConfig!.spawnMode).toBe("regular");
+      // Role and spawn mode are orthogonal dimensions — both are recorded.
+      expect(capturedConfig!.role).toBe("researcher");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
   test("error when parent conversation cannot be resolved", async () => {
     // Empty store — findConversation will return undefined.
     clearConversations();

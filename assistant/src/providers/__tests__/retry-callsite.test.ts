@@ -27,6 +27,9 @@ mock.module("../registry.js", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { CODE_DEFAULT_PROFILE_ENTRIES } from "../../config/default-profile-catalog.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { resetSubagentAttributionCacheForTests } from "../../usage/subagent-attribution.js";
 import { RetryProvider } from "../retry.js";
 import type {
   Message,
@@ -186,6 +189,70 @@ describe("RetryProvider — callSite resolution", () => {
         "X-Vellum-LLM-Call-Site-Label"
       ],
     ).toBeUndefined();
+  });
+
+  // Delegated-work attribution on the authoritative billing path. Every
+  // subagent variety shares `llm_call_site = "subagentSpawn"`, so these two
+  // orthogonal headers are what let rated usage be decomposed by variety.
+  test("forwards subagent role and spawn mode headers for a subagent conversation", async () => {
+    await initializeDb();
+    resetSubagentAttributionCacheForTests();
+    getDb().run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, subagent_role, subagent_spawn_mode)
+       VALUES ('conv-retry-advisor', 'background', 1000, 1000, 'advisor', 'advisor_consult')`,
+    );
+    setLlmConfig({
+      callSites: { subagentSpawn: { provider: "openai", model: "gpt-sub" } },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+      { forwardUsageAttributionHeaders: true },
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: {
+        callSite: "subagentSpawn",
+        conversationId: "conv-retry-advisor",
+      },
+    });
+
+    const headers = (seen?.config as Record<string, unknown>)
+      .usageAttributionHeaders as Record<string, string>;
+    expect(headers["X-Vellum-Subagent-Role"]).toBe("advisor");
+    expect(headers["X-Vellum-Subagent-Spawn-Mode"]).toBe("advisor_consult");
+  });
+
+  test("omits subagent headers for a conversation that is not a subagent", async () => {
+    await initializeDb();
+    resetSubagentAttributionCacheForTests();
+    getDb().run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at)
+       VALUES ('conv-retry-plain', 'standard', 1000, 1000)`,
+    );
+    setLlmConfig({
+      callSites: { subagentSpawn: { provider: "openai", model: "gpt-sub" } },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("openai", (options) => {
+        seen = options;
+      }),
+      { forwardUsageAttributionHeaders: true },
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "subagentSpawn", conversationId: "conv-retry-plain" },
+    });
+
+    const headers = (seen?.config as Record<string, unknown>)
+      .usageAttributionHeaders as Record<string, string>;
+    expect(headers["X-Vellum-Subagent-Role"]).toBeUndefined();
+    expect(headers["X-Vellum-Subagent-Spawn-Mode"]).toBeUndefined();
   });
 
   test("omits attribution headers by default for direct provider transports", async () => {

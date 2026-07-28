@@ -462,6 +462,7 @@ import { migrateScheduleSkillScriptHandoff } from "./migrations/351-schedule-ski
 import { migrateDropScheduleSkillScriptHandoff } from "./migrations/352-drop-schedule-skill-script-handoff.js";
 import { migrateAddLlmUsageConversationType } from "./migrations/353-add-llm-usage-conversation-type.js";
 import { migrateBackfillAppConversationLineage } from "./migrations/354-backfill-app-conversation-lineage.js";
+import { migrateAddConversationSubagentKind } from "./migrations/356-add-conversation-subagent-kind.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1481,4 +1482,11 @@ export const migrationSteps: MigrationStep[] = [
   migrateDropScheduleSkillScriptHandoff,
   migrateAddLlmUsageConversationType,
   migrateBackfillAppConversationLineage,
+  {
+    name: "migrateAddConversationSubagentKind",
+    run: migrateAddConversationSubagentKind,
+    // The backfill reads the `subagents` table (migration 311), so that table
+    // must exist and be checkpointed first.
+    dependsOn: ["migrateCreateSubagentsTable"],
+  },
 ];
