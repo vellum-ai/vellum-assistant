@@ -118,6 +118,13 @@ export interface SubagentEntry {
    * append-only instead of dropping forever.
    */
   hydrationPending?: boolean;
+  /**
+   * True once a detail fetch for this entry has completed at least once —
+   * success, empty, or failure. Until then, a terminal entry with no events is
+   * presumed to have an unloaded timeline and renders as loading rather than
+   * "0 steps".
+   */
+  detailSettled?: boolean;
 }
 
 export interface SubagentState {
@@ -347,6 +354,18 @@ export interface SubagentActions {
    * Clears the marker on failure or empty events so callers can retry.
    */
   fetchDetailIfNeeded: (assistantId: string, subagentId: string) => Promise<void>;
+
+  /**
+   * Fetch detail for every subagent in a spawn group — the handful the user
+   * just expanded — so their terminal cards can replace the loading state with
+   * their real timeline. Reads the active assistant from
+   * `useResolvedAssistantsStore` (same pattern as `abortSubagent` /
+   * `requestSubagentReconcile`). Fire-and-forget: `fetchDetailIfNeeded` dedups
+   * via `fetchedAt` and bails when events already exist, so calling it for
+   * already-loaded or still-active ids is a safe no-op. No-op when there's no
+   * active assistant.
+   */
+  fetchGroupDetail: (subagentIds: string[]) => void;
 
   /**
    * Rebuild this conversation's subagent rows from the daemon's live
@@ -1225,6 +1244,22 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       queryConversationId,
     );
 
+    // Whatever the outcome — a real timeline, an empty one, or a failed
+    // fetch — the detail fetch has now completed at least once. Marking the
+    // entry `detailSettled` lets a terminal card with no events stop rendering
+    // as loading and show the honest truth (its steps, or a resting empty
+    // state). A no-op when the entry was disposed mid-flight (a `reset()` on a
+    // conversation switch).
+    const settled = patchedEntryField(
+      get().byId,
+      subagentId,
+      "detailSettled",
+      true,
+    );
+    if (settled) {
+      set({ byId: settled });
+    }
+
     const clearMarker = () => {
       const next = new Map(get().fetchedAt);
       next.delete(subagentId);
@@ -1265,6 +1300,16 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       parentToolUseId: detail.parentToolUseId,
       conversationId: detail.conversationId,
     });
+  },
+
+  fetchGroupDetail: (subagentIds) => {
+    const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!assistantId) {
+      return;
+    }
+    for (const id of subagentIds) {
+      void get().fetchDetailIfNeeded(assistantId, id);
+    }
   },
 
   reconcileFromDaemon: (

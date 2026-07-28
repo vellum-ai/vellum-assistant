@@ -70,6 +70,9 @@ const { reconcileSubagentStoreFromNotifications } = await import(
   "@/domains/chat/hooks/reconcile-subagent-hydration"
 );
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -100,6 +103,7 @@ beforeEach(() => {
   setSystemTime();
   getState().reset();
   useConversationStore.getState().setActiveConversationId(null);
+  useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   selfLookupSupported = true;
   reconcileSupported = true;
   fetchSubagentDetail.mockClear();
@@ -1833,6 +1837,169 @@ describe("fetchDetailIfNeeded conversation id", () => {
     await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
 
     expect(fetchSubagentDetail).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchDetailIfNeeded — detailSettled marks a completed fetch
+// ---------------------------------------------------------------------------
+
+describe("fetchDetailIfNeeded detailSettled", () => {
+  function spawnTerminal(id: string) {
+    getState().spawnSubagent({
+      subagentId: id,
+      label: "Agent",
+      objective: "",
+      status: "completed",
+      conversationId: "conv-child",
+      timestamp: NOW,
+    });
+  }
+
+  it("sets detailSettled on a success (events) fetch", async () => {
+    spawnTerminal("sa-1");
+    fetchSubagentDetail.mockResolvedValueOnce({
+      status: "completed",
+      events: [{ type: "text", content: "hello" }],
+    } as never);
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.detailSettled).toBe(true);
+    expect(entry.events.length).toBeGreaterThan(0);
+  });
+
+  it("sets detailSettled on an empty-result fetch", async () => {
+    spawnTerminal("sa-1");
+    fetchSubagentDetail.mockResolvedValueOnce({
+      status: "completed",
+      events: [],
+    } as never);
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.detailSettled).toBe(true);
+    expect(entry.events).toEqual([]);
+  });
+
+  it("sets detailSettled on a failed fetch", async () => {
+    spawnTerminal("sa-1");
+    // Default mock resolves to null (fetch failure).
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    expect(getState().byId["sa-1"]?.detailSettled).toBe(true);
+  });
+
+  it("is a no-op when the entry was disposed mid-flight", async () => {
+    spawnTerminal("sa-1");
+    fetchSubagentDetail.mockImplementationOnce(async () => {
+      // The conversation switches away while the fetch is outstanding.
+      getState().reset();
+      return null;
+    });
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    expect(getState().byId["sa-1"]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchGroupDetail
+// ---------------------------------------------------------------------------
+
+describe("fetchGroupDetail", () => {
+  function spawnAddressable(id: string) {
+    getState().spawnSubagent({
+      subagentId: id,
+      label: "Agent",
+      objective: "",
+      status: "completed",
+      conversationId: `conv-${id}`,
+      timestamp: NOW,
+    });
+  }
+
+  it("fetches once per addressable unfetched id in the group", async () => {
+    useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+    spawnAddressable("sa-1");
+    spawnAddressable("sa-2");
+
+    getState().fetchGroupDetail(["sa-1", "sa-2"]);
+    // Fire-and-forget: let the queued fetches settle.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchSubagentDetail).toHaveBeenCalledTimes(2);
+    expect(fetchSubagentDetail).toHaveBeenCalledWith(
+      "assistant-1",
+      "sa-1",
+      "conv-sa-1",
+    );
+    expect(fetchSubagentDetail).toHaveBeenCalledWith(
+      "assistant-1",
+      "sa-2",
+      "conv-sa-2",
+    );
+  });
+
+  it("is a no-op when there is no active assistant", async () => {
+    // beforeEach leaves the active assistant null.
+    spawnAddressable("sa-1");
+
+    getState().fetchGroupDetail(["sa-1"]);
+    await Promise.resolve();
+
+    expect(fetchSubagentDetail).not.toHaveBeenCalled();
+  });
+
+  it("skips ids that already have events", async () => {
+    useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      status: "completed",
+      conversationId: "conv-sa-1",
+      timestamp: NOW,
+    });
+    // Give it a timeline so `fetchDetailIfNeeded` bails.
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "assistant_text_delta", content: "hi" } as never,
+      timestamp: NOW,
+    });
+
+    getState().fetchGroupDetail(["sa-1"]);
+    await Promise.resolve();
+
+    expect(fetchSubagentDetail).not.toHaveBeenCalled();
+  });
+
+  it("skips a non-addressable id (no conversation id) but still fetches its peers", async () => {
+    useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+    // sa-1 has no conversationId and no parentConversationId → unaddressable.
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      status: "completed",
+      timestamp: NOW,
+    });
+    spawnAddressable("sa-2");
+
+    getState().fetchGroupDetail(["sa-1", "sa-2"]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchSubagentDetail).toHaveBeenCalledTimes(1);
+    expect(fetchSubagentDetail).toHaveBeenCalledWith(
+      "assistant-1",
+      "sa-2",
+      "conv-sa-2",
+    );
   });
 });
 
