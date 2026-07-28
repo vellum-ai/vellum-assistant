@@ -342,7 +342,9 @@ function collectRemediationHints(
 
   const addHints = (key: string) => {
     const list = REMEDIATION_HINTS[key];
-    if (!list) return;
+    if (!list) {
+      return;
+    }
     for (const hint of list) {
       if (!seen.has(hint)) {
         seen.add(hint);
@@ -352,7 +354,9 @@ function collectRemediationHints(
   };
 
   for (const diag of diagnostics) {
-    if (diag.stage === "success") continue;
+    if (diag.stage === "success") {
+      continue;
+    }
     if (diag.discoveryCode) {
       addHints(`${diag.candidateKind}:${diag.discoveryCode}`);
     }
@@ -711,7 +715,9 @@ export async function executeBrowserNavigate(
 
   // URL validation passed — acquire the CDP client.
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const { cdp, browserMode } = acquired;
 
   // Tab routing on the extension backend. By default the assistant
@@ -1250,7 +1256,9 @@ export async function executeBrowserSnapshot(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(_input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const { cdp, browserMode } = acquired;
 
   try {
@@ -1311,7 +1319,9 @@ export async function executeBrowserScreenshot(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const { cdp, browserMode } = acquired;
   const fullPage = input.full_page === true;
 
@@ -1368,7 +1378,9 @@ export async function executeBrowserAttach(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(_input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     if (cdp.kind === "extension") {
@@ -1421,7 +1433,9 @@ export async function executeBrowserDetach(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(_input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     if (cdp.kind === "extension") {
@@ -1471,7 +1485,9 @@ export async function executeBrowserClose(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     if (cdp.kind === "local") {
@@ -1539,10 +1555,14 @@ export async function executeBrowserClick(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
-  if (error) return { content: error, isError: true };
+  if (error) {
+    return { content: error, isError: true };
+  }
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
@@ -1647,7 +1667,9 @@ export async function executeBrowserType(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
-  if (error) return { content: error, isError: true };
+  if (error) {
+    return { content: error, isError: true };
+  }
 
   const text = typeof input.text === "string" ? input.text : "";
   if (!text) {
@@ -1663,7 +1685,9 @@ export async function executeBrowserType(
       : resolved!.selector;
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
@@ -1689,8 +1713,12 @@ export async function executeBrowserType(
     }
 
     const lines = [`Typed into element: ${targetDescription}`];
-    if (clearFirst) lines.push("(cleared existing content first)");
-    if (pressEnter) lines.push("(pressed Enter after typing)");
+    if (clearFirst) {
+      lines.push("(cleared existing content first)");
+    }
+    if (pressEnter) {
+      lines.push("(pressed Enter after typing)");
+    }
     return { content: lines.join("\n"), isError: false };
   } catch (err) {
     const diagnosticMessage = formatCdpSendDiagnostics(
@@ -1740,7 +1768,9 @@ export async function executeBrowserPressKey(
   }
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     if (resolved) {
@@ -1817,7 +1847,9 @@ export async function executeBrowserScroll(
   }
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     // Fetch viewport dimensions so we can dispatch the wheel event at
@@ -1861,7 +1893,9 @@ export async function executeBrowserSelectOption(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
-  if (error) return { content: error, isError: true };
+  if (error) {
+    return { content: error, isError: true };
+  }
 
   const value = typeof input.value === "string" ? input.value : undefined;
   const label = typeof input.label === "string" ? input.label : undefined;
@@ -1880,7 +1914,9 @@ export async function executeBrowserSelectOption(
       : resolved!.selector;
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
@@ -1993,10 +2029,14 @@ export async function executeBrowserHover(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const { resolved, error } = resolveElement(context.conversationId, input);
-  if (error) return { content: error, isError: true };
+  if (error) {
+    return { content: error, isError: true };
+  }
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
@@ -2090,7 +2130,9 @@ export async function executeBrowserWaitFor(
   }
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     if (selector) {
@@ -2139,7 +2181,9 @@ export async function executeBrowserExtract(
   const includeLinks = input.include_links === true;
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     const currentUrl = sanitizeUrlStringForOutput(
@@ -2224,7 +2268,9 @@ export async function executeBrowserFillCredential(
   }
 
   const { resolved, error } = resolveElement(context.conversationId, input);
-  if (error) return { content: error, isError: true };
+  if (error) {
+    return { content: error, isError: true };
+  }
 
   const pressEnter = input.press_enter === true;
   const targetDescription =
@@ -2233,7 +2279,9 @@ export async function executeBrowserFillCredential(
       : resolved!.selector;
 
   const acquired = await acquireCdpClientWithMode(input, context);
-  if (acquired.errorResult) return acquired.errorResult;
+  if (acquired.errorResult) {
+    return acquired.errorResult;
+  }
   const cdp = acquired.cdp;
   try {
     let backendNodeId: number;
@@ -2342,8 +2390,12 @@ function dedupeStrings(values: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const value of values) {
-    if (!value) continue;
-    if (seen.has(value)) continue;
+    if (!value) {
+      continue;
+    }
+    if (seen.has(value)) {
+      continue;
+    }
     seen.add(value);
     out.push(value);
   }
@@ -2379,7 +2431,9 @@ function extractDiscoveryCodes(error: CdpError): string[] {
   const diagnostics = error.attemptDiagnostics ?? [];
   const codes: string[] = [];
   for (const diag of diagnostics) {
-    if (diag.discoveryCode) codes.push(diag.discoveryCode);
+    if (diag.discoveryCode) {
+      codes.push(diag.discoveryCode);
+    }
   }
   return dedupeStrings(codes);
 }
