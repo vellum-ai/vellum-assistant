@@ -12,10 +12,13 @@ import { v4 as uuid } from "uuid";
 
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
+import { getLogger } from "../util/logger.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema/index.js";
+
+const log = getLogger("conversation-key-store");
 
 /** Set after the first conversation is created so BOOTSTRAP.md is deleted on the second. */
 let firstConversationSeen = false;
@@ -267,6 +270,22 @@ export function getOrCreateConversation(
 
   if (result.created) {
     initConversationDir({ ...result.conversation, originChannel: null });
+    // Attribution for every key-materialized conversation: this is the single
+    // choke point through which all unseen-key creations flow (SSE subscribe,
+    // channel inbound, launchers, voice, signals), and a runaway caller here
+    // manifests as bursts of empty placeholder-titled conversations
+    // (LUM-2870). The caller frames make those attributable from the log
+    // alone; creations are rare enough that the stack capture is free.
+    log.info(
+      {
+        conversationKey,
+        conversationId: result.conversationId,
+        conversationType,
+        hasCustomTitle: Boolean(opts?.title?.trim()),
+        caller: captureCallerFrames(),
+      },
+      "Materialized conversation for unseen conversation key",
+    );
   }
 
   return {
@@ -274,4 +293,21 @@ export function getOrCreateConversation(
     conversationType: result.conversationType,
     created: result.created,
   };
+}
+
+/**
+ * Compact caller summary for creation attribution: the first few stack
+ * frames above this module, joined into one log-friendly line.
+ */
+function captureCallerFrames(): string {
+  const stack = new Error().stack?.split("\n") ?? [];
+  return stack
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.startsWith("at ") && !line.includes("conversation-key-store"),
+    )
+    .slice(0, 4)
+    .join(" | ");
 }
