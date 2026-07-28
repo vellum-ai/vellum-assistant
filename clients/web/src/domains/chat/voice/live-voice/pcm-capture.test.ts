@@ -327,6 +327,23 @@ describe("lifecycle", () => {
     expect(batch[799]).toBe(7);
   });
 
+  test("observes the exact pipeline chunk before forwarding it", async () => {
+    const callbacks: string[] = [];
+    const capture = new LiveVoiceAudioCapture({
+      onCapturedChunk: (buffer) => {
+        callbacks.push(`captured:${new Int16Array(buffer)[0]}`);
+      },
+      onChunk: (buffer) => {
+        callbacks.push(`forwarded:${new Int16Array(buffer)[0]}`);
+      },
+    });
+    await capture.start();
+
+    lastWorklet!.port.emit(new Int16Array(800).fill(42).buffer);
+
+    expect(callbacks).toEqual(["captured:42", "forwarded:42"]);
+  });
+
   test("flush() emits the sub-batch tail synchronously and resets", async () => {
     const chunks: ArrayBuffer[] = [];
     const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });

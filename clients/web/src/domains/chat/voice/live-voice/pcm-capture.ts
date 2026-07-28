@@ -75,6 +75,12 @@ export type LiveVoiceCaptureResult =
 export interface LiveVoiceAudioCaptureOptions {
   /** Receives each 16 kHz mono Int16 LE PCM chunk as a transferred buffer. */
   onChunk: (buf: ArrayBuffer) => void;
+  /**
+   * Optional observer for the exact PCM chunk delivered to the live-voice
+   * pipeline. Called immediately before `onChunk`; capture observers must copy
+   * synchronously and move any processing or persistence off this callback.
+   */
+  onCapturedChunk?: (buf: ArrayBuffer) => void;
   /** Receives the smoothed RMS amplitude in [0, 1] for UI / barge-in. */
   onAmplitude?: (amplitude: number) => void;
 }
@@ -126,6 +132,7 @@ function classifyError(cause: unknown): LiveVoiceCaptureError {
  */
 export class LiveVoiceAudioCapture {
   private readonly onChunk: (buf: ArrayBuffer) => void;
+  private readonly onCapturedChunk?: (buf: ArrayBuffer) => void;
   private readonly onAmplitude?: (amplitude: number) => void;
 
   private stream: MediaStream | null = null;
@@ -145,6 +152,7 @@ export class LiveVoiceAudioCapture {
 
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
+    this.onCapturedChunk = options.onCapturedChunk;
     this.onAmplitude = options.onAmplitude;
   }
 
@@ -235,7 +243,7 @@ export class LiveVoiceAudioCapture {
     if (this.batchLength === 0) return;
     const tail = this.batch.buffer.slice(0, this.batchLength * 2);
     this.batchLength = 0;
-    this.onChunk(tail);
+    this.emitChunk(tail);
   }
 
   /** Copy a worklet quantum into the batch, emitting each full 50ms frame. */
@@ -250,9 +258,23 @@ export class LiveVoiceAudioCapture {
         this.batchLength = 0;
         const full = this.batch;
         this.batch = new Int16Array(BATCH_SAMPLES);
-        this.onChunk(full.buffer);
+        this.emitChunk(full.buffer);
       }
     }
+  }
+
+  private emitChunk(buf: ArrayBuffer): void {
+    if (this.onCapturedChunk) {
+      try {
+        this.onCapturedChunk(buf);
+      } catch (error) {
+        console.warn(
+          "[LiveVoiceAudioCapture] PCM observer failed; continuing voice capture",
+          error,
+        );
+      }
+    }
+    this.onChunk(buf);
   }
 
   /** Computes and forwards the smoothed RMS amplitude for a PCM chunk. */

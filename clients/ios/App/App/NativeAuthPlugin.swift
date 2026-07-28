@@ -93,7 +93,13 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         // authenticating against a phishing login page rendered inside the
         // system auth sheet — the sheet shows the URL, but a plausible-
         // looking URL could still fool someone.
-        guard NativeAuthPlugin.isAllowedBaseURL(baseURL) else {
+        #if DEBUG
+        let isAllowedBaseURL = NativeAuthPlugin.isAllowedBaseURL(baseURL)
+            || VoiceDemoCaptureMode.isEnabled
+        #else
+        let isAllowedBaseURL = NativeAuthPlugin.isAllowedBaseURL(baseURL)
+        #endif
+        guard isAllowedBaseURL else {
             call.reject("Refusing auth: host \(baseURL.host ?? "<nil>") does not match build target (\(NativeAuthPlugin.allowedAuthHost))")
             return
         }

@@ -217,6 +217,31 @@ breakpoint.
   an HTTP target. The placeholder `capacitor-shell/index.html` is also
   what flashes briefly before the remote URL paints.
 
+### Voice demo capture (Debug only)
+
+The iOS shell can export synchronized microphone and assistant tracks from one
+live-voice session. The implementation is compiled only in Debug builds and
+does not change the app's audio-session configuration or create another audio
+engine.
+
+1. Edit the active Debug scheme and add the launch argument
+   `-VoiceDemoCapture` (or set `VOICE_DEMO_CAPTURE=1` in the scheme
+   environment).
+2. Run on the physical device, start live voice, and complete the demo.
+3. End live voice. Finalization runs off the audio path and presents the iOS
+   share sheet automatically.
+
+To load a local web worktree on a physical device, start its Vite server on the
+LAN and run `ios:setup` with
+`VOICE_DEMO_CAPTURE_SERVER_URL=http://192.168.x.x:3178/assistant`. This
+demo-only override enables cleartext loading for the generated shell.
+
+The Xcode console prints the local archive URL. The shared zip contains a
+`voice-demo-<timestamp>/` folder with `session.json`, `alex.wav`, `pax.wav`,
+`mix.wav`, and `transcript.txt`. Audio files are 48 kHz, 32-bit float WAVs;
+`mix.wav` places Alex on the left and Pax on the right while preserving the
+common session origin and silence.
+
 ## How it's set up
 
 > **Web-side conventions for iOS code paths**: any change to the web app

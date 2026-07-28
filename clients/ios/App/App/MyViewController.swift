@@ -144,6 +144,10 @@ class MyViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeAuthPlugin())
         bridge?.registerPluginInstance(NativeBiometricPlugin())
+#if DEBUG
+        bridge?.registerPluginInstance(VoiceDemoCapturePlugin())
+        installVoiceDemoCaptureMarker()
+#endif
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
@@ -151,6 +155,24 @@ class MyViewController: CAPBridgeViewController {
         installSurfaceOverlayThemeSync()
         installQuoteReplyCapabilityMarker()
     }
+
+#if DEBUG
+    /// Advertise the demo-only capture bridge to the remote web bundle when the
+    /// launch configuration explicitly opts in. The marker is absent from
+    /// Release builds and from ordinary Debug launches.
+    private func installVoiceDemoCaptureMarker() {
+        guard VoiceDemoCaptureMode.isEnabled,
+              let contentController = webView?.configuration.userContentController
+        else { return }
+        let script = WKUserScript(
+            source: "window.__vellumVoiceDemoCaptureEnabled = true;",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(script)
+        NSLog("[voice-demo-capture] enabled for the next live voice session")
+    }
+#endif
 
     // MARK: - Self-hosted origin navigation
 
