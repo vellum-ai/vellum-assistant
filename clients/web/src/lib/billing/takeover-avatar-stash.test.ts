@@ -124,7 +124,7 @@ describe("saveTakeoverAvatarStash / readTakeoverAvatarStash", () => {
 
   // Every array here is dereferenced unconditionally while rendering, so a
   // stash missing one crashes the takeover rather than degrading.
-  const MALFORMED_COMPONENTS: Array<[string, unknown]> = [
+  const MALFORMED_COMPONENTS: Array<[string, unknown, CharacterTraits?]> = [
     ["non-object components", "not-an-object"],
     ["a non-array bodyShapes", { ...BUNDLED_COMPONENTS, bodyShapes: "nope" }],
     ["a non-array eyeStyles", { ...BUNDLED_COMPONENTS, eyeStyles: "nope" }],

@@ -319,7 +319,7 @@ function hasEntryWithId(entries: unknown[], id: string): boolean {
 function isNonEmptyArrayOf(
   value: unknown,
   guard: (entry: unknown) => boolean,
-): boolean {
+): value is unknown[] {
   return Array.isArray(value) && value.length > 0 && value.every(guard);
 }
 
