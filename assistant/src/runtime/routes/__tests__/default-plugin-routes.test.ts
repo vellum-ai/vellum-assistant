@@ -41,10 +41,6 @@ const DEFAULT_PLUGIN_DIR = "platform-hosted";
 /** Its route namespace = `default-<dir>` by convention. */
 const DEFAULT_PLUGIN = `default-${DEFAULT_PLUGIN_DIR}`;
 
-function makeDispatcher(): UserRouteDispatcher {
-  return new UserRouteDispatcher();
-}
-
 /** Create a workspace plugin dir; returns its `routes/` dir. Cleaned up per test. */
 function writeWorkspacePluginHandler(
   pluginName: string,
@@ -136,7 +132,7 @@ describe("default plugin route source resolution", () => {
 
 describe("default plugin route dispatch", () => {
   test("serves the default plugin's source route (GET on a POST-only handler → 405)", async () => {
-    const dispatcher = makeDispatcher();
+    const dispatcher = new UserRouteDispatcher();
     const response = await dispatcher.dispatch(
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
@@ -162,7 +158,7 @@ describe("default plugin route dispatch", () => {
       listPluginRouteRoots().some((r) => r.pluginName === DEFAULT_PLUGIN),
     ).toBe(false);
 
-    const dispatcher = makeDispatcher();
+    const dispatcher = new UserRouteDispatcher();
     const response = await dispatcher.dispatch(
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
@@ -184,7 +180,7 @@ describe("default plugin route dispatch", () => {
       join(getWorkspacePluginsDir(), DEFAULT_PLUGIN, "routes"),
     );
 
-    const dispatcher = makeDispatcher();
+    const dispatcher = new UserRouteDispatcher();
     const response = await dispatcher.dispatch(
       `plugins/${DEFAULT_PLUGIN}/reengage`,
       new Request(`http://localhost/v1/x/plugins/${DEFAULT_PLUGIN}/reengage`, {
@@ -214,7 +210,7 @@ describe("default plugin route dispatch", () => {
     expect(resolveHandlerFile(routesDir, "poison.test")).toBeNull();
     expect(resolveHandlerFile(routesDir, "__tests__/poison")).toBeNull();
 
-    const dispatcher = makeDispatcher();
+    const dispatcher = new UserRouteDispatcher();
     for (const path of ["poison.test", "__tests__/poison"]) {
       const response = await dispatcher.dispatch(
         `plugins/${DEFAULT_PLUGIN}/${path}`,

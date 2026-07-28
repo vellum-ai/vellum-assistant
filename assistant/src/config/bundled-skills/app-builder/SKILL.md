@@ -314,7 +314,7 @@ export async function POST(req: Request): Promise<Response> {
 }
 ```
 
-To reach daemon capabilities, import from `@vellumai/plugin-api` — e.g. `import { publishEvent } from "@vellumai/plugin-api"`, then `publishEvent({...})` to push real-time events to connected clients (UI updates, navigation, notifications). Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
+To reach daemon capabilities, import from `@vellumai/plugin-api` — `publishEvent({...})` to push real-time events to connected clients (UI updates, navigation, notifications), or `runConversationTurn({...})` to post an inbound event into a conversation as a real assistant turn. (An older `context` second argument still works in-process but is deprecated — prefer these imports.) Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
 
 **Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic.
 

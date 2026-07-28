@@ -14,11 +14,17 @@
  *   each other.
  *
  * Each handler file exports named functions for HTTP methods (GET, POST, PUT,
- * etc.) using the standard Web API Request/Response signature. A handler
- * receives only the `Request`; to reach daemon state it imports
- * `@vellumai/plugin-api` (e.g. `publishEvent`), which brokers process-safe
- * access — so a handler behaves identically whether it runs in-process or in
- * the route-host subprocess.
+ * etc.) using the standard Web API Request/Response signature. New handlers
+ * reach daemon capabilities by importing `@vellumai/plugin-api` (e.g.
+ * `publishEvent`, `runConversationTurn`), which broker process-safe access — so
+ * a handler behaves identically in-process and in the route-host subprocess.
+ *
+ * For backward compatibility, the in-process path still passes a **deprecated**
+ * `context` second argument (see `deprecated-route-context.ts`): a thin shim
+ * over those same plugin-api calls that records a deprecation-usage telemetry
+ * signal so remaining callers can be found and migrated. The route-host path
+ * does not supply it. The argument is transitional and removed once telemetry
+ * shows no route depends on it.
  *
  * Modules are lazily loaded on first request and cached by file path +
  * mtime. When a file changes on disk, the next request reloads it via
@@ -36,6 +42,10 @@ import {
 } from "../../routes/route-host-client.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
+import {
+  buildDeprecatedRouteContext,
+  type UserRouteContext,
+} from "./deprecated-route-context.js";
 import {
   resolveHandlerFile,
   resolveRouteLocation,
@@ -61,12 +71,16 @@ const HTTP_METHODS = [
 type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /**
- * The function signature that user-defined route handlers must follow: a
- * standard Web API handler taking the `Request` and returning a `Response`.
- * Daemon state is reached through `@vellumai/plugin-api`, not an injected
- * argument.
+ * The function signature that user-defined route handlers must follow. New
+ * handlers take just the `Request` and reach daemon state through
+ * `@vellumai/plugin-api`. A deprecated `context` second argument is still passed
+ * on the in-process path for backward compatibility (see
+ * `deprecated-route-context.ts`); handlers that omit the parameter ignore it.
  */
-type RouteHandler = (request: Request) => Response | Promise<Response>;
+type RouteHandler = (
+  request: Request,
+  context: UserRouteContext,
+) => Response | Promise<Response>;
 
 /** A loaded handler module with its cached metadata. */
 interface CachedModule {
@@ -267,7 +281,9 @@ export class UserRouteDispatcher {
   ): Promise<Response> {
     try {
       const result = await Promise.race([
-        Promise.resolve(handler(request)),
+        Promise.resolve(
+          handler(request, buildDeprecatedRouteContext(routePath)),
+        ),
         new Promise<never>((_, reject) =>
           setTimeout(
             () => reject(new Error("Handler timed out")),

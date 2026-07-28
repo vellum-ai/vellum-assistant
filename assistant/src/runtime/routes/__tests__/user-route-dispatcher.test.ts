@@ -403,23 +403,42 @@ describe("description metadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("handler signature", () => {
-  test("invokes the handler with only the request", async () => {
+  test("passes the request and the deprecated context shim", async () => {
     writeHandler(
-      "req-only.ts",
-      `export function GET(request) {
+      "ctx-shape.ts",
+      `export function GET(request, context) {
         return Response.json({
           argCount: arguments.length,
           method: request.method,
+          hasPublish: typeof context?.assistantEventHub?.publish === "function",
+          hasPostMessage:
+            typeof context?.conversations?.postMessage === "function",
         });
+      }`,
+    );
+
+    const dispatcher = makeDispatcher();
+    const res = await dispatcher.dispatch("ctx-shape", makeRequest("GET"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.argCount).toBe(2);
+    expect(body.method).toBe("GET");
+    expect(body.hasPublish).toBe(true);
+    expect(body.hasPostMessage).toBe(true);
+  });
+
+  test("a handler that ignores the context still works", async () => {
+    writeHandler(
+      "req-only.ts",
+      `export function GET(request) {
+        return Response.json({ ok: true, method: request.method });
       }`,
     );
 
     const dispatcher = makeDispatcher();
     const res = await dispatcher.dispatch("req-only", makeRequest("GET"));
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.argCount).toBe(1);
-    expect(body.method).toBe("GET");
+    expect((await res.json()).ok).toBe(true);
   });
 });
 
