@@ -20,7 +20,7 @@ export interface PlanPromoCardProps {
 }
 
 /**
- * The dark "promo" card in the billing "Plan" section — a centered title, an
+ * The dark "promo" card in the billing "Plan" section: a centered title, an
  * optional row of spec chips, and a single CTA. Purely presentational: the
  * parent owns the copy, the specs, the pending/disabled state, and the CTA
  * behavior. The forced `data-theme="dark"` scope resolves the semantic tokens

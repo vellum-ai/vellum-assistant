@@ -398,7 +398,7 @@ function renderCardDom(
   return host;
 }
 
-/** The current-plan card — PlanSpecCard's forced light scope. */
+/** The current-plan card: PlanSpecCard's forced light scope. */
 function currentCard(host: HTMLElement): HTMLElement {
   const card = host.querySelector<HTMLElement>('[data-theme="light"]');
   if (!card) {
@@ -407,7 +407,7 @@ function currentCard(host: HTMLElement): HTMLElement {
   return card;
 }
 
-/** The recommended card — PlanPromoCard's forced dark scope. */
+/** The recommended card: PlanPromoCard's forced dark scope. */
 function promoCard(host: HTMLElement): HTMLElement {
   const card = host.querySelector<HTMLElement>('[data-theme="dark"]');
   if (!card) {
@@ -545,7 +545,7 @@ describe("PlanCard", () => {
       expect(current.queryByText(label)).toBeNull();
     }
     // The recommended (Mighty) promo card shows "Upgrade to Mighty" plus the
-    // package's spec chips — and carries no tag.
+    // package's spec chips, and carries no tag.
     const promo = within(promoCard(host));
     expect(promo.getByText("Upgrade to Mighty")).toBeTruthy();
     for (const label of MIGHTY_CHIPS) {

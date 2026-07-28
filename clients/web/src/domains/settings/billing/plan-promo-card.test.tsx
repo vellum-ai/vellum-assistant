@@ -1,6 +1,6 @@
 /**
  * Tests for PlanPromoCard: the dark, layout-only "promo" card in the billing
- * Plan section — a centered title, an optional spec-chip row, and a single CTA.
+ * Plan section: a centered title, an optional spec-chip row, and a single CTA.
  * Verifies it renders the title, the chip labels, and the CTA label; omits the
  * chip row when no specs are passed; fires `onCtaClick` on click; shows the
  * pending spinner and blocks the click while pending; and forces the dark
