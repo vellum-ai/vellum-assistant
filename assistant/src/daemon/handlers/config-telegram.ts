@@ -252,7 +252,7 @@ export async function setTelegramConfig(
   // Register the Telegram callback route so the platform knows how to
   // forward Telegram webhooks. This applies whenever webhooks are delivered
   // via managed callbacks: platform pods, and platform-connected local
-  // assistants with no public ingress — for both, platform callbacks are the
+  // assistants with no public ingress. For both, platform callbacks are the
   // only way to receive Telegram webhooks. `hasWebhookRoutingConfigured`
   // encodes the resolution order (a configured ingress wins; an explicit
   // `ingress.enabled: false` blocks the platform fallback) and is the same

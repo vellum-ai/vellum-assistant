@@ -155,9 +155,10 @@ describe("Telegram config handler", () => {
     expect(oauthConnectionStore["telegram"]?.accountInfo).toBe("@testbot");
   });
 
-  // The bug (LUM-2891): registration was gated on IS_PLATFORM, which is only
-  // true on platform pods, so a platform-connected local assistant never
-  // registered the route and Telegram webhooks were never forwarded.
+  // A platform-connected local assistant (IS_PLATFORM unset, valid platform
+  // credentials, no public ingress) receives Telegram webhooks only through
+  // managed platform callbacks, so saving the bot token must register the
+  // route.
   test("set registers the platform callback route for a platform-connected local assistant", async () => {
     platformContextEnabled = true;
     globalThis.fetch = mockTelegramApi();
