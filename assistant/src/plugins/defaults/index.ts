@@ -24,10 +24,6 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
-import historyRepairPostModelCall from "../../agent/history-repair/hooks/post-model-call.js";
-import historyRepairStop from "../../agent/history-repair/hooks/stop.js";
-import historyRepairUserPromptSubmit from "../../agent/history-repair/hooks/user-prompt-submit.js";
-import { resetRepairStateStoreForTests } from "../../agent/history-repair/repair-state-store.js";
 import {
   clearInjectorRegistry,
   registerPluginInjectors,
@@ -304,34 +300,6 @@ export const defaultPlatformHostedPlugin: Plugin = {
 };
 
 /**
- * `history-repair` — built-in daemon logic (implemented under
- * `src/agent/history-repair/`, not a `plugins/defaults/` directory), registered
- * here as a bundled default so its hooks compose in the pipeline at the right
- * point: `user-prompt-submit` must normalize after memory injection but before
- * any user plugin sees the history, and `post-model-call` must interleave with
- * the other rejection-recovery defaults. It is a directory-less built-in — see
- * `DIRECTORYLESS_BUILTIN_DEFAULT_NAMES` in `defaults/main.ts`.
- *
- * Normalizes the working message history (tool-use/tool-result pairing, role
- * alternation). The `user-prompt-submit` hook normalizes the history before
- * each provider call; the `post-model-call` hook handles the provider rejection
- * where the call failed on an ordering violation, deep-repairing the history
- * and asking the loop to retry; the `stop` hook clears the one-shot repair
- * bound on a terminal stop so the next turn repairs afresh.
- */
-export const defaultHistoryRepairPlugin: Plugin = {
-  manifest: {
-    name: "default-history-repair",
-    version: "1.0.0",
-  },
-  hooks: {
-    "user-prompt-submit": historyRepairUserPromptSubmit,
-    "post-model-call": historyRepairPostModelCall,
-    stop: historyRepairStop,
-  },
-};
-
-/**
  * `image-recovery` — recovers from a provider image-too-large rejection. The
  * `post-model-call` hook handles the rejection, downscaling the oversized image
  * blocks in the working history and asking the loop to retry, and persisting
@@ -494,7 +462,6 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultExplorationDriftPlugin,
     defaultTaskProgressNudgePlugin,
     defaultSurfaceCompletionNudgePlugin,
-    defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
@@ -560,7 +527,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   resetEmptyResponseNudgeStoreForTests();
   resetMaxTokensContinueStoreForTests();
-  resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();

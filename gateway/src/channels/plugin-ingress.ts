@@ -178,8 +178,18 @@ export function discoverPluginIngress(
     try {
       // statSync rather than Dirent.isDirectory so plugins installed as
       // symlinked roots are seen, matching the assistant's own plugin scan.
-      if (!statSync(pluginDir).isDirectory()) continue;
+      if (!statSync(pluginDir).isDirectory()) {
+        continue;
+      }
     } catch {
+      continue;
+    }
+
+    // A directory only counts as a plugin when it carries a package.json,
+    // the same gate the assistant's scan applies. Without it a symlink to
+    // any directory holding an ingress manifest would hold public routes
+    // for something the assistant never loads.
+    if (!existsSync(join(pluginDir, "package.json"))) {
       continue;
     }
 
@@ -192,10 +202,14 @@ export function discoverPluginIngress(
       continue;
     }
 
-    if (existsSync(join(pluginDir, ".disabled"))) continue;
+    if (existsSync(join(pluginDir, ".disabled"))) {
+      continue;
+    }
 
     const manifestPath = join(pluginDir, PLUGIN_INGRESS_MANIFEST_RELPATH);
-    if (!existsSync(manifestPath)) continue;
+    if (!existsSync(manifestPath)) {
+      continue;
+    }
 
     let raw: unknown;
     try {

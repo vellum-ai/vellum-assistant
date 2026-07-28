@@ -196,9 +196,9 @@ describe("listAllPlugins", () => {
   test("includes default plugins with source=default", () => {
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
     const defaults = result.filter((p) => p.source === "default");
-    // Every directory-backed default plugin should be present. `history-repair`
-    // is a directory-less built-in (its code lives under `src/agent/`), so it is
-    // not listed here even though it is a registered default behavior.
+    // Every default plugin should be present. History repair is not one — it is
+    // daemon logic invoked directly at its agent-loop call sites (see
+    // `src/agent/history-repair/`), not a registered plugin.
     expect(defaults.length).toBe(19);
     // Names should all start with "default-".
     expect(defaults.every((p) => p.name.startsWith("default-"))).toBe(true);

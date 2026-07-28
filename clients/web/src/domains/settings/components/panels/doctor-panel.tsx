@@ -53,6 +53,7 @@ import {
 } from "@/generated/api/sdk.gen";
 import type { AssistantsDoctorSessionsCreateData } from "@/generated/api/types.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { ApiError, extractErrorMessage } from "@/utils/api-errors";
@@ -77,9 +78,9 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
 
   const handleCopy = useCallback(() => {
     const text = serializeSessionToText(entries);
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy the session.",
+      onCopied: () => {
         setCopied(true);
         if (timerRef.current) {
           clearTimeout(timerRef.current);
@@ -88,8 +89,8 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
           setCopied(false);
           timerRef.current = null;
         }, 1500);
-      })
-      .catch(() => {});
+      },
+    });
   }, [entries]);
 
   return (

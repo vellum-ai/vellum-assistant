@@ -72,7 +72,7 @@ export function handleSubagentEvent(
       ? event.conversationId
       : undefined,
   });
-  // Don't stamp the parent conversation id onto a stub on a pre-0.10.13
+  // Don't stamp the parent conversation id onto a stub on a pre-0.11.0
   // daemon: it would arm the detail auto-fetch with an id the old daemon
   // trusts verbatim, backfilling the PARENT conversation's messages as the
   // subagent's. Known entries keep the historical behavior.

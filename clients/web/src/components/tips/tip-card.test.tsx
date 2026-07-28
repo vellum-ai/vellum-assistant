@@ -110,7 +110,7 @@ describe("TipCard", () => {
     expect(onNextTip).toHaveBeenCalledTimes(1);
   });
 
-  test("disables the back chevron on the first tip and forward on the last", () => {
+  test("disables the back chevron on the first tip; forward stays enabled to wrap", () => {
     const first = renderCard(LINKED_TIP, { carouselIndex: 0, carouselCount: 4 });
     expect(
       first.getByLabelText("Previous tip").hasAttribute("disabled"),
@@ -124,7 +124,9 @@ describe("TipCard", () => {
     expect(last.getByLabelText("Previous tip").hasAttribute("disabled")).toBe(
       false,
     );
-    expect(last.getByLabelText("Next tip").hasAttribute("disabled")).toBe(true);
+    expect(last.getByLabelText("Next tip").hasAttribute("disabled")).toBe(
+      false,
+    );
   });
 
   test("renders one dot per tip up to the window, then caps at five", () => {
