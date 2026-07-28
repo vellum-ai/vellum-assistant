@@ -1,4 +1,10 @@
+import { z } from "zod";
+
 import { RiskLevel } from "../../permissions/types.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -52,6 +58,26 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
   camera: "Camera",
 };
 
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below. `activity`
+ * is advertised-required purely to guide the model (it is shown in the
+ * prompt UI, never read here), so it stays runtime-optional via
+ * `advertiseRequired`.
+ */
+export const requestSystemPermissionInputSchema = z.looseObject({
+  permission_type: z
+    .enum(PERMISSION_TYPES)
+    .describe("The macOS system permission to request"),
+  activity: z
+    .string()
+    .describe(
+      "Short explanation of why this permission is needed (shown in the prompt)",
+    )
+    .optional()
+    .catch(undefined),
+});
+
 export const requestSystemPermissionTool = {
   name: "request_system_permission",
   description:
@@ -62,39 +88,22 @@ export const requestSystemPermissionTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.High,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      permission_type: {
-        type: "string",
-        enum: [...PERMISSION_TYPES],
-        description: "The macOS system permission to request",
-      },
-      activity: {
-        type: "string",
-        description:
-          "Short explanation of why this permission is needed (shown in the prompt)",
-      },
-    },
-    required: ["permission_type", "activity"],
-  },
+  input_schema: toToolInputSchema(requestSystemPermissionInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     _context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const permType = input.permission_type as string;
-    if (!PERMISSION_TYPES.includes(permType as PermissionType)) {
-      return {
-        content: `Error: unknown permission type "${permType}". Valid types: ${PERMISSION_TYPES.join(
-          ", ",
-        )}`,
-        isError: true,
-      };
+    const parsed = requestSystemPermissionInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("request_system_permission", parsed.error);
     }
+    const permType = parsed.data.permission_type;
 
-    const friendly = FRIENDLY_NAMES[permType as PermissionType];
-    const settingsUrl = SETTINGS_URLS[permType as PermissionType];
+    const friendly = FRIENDLY_NAMES[permType];
+    const settingsUrl = SETTINGS_URLS[permType];
 
     return {
       content: [

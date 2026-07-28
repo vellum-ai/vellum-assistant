@@ -37,6 +37,10 @@ import {
   activeSttStreamSessions,
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
+import {
+  startTelegramWebhookHealthSweep,
+  stopTelegramWebhookHealthSweep,
+} from "../telegram/webhook-health.js";
 import { getLogger } from "../util/logger.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
@@ -504,11 +508,15 @@ export class RuntimeHttpServer {
 
     startInferenceProfileSessionReaper();
     log.info("Inference profile session reaper started");
+
+    startTelegramWebhookHealthSweep();
+    log.info("Telegram webhook health sweep started");
   }
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
+    stopTelegramWebhookHealthSweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;

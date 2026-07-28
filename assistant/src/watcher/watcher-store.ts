@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { watcherEvents, watchers } from "../persistence/schema/index.js";
 import { truncate } from "../util/truncate.js";
@@ -158,6 +159,13 @@ export function deleteWatcher(id: string): boolean {
  * to 'polling' using optimistic locking on the current nextPollAt.
  */
 export function claimDueWatchers(now: number): Watcher[] {
+  // Drain gate: while a quiesce lease is active, claim nothing — a watcher
+  // poll runs provider requests that create no row the drain snapshot can
+  // see, so it must not start at all. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = getDb();
   const candidates = db
     .select()

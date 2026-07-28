@@ -228,7 +228,7 @@ async function runViaCli(
   // corrupt) — the durability posture every daemon write already has, so
   // FULL here buys no end-to-end guarantee. Prepended to the piped SQL so
   // both take effect before the statement runs.
-  const sqlWithPragma = `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS};\nPRAGMA synchronous=NORMAL;\n${sql}`;
+  const sqlWithPragma = `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS};\nPRAGMA synchronous=NORMAL;\nPRAGMA journal_mode=WAL;\n${sql}`;
 
   // Write the SQL and close stdin so sqlite3 sees EOF and exits.
   proc.stdin.write(sqlWithPragma + "\n");

@@ -7,7 +7,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolContext } from "../tools/types.js";
@@ -81,15 +88,34 @@ describe("file_read tool (sandbox)", () => {
     expect(result.content).toContain("is a directory");
   });
 
-  test("rejects path traversal outside working dir", async () => {
+  test("reads a file outside the workspace boundary (non-containerized)", async () => {
     const dir = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "escape.txt");
+    writeFileSync(target, "outside content");
 
     const result = await fileReadTool.execute(
-      { path: "../../../etc/passwd" },
+      { path: target },
       makeContext(dir),
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("outside the working directory");
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("outside content");
+  });
+
+  test("rejects path traversal outside working dir when containerized", async () => {
+    const dir = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+    try {
+      const result = await fileReadTool.execute(
+        { path: "../../../etc/passwd" },
+        makeContext(dir),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("outside the working directory");
+    } finally {
+      delete process.env.IS_CONTAINERIZED;
+    }
   });
 });
 
@@ -166,22 +192,48 @@ describe("file_read image support", () => {
     expect(result.content).toContain("file not found");
   });
 
-  test("blocks image path traversal outside working dir", async () => {
+  test("reads an image outside the workspace boundary (non-containerized)", async () => {
     const dir = makeTempDir();
+    const outside = makeTempDir();
+    writeFileSync(join(outside, "photo.jpg"), JPEG_HEADER);
 
     const result = await fileReadTool.execute(
-      { path: "../../etc/secret.png" },
+      { path: join(outside, "photo.jpg") },
       makeContext(dir),
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("outside the working directory");
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Image loaded");
+  });
+
+  test("blocks image path traversal outside working dir when containerized", async () => {
+    const dir = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+    try {
+      const result = await fileReadTool.execute(
+        { path: "../../etc/secret.png" },
+        makeContext(dir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("outside the working directory");
+    } finally {
+      delete process.env.IS_CONTAINERIZED;
+    }
   });
 });
 
-// ── Out-of-bounds hint for host_file_read ─────────────────────────────
+// ── Out-of-bounds hint for host_file_read (containerized) ─────────────
 
 describe("file_read out-of-bounds hint", () => {
+  beforeEach(() => {
+    process.env.IS_CONTAINERIZED = "true";
+  });
+
+  afterEach(() => {
+    delete process.env.IS_CONTAINERIZED;
+  });
+
   test("suggests host_file_read for out-of-bounds text file path", async () => {
     const dir = makeTempDir();
 

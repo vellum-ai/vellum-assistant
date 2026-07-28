@@ -12,11 +12,11 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -537,7 +537,7 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../agent/history-repair/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -804,7 +804,16 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: () => {},
+    drainQueue: (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,

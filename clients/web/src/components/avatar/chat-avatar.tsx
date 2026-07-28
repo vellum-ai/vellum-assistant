@@ -22,39 +22,6 @@ export interface ChatAvatarProps {
   originAnchor?: boolean;
 }
 
-/** Ring geometry. Thickness is a fixed 1px hairline; gap scales with size. */
-const RING_THICKNESS = 1; // border thickness in px
-const RING_GAP_RATIO = 0.04; // gap between avatar edge and ring inner edge / size
-
-/**
- * Spinning semicircular ring traced just outside the avatar's circular edge,
- * shown while the assistant is streaming/loading. Only used for custom
- * uploaded-image avatars — character avatars already signal streaming through
- * their morph animation. The arc + rotation live in CSS (`.avatar-streaming-ring`);
- * thickness/inset are inline so the ring scales with `size`. It sits in a gap
- * outside the image (negative inset) so it reads as a ring around the avatar
- * rather than covering the picture.
- */
-function AvatarStreamingRing({ size }: { size: number }) {
-  const thickness = RING_THICKNESS;
-  const gap = Math.max(1, Math.round(size * RING_GAP_RATIO));
-  const inset = -(thickness + gap);
-  return (
-    <span
-      aria-hidden="true"
-      className="avatar-streaming-ring pointer-events-none absolute"
-      style={{
-        top: inset,
-        right: inset,
-        bottom: inset,
-        left: inset,
-        borderWidth: thickness,
-        boxSizing: "border-box",
-      }}
-    />
-  );
-}
-
 /**
  * Displays the assistant's avatar in chat messages.
  *
@@ -68,9 +35,9 @@ function AvatarStreamingRing({ size }: { size: number }) {
  *   - Mount plays an entrance spring (scale 0.6 → 1, opacity 0 → 1).
  *   - When `interactive`, click triggers a spring bounce.
  *   - `prefers-reduced-motion` short-circuits both.
- *   - For custom uploaded-image avatars, a spinning semicircular ring traces
- *     just outside the avatar's edge while `isAssistantBusy` is on
- *     (character avatars already signal streaming via their morph animation).
+ *   - `isAssistantBusy` only affects character avatars, which signal streaming
+ *     via their morph animation. Custom uploaded images stay static — the
+ *     transcript's thinking indicator carries that state instead.
  */
 function ChatAvatarComponent({
   components,
@@ -175,7 +142,6 @@ function ChatAvatarComponent({
           className={`rounded-full object-cover ${className ?? ""}`}
           style={{ width: size, height: size, flexShrink: 0 }}
         />
-        {isAssistantBusy && <AvatarStreamingRing size={size} />}
       </motion.div>
     );
   }

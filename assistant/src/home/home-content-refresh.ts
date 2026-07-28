@@ -14,8 +14,7 @@
  * (4 hours each) bound how often a regeneration can happen.
  */
 
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { refreshPersonalizedGreeting } from "./home-greeting.js";
 import { refreshAssistantSuggestedPrompts } from "./suggested-prompts.js";
@@ -34,13 +33,11 @@ async function revalidateAll(): Promise<void> {
     return;
   }
 
-  await assistantEventHub.publish(
-    buildAssistantEvent({
-      type: "home_feed_updated",
-      updatedAt: new Date().toISOString(),
-      newItemCount: 0,
-    }),
-  );
+  broadcastMessage({
+    type: "home_feed_updated",
+    updatedAt: new Date().toISOString(),
+    newItemCount: 0,
+  });
 }
 
 /**

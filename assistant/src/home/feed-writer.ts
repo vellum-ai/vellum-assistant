@@ -37,8 +37,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import {
@@ -523,15 +522,9 @@ function compareFeedItems(a: FeedItem, b: FeedItem): number {
  * writer coalescing loop.
  */
 function publishHomeFeedUpdated(updatedAt: string, newItemCount: number): void {
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "home_feed_updated",
-        updatedAt,
-        newItemCount,
-      }),
-    )
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish home_feed_updated event");
-    });
+  broadcastMessage({
+    type: "home_feed_updated",
+    updatedAt,
+    newItemCount,
+  });
 }

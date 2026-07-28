@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
@@ -6,16 +6,11 @@ import type {
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
 import { FALLBACK_ESCALATION_BRIDGE } from "../../calls/voice-triage-escalate.js";
-import {
-  clearCachedOverrides,
-  setCachedOverrides,
-} from "../../config/feature-flag-cache.js";
 import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import { pickAckPhrase } from "../ack-phrases.js";
 import type {
   VoiceAckTextInput,
   VoiceFrontDecider,
@@ -763,21 +758,22 @@ describe("LiveVoiceSession TTS", () => {
 });
 
 describe("LiveVoiceSession spoken ack", () => {
-  afterEach(() => clearCachedOverrides());
-
   const ACK_TIMEOUT_MS = 40;
-  // The ack passes through the same TTS sanitizer as regular segments.
-  const EXPECTED_ACK = sanitizeForTts(pickAckPhrase("first_delta", 0)).trim();
+  // Every ack is front-model-phrased; the generated text passes through the
+  // same TTS sanitizer as regular segments.
+  const GENERATED_ACK = "Sure — one moment.";
+  const EXPECTED_ACK = sanitizeForTts(GENERATED_ACK).trim();
 
   const EXPECTED_BRIDGE = sanitizeForTts(FALLBACK_ESCALATION_BRIDGE).trim();
 
-  function enableEscalation(): void {
-    setCachedOverrides(
-      {
-        "voice-mode": true,
-      },
-      { fromGateway: true },
-    );
+  function makeStubFrontDecider(
+    generateAckText: VoiceFrontDecider["generateAckText"] = async () =>
+      GENERATED_ACK,
+  ): VoiceFrontDecider {
+    return {
+      generateAckText,
+      generateProgressText: async () => null,
+    };
   }
 
   function createCapturingTurnStarter(): {
@@ -812,6 +808,7 @@ describe("LiveVoiceSession spoken ack", () => {
       startVoiceTurn,
       streamTtsAudio,
       frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+      frontDecider: makeStubFrontDecider(),
     });
 
     await startReleasedTurn(session);
@@ -908,6 +905,7 @@ describe("LiveVoiceSession spoken ack", () => {
       startVoiceTurn,
       streamTtsAudio,
       frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
+      frontDecider: makeStubFrontDecider(),
     });
 
     await startReleasedTurn(session);
@@ -938,17 +936,7 @@ describe("LiveVoiceSession spoken ack", () => {
     });
   });
 
-  function makeStubFrontDecider(
-    generateAckText: VoiceFrontDecider["generateAckText"],
-  ): VoiceFrontDecider {
-    return {
-      decideEndpoint: async () => ({ action: "release" }),
-      generateAckText,
-      generateProgressText: async () => null,
-    };
-  }
-
-  test("llmAckText on: speaks the front-model-phrased ack", async () => {
+  test("speaks the front-model-phrased ack", async () => {
     const GENERATED = "Sure — one moment.";
     // The generated text passes through the same TTS sanitizer as the
     // static phrase.
@@ -964,7 +952,6 @@ describe("LiveVoiceSession spoken ack", () => {
       streamTtsAudio,
       frontModelConfig: {
         ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
-        llmAckText: true,
       },
       frontDecider: makeStubFrontDecider(generateAckText),
     });
@@ -980,7 +967,7 @@ describe("LiveVoiceSession spoken ack", () => {
     expect(ttsTexts).toEqual([EXPECTED_GENERATED, "Hello there."]);
   });
 
-  test("llmAckText on: null generation falls back to the static phrase", async () => {
+  test("a null generation speaks no ack at all", async () => {
     const generateAckText = mock(async () => null);
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
     const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
@@ -989,43 +976,46 @@ describe("LiveVoiceSession spoken ack", () => {
       streamTtsAudio,
       frontModelConfig: {
         ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
-        llmAckText: true,
       },
       frontDecider: makeStubFrontDecider(generateAckText),
     });
 
     await startReleasedTurn(session);
-    await waitFor(() => ttsTexts.length === 1);
-    expect(ttsTexts).toEqual([EXPECTED_ACK]);
-    expect(generateAckText).toHaveBeenCalledTimes(1);
+    await waitFor(() => generateAckText.mock.calls.length === 1);
+    await flushAsyncCallbacks();
+
+    // There is no canned fallback: an unusable generation leaves the floor
+    // silent until the model's own audio arrives.
+    expect(ttsTexts).toEqual([]);
+    expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
 
     getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
     getCallbacks()?.message_complete?.(makeMessageComplete());
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual(["Hello there."]);
   });
 
-  test("llmAckText off (default): the decider is never consulted", async () => {
-    const generateAckText = mock(async () => "Never spoken.");
+  test("without a decider no ack is spoken", async () => {
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
     const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
     const { frames, session } = createSessionHarness({
       startVoiceTurn,
       streamTtsAudio,
       frontModelConfig: { ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS },
-      frontDecider: makeStubFrontDecider(generateAckText),
+      frontDecider: null,
     });
 
     await startReleasedTurn(session);
-    await waitFor(() => ttsTexts.length === 1);
-    expect(ttsTexts).toEqual([EXPECTED_ACK]);
-    expect(generateAckText).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, ACK_TIMEOUT_MS + 40));
+    expect(ttsTexts).toEqual([]);
 
     getCallbacks()?.assistant_text_delta?.(makeTextDelta("Hello there."));
     getCallbacks()?.message_complete?.(makeMessageComplete());
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(ttsTexts).toEqual(["Hello there."]);
   });
 
-  test("llmAckText on: a generation resolving around turn completion speaks no ack", async () => {
+  test("a generation resolving around turn completion speaks no ack", async () => {
     let resolveGeneration!: (text: string | null) => void;
     const generateAckText = mock(
       () =>
@@ -1040,7 +1030,6 @@ describe("LiveVoiceSession spoken ack", () => {
       streamTtsAudio,
       frontModelConfig: {
         ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
-        llmAckText: true,
       },
       frontDecider: makeStubFrontDecider(generateAckText),
     });
@@ -1062,7 +1051,7 @@ describe("LiveVoiceSession spoken ack", () => {
     expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
   });
 
-  test("llmAckText on: a tool-use ack passes the tool name to the decider", async () => {
+  test("a tool-use ack passes the tool name to the decider", async () => {
     const GENERATED = "Let me search for that.";
     const generateAckText = mock(
       async (_input: VoiceAckTextInput) => GENERATED,
@@ -1073,7 +1062,7 @@ describe("LiveVoiceSession spoken ack", () => {
       startVoiceTurn,
       streamTtsAudio,
       // Long first-delta budget so only the tool-use trigger can speak.
-      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000, llmAckText: true },
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000 },
       frontDecider: makeStubFrontDecider(generateAckText),
     });
 
@@ -1093,8 +1082,7 @@ describe("LiveVoiceSession spoken ack", () => {
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
   });
 
-  test("llmAckText on: a generation resolving after escalation hand-off speaks no ack", async () => {
-    enableEscalation();
+  test("a generation resolving after escalation hand-off speaks no ack", async () => {
     let resolveGeneration!: (text: string | null) => void;
     const generateAckText = mock(
       () =>
@@ -1109,7 +1097,6 @@ describe("LiveVoiceSession spoken ack", () => {
       streamTtsAudio,
       frontModelConfig: {
         ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
-        llmAckText: true,
       },
       frontDecider: makeStubFrontDecider(generateAckText),
     });
@@ -1139,8 +1126,7 @@ describe("LiveVoiceSession spoken ack", () => {
     expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
   });
 
-  test("static ack: a tool started on the escalated leg speaks nothing past the bridge", async () => {
-    enableEscalation();
+  test("a tool started on the escalated leg speaks nothing past the bridge", async () => {
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
     const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
     const { frames, session } = createSessionHarness({
@@ -1171,8 +1157,7 @@ describe("LiveVoiceSession spoken ack", () => {
     expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
   });
 
-  test("llmAckText on: tools started on the escalated leg trigger no ack generation", async () => {
-    enableEscalation();
+  test("tools started on the escalated leg trigger no ack generation", async () => {
     const generateAckText = mock(async () => "Never spoken.");
     const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
     const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
@@ -1180,7 +1165,7 @@ describe("LiveVoiceSession spoken ack", () => {
       startVoiceTurn,
       streamTtsAudio,
       // Long first-delta budget so only the tool-use trigger could generate.
-      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000, llmAckText: true },
+      frontModelConfig: { ackFirstDeltaTimeoutMs: 5_000 },
       frontDecider: makeStubFrontDecider(generateAckText),
     });
 
@@ -1206,7 +1191,7 @@ describe("LiveVoiceSession spoken ack", () => {
     expect(ttsTexts).toEqual([EXPECTED_BRIDGE, "Here is the careful answer."]);
   });
 
-  test("llmAckText on: a first delta during generation skips the ack entirely", async () => {
+  test("a first delta during generation skips the ack entirely", async () => {
     let resolveGeneration!: (text: string | null) => void;
     const generateAckText = mock(
       () =>
@@ -1221,7 +1206,6 @@ describe("LiveVoiceSession spoken ack", () => {
       streamTtsAudio,
       frontModelConfig: {
         ackFirstDeltaTimeoutMs: ACK_TIMEOUT_MS,
-        llmAckText: true,
       },
       frontDecider: makeStubFrontDecider(generateAckText),
     });

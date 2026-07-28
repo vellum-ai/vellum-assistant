@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { useReducedMotion } from "motion/react";
 
+import { recordUpdate } from "@/lib/commit-pressure";
+
 /**
  * Fraction-per-frame drain: each frame reveals the share of the outstanding
  * backlog that a `1 - e^(-dt/τ)` exponential approach with τ = 220ms yields.
@@ -77,6 +79,9 @@ export function useSmoothStreamText(target: string | null): string | null {
         revealedRef.current = revealed;
         if (now - lastCommit >= COMMIT_INTERVAL_MS || revealed >= targetLength) {
           lastCommit = now;
+          // One of the constant update sources during a streaming turn — see
+          // `lib/commit-pressure.ts` for why they are counted.
+          recordUpdate("smooth-stream");
           setRevealedLength(Math.floor(revealed));
         }
       }

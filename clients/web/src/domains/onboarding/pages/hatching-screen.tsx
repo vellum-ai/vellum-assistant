@@ -20,16 +20,24 @@ import {
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
-import { getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveLockfileAssistant } from "@/lib/local-mode";
+import {
+    awaitPurchasedProvisioning,
+    MAX_HATCH_WAIT_MS,
+    POLL_INTERVAL_MS,
+} from "@/domains/onboarding/purchased-provisioning";
+import { isLocalMode, loadLockfile, primeLocalGatewayConnection, probeLocalGatewayReady, saveManagedLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import {
+    POST_CHECKOUT_HATCH_PARAM,
+    resolveNavigation,
+} from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
-import { isNativePlatform } from "@/runtime/native-auth";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isSessionSettled } from "@/stores/session-status";
 import type { CharacterTraits } from "@/types/avatar";
@@ -41,9 +49,7 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
-const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
-const MAX_HATCH_WAIT_MS = 300_000;
 
 // Module-level state so HMR remounts, StrictMode double-mounts, and — critically
 // — the auth-driven provider remount survive without spawning duplicate hatches.
@@ -65,12 +71,18 @@ function releaseHatchGuards(): void {
   hatchTraitsCache = null;
 }
 
-type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
+type HatchPhase =
+  | "initializing"
+  | "provisioning"
+  | "connecting"
+  | "resizing"
+  | "ready";
 
 const PHASE_TARGET: Record<HatchPhase, number> = {
   initializing: 0,
   provisioning: 0.33,
   connecting: 0.66,
+  resizing: 0.85,
   ready: 1.0,
 };
 
@@ -80,6 +92,7 @@ const PHASE_LABEL: Record<HatchPhase, string> = {
   initializing: "Getting things ready…",
   provisioning: "Setting up your assistant…",
   connecting: "Connecting to your assistant…",
+  resizing: "Setting up your machine…",
   ready: "Ready",
 };
 
@@ -121,6 +134,16 @@ export function HatchingScreen() {
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
+  // (see `adopt-existing-assistant`): the assistant is provisioned on the
+  // platform, so its purchased machine and storage are waited for.
+  const managedHatch = hostingParam === "vellum-cloud";
+  // This hatch is the return leg of a completed checkout — only the
+  // post-checkout funnel sets the param, and only for a billing landing
+  // carrying Stripe's `session_id`. `managedHatch` is NOT a substitute: it
+  // names a hosting choice a free user can make too.
+  const postCheckoutReturn =
+    searchParams.get(POST_CHECKOUT_HATCH_PARAM) === "1";
   const sessionStatus = useAuthStore.use.sessionStatus();
   // Local hatches drive `sessionStatus` themselves (`connectLocalAssistant`
   // below flips it mid-handoff), so they gate on settled-ness to keep that flip
@@ -180,6 +203,17 @@ export function HatchingScreen() {
     }
     if (decision.kind === "wait") return;
 
+    // A managed hatch in a local-mode build must address the platform, not the
+    // machine's own gateway: `getAssistant()` answers from the selected
+    // lockfile entry while a gateway token is held, and daemon SDK calls (the
+    // healthz probes below) rewrite to the local gateway while a self-hosted
+    // connection is primed. Dropping both is the same handoff the hosting
+    // screen performs for its Vellum Cloud choice.
+    if (managedHatch && isLocalMode()) {
+      clearGatewayToken();
+      setSelfHostedConnection(null);
+    }
+
     setPlatformHostedDisabled(false);
 
     let cancelled = false;
@@ -216,7 +250,9 @@ export function HatchingScreen() {
       setPhase("ready");
       phaseRef.current = "ready";
       navigateTimer = setTimeout(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         // The hatch succeeded and we're leaving this screen for good. Release
         // the module-level guards so a later onboarding session (e.g. after
         // retiring this assistant) hatches a brand-new one instead of reusing
@@ -224,16 +260,7 @@ export function HatchingScreen() {
         releaseHatchGuards();
         void (async () => {
           await lifecycleService.checkAssistant();
-          if (cancelled) return;
-          if (isNativePlatform()) {
-            // Native flow skips the pre-chat screen, so there's no
-            // typed message to drive the auto-greet gate. Mark the
-            // lifecycle one-shot so the destination chat mount shows
-            // the loading gate until the server greeting arrives.
-            lifecycleService.markExpectingFirstMessage();
-            void navigate(`${routes.assistant}?onboarding=1`, {
-              replace: true,
-            });
+          if (cancelled) {
             return;
           }
           // A local hatch feeds the research/personality flow. The assistant is
@@ -290,17 +317,16 @@ export function HatchingScreen() {
           const preflightState = resolveAssistantLifecycleState(existing);
           if (!cancelled && existing.ok && preflightState.kind === "active") {
             if (isLocalMode()) {
-              void saveLockfileAssistant({
-                assistantId: existing.data.id,
-                name: existing.data.name,
-                cloud: "vellum",
-                runtimeUrl: getPlatformRuntimeUrl(),
-                hatchedAt: new Date().toISOString(),
-                organizationId:
-                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
-              });
+              void saveManagedLockfileAssistant(
+                existing.data.id,
+                existing.data.name,
+                getActiveOrganizationIdForRequests() ??
+                  undefined,
+              );
             }
-            handleHatchReady();
+            // Route the reload path through the same provisioning wait as the
+            // polled-active path so a purchased resize is never skipped.
+            await finishActiveHatch(existing.data.id);
             return;
           }
           // A clean 404 (`auto_hatch`) means no assistant existed yet, so the
@@ -475,6 +501,69 @@ export function HatchingScreen() {
       pollTimer = setTimeout(runPoll, delay);
     };
 
+    // Both the preflight-active path (a reload onto an already-active assistant)
+    // and the polled-active path converge here: wait for healthz, hold for the
+    // purchased resize, then complete. Sharing this tail keeps a reload from
+    // skipping the provisioning wait.
+    const finishActiveHatch = async (assistantId: string): Promise<void> => {
+      // The platform may report "active" before the pod is ready to serve, so
+      // wait for the daemon to answer healthz before holding for the resize.
+      transitionPhase("connecting");
+      while (!cancelled) {
+        try {
+          const health = await getAssistantHealthz(assistantId);
+          if (health.ok) {
+            break;
+          }
+        } catch {
+          // Daemon not reachable yet.
+        }
+        if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+          setError(
+            "Your assistant is taking longer than expected. Please try again.",
+          );
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+        });
+        pollTimer = null;
+      }
+      if (cancelled) {
+        return;
+      }
+
+      const outcome = await awaitPurchasedProvisioning({
+        assistantId,
+        postCheckoutReturn,
+        managedHatch,
+        hatchStartMs: pollStartMs,
+        isCancelled: () => cancelled,
+        onResizeWait: () => transitionPhase("resizing"),
+        registerTimer: (timer) => {
+          pollTimer = timer;
+        },
+      });
+      if (cancelled) {
+        return;
+      }
+      if (outcome === "health_timeout") {
+        // The provisioning wait ran its course but the assistant never came
+        // back. Completing here would hand the user an unreachable assistant,
+        // so surface the same recoverable failure the other hatch timeouts do.
+        Sentry.captureMessage("Onboarding hatch wait exceeded timeout", {
+          level: "warning",
+          extra: { maxWaitMs: MAX_HATCH_WAIT_MS, stage: "post_resize_health" },
+        });
+        setError(
+          "Your assistant is taking longer than expected. Please try again.",
+        );
+        return;
+      }
+
+      handleHatchReady();
+    };
+
     const runPoll = async () => {
       if (cancelled) return;
       if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
@@ -507,38 +596,19 @@ export function HatchingScreen() {
               void persistHatchAvatar(assistantId);
             }
             if (isLocalMode()) {
-              void saveLockfileAssistant({
+              void saveManagedLockfileAssistant(
                 assistantId,
-                name: result.data.name,
-                cloud: "vellum",
-                runtimeUrl: getPlatformRuntimeUrl(),
-                hatchedAt: new Date().toISOString(),
-                organizationId:
-                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
-              });
+                result.data.name,
+                getActiveOrganizationIdForRequests() ??
+                  undefined,
+              );
             }
 
-            // Wait for the daemon to be reachable before navigating.
-            // The platform may report "active" before the pod is
-            // fully ready to serve requests.
-            transitionPhase("connecting");
-            while (!cancelled) {
-              try {
-                const health = await getAssistantHealthz(assistantId);
-                if (health.ok) break;
-              } catch {
-                // Daemon not reachable yet
-              }
-              if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
-                setError("Your assistant is taking longer than expected. Please try again.");
-                return;
-              }
-              await new Promise<void>(resolve => {
-                pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
-              });
-              pollTimer = null;
-            }
-            if (cancelled) return;
+            // Wait for healthz, then hold for the purchased resize before
+            // completing (platform hatches only; local hatches never reach this
+            // poll loop).
+            await finishActiveHatch(assistantId);
+            return;
           }
 
           handleHatchReady();
@@ -571,6 +641,8 @@ export function HatchingScreen() {
     attempt,
     failParam,
     hatchTraits,
+    managedHatch,
+    postCheckoutReturn,
     sessionGateKey,
     navigate,
     queryClient,

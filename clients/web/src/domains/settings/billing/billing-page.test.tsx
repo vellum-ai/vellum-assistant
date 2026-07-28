@@ -74,12 +74,19 @@ mock.module("@/generated/api/sdk.gen", () => ({
     },
 }));
 
-// Force the platform-hosted gate open so BillingTab mounts its plan-management
-// body instead of the login notice / unavailable states.
+// Drives the active assistant's hosting. Platform-hosted by default so
+// BillingTab mounts its plan-management body instead of the login notice /
+// unavailable states; flipped to model an org holding both hosting types with
+// the self-hosted one selected, where `platformHostedOnly` surfaces gate off.
+let activeAssistantIsPlatformHosted = true;
+
 mock.module("@/hooks/use-platform-gate", () => ({
     ...platformGate,
-    usePlatformGate: () => "full",
-    useActiveAssistantIsPlatformHosted: () => true,
+    usePlatformGate: (options?: { platformHostedOnly?: boolean }) =>
+        options?.platformHostedOnly === true && !activeAssistantIsPlatformHosted
+            ? "gated"
+            : "full",
+    useActiveAssistantIsPlatformHosted: () => activeAssistantIsPlatformHosted,
     useActiveAssistantLifecycleIsLoading: () => false,
 }));
 
@@ -220,6 +227,7 @@ beforeEach(() => {
     domainsCalls = 0;
     domainsListPaths = [];
     orgReady = true;
+    activeAssistantIsPlatformHosted = true;
 });
 
 afterEach(() => {
@@ -242,6 +250,63 @@ describe("BillingTab ?pro_onboarding param", () => {
         expect(getByTestId("loc").textContent).toBe(
             "/assistant/settings/usage?tab=billing",
         );
+    });
+});
+
+describe("BillingTab post-checkout return", () => {
+    // The pro onboarding wizard reads the org's subscription and its
+    // `primary_assistant_id`, so a completed checkout is consumable whichever
+    // assistant is selected. Gating its mount on the active assistant's hosting
+    // would drop `session_id` for an org holding both hosting types.
+
+    test("opens the wizard on session_id", async () => {
+        const { getByTestId } = renderPage("?tab=billing&session_id=cs_test_123");
+
+        await waitFor(() =>
+            expect(
+                getByTestId("onboarding-modal").getAttribute("data-open"),
+            ).toBe("true"),
+        );
+    });
+
+    test("opens the wizard on session_id while a self-hosted assistant is active", async () => {
+        activeAssistantIsPlatformHosted = false;
+        const { getByTestId, queryByTestId } = renderPage(
+            "?tab=billing&session_id=cs_test_123",
+        );
+
+        await waitFor(() =>
+            expect(
+                getByTestId("onboarding-modal").getAttribute("data-open"),
+            ).toBe("true"),
+        );
+        // Plan management still reads the active assistant, so it stays gated.
+        expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
+        expect(queryByTestId("resize-onboarding-modal")).toBeNull();
+        expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+    });
+
+    test("opens the wizard on ?pro_onboarding while a self-hosted assistant is active", async () => {
+        activeAssistantIsPlatformHosted = false;
+        const { getByTestId } = renderPage("?tab=billing&pro_onboarding");
+
+        await waitFor(() =>
+            expect(
+                getByTestId("onboarding-modal").getAttribute("data-open"),
+            ).toBe("true"),
+        );
+        expect(getByTestId("loc").textContent).toBe(
+            "/assistant/settings/usage?tab=billing",
+        );
+    });
+
+    test("mounts no wizard for a self-hosted assistant with no billing intent", async () => {
+        activeAssistantIsPlatformHosted = false;
+        const { queryByTestId } = renderPage();
+
+        await waitFor(() => expect(queryByTestId("loc")).toBeTruthy());
+        expect(queryByTestId("onboarding-modal")).toBeNull();
+        expect(queryByTestId("resize-onboarding-modal")).toBeNull();
     });
 });
 

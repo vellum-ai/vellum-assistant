@@ -25,7 +25,12 @@ import {
 
 import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
 import { ResetButton, SaveButton } from "@/components/service-form-controls";
+import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import {
+  credentialPresenceQueryKey,
+  useStoredCredentialPresence,
+} from "@/domains/settings/ai/use-stored-credential-presence";
 import {
   configGetOptions,
   configGetQueryKey,
@@ -110,6 +115,14 @@ export function ImageGenerationCard() {
 
   const requiresApiKey = provider === "gemini" || provider === "openai";
 
+  const { hasStoredCredential: imageGenHasStoredKey } =
+    useStoredCredentialPresence({
+      assistantId,
+      credentialKind: "api_key",
+      credentialName: provider,
+      enabled: requiresApiKey,
+    });
+
   // Model reconciliation is derived (`effectiveModel`), so a provider change
   // needs no imperative snap.
   const handleProviderChange = setDraftProvider;
@@ -181,6 +194,15 @@ export function ImageGenerationCard() {
       setLocalSetting(LS_IMAGE_GEN_PROVIDER, provider);
       setLocalSetting(LS_IMAGE_GEN_MODEL, effectiveModel);
       if (hasUserKey) {
+        // Optimistic update: mark key as stored immediately, then
+        // background-refetch confirms server state.
+        const presenceKey = credentialPresenceQueryKey(
+          assistantId,
+          "api_key",
+          provider,
+        );
+        queryClient.setQueryData(presenceKey, true);
+        void queryClient.invalidateQueries({ queryKey: presenceKey });
         setImageGenApiKey("");
       }
       toast.success("Image generation settings saved.");
@@ -235,11 +257,12 @@ export function ImageGenerationCard() {
             type="password"
             value={imageGenApiKey}
             onChange={(e) => setImageGenApiKey(e.target.value)}
-            placeholder={
+            placeholder={secretPlaceholder(
               provider === "openai"
                 ? "Enter your OpenAI API key"
-                : "Enter your Gemini API key"
-            }
+                : "Enter your Gemini API key",
+              imageGenHasStoredKey,
+            )}
             fullWidth
           />
         )}

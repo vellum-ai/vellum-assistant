@@ -17,7 +17,9 @@ import {
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   liveVoiceStateLabel,
+  minimizeVoiceRoom,
   releaseLiveVoiceTurn,
+  restoreVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   updateLiveVoiceSessionConfig,
@@ -31,6 +33,14 @@ beforeEach(() => {
   // explicitly so tests can't leak a registered starter into each other.
   useLiveVoiceStore.getState().setStarter(null);
 });
+
+function makeStarter() {
+  return {
+    prewarm: mock(() => {}),
+    cancelPrewarm: mock(() => {}),
+    start: mock((_assistantId: string, _conversationId: string | null) => {}),
+  };
+}
 
 describe("useLiveVoiceStore — session context", () => {
   test("defaults to null assistant/conversation when idle", () => {
@@ -77,7 +87,7 @@ describe("useLiveVoiceStore — session starter", () => {
   });
 
   test("setStarter registers and deregisters the controller's starter", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     expect(useLiveVoiceStore.getState().starter).toBe(starter);
     useLiveVoiceStore.getState().setStarter(null);
@@ -85,7 +95,7 @@ describe("useLiveVoiceStore — session starter", () => {
   });
 
   test("reset preserves the starter — session teardown must not deregister the mounted controller", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     // Simulate a full session lifecycle ending in teardown's reset().
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
@@ -163,6 +173,39 @@ describe("useLiveVoiceStore — mute + handsFree", () => {
     useLiveVoiceStore.getState().setMuted(true);
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
     expect(useLiveVoiceStore.getState().muted).toBe(false);
+  });
+});
+
+describe("useLiveVoiceStore — room minimize", () => {
+  test("defaults to not minimized — a new session opens in the room", () => {
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("minimizeVoiceRoom sets the flag during an active session", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+  });
+
+  test("minimizeVoiceRoom no-ops when idle", () => {
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("restoreVoiceRoom clears the flag", () => {
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    restoreVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+  });
+
+  test("reset restores roomMinimized to false — a new session always opens in the room", () => {
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    useLiveVoiceStore.getState().setState("listening");
+    minimizeVoiceRoom();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    useLiveVoiceStore.getState().reset();
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
   });
 });
 
@@ -312,7 +355,7 @@ describe("dismissLiveVoiceFailure", () => {
   });
 
   test("preserves the mount-scoped starter, like any reset", () => {
-    const starter = mock(() => {});
+    const starter = makeStarter();
     useLiveVoiceStore.getState().setStarter(starter);
     useLiveVoiceStore.getState().fail("boom");
 

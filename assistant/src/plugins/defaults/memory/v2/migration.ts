@@ -37,8 +37,8 @@ import {
   listPages,
   slugify,
   writePage,
-} from "../v3/substrate/page-store.js";
-import type { ConceptPage } from "../v3/substrate/types.js";
+} from "../substrate/page-store.js";
+import type { ConceptPage } from "../substrate/types.js";
 
 const log = getLogger("memory-v2-migration");
 

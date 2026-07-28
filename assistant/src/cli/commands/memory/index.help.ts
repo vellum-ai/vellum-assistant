@@ -15,7 +15,8 @@ export const memoryHelp: CliCommandHelp = {
     "Manage memory items and maintain the assistant memory subsystem",
   helpText: `
 The 'nodes' subgroup provides content-based list, delete, and update over
-memory v2 graph nodes — address facts by text, not UUID (requires memory v2).
+memory graph nodes — address facts by text, not UUID (requires concept-page
+memory: memory.v3.live or memory.v2.enabled).
 
 The 'items' subgroup exposes full CRUD over individual memory items
 (remembered facts) — list, get, create, update, delete.
@@ -46,7 +47,8 @@ memory v2 subsystem. Unlike 'memory items', which addresses nodes by UUID, these
 commands address nodes by content text — matching the way an operator refers to
 a remembered fact without first looking up its ID.
 
-All subcommands require memory v2 to be enabled and the assistant to be running.
+All subcommands require concept-page memory (memory.v3.live or
+memory.v2.enabled) and the assistant to be running.
 
 Examples:
   $ assistant memory nodes stats

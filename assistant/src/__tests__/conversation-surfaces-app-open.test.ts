@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import { DynamicPagePreviewSchema } from "../api/surfaces.js";
 import {
   buildAppOpenPreview,
@@ -8,7 +9,6 @@ import {
   surfaceProxyResolver,
 } from "../daemon/conversation-surfaces.js";
 import type {
-  AssistantEvent,
   SurfaceType,
 } from "../daemon/message-protocol.js";
 

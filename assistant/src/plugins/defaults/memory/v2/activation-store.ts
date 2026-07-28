@@ -15,7 +15,7 @@ import {
   type ActivationState,
   ActivationStateSchema,
   type EverInjectedEntry,
-} from "../v3/substrate/types.js";
+} from "../substrate/types.js";
 
 /**
  * Load the activation state for a conversation, or `null` if no row exists.
@@ -26,7 +26,9 @@ export async function hydrate(
   conversationId: string,
 ): Promise<ActivationState | null> {
   const mdb = memoryDbOrNull("hydrateActivationState");
-  if (!mdb) return null;
+  if (!mdb) {
+    return null;
+  }
   const row = mdb
     .select({
       messageId: activationState.messageId,
@@ -38,7 +40,9 @@ export async function hydrate(
     .from(activationState)
     .where(eq(activationState.conversationId, conversationId))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
 
   return ActivationStateSchema.parse({
     messageId: row.messageId,
@@ -59,7 +63,9 @@ export async function save(
   state: ActivationState,
 ): Promise<void> {
   const mdb = memoryDbOrNull("saveActivationState");
-  if (!mdb) return;
+  if (!mdb) {
+    return;
+  }
   const stateJson = JSON.stringify(state.state);
   const everInjectedJson = JSON.stringify(state.everInjected);
   mdb
@@ -103,7 +109,9 @@ export function forkActivationState(
   newConversationId: string,
 ): void {
   const mdb = memoryDbOrNull("forkActivationState");
-  if (!mdb) return;
+  if (!mdb) {
+    return;
+  }
   const row = mdb
     .select({
       messageId: activationState.messageId,
@@ -115,7 +123,9 @@ export function forkActivationState(
     .from(activationState)
     .where(eq(activationState.conversationId, parentConversationId))
     .get();
-  if (!row) return;
+  if (!row) {
+    return;
+  }
 
   mdb
     .insert(activationState)
@@ -166,9 +176,13 @@ export function seedForkActivationState(
   newConversationId: string,
   inheritedSlugs: string[],
 ): void {
-  if (inheritedSlugs.length === 0) return;
+  if (inheritedSlugs.length === 0) {
+    return;
+  }
   const mdb = memoryDbOrNull("seedForkActivationState");
-  if (!mdb) return;
+  if (!mdb) {
+    return;
+  }
 
   const everInjected: EverInjectedEntry[] = inheritedSlugs.map((slug) => ({
     slug,

@@ -130,7 +130,7 @@ A default row per enforced channel is **seeded at startup** (`seedAdmissionPolic
 
 For exempt ids, `PUT /v1/assistants/:id/channel-admission-policy/:channelType` returns **403**, the GET list omits them, and the runtime short-circuits `admitted: true` in `admission-policy.ts` (defense in depth). Codex finding from #35006 review: exemption checks must live in _both_ the gateway route handler AND the runtime stage — single-side enforcement creates a misuse wedge.
 
-**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
+**Hidden channels** (`ADMISSION_POLICY_HIDDEN_CHANNELS` = `vellum`, `whatsapp`, `discord`) — managed automatically, **not** user-configurable, but (unlike exempt channels) **still enforced at runtime**:
 
 - The GET list omits them, and `PUT`/`DELETE` return **403** (`isAdmissionPolicyHiddenChannel`).
 - They are **not** exempt — the runtime still evaluates rank-vs-floor, so a real inbound channel like `whatsapp` keeps its admission floor.

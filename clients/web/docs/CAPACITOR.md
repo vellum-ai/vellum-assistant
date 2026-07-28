@@ -153,6 +153,37 @@ References:
 
 ---
 
+## Full-duplex TTS must render through a MediaStream track
+
+WebKit owns the shared `AVAudioSession` used by `getUserMedia()` in a
+`WKWebView`: it selects a play-and-record category and voice-processing mode,
+and it creates a `VoiceProcessingIO` capture unit when echo cancellation is
+requested. Do not add a Capacitor plugin that reconfigures or reactivates that
+session around microphone capture. Changing the active session underneath
+WebKit can leave its live capture unit detached from the microphone.
+
+Direct `AudioContext.destination` playback is not supplied to WebKit's capture
+unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route
+full-duplex TTS into a `MediaStreamAudioDestinationNode` and play that stream
+through an `HTMLAudioElement`. WebKit routes default-device MediaStream-track
+playback through the same voice-processing unit and can use it as the echo
+reference. `LiveVoiceAudioPlayer` is the canonical implementation.
+
+Start the media element from the same user gesture that prewarms the
+`AudioContext`, before awaiting readiness preflight or any other asynchronous
+work. On teardown, pause it, clear `srcObject`, and stop every track owned by
+the destination stream. Automatic reconnects must reuse the already-started
+player and MediaStream element: creating a replacement from a backoff timer
+loses the original user activation and can make `play()` fail.
+
+References:
+
+- WebKit — [`MediaSessionManagerCocoa` selects the capture audio-session category and mode](https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebCore/platform/audio/cocoa/MediaSessionManagerCocoa.mm#L174-L218)
+- WebKit — [`CoreAudioCaptureUnit` selects `VoiceProcessingIO` for echo cancellation](https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebCore/platform/mediastream/cocoa/CoreAudioCaptureUnit.cpp#L75-L87)
+- WebKit — [MediaStream-track playback is rendered through the active capture unit](https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebKit/GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp#L228-L292)
+
+---
+
 ## Full-screen overlays must respect safe-area insets
 
 Any element that takes over the full viewport (modals, detail panels, drawers) via `position: fixed; inset: 0` **must** apply safe-area padding so content does not render behind the iPhone status bar, Dynamic Island, or home indicator. The `ChatLayoutHeader` handles this for the persistent top bar, but overlays that cover the header lose its protection.

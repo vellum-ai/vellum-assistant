@@ -32,7 +32,7 @@ import type { ToolDefinition } from "../../llm-helpers.js";
 // ---------------------------------------------------------------------------
 
 // Skill store: empty by default so the page index only contains test pages.
-mock.module("../../v3/substrate/skill-store.js", () => ({
+mock.module("../../substrate/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => [],
   seedV2SkillEntries: async () => undefined,
@@ -118,9 +118,8 @@ mock.module("../../../../../util/platform.js", () => ({
 // ---------------------------------------------------------------------------
 
 const { handleSimulateRouter } = await import("../memory-v2-routes.js");
-const { writePage } = await import("../../v3/substrate/page-store.js");
-const { invalidatePageIndex } =
-  await import("../../v3/substrate/page-index.js");
+const { writePage } = await import("../../substrate/page-store.js");
+const { invalidatePageIndex } = await import("../../substrate/page-index.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

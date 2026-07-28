@@ -1,6 +1,13 @@
-import { describe, test, expect } from "bun:test";
+import { beforeEach, describe, test, expect } from "bun:test";
 
 import {
+  clearCheckoutIntent,
+  readCheckoutIntent,
+  saveCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
+
+import {
+  postCheckoutHatchReturnTo,
   resolveNavigation,
   resolveLoginReturnTo,
   type NavigationState,
@@ -14,6 +21,7 @@ const base: NavigationState = {
   remoteGatewayPublicPathPrefix: "",
   isGatewayAuth: false,
   hasAssistants: true,
+  hasPlatformHostedAssistant: true,
   sessionSettled: true,
   isAuthenticated: true,
   platformSession: "present",
@@ -31,8 +39,33 @@ function s(overrides: Partial<NavigationState>): NavigationState {
   return { ...base, ...overrides };
 }
 
+/** The path a redirect decision targets, ignoring its query. */
+function redirectPath(decision: NavigationDecision): string | null {
+  if (decision.action !== "redirect") {
+    return null;
+  }
+  const qIdx = decision.to.indexOf("?");
+  return qIdx < 0 ? decision.to : decision.to.slice(0, qIdx);
+}
+
+// The two provisioning funnel entries a paid return can name. Both carry the
+// managed-hatch marker, so a local-mode client provisions on the platform
+// instead of letting its own gateway answer for the assistant and skipping the
+// purchased-provisioning wait, plus the post-checkout marker that tells that
+// wait a still-base subscription read is a lagging webhook, not a free org.
+const RESEARCH_FUNNEL_URL =
+  "/assistant/onboarding/research?hosting=vellum-cloud&post_checkout=1";
+const HATCHING_FUNNEL_URL =
+  "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1";
+
 const ALLOW: NavigationDecision = { action: "allow" };
 const WAIT: NavigationDecision = { action: "wait" };
+// The auth middleware awaits the probe only for a wait that names it, so the
+// tag is part of the contract, not a label.
+const WAIT_FOR_PLATFORM_SESSION: NavigationDecision = {
+  action: "wait",
+  waitFor: "platform-session",
+};
 
 describe("resolveNavigation", () => {
   // -----------------------------------------------------------------------
@@ -265,7 +298,7 @@ describe("resolveNavigation", () => {
     test("waits for platform probe in local mode with no assistants", () => {
       expect(
         guard(s({ isLocalMode: true, hasAssistants: false, platformSession: "unknown" })),
-      ).toEqual(WAIT);
+      ).toEqual(WAIT_FOR_PLATFORM_SESSION);
     });
 
     test("redirects to hosting when local mode + platform session present", () => {
@@ -525,6 +558,577 @@ describe("resolveNavigation", () => {
       });
     });
 
+    // The marketing pricing CTAs deep-link a brand-new (no-assistant) user
+    // into `/assistant/checkout` to start Stripe checkout, so that route must
+    // NOT be funneled into onboarding — while every other billing surface still
+    // is, so a no-assistant user returning to a billing URL provisions first.
+    test("does not funnel a consent-settled no-assistant user off /assistant/checkout", () => {
+      expect(
+        guard(s({ hasAssistants: false }), "/assistant/checkout?package=super"),
+      ).toEqual(ALLOW);
+    });
+
+    // Checkout is exempt from the no-assistant funnel, NOT from consent: a
+    // no-assistant user with a stale consent toggle deep-linking to checkout is
+    // routed to review-terms first, never straight into a paid Stripe session.
+    test("routes a stale-consent no-assistant user off /assistant/checkout to review-terms", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false, analyticsConsentCurrent: false }),
+          "/assistant/checkout?package=super",
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/review-terms?returnTo=%2Fassistant%2Fcheckout%3Fpackage%3Dsuper",
+      });
+    });
+
+    test("still funnels a no-assistant user returning to a billing URL", () => {
+      expect(
+        guard(
+          s({ hasAssistants: false }),
+          "/assistant/settings/usage?tab=billing&session_id=x",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+    });
+
+    // -- post-checkout return with nothing the plan can apply to -----------
+    //
+    // The marketing pricing funnel has a brand-new user pay BEFORE an
+    // assistant exists, and the platform hardcodes the non-native Stripe
+    // `success_url` to `/assistant/settings/billing?session_id=…`. Every
+    // billing surface mounts under `ActiveAssistantGate`, which spins on
+    // "Connecting to your assistant…" forever for a no-assistant org — so the
+    // paid return must be funneled into provisioning first.
+
+    const POST_CHECKOUT_BILLING =
+      "/assistant/settings/billing?session_id=cs_test_123";
+
+    // Web and Electron land the paid return on the headless research
+    // onboarding, which runs the purchased-provisioning wait behind the form.
+    const MANAGED_FUNNEL: NavigationDecision = {
+      action: "redirect",
+      to: RESEARCH_FUNNEL_URL,
+    };
+    // A brand-new org: nothing resolved at all.
+    const EMPTY_ORG = {
+      hasAssistants: false,
+      hasPlatformHostedAssistant: false,
+    } as const;
+
+    // An org whose resolved entries are all local / Docker / another
+    // organization's. `hasAssistants` is satisfied; a managed plan still has
+    // no target.
+    const NO_MANAGED_ASSISTANT = {
+      hasAssistants: true,
+      hasPlatformHostedAssistant: false,
+    } as const;
+
+    test("funnels a no-assistant post-checkout return into the research onboarding", () => {
+      expect(guard(s(EMPTY_ORG), POST_CHECKOUT_BILLING)).toEqual(
+        MANAGED_FUNNEL,
+      );
+    });
+
+    // The decision is "does a managed plan have a target", not "is the list
+    // empty": in a self-hosted-only org the purchase has nothing to apply to.
+    test("funnels a return whose only assistants are self-hosted", () => {
+      expect(guard(s(NO_MANAGED_ASSISTANT), POST_CHECKOUT_BILLING)).toEqual(
+        MANAGED_FUNNEL,
+      );
+      expect(
+        guard(
+          s(NO_MANAGED_ASSISTANT),
+          "/assistant/settings/usage?tab=billing&session_id=cs_test_123",
+        ),
+      ).toEqual(MANAGED_FUNNEL);
+    });
+
+    test("leaves an existing-assistant post-checkout return on billing", () => {
+      expect(
+        guard(s({ hasPlatformHostedAssistant: true }), POST_CHECKOUT_BILLING),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ hasPlatformHostedAssistant: true }),
+          "/assistant/settings/usage?tab=billing&session_id=cs_test_123",
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // A gateway session normally short-circuits the whole pipeline to "allow",
+    // which is exactly how the dead-end is reached in Electron / local-mode
+    // web. The paid return is the one path that must still be funneled.
+    test("funnels a no-assistant post-checkout return even under gateway auth", () => {
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, ...EMPTY_ORG }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(MANAGED_FUNNEL);
+    });
+
+    // The Electron desktop case: gateway auth against a local assistant, so
+    // `hasAssistants` is true and `requireAssistant` never runs.
+    test("funnels a self-hosted-only return under gateway auth", () => {
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, ...NO_MANAGED_ASSISTANT }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(MANAGED_FUNNEL);
+    });
+
+    // A local-mode client is "authenticated" on its gateway session alone, so
+    // the platform session is decided separately — and the managed hatch the
+    // funnel starts needs one. The probe boots "unknown". The wait names the
+    // probe because the org already has an assistant here, so nothing else
+    // tells the middleware to await it.
+    test("waits for the local-mode platform-session probe before funneling", () => {
+      expect(
+        guard(
+          s({
+            isGatewayAuth: true,
+            isLocalMode: true,
+            platformSession: "unknown",
+            ...NO_MANAGED_ASSISTANT,
+          }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(WAIT_FOR_PLATFORM_SESSION);
+    });
+
+    // Signed out of the platform there is no account to provision into. The
+    // return stays on billing, whose login notice carries `session_id` through
+    // sign-in and lands back here.
+    test("leaves a local-mode return with no platform session on billing", () => {
+      expect(
+        guard(
+          s({
+            isGatewayAuth: true,
+            isLocalMode: true,
+            platformSession: "absent",
+            ...NO_MANAGED_ASSISTANT,
+          }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    test("keeps the gateway-auth bypass for every other case", () => {
+      expect(
+        guard(
+          s({
+            isGatewayAuth: true,
+            isLocalMode: true,
+            hasPlatformHostedAssistant: true,
+          }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, ...EMPTY_ORG }),
+          "/assistant/settings/billing",
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ isGatewayAuth: true, isLocalMode: true, ...NO_MANAGED_ASSISTANT }),
+          "/assistant/settings/billing",
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // A billing URL without `session_id` is not a checkout return, so it keeps
+    // whatever `requireAssistant` already decided for it.
+    test("leaves a billing URL without session_id on its existing path", () => {
+      expect(
+        guard(s(EMPTY_ORG), "/assistant/settings/billing"),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/hatching" });
+      expect(
+        guard(
+          s({ ...EMPTY_ORG, tosAccepted: false, privacyConsent: false }),
+          "/assistant/settings/billing",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/onboarding/privacy" });
+      // `requireAssistant` reads `hasAssistants`, which the narrower
+      // post-checkout predicate must not disturb.
+      expect(
+        guard(s(NO_MANAGED_ASSISTANT), "/assistant/settings/billing"),
+      ).toEqual(ALLOW);
+    });
+
+    // Signed out, the return must still reach login with `session_id` intact,
+    // so the decision is retaken once the session lands.
+    test("sends a signed-out post-checkout return to login with session_id preserved", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, isAuthenticated: false }), POST_CHECKOUT_BILLING),
+      ).toEqual({
+        action: "redirect",
+        to: "/account/login?returnTo=%2Fassistant%2Fsettings%2Fbilling%3Fsession_id%3Dcs_test_123",
+      });
+      expect(
+        guard(
+          s({ ...NO_MANAGED_ASSISTANT, isAuthenticated: false }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: "/account/login?returnTo=%2Fassistant%2Fsettings%2Fbilling%3Fsession_id%3Dcs_test_123",
+      });
+    });
+
+    // The platform assistants list boots empty, so deciding before it hydrates
+    // would funnel an established user out of their own billing page.
+    test("waits for the platform assistants list before funneling", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, assistantsHydrated: false }), POST_CHECKOUT_BILLING),
+      ).toEqual(WAIT);
+      expect(
+        guard(
+          s({ ...NO_MANAGED_ASSISTANT, assistantsHydrated: false }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(WAIT);
+    });
+
+    test("does not wait on hydration in local mode (lockfile-driven list)", () => {
+      expect(
+        guard(
+          s({
+            isLocalMode: true,
+            ...EMPTY_ORG,
+            assistantsHydrated: false,
+          }),
+          POST_CHECKOUT_BILLING,
+        ),
+      ).toEqual(MANAGED_FUNNEL);
+    });
+
+    const UNCONSENTED = { tosAccepted: false, privacyConsent: false } as const;
+
+    // Either toggle going stale forces the same re-review, so the cases below
+    // assert against both.
+    const STALE_TOGGLES = [
+      { analyticsConsentCurrent: false },
+      { diagnosticsConsentCurrent: false },
+    ] as const;
+
+    // Consent is enforced at the destination, not skipped: both funnel entries
+    // are onboarding paths, and re-resolving one bounces an unconsented user on.
+    test("consent is still enforced once the funnel destination is resolved", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), POST_CHECKOUT_BILLING),
+      ).toEqual(MANAGED_FUNNEL);
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(
+          redirectPath(guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), url)),
+        ).toBe("/assistant/onboarding/privacy");
+      }
+    });
+
+    // The bounce carries the funnel URL as `returnTo` — the same contract
+    // review-terms uses — so the privacy screen resumes it on Start. Dropping
+    // it loses the paid-return marker, and the paying user finishes the hatch
+    // at the baseline plan. The hatching form round-trips too, because a
+    // `returnTo` stashed by an older client names it.
+    test("carries the paid funnel destination through the consent bounce", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), HATCHING_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+      });
+    });
+
+    // Only a paid return carries anything: every other hatching bounce is the
+    // bare entrypoint it has always been.
+    test("an unpaid hatching bounce keeps the bare entrypoint", () => {
+      for (const url of [
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?hosting=vellum-cloud",
+        "/assistant/onboarding/hatching?post_checkout=0",
+      ]) {
+        expect(guard(s(UNCONSENTED), url)).toEqual({
+          action: "redirect",
+          to: "/assistant/onboarding/privacy",
+        });
+      }
+    });
+
+    // Local mode's onboarding entrypoint is `welcome`, which reads no
+    // `returnTo`, so its bounce stays bare.
+    test("a local-mode hatching bounce keeps the bare welcome entrypoint", () => {
+      expect(
+        guard(s({ isLocalMode: true, ...UNCONSENTED }), HATCHING_FUNNEL_URL),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
+    // The research route is the headless paid provisioning entry, so it bounces
+    // and carries exactly like the hatching entry does.
+    test("carries a paid research destination through the consent bounce", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), RESEARCH_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // The research funnel provisions an assistant, so an unconsented user does
+    // not reach it by navigating there directly either.
+    test("bounces an unconsented bare research visit to the entrypoint", () => {
+      expect(guard(s(UNCONSENTED), "/assistant/onboarding/research")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(
+        guard(s({ isLocalMode: true, ...UNCONSENTED }), "/assistant/onboarding/research"),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
+    test("allows a consented user on the research route", () => {
+      expect(guard(s({}), "/assistant/onboarding/research")).toEqual(ALLOW);
+      expect(
+        guard(s({ hasAssistants: false }), "/assistant/onboarding/research"),
+      ).toEqual(ALLOW);
+      expect(guard(s({}), RESEARCH_FUNNEL_URL)).toEqual(ALLOW);
+    });
+
+    // Onboarding is complete but a toggle went stale: the terms are re-reviewed
+    // before the purchased hatch, with the funnel URL (markers intact) as
+    // `returnTo` so the plan is not lost on the round trip. The marker is what
+    // scopes this — an ordinary research visit keeps its onboarding exemption.
+    test("sends a stale-consent paid research return to review-terms", () => {
+      for (const stale of STALE_TOGGLES) {
+        expect(guard(s({ ...EMPTY_ORG, ...stale }), RESEARCH_FUNNEL_URL)).toEqual({
+          action: "redirect",
+          to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+        });
+        expect(
+          guard(s({ ...EMPTY_ORG, ...stale }), "/assistant/onboarding/research"),
+        ).toEqual(ALLOW);
+      }
+    });
+
+    // A cold paid deep link reaches the research route before the consent flags
+    // hydrate, and they boot false — deciding there would bounce an established
+    // user to privacy, and a `redirect` gives the auth middleware nothing to
+    // wait on.
+    test("waits on the research route until consent hydrates", () => {
+      for (const url of ["/assistant/onboarding/research", RESEARCH_FUNNEL_URL]) {
+        expect(
+          guard(s({ ...EMPTY_ORG, ...UNCONSENTED, consentHydrated: false }), url),
+        ).toEqual(WAIT);
+        // Same wait for an already-consented user whose flags have not been
+        // confirmed yet: hydration is read before the flags either way.
+        expect(guard(s({ consentHydrated: false }), url)).toEqual(WAIT);
+      }
+    });
+
+    // The wait is research-only: the foreground hatching entry is reached from
+    // in-app navigation, never a cold deep link, and it bounces immediately.
+    test("the hatching bounce does not wait on consent hydration", () => {
+      expect(
+        guard(
+          s({ ...UNCONSENTED, consentHydrated: false }),
+          HATCHING_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+      });
+    });
+
+    // The auth middleware forces `consentHydrated` once its wait runs out, so
+    // the flags underneath are still their boot `false`. Bouncing on them
+    // evicts an already-consented user mid-funnel — a paid return loses its
+    // markers, a free one restarts onboarding — so the research entry falls
+    // back to the unconditional admission it had before it joined the funnel.
+    test("admits the research route when consent hydration timed out", () => {
+      for (const url of ["/assistant/onboarding/research", RESEARCH_FUNNEL_URL]) {
+        expect(
+          guard(
+            s({
+              ...EMPTY_ORG,
+              ...UNCONSENTED,
+              consentHydrated: true,
+              consentHydrationTimedOut: true,
+            }),
+            url,
+          ),
+        ).toEqual(ALLOW);
+      }
+      // The stale-toggle gate reads the same unhydrated flags, so it fails open
+      // too rather than sending a paid return to review-terms it can't answer.
+      expect(
+        guard(
+          s({
+            ...EMPTY_ORG,
+            analyticsConsentCurrent: false,
+            diagnosticsConsentCurrent: false,
+            consentHydrated: true,
+            consentHydrationTimedOut: true,
+          }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // Fail-open is scoped to the unhydrated read: a hydration that actually
+    // landed on an unconsented user still bounces.
+    test("still bounces a genuinely hydrated unconsented research visit", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), RESEARCH_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // The hatching entry never waits on hydration, so it never sees the forced
+    // flag either — its bounce is unchanged by the fail-open.
+    test("the hatching bounce is unaffected by a consent hydration timeout", () => {
+      expect(
+        guard(
+          s({
+            ...UNCONSENTED,
+            consentHydrated: true,
+            consentHydrationTimedOut: true,
+          }),
+          HATCHING_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+      });
+    });
+
+    // Local mode is excluded from hydration waits everywhere in the pipeline —
+    // its consent hydrates during session init or not at all — so its research
+    // bounce decides immediately.
+    test("a local-mode research bounce decides without waiting on hydration", () => {
+      expect(
+        guard(
+          s({ isLocalMode: true, ...UNCONSENTED, consentHydrated: false }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+      expect(
+        guard(
+          s({ isLocalMode: true, ...UNCONSENTED, consentHydrated: false }),
+          "/assistant/onboarding/research",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
+    // A gateway session short-circuits the pipeline to "allow" before any
+    // consent step runs, so the paid funnel entries suspend that bypass —
+    // otherwise an Electron paid return starts the purchased hatch with no
+    // consent recorded. The Electron desktop shape: gateway auth against a
+    // local assistant, with a platform session to provision into.
+    const ELECTRON_PAID = {
+      isGatewayAuth: true,
+      isLocalMode: true,
+      platformSession: "present",
+      ...NO_MANAGED_ASSISTANT,
+    } as const;
+
+    // Local mode's entrypoint is `welcome`, which reads no `returnTo` — the
+    // same bare bounce the hatching screen's own gate already gave this user.
+    test("bounces an unconsented gateway-auth paid return to the local entrypoint", () => {
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(guard(s({ ...ELECTRON_PAID, ...UNCONSENTED }), url)).toEqual({
+          action: "redirect",
+          to: "/assistant/welcome",
+        });
+      }
+    });
+
+    // Suspending the bypass must not bounce a consented paid return: it is the
+    // whole point of the funnel that it reaches the hatch.
+    test("allows a consented gateway-auth paid return", () => {
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(guard(s(ELECTRON_PAID), url)).toEqual(ALLOW);
+      }
+    });
+
+    // Onboarding is complete but a toggle went stale, so the terms are
+    // re-reviewed before the purchased hatch — with the funnel URL as
+    // `returnTo`, so the markers survive and the plan is not lost.
+    test("sends a stale-consent gateway-auth paid research return to review-terms", () => {
+      for (const stale of STALE_TOGGLES) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...stale }), RESEARCH_FUNNEL_URL),
+        ).toEqual({
+          action: "redirect",
+          to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+        });
+      }
+    });
+
+    // The stale-toggle gate is research-only. The hatching entry — where a
+    // `returnTo` stashed by an older client may still point — resolves `allow`
+    // here and re-reviews stale terms at the screen's own `hatch-gate` instead.
+    test("leaves a stale-consent paid hatching return on its allow", () => {
+      for (const stale of STALE_TOGGLES) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...stale }), HATCHING_FUNNEL_URL),
+        ).toEqual(ALLOW);
+        expect(
+          guard(s({ ...EMPTY_ORG, ...stale }), HATCHING_FUNNEL_URL),
+        ).toEqual(ALLOW);
+      }
+    });
+
+    // Only the paid marker suspends the bypass. The local adopt flow reaches
+    // the research entry unmarked and keeps the bypass it has always had.
+    test("keeps the gateway-auth bypass on an unmarked funnel entry", () => {
+      for (const url of [
+        "/assistant/onboarding/research",
+        "/assistant/onboarding/research?hosting=vellum-cloud",
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?post_checkout=0",
+      ]) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...UNCONSENTED }), url),
+        ).toEqual(ALLOW);
+      }
+    });
+
+    // A remote-gateway session is gateway auth too. Paired (authenticated), it
+    // passes the pairing step untouched; unpaired it pairs first, and the
+    // pairing `returnTo` keeps the markers so the funnel resumes after.
+    test("leaves remote-gateway pairing intact on a paid funnel entry", () => {
+      expect(
+        guard(
+          s({ ...ELECTRON_PAID, isRemoteGateway: true }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ ...ELECTRON_PAID, isRemoteGateway: true, isAuthenticated: false }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/pair?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // The funnel destination must not itself read as a checkout return, or the
+    // redirect would loop.
+    test("the funnel destination is not treated as a post-checkout return", () => {
+      for (const url of [
+        "/assistant/onboarding/hatching?session_id=cs_test_123",
+        "/assistant/onboarding/research?session_id=cs_test_123",
+      ]) {
+        expect(guard(s(EMPTY_ORG), url)).toEqual(ALLOW);
+      }
+    });
+
     test("redirects brand-new platform user with no assistant to privacy, unaffected by stale-toggle gate", () => {
       expect(
         guard(
@@ -725,6 +1329,13 @@ describe("resolveNavigation", () => {
   // post-auth
   // -----------------------------------------------------------------------
   describe("post-auth", () => {
+    beforeEach(() => {
+      sessionStorage.clear();
+      // Reset the module-level in-memory mirror so a stash set by one case
+      // can't leak into the next through the sessionStorage fallback.
+      clearCheckoutIntent();
+    });
+
     const postAuth = (authIntent: "login" | "signup", returnTo: string | null, fallback = "/assistant") =>
       resolveNavigation(base, { kind: "post-auth", authIntent, returnTo, fallback });
 
@@ -733,6 +1344,39 @@ describe("resolveNavigation", () => {
         action: "redirect",
         to: "/assistant/onboarding/privacy",
       });
+      // A non-checkout signup stashes no checkout intent.
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("signup via the checkout deep link still routes through consent but stashes the package", () => {
+      expect(
+        postAuth("signup", "/assistant/checkout?package=super"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(readCheckoutIntent()).toMatchObject({
+        kind: "package",
+        packageKey: "super",
+      });
+    });
+
+    test("signup via checkout without a package stashes nothing", () => {
+      expect(postAuth("signup", "/assistant/checkout")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("login via the checkout deep link returns there directly and stashes nothing", () => {
+      expect(
+        postAuth("login", "/assistant/checkout?package=super"),
+      ).toEqual({
+        action: "redirect",
+        to: "/assistant/checkout?package=super",
+      });
+      expect(readCheckoutIntent()).toBeNull();
     });
 
     test("signup goes to privacy without returnTo", () => {
@@ -782,6 +1426,24 @@ describe("resolveNavigation", () => {
         to: "/assistant",
       });
     });
+
+    test("a non-checkout signup clears a stale stash from an abandoned attempt", () => {
+      saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+      expect(postAuth("signup", "/some-return")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
+
+    test("a non-checkout login clears a stale stash from an abandoned attempt", () => {
+      saveCheckoutIntent({ kind: "package", packageKey: "abandoned" });
+      expect(postAuth("login", "/assistant/home")).toEqual({
+        action: "redirect",
+        to: "/assistant/home",
+      });
+      expect(readCheckoutIntent()).toBeNull();
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -810,6 +1472,64 @@ describe("resolveNavigation", () => {
       expect(
         resolveLoginReturnTo(s({}), "/assistant/onboarding/hosting"),
       ).toBe("/assistant/onboarding/hosting");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // postCheckoutHatchReturnTo
+  // -----------------------------------------------------------------------
+  describe("postCheckoutHatchReturnTo", () => {
+    test("accepts the headless research funnel entry", () => {
+      expect(postCheckoutHatchReturnTo(RESEARCH_FUNNEL_URL)).toBe(
+        RESEARCH_FUNNEL_URL,
+      );
+    });
+
+    // A `returnTo` stashed on the privacy screen by an older client names the
+    // hatching entry; it must still resume rather than drop the paid markers.
+    test("accepts the foreground hatching funnel entry", () => {
+      expect(postCheckoutHatchReturnTo(HATCHING_FUNNEL_URL)).toBe(
+        HATCHING_FUNNEL_URL,
+      );
+    });
+
+    test("rejects any other path, even carrying the marker", () => {
+      for (const url of [
+        "/assistant/onboarding/privacy?post_checkout=1",
+        "/assistant/settings/billing?post_checkout=1",
+        "/assistant?post_checkout=1",
+        "/assistant/onboarding/research-mock?post_checkout=1",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects a funnel path without the paid marker", () => {
+      for (const url of [
+        "/assistant/onboarding/research",
+        "/assistant/onboarding/research?hosting=vellum-cloud",
+        "/assistant/onboarding/research?post_checkout=0",
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?hosting=vellum-cloud",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects absolute and protocol-relative URLs", () => {
+      for (const url of [
+        "https://evil.example.com/assistant/onboarding/research?post_checkout=1",
+        "//evil.example.com/assistant/onboarding/research?post_checkout=1",
+        "http://localhost/assistant/onboarding/hatching?post_checkout=1",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects absent values", () => {
+      expect(postCheckoutHatchReturnTo(null)).toBeNull();
+      expect(postCheckoutHatchReturnTo(undefined)).toBeNull();
+      expect(postCheckoutHatchReturnTo("")).toBeNull();
     });
   });
 });

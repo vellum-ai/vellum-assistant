@@ -31,6 +31,7 @@ import {
   useState,
 } from "react";
 
+import { recordUpdate } from "@/lib/commit-pressure";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type AnchorSnapshot,
@@ -350,9 +351,11 @@ export function useTranscriptScroll(
         },
       );
       if (classification.isPinned !== latest.isPinnedToLatest) {
+        recordUpdate("transcript-scroll");
         setIsPinnedToLatest(classification.isPinned);
       }
       if (classification.showScrollToLatest !== latest.showScrollToLatest) {
+        recordUpdate("transcript-scroll");
         setShowScrollToLatest(classification.showScrollToLatest);
       }
 
@@ -514,9 +517,11 @@ export function useTranscriptScroll(
     });
 
     if (classification.isPinned !== latest.isPinnedToLatest) {
+      recordUpdate("transcript-scroll");
       setIsPinnedToLatest(classification.isPinned);
     }
     if (classification.showScrollToLatest !== latest.showScrollToLatest) {
+      recordUpdate("transcript-scroll");
       setShowScrollToLatest(classification.showScrollToLatest);
     }
 

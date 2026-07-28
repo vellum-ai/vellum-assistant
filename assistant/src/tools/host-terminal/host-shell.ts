@@ -11,6 +11,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 
+import { z } from "zod";
+
 import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
@@ -36,6 +38,11 @@ import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type {
   ToolContext,
@@ -90,6 +97,56 @@ function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
   return env;
 }
 
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below.
+ * `timeout_seconds` / `background` / `target_client_id` / `activity` catch
+ * to `undefined` so a malformed value degrades to its default (configured
+ * timeout, foreground, untargeted, status-only). `working_dir` treats an
+ * explicit null as omitted (the run defaults to the user home) but does NOT
+ * catch — a malformed working directory fails the parse rather than
+ * silently running in the wrong place, and the null-byte / absolute-path
+ * checks stay bespoke below.
+ */
+export const hostShellInputSchema = z.looseObject({
+  command: z.string().min(1).describe("The host shell command to execute."),
+  activity: z
+    .string()
+    .describe(
+      'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
+    )
+    .optional()
+    .catch(undefined),
+  working_dir: nullAsOmitted(
+    z
+      .string()
+      .describe(
+        "Optional absolute host working directory (defaults to user home)",
+      ),
+  ),
+  timeout_seconds: z
+    .number()
+    .describe(
+      "Optional timeout in seconds. Uses configured default and max limits.",
+    )
+    .optional()
+    .catch(undefined),
+  background: z
+    .boolean()
+    .describe(
+      "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
+    )
+    .optional()
+    .catch(undefined),
+  target_client_id: z
+    .string()
+    .describe(
+      "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
+    )
+    .optional()
+    .catch(undefined),
+});
+
 export const hostShellTool = {
   name: "host_bash",
   description:
@@ -98,64 +155,24 @@ export const hostShellTool = {
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      command: {
-        type: "string",
-        description: "The host shell command to execute.",
-      },
-      activity: {
-        type: "string",
-        description:
-          'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
-      },
-      working_dir: {
-        type: "string",
-        description:
-          "Optional absolute host working directory (defaults to user home)",
-      },
-      timeout_seconds: {
-        type: "number",
-        description:
-          "Optional timeout in seconds. Uses configured default and max limits.",
-      },
-      background: {
-        type: "boolean",
-        description:
-          "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
-      },
-      target_client_id: {
-        type: "string",
-        description:
-          "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
-      },
-    },
-    required: ["command", "activity"],
-  },
+  input_schema: toToolInputSchema(hostShellInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const command = input.command as string;
-    if (!command || typeof command !== "string") {
-      return {
-        content: "Error: command is required and must be a string",
-        isError: true,
-      };
+    const parsed = hostShellInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("host_bash", parsed.error);
     }
+    const command = parsed.data.command;
     if (command.includes("\0")) {
       return { content: "Error: command contains null bytes", isError: true };
     }
 
-    const rawWorkingDir = input.working_dir;
-    if (rawWorkingDir != null && typeof rawWorkingDir !== "string") {
-      return {
-        content: "Error: working_dir must be a string when provided",
-        isError: true,
-      };
-    }
+    const rawWorkingDir = parsed.data.working_dir;
     if (typeof rawWorkingDir === "string" && rawWorkingDir.includes("\0")) {
       return {
         content: "Error: working_dir contains null bytes",
@@ -168,7 +185,7 @@ export const hostShellTool = {
         isError: true,
       };
     }
-    const background = input.background === true;
+    const background = parsed.data.background === true;
     if (background && context.diskPressureCleanupModeActive === true) {
       return {
         content:
@@ -178,9 +195,8 @@ export const hostShellTool = {
     }
 
     const targetClientId =
-      typeof input.target_client_id === "string" &&
-      input.target_client_id !== ""
-        ? input.target_client_id
+      parsed.data.target_client_id !== ""
+        ? parsed.data.target_client_id
         : undefined;
 
     const config = getConfig();
@@ -230,10 +246,7 @@ export const hostShellTool = {
     // Proxy to connected client for execution on the user's machine
     // when a capable client is available (managed/cloud-hosted mode).
     if (HostBashProxy.instance.isAvailable()) {
-      const rawSec =
-        typeof input.timeout_seconds === "number"
-          ? input.timeout_seconds
-          : shellDefaultTimeoutSec;
+      const rawSec = parsed.data.timeout_seconds ?? shellDefaultTimeoutSec;
       const normalizedTimeout = Math.max(
         1,
         Math.min(rawSec, shellMaxTimeoutSec),
@@ -419,10 +432,7 @@ export const hostShellTool = {
     const workingDir =
       typeof rawWorkingDir === "string" ? rawWorkingDir : homedir();
 
-    const requestedSec =
-      typeof input.timeout_seconds === "number"
-        ? input.timeout_seconds
-        : shellDefaultTimeoutSec;
+    const requestedSec = parsed.data.timeout_seconds ?? shellDefaultTimeoutSec;
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
@@ -500,7 +510,9 @@ export const hostShellTool = {
       let completed = false;
 
       child.on("close", (code) => {
-        if (completed) {return;}
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(stdoutChunks).toString();
@@ -572,7 +584,9 @@ export const hostShellTool = {
       });
 
       child.on("error", (err) => {
-        if (completed) {return;}
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         const status = aborted ? "cancelled" : "failed";

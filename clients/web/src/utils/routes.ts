@@ -185,6 +185,15 @@ export const routes = {
    *  chrome, a sibling of the settings/logs full-screen shells. */
   plans: r("/assistant/plans"),
 
+  /**
+   * Deep-link checkout entrypoint. The marketing pricing CTAs route here (via
+   * auth `returnTo`) with `?package=<slug>` to start Stripe checkout for a
+   * chosen Pro package. Sits behind auth but OUTSIDE `ActiveAssistantGate` so a
+   * brand-new user with no assistant can reach it; the resolver exempts it from
+   * the no-assistant funnel redirect.
+   */
+  checkout: r("/assistant/checkout"),
+
   settings: {
     root: r("/assistant/settings"),
     general: r("/assistant/settings/general"),

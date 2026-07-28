@@ -44,12 +44,16 @@ export function useLiveVoiceSessionController(
   // `observeAudioState: false` — the controller consumes nothing reactive
   // beyond the low-frequency `state`/`error` fields, so high-frequency
   // amplitude/transcript updates must not re-render the mounting layout.
-  const { start } = useLiveVoice({ ...options, observeAudioState: false });
+  const { start, prewarmPlayback, cancelPrewarmedPlayback } = useLiveVoice({
+    ...options,
+    observeAudioState: false,
+  });
 
   useEffect(() => {
-    useLiveVoiceStore
-      .getState()
-      .setStarter((assistantId, conversationId) =>
+    useLiveVoiceStore.getState().setStarter({
+      prewarm: prewarmPlayback,
+      cancelPrewarm: cancelPrewarmedPlayback,
+      start: (assistantId, conversationId) =>
         // Hands-free (server-side turn detection) is the only mode the voice
         // button starts — it keeps one socket open across turns so the
         // assistant's TTS drains instead of the session tearing down each
@@ -58,9 +62,9 @@ export function useLiveVoiceSessionController(
         void start(assistantId, conversationId ?? undefined, {
           handsFree: true,
         }),
-      );
+    });
     return () => {
       useLiveVoiceStore.getState().setStarter(null);
     };
-  }, [start]);
+  }, [start, prewarmPlayback, cancelPrewarmedPlayback]);
 }

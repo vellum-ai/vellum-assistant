@@ -9,10 +9,11 @@
  * assistant-avatar React Query graph — irrelevant to room chrome, and stubbed
  * so the exit control's independence from avatar readiness is testable).
  *
- * Exit is the load-bearing behavior: the room is a full-app takeover with no
- * minimize — ending the session is the only way out, via the ✕ control (which
- * renders even with no assistant resolved) or Escape, and the key listener is
- * removed on unmount (no leaks).
+ * Dismissal is the load-bearing behavior: the ✕ control (which renders even
+ * with no assistant resolved) ends the session; the minimize control and
+ * Escape dismiss the room while the session keeps running (`roomMinimized`
+ * flips, session state untouched); and the key listener is removed on
+ * unmount (no leaks).
  */
 
 import { type ReactNode } from "react";
@@ -381,6 +382,16 @@ describe("VoiceRoom — visibility", () => {
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
   });
+
+  test("renders nothing while the room is minimized, even on the owning composer", () => {
+    // Minimized, the composer's voice bar underneath is the session control —
+    // the session itself stays live.
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setRoomMinimized(true);
+    render(<VoiceRoom />);
+    expect(roomDialog()).toBeNull();
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+  });
 });
 
 describe("VoiceRoom — listening waves", () => {
@@ -425,25 +436,31 @@ describe("VoiceRoom — exit", () => {
   });
 });
 
-describe("VoiceRoom — no way out but ending the session", () => {
-  test("no minimize control renders", () => {
+describe("VoiceRoom — minimize (session keeps running)", () => {
+  const minimizeButton = () =>
+    screen.queryByRole("button", { name: "Minimize voice room" });
+
+  test("the minimize control dismisses the room without ending the session", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    expect(
-      screen.queryByRole("button", { name: "Minimize voice room" }),
-    ).toBeNull();
+    fireEvent.click(minimizeButton()!);
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("Escape ends the session, same as ✕", () => {
+  test("Escape minimizes instead of ending the session", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(controls.stop).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("Escape ends the session even when an editable element holds focus (global key)", () => {
+  test("Escape minimizes even when an editable element holds focus (global key)", () => {
     startOwnedSession("listening");
     render(<VoiceRoom />);
     // The room can open while the composer textarea still owns focus; the key
@@ -455,7 +472,8 @@ describe("VoiceRoom — no way out but ending the session", () => {
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
     });
-    expect(controls.stop).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(controls.stop).not.toHaveBeenCalled();
     input.remove();
   });
 
@@ -464,6 +482,7 @@ describe("VoiceRoom — no way out but ending the session", () => {
     const { unmount } = render(<VoiceRoom />);
     unmount();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
     expect(controls.stop).not.toHaveBeenCalled();
   });
 });

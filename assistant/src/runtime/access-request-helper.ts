@@ -25,7 +25,7 @@ import {
   recordGuardianRequestDeliveries,
 } from "../notifications/guardian-delivery-recorder.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
-import { getConversation } from "../persistence/conversation-crud.js";
+import { buildVellumCardAffinity } from "../notifications/vellum-card-affinity.js";
 import { IntegrityError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
@@ -332,20 +332,12 @@ export async function notifyGuardianOfAccessRequest(
     TEXT_CHANNELS_WITH_DELIVERY.has(sourceChannel) &&
     guardianResolutionSource === "source-channel-contact";
 
-  // Pin the in-app (vellum) card to the originating conversation when the caller
-  // supplied one, so the card lands inside it instead of a fresh standalone
-  // "Chat". `pairDeliveryWithConversation` reuses a conversation only when its
-  // source matches the signal's, so mirror the target's source (inbound
-  // conversations default to "user"); a stale/missing target falls back to a
-  // new conversation via the same pairing path.
-  const vellumConversationAffinity = destinationConversationId
-    ? {
-        conversationAffinityHint: { vellum: destinationConversationId },
-        conversationMetadata: {
-          source: getConversation(destinationConversationId)?.source ?? "user",
-        },
-      }
-    : undefined;
+  // Pin the in-app (vellum) card to the originating conversation when the
+  // caller supplied one, so the card lands inside it instead of a fresh
+  // standalone "Chat".
+  const vellumConversationAffinity = buildVellumCardAffinity(
+    destinationConversationId,
+  );
 
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",

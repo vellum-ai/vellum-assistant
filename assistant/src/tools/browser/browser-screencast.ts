@@ -1,4 +1,4 @@
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
+import type { AssistantEvent } from "../../api/index.js";
 import { browserManager } from "./browser-manager.js";
 
 // Track which conversations have an active browser page.

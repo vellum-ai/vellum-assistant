@@ -374,10 +374,9 @@ External users who are not the guardian can gain access to the assistant through
 **Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
 
 - `ingress.access_request` — unknown contact denied, guardian notified
-- `ingress.trusted_contact.guardian_decision` — guardian approved or denied
-- `ingress.trusted_contact.verification_sent` — code created and delivered
+- `ingress.trusted_contact.guardian_decision` — the guardian's verdict (the payload's `decision` field carries approved/denied; exactly one lifecycle signal fires per denial)
+- `ingress.trusted_contact.verification_sent` — code created and delivered (stands in for `guardian_decision` on approve so the pipeline doesn't announce approval before verification)
 - `ingress.trusted_contact.activated` — requester verified, contact active
-- `ingress.trusted_contact.denied` — guardian explicitly denied
 
 **HTTP API (for management):**
 
@@ -752,7 +751,7 @@ Conversation starters follow the same pattern via `GET /v1/conversation-starters
 
 The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `src/config/feature-flag-registry.json`) and resolves the effective state for each declared assistant-scope flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
-**Canonical key format:** Simple kebab-case (e.g., `contacts`, `voice-mode`).
+**Canonical key format:** Simple kebab-case (e.g., `contacts`, `browser`).
 
 **Resolution priority** (highest wins):
 
@@ -780,7 +779,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
-**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `voice-mode`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
+**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `browser`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 

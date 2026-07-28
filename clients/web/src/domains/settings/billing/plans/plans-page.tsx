@@ -217,7 +217,8 @@ export function PlansPage() {
 
   // Pro features lost by downgrading to Free — the confirm dialog lists these.
   const baseFeatureSet = new Set(
-    plansQuery.data?.plans.find((p) => p.id === "base")?.included_features ?? [],
+    plansQuery.data?.plans.find((p) => p.id === "base")?.included_features ??
+      [],
   );
   const freeDowngradeLostFeatures = (proPlan?.included_features ?? []).filter(
     (f) => !baseFeatureSet.has(f),
@@ -575,7 +576,9 @@ export function PlansPage() {
         <CustomPlanRow
           className="mt-6 sm:mt-10"
           onConfigure={handleConfigure}
-          configureDisabled={(isProUser && !currentReady) || billingActionPending}
+          configureDisabled={
+            (isProUser && !currentReady) || billingActionPending
+          }
           isCurrent={showCurrentPlan}
           currentSummary={currentSummary}
         />
@@ -600,6 +603,7 @@ export function PlansPage() {
           open={switchTarget !== null}
           relation={switchRelation}
           packageName={switchTarget?.name ?? ""}
+          targetPackage={switchTarget}
           pending={changePackagePending}
           onCancel={() => setSwitchTarget(null)}
           onConfirm={() => void confirmSwitch()}

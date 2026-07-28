@@ -157,13 +157,15 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 
 **Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path and macOS SSE bridge path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
 
-### Channel approvals (Telegram, Slack)
+### Interactive requests on channels (approvals, questions)
 
-Channel approval flows use `requestId` (not `runId`) as the primary identifier:
+**The guardian-request pipeline is the canonical rail for anything interactive on a channel** — cards with buttons, request-code replies, emoji reactions, typed answers. The end-to-end map (promotion → gateway `guardian_requests` row → notification broadcaster → per-channel adapters → reply router → decision primitive → per-kind resolver) lives in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). New interactive features extend that pipeline's seams; do NOT add per-feature watchers, callback schemes, or inbound intercepts.
 
-- Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
-- Guardian approval records in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`) link via `requestId`; the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
-- The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
+Identifiers and plumbing notes:
+
+- Channel flows use `requestId` (not `runId`) as the primary identifier. Callback buttons encode `apr:<requestId>:<action>` in `callback_data`; answer-option buttons on question cards use action tokens `answer_<idx>` / `answer_skip` under the same prefix.
+- Guardian request records live in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`); the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
+- Legacy in-turn interception (`routes/guardian-approval-interception.ts` + the approval prompt watcher) still serves a guardian's own tool-approval prompts mid-turn, resolving via `conversation.handleConfirmationResponse(requestId, decision)`. It is a legacy rail — the reply router runs first; converge new work on the pipeline.
 
 ### Channel verification: gateway-owned
 

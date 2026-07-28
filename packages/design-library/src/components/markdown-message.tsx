@@ -35,6 +35,18 @@ export const quoteBlockquoteAccentClassName =
   "w-0.5 shrink-0 self-stretch rounded-full bg-[var(--content-tertiary)]";
 export const quoteBlockquoteContentClassName = "min-w-0 flex-1 [&_p]:mb-0";
 
+/**
+ * Inline (non-fenced) code chip styling. Exported so consumers that replace a
+ * code span with their own element via `extraComponents` — e.g. a workspace
+ * path that resolves into a file link — can render identically to the code
+ * span they stand in for, instead of forking the class list.
+ *
+ * Small *prose* token: its 18px leading keeps the chip's padded background
+ * inside its own line box in tight-leading contexts (blockquotes, table cells).
+ */
+export const MARKDOWN_INLINE_CODE_CLASS =
+  "rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-lighter dark:bg-moss-800";
+
 function CopyButton({
   visible,
   onClick,
@@ -367,14 +379,7 @@ function buildMarkdownComponents(
           </code>
         );
       }
-      return (
-        // Small prose token: its 18px leading keeps the chip's padded
-        // background inside its own line box in tight-leading contexts
-        // (blockquotes, table cells).
-        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-lighter dark:bg-moss-800">
-          {children}
-        </code>
-      );
+      return <code className={MARKDOWN_INLINE_CODE_CLASS}>{children}</code>;
     },
     pre: ({ children }) => <CodeBlockWrapper>{children}</CodeBlockWrapper>,
     // No styling change vs. the browser default `<em>`, except emoji inside the

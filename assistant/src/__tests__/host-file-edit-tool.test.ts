@@ -152,7 +152,7 @@ describe("host_file_edit tool", () => {
       makeContext(),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("path is required");
+    expect(result.content).toContain('Invalid input for tool "host_file_edit"');
   });
 
   test("rejects non-string old_string", async () => {
@@ -170,7 +170,7 @@ describe("host_file_edit tool", () => {
       makeContext(),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("old_string is required");
+    expect(result.content).toContain('Invalid input for tool "host_file_edit"');
   });
 
   test("rejects non-string new_string", async () => {
@@ -188,7 +188,7 @@ describe("host_file_edit tool", () => {
       makeContext(),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("new_string is required");
+    expect(result.content).toContain('Invalid input for tool "host_file_edit"');
   });
 
   test("rejects empty old_string", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { VellumAdapter } from "../notifications/adapters/macos.js";
 import type {
   ChannelDeliveryPayload,

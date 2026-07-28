@@ -13,8 +13,8 @@
  * context management.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import type { ContentBlock, MediaSource } from "../providers/types.js";
 

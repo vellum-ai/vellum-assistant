@@ -985,6 +985,11 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
     case "tool_result":
     case "web_search_tool_result":
       return "[tool result]";
+    // Surfaces normally ride with a `_surfaceFallback` text sibling that
+    // supplies the line, so this label is reached only by legacy rows that
+    // carry a bare card — better than rendering an empty transcript line.
+    case "ui_surface":
+      return "[card]";
     case "thinking":
     case "redacted_thinking":
     case "text":

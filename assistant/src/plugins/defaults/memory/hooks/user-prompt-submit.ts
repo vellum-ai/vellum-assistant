@@ -51,15 +51,18 @@ import { recordMemoryRecallLog } from "../memory-recall-log-store.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../v3/ever-injected-store.js";
 
 /**
- * Whether to run v2 graph-memory retrieval this turn. v2 retrieval is the
+ * Whether to run legacy graph-memory retrieval this turn. It gates BOTH
+ * pre-v3 read paths — `prepareMemory` dispatches internally between v1
+ * retrieval and the v2 activation engine. The legacy retrieval is the
  * deprecated path: under `memory-v3-live`, v3 is the injected-memory source and
- * runtime assembly strips any v2 `<memory>` block, so running v2's retrieval
- * (embedding + hybrid search + the `memoryRetrieval` LLM router) only to
- * discard the result is pure per-turn waste. Untrusted actors never run it
- * either. The caller additionally requires the live conversation and its abort
- * signal to be present (kept inline at the call site for type narrowing).
+ * runtime assembly strips any legacy `<memory>` block, so running the legacy
+ * retrieval (embedding + hybrid search + the `memoryRetrieval` LLM router)
+ * only to discard the result is pure per-turn waste. Untrusted actors never
+ * run it either. The caller additionally requires the live conversation and
+ * its abort signal to be present (kept inline at the call site for type
+ * narrowing).
  */
-export function shouldRunV2Retrieval(params: {
+export function shouldRunLegacyMemoryRetrieval(params: {
   isTrustedActor: boolean;
   memoryV3Live: boolean;
 }): boolean {
@@ -281,16 +284,17 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
     conversation?.trustContext,
   );
 
-  // v2 graph retrieval is the deprecated path: `shouldRunV2Retrieval` skips it
-  // under memory-v3-live (v3 owns the `<memory>` layer and assembly strips any
-  // v2 block) and for untrusted actors. The `conversation && abortSignal`
-  // presence checks stay inline so the block below narrows. NOTE: this removes
-  // the v2 fallback — under v3-live, a v3 empty/failed selection yields no NEW
-  // injected memory that turn (prior turns' frozen v3 cards still ride history).
+  // Legacy (v1/v2) graph retrieval is the deprecated path:
+  // `shouldRunLegacyMemoryRetrieval` skips it under memory-v3-live (v3 owns
+  // the `<memory>` layer and assembly strips any legacy block) and for
+  // untrusted actors. The `conversation && abortSignal` presence checks stay
+  // inline so the block below narrows. NOTE: under v3-live there is no legacy
+  // fallback — a v3 empty/failed selection yields no NEW injected memory that
+  // turn (prior turns' frozen v3 cards still ride history).
   const memoryV3Live = isMemoryV3Live(config);
   let v2BlockPersisted = false;
   if (
-    shouldRunV2Retrieval({ isTrustedActor, memoryV3Live }) &&
+    shouldRunLegacyMemoryRetrieval({ isTrustedActor, memoryV3Live }) &&
     conversation &&
     abortSignal
   ) {

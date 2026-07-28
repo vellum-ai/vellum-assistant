@@ -314,6 +314,11 @@ export const SLACK_CHANNEL_CREDENTIAL_SPEC: ServiceCredentialSpec = {
   requiredFields: ["bot_token", "app_token"],
 } as const;
 
+export const DISCORD_CHANNEL_CREDENTIAL_SPEC: ServiceCredentialSpec = {
+  service: "discord_channel",
+  requiredFields: ["bot_token"],
+} as const;
+
 export const VELLUM_CREDENTIAL_SPEC: ServiceCredentialSpec = {
   service: "vellum",
   requiredFields: [
@@ -329,5 +334,6 @@ export const ALL_CREDENTIAL_SPECS: readonly ServiceCredentialSpec[] = [
   TWILIO_CREDENTIAL_SPEC,
   WHATSAPP_CREDENTIAL_SPEC,
   SLACK_CHANNEL_CREDENTIAL_SPEC,
+  DISCORD_CHANNEL_CREDENTIAL_SPEC,
   VELLUM_CREDENTIAL_SPEC,
 ];

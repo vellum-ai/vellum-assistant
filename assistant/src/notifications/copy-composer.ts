@@ -222,21 +222,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     };
   },
 
-  "ingress.trusted_contact.denied": (payload) => {
-    const parsed = parseTrustedContactDecisionPayload(payload);
-    const requesterLabel = formatTrustedContactActor(
-      parsed?.requesterDisplayName,
-      parsed?.requesterExternalUserId,
-      parsed?.sourceChannel,
-      "Someone",
-    );
-
-    return {
-      title: "Trusted Contact Denied",
-      body: `A trusted contact request from ${requesterLabel} has been denied.`,
-    };
-  },
-
   "watcher.notification": (payload) => ({
     title: str(payload.title, "Watcher Notification"),
     body: str(payload.body, "A watcher event occurred"),

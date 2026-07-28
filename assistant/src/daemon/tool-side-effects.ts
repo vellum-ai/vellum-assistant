@@ -9,13 +9,14 @@
 
 import { isAbsolute, resolve, sep } from "node:path";
 
+import type { AssistantEvent } from "../api/index.js";
 import { addAppConversationId, getApp } from "../apps/app-store.js";
 import { findActiveSession } from "../channels/gateway-verification-sessions.js";
 import { getConfig } from "../config/loader.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import { invalidateEdgeIndex } from "../plugins/defaults/memory/v3/substrate/edge-index.js";
-import { invalidatePageIndex } from "../plugins/defaults/memory/v3/substrate/page-index.js";
-import { getConceptsDir } from "../plugins/defaults/memory/v3/substrate/page-store.js";
+import { invalidateEdgeIndex } from "../plugins/defaults/memory/substrate/edge-index.js";
+import { invalidatePageIndex } from "../plugins/defaults/memory/substrate/page-index.js";
+import { getConceptsDir } from "../plugins/defaults/memory/substrate/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
@@ -26,7 +27,6 @@ import { getWorkspaceDir } from "../util/platform.js";
 import { ensureAppSourceWatcher } from "./app-source-watcher.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 
 const log = getLogger("tool-side-effects");

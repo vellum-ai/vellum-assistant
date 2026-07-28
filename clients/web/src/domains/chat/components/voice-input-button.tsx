@@ -1048,7 +1048,11 @@ export const VoiceInputButton = forwardRef<
       aria-busy={processing}
       title={label}
       className={cn(
-        "[--vbtn-fg:var(--content-secondary)]",
+        // Tertiary resting tone, matching the composer action row's icons
+        // (Figma: New-App 7471-25234). The touch-mobile override beats the
+        // ghost icon-only variant's default-tone mobile chrome so mobile
+        // matches desktop.
+        "[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]",
         isNative && recording && "h-12 w-12 max-md:h-12 max-md:w-12",
       )}
     />

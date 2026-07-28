@@ -10,9 +10,13 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { assistantEventHub as pluginHub } from "../plugin-api/index.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import { assistantEventHub as rawHub } from "../runtime/assistant-event-hub.js";
+
+// The hub's `publish` fans out locally only in the main daemon; elsewhere it
+// forwards over IPC. A test process defaults to "main daemon" (set by the test
+// preload), so these local-delivery assertions hold.
 
 /** Minimal event envelope; the facade guard keys only off `message.type`. */
 function envelope(type: string): AssistantEventEnvelope {

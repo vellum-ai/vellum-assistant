@@ -18,8 +18,8 @@
  * does not match their own identity.
  */
 
+import type { AssistantEvent } from "../../api/index.js";
 import type { InterfaceId } from "../../channels/types.js";
-import type { AssistantEvent } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelAdapter,

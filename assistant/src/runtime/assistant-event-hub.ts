@@ -12,8 +12,8 @@
  * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Message type → capability inference
@@ -40,11 +40,14 @@ export function capabilityForMessageType(
   const stem = type.replace(/_(request|cancel)$/, "");
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
+import type { AssistantEventEnvelope } from "../api/index.js";
+import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
-import type { AssistantEventEnvelope } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
+import { isMainDaemonProcess } from "./process-role.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -302,20 +305,16 @@ export class AssistantEventHub {
    */
   async publish(
     event: AssistantEventEnvelope,
-    options?: {
-      targetCapability?: HostProxyCapability;
-      targetClientId?: string;
-      targetInterfaceId?: InterfaceId;
-      /**
-       * Skip the subscriber with this `clientId`. Used for self-echo
-       * suppression on `sync_changed`: the route handler echoes the
-       * originating tab's `X-Vellum-Client-Id` back on the event, and the
-       * hub uses it here to avoid re-delivering the invalidation to the
-       * tab that already mutated its own optimistic state.
-       */
-      excludeClientId?: string;
-    },
+    options?: AssistantEventPublishOptions,
   ): Promise<void> {
+    // Only the main daemon owns the subscribers real clients connect to. In any
+    // other process (a sidecar worker, the route host) this hub has no SSE
+    // subscriber, so hand the event to the daemon — it republishes on the hub
+    // clients actually observe. Best-effort: a transport failure is logged, not
+    // thrown, and never blocks the caller.
+    if (!isMainDaemonProcess()) {
+      return forwardEventPublishToDaemon(event, options);
+    }
     if (event.conversationId) {
       try {
         appendEventToStream(event.conversationId, event);
@@ -332,7 +331,9 @@ export class AssistantEventHub {
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
-      if (!entry.active) {continue;}
+      if (!entry.active) {
+        continue;
+      }
 
       // Self-echo suppression: the originating client never receives the
       // event back. Checked before every other rule so it composes with
@@ -349,27 +350,34 @@ export class AssistantEventHub {
       // the requested interface. Composes with `targetClientId` and
       // `targetCapability` below.
       if (targetInterfaceId != null) {
-        if (entry.type !== "client" || entry.interfaceId !== targetInterfaceId)
-          {continue;}
+        if (
+          entry.type !== "client" ||
+          entry.interfaceId !== targetInterfaceId
+        ) {
+          continue;
+        }
       }
 
       if (targetClientId != null) {
         // Targeted: bypass conversation filter, deliver only to the named client.
-        if (entry.type !== "client" || entry.clientId !== targetClientId)
-          {continue;}
+        if (entry.type !== "client" || entry.clientId !== targetClientId) {
+          continue;
+        }
         if (
           targetCapability != null &&
           !entry.capabilities.includes(targetCapability)
-        )
-          {continue;}
+        ) {
+          continue;
+        }
       } else {
         // Untargeted: existing conversation-scoped + capability logic.
         if (
           event.conversationId != null &&
           entry.filter.conversationId != null &&
           entry.filter.conversationId !== event.conversationId
-        )
-          {continue;}
+        ) {
+          continue;
+        }
 
         // Capability targeting: targeted events only go to subscribers that
         // declare the required capability.
@@ -377,8 +385,9 @@ export class AssistantEventHub {
           if (
             entry.type !== "client" ||
             !entry.capabilities.includes(targetCapability)
-          )
-            {continue;}
+          ) {
+            continue;
+          }
         }
       }
 
@@ -407,8 +416,9 @@ export class AssistantEventHub {
         entry.active &&
         entry.type === "client" &&
         entry.clientId === clientId
-      )
-        {return entry;}
+      ) {
+        return entry;
+      }
     }
     return undefined;
   }
@@ -433,7 +443,9 @@ export class AssistantEventHub {
     event: Pick<AssistantEventEnvelope, "conversationId">,
   ): boolean {
     for (const entry of this.subscribers) {
-      if (!entry.active) {continue;}
+      if (!entry.active) {
+        continue;
+      }
       if (
         event.conversationId != null &&
         entry.filter.conversationId != null &&

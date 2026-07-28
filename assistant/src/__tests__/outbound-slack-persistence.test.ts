@@ -153,6 +153,7 @@ mock.module("../persistence/attachments-store.js", () => ({
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -162,7 +163,6 @@ import {
   handleLlmCallStarted,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
 import { setConfig } from "./helpers/set-config.js";

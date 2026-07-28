@@ -14,8 +14,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { RouteDefinition } from "../../../../../runtime/routes/types.js";
-import { writePage } from "../../v3/substrate/page-store.js";
-import type { ConceptPage } from "../../v3/substrate/types.js";
+import { writePage } from "../../substrate/page-store.js";
+import type { ConceptPage } from "../../substrate/types.js";
 import type { MemoryV2ListConceptPagesResult } from "../memory-v2-routes.js";
 import { ROUTES } from "../memory-v2-routes.js";
 
@@ -26,7 +26,9 @@ let origWorkspaceDir: string | undefined;
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 

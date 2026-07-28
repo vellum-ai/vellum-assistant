@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
 const realEventHub = await import("../runtime/assistant-event-hub.js");
 
