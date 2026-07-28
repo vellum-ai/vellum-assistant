@@ -86,9 +86,16 @@ mock.module("@/runtime/browser", () => ({
 }));
 
 import {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+} from "@/domains/settings/billing/pro-onboarding/takeover-avatar-stash";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import {
   clearCheckoutIntent,
   readCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { AdjustPlanModal } from "./adjust-plan-modal";
 
 const CREDIT_TIERS: CreditTier[] = [
@@ -265,6 +272,8 @@ beforeEach(() => {
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
   // leaves a prior test's intent readable.
   clearCheckoutIntent();
+  clearTakeoverAvatarStash();
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 afterEach(() => {
@@ -311,10 +320,17 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
 describe("AdjustPlanModal upgrade — checkout intent stash", () => {
   test("stashes the selected tiers before redirecting to Stripe checkout", async () => {
     upgradeResponse = { checkout_url: "https://checkout.example.com/session" };
-    const { getByTestId } = renderModal(
+    const { getByTestId, client } = renderModal(
       subscription("base", null),
       proPlansResponse(CREDIT_TIERS),
     );
+    // The live avatar key appends a `supportsManifest` boolean.
+    useResolvedAssistantsStore.setState({ activeAssistantId: "a1" });
+    client.setQueryData([...avatarQueryKey("a1"), true], {
+      components: BUNDLED_COMPONENTS,
+      traits: { bodyShape: "blob", eyeStyle: "default", color: "purple" },
+      customImageUrl: null,
+    });
 
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
@@ -332,6 +348,9 @@ describe("AdjustPlanModal upgrade — checkout intent stash", () => {
       storageTier: "storage_10",
       creditTier: null,
     });
+    // The avatar snapshot rides along so the takeover can draw it on a cold
+    // return, before the live avatar query resolves.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("does not stash when the upgrade response has no checkout URL", async () => {
