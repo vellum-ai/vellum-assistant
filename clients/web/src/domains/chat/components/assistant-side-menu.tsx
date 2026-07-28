@@ -127,6 +127,8 @@ function SearchButton() {
  *     • Show more/less — page through recent conversations
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
+ *     • ───────────────
+ *     • Group ▾        — one collapsible section per custom group
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -514,48 +516,46 @@ export function AssistantSideMenu({
               {sidebar.customGroups.length > 0 ? (
                 <>
                   <SideMenu.Separator />
-                  <SideMenu.Section title="Your Groups">
-                    <CollapsibleNavSection.Root
-                      type="multiple"
-                      className="gap-3"
-                      value={sidebar.effectiveOpenCustomGroups}
-                      onValueChange={sidebar.onOpenCustomGroupsChange}
-                    >
-                      {sidebar.customGroups.map((group) => {
-                        const groupMenu = buildGroupMenu(
-                          group.name,
-                          group.conversations,
-                          {
-                            onRename: onRenameGroup
-                              ? () => onRenameGroup(group.id)
-                              : undefined,
-                            onDelete: onDeleteGroup
-                              ? () => onDeleteGroup(group.id)
-                              : undefined,
-                          },
-                        );
-                        return (
-                          <ConversationNavSection
-                            key={group.id}
-                            value={group.id}
-                            label={group.name}
-                            /* The "…" button and the header's right-click menu
-                               both render from `groupMenu`. */
-                            trailing={
-                              <GroupActionsMenu
-                                label={group.name}
-                                {...groupMenu}
-                              />
-                            }
-                            groupMenu={groupMenu}
-                            items={group.conversations}
-                            dragSection={`group:${group.id}`}
-                            collapsedIndicator={collapsedActivityDot(group.conversations)}
-                          />
-                        );
-                      })}
-                    </CollapsibleNavSection.Root>
-                  </SideMenu.Section>
+                  <CollapsibleNavSection.Root
+                    type="multiple"
+                    className="gap-3"
+                    value={sidebar.effectiveOpenCustomGroups}
+                    onValueChange={sidebar.onOpenCustomGroupsChange}
+                  >
+                    {sidebar.customGroups.map((group) => {
+                      const groupMenu = buildGroupMenu(
+                        group.name,
+                        group.conversations,
+                        {
+                          onRename: onRenameGroup
+                            ? () => onRenameGroup(group.id)
+                            : undefined,
+                          onDelete: onDeleteGroup
+                            ? () => onDeleteGroup(group.id)
+                            : undefined,
+                        },
+                      );
+                      return (
+                        <ConversationNavSection
+                          key={group.id}
+                          value={group.id}
+                          label={group.name}
+                          /* The "…" button and the header's right-click menu
+                             both render from `groupMenu`. */
+                          trailing={
+                            <GroupActionsMenu
+                              label={group.name}
+                              {...groupMenu}
+                            />
+                          }
+                          groupMenu={groupMenu}
+                          items={group.conversations}
+                          dragSection={`group:${group.id}`}
+                          collapsedIndicator={collapsedActivityDot(group.conversations)}
+                        />
+                      );
+                    })}
+                  </CollapsibleNavSection.Root>
                 </>
               ) : null}
             </>
