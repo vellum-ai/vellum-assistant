@@ -1,4 +1,11 @@
-import { getSubagentManager } from "../../subagent/index.js";
+import { getSubagentRecordsByParent } from "../../persistence/subagent-store.js";
+import {
+  getSubagentManager,
+  settleUnsupervisedStatus,
+  subagentStateFromRecord,
+  TERMINAL_STATUSES,
+} from "../../subagent/index.js";
+import type { SubagentState } from "../../subagent/types.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -8,6 +15,49 @@ import {
 } from "./resolve.js";
 
 export const subagentStatusInputSchema = subagentRefInputSchema;
+
+/**
+ * Cap on the finished subagents the list-all path adds from the durable table.
+ * Rows live as long as the parent conversation, so an old chat holds every
+ * subagent it ever spawned and the model wants the recent ones, not the whole
+ * history. Unsettled rows are never capped. Matches the reconcile route's bound.
+ */
+const MAX_LISTED_TERMINAL_RECORDS = 20;
+
+/**
+ * Every subagent of `parentConversationId`: the manager's live entries plus the
+ * durable rows it no longer holds, because the TTL sweep evicted them or a
+ * restart's rehydration bound left them out. Addressing one by id or label
+ * already falls back to the row, so listing from memory alone would omit
+ * subagents the very next call can answer for.
+ *
+ * Live state wins for an id both sides carry. A row-only entry maps through the
+ * same pair the single-subagent fallback uses, so nothing is executing it and
+ * an active recorded status reads as `interrupted`.
+ */
+function listSubagentsForParent(parentConversationId: string): SubagentState[] {
+  const byId = new Map<string, SubagentState>();
+  const records = getSubagentRecordsByParent(parentConversationId, {
+    terminalStatuses: [...TERMINAL_STATUSES],
+    maxTerminal: MAX_LISTED_TERMINAL_RECORDS,
+  });
+  for (const record of records) {
+    const state = subagentStateFromRecord(record);
+    byId.set(record.id, {
+      ...state,
+      status: settleUnsupervisedStatus(state.status),
+    });
+  }
+  for (const child of getSubagentManager().getChildrenOf(
+    parentConversationId,
+  )) {
+    byId.set(child.config.id, child);
+  }
+  return [...byId.values()].sort(
+    (a, b) =>
+      a.createdAt - b.createdAt || a.config.id.localeCompare(b.config.id),
+  );
+}
 
 export async function executeSubagentStatus(
   input: Record<string, unknown>,
@@ -19,7 +69,6 @@ export async function executeSubagentStatus(
   }
   const parsed = parsedInput.data;
   const subagentId = resolveSubagentId(parsed, context);
-  const manager = getSubagentManager();
 
   // If a label was provided but didn't resolve, that's an error — don't fall
   // through to the "list all" path.
@@ -58,7 +107,7 @@ export async function executeSubagentStatus(
   }
 
   // List all subagents for this parent conversation.
-  const children = manager.getChildrenOf(context.conversationId);
+  const children = listSubagentsForParent(context.conversationId);
   if (children.length === 0) {
     return {
       content: "No subagents found for this conversation.",

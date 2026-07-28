@@ -95,6 +95,27 @@ describe("subagent-store", () => {
     expect(rows[0].outputTokens).toBe(99);
   });
 
+  test("a label matches case-insensitively past ASCII", () => {
+    // SQLite's `lower()` folds ASCII only, so a SQL predicate misses a label
+    // the manager's Unicode-aware index matches, and the durable path would
+    // stop answering the moment the in-memory entry is gone.
+    upsertSubagentRecord(
+      record({
+        id: "accented",
+        conversationId: "conv-accented",
+        label: "ÉTAPE",
+      }),
+    );
+
+    expect(
+      getSubagentRecordByLabel("parent-1", normalizeSubagentLabel("étape"))?.id,
+    ).toBe("accented");
+    expect(
+      getSubagentRecordByLabel("parent-1", normalizeSubagentLabel("  Étape "))
+        ?.id,
+    ).toBe("accented");
+  });
+
   test("delete by parent removes only that parent's records", () => {
     upsertSubagentRecord(record());
     upsertSubagentRecord(
@@ -260,6 +281,50 @@ describe("SubagentManager.rehydrateFromDb", () => {
         normalizeSubagentLabel("Concurrent worker"),
       )?.id,
     ).toBe("spawned-second");
+
+    mgr.disposeAll();
+  });
+
+  test("a label tied on spawn time resolves to the last one spawned", () => {
+    // `created_at` is millisecond-resolution, so two subagents spawned in the
+    // same tick are indistinguishable by it and the durable paths need the
+    // row's insertion order to reach the same last-spawn-wins answer the live
+    // index gives. The earlier spawn finishes last here, so both a
+    // completion-ordered walk and a `created_at`-only comparison pick it.
+    upsertSubagentRecord(
+      record({
+        id: "tie-first",
+        conversationId: "conv-tie-first",
+        label: "Tied worker",
+        status: "completed",
+        createdAt: 1000,
+        completedAt: 5000,
+      }),
+    );
+    upsertSubagentRecord(
+      record({
+        id: "tie-second",
+        conversationId: "conv-tie-second",
+        label: "Tied worker",
+        status: "completed",
+        createdAt: 1000,
+        completedAt: 3000,
+      }),
+    );
+
+    expect(
+      getSubagentRecordByLabel(
+        "parent-1",
+        normalizeSubagentLabel("Tied worker"),
+      )?.id,
+    ).toBe("tie-second");
+
+    const mgr = new SubagentManager();
+    mgr.rehydrateFromDb();
+
+    expect(mgr.getByLabel("Tied worker", "parent-1")?.config.id).toBe(
+      "tie-second",
+    );
 
     mgr.disposeAll();
   });

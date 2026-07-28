@@ -124,6 +124,26 @@ export function settleUnsupervisedStatus(
   return TERMINAL_STATUSES.has(status) ? status : "interrupted";
 }
 
+// ── Spawn ordering ─────────────────────────────────────────────────────
+
+/** Total order on spawns: recorded spawn time, then the row's insertion order. */
+interface SpawnKey {
+  createdAt: number;
+  spawnSeq: number;
+}
+
+/**
+ * Whether `a` was spawned after `b`. `created_at` is millisecond-resolution, so
+ * two subagents spawned in the same tick compare equal on it; `spawnSeq` (the
+ * row's `rowid`) then decides, giving the same last-spawn-wins answer the live
+ * label index gives.
+ */
+function isLaterSpawn(a: SpawnKey, b: SpawnKey): boolean {
+  return a.createdAt === b.createdAt
+    ? a.spawnSeq > b.spawnSeq
+    : a.createdAt > b.createdAt;
+}
+
 // ── Skill ID merge helper ──────────────────────────────────────────────
 
 /**
@@ -1418,11 +1438,11 @@ export class SubagentManager {
     });
     let interrupted = 0;
     const now = Date.now();
-    // Spawn time of the record currently holding each label. Precedence is
+    // Spawn key of the record currently holding each label. Precedence is
     // decided here rather than by the order rows arrive in, and follows spawn
     // order to match the live index, which `spawn()` moves to the newest
     // subagent regardless of what finishes first.
-    const labelClaimedAt = new Map<string, number>();
+    const labelClaimedBy = new Map<string, SpawnKey>();
     for (const rec of records) {
       const wasInFlight = !TERMINAL_STATUSES.has(rec.status as SubagentStatus);
       if (wasInFlight) {
@@ -1444,9 +1464,13 @@ export class SubagentManager {
       this.subagents.set(rec.id, managed);
 
       const labelKey = `${rec.parentConversationId}:${normalizeSubagentLabel(rec.label)}`;
-      const claimedAt = labelClaimedAt.get(labelKey);
-      if (claimedAt === undefined || rec.createdAt > claimedAt) {
-        labelClaimedAt.set(labelKey, rec.createdAt);
+      const spawnKey: SpawnKey = {
+        createdAt: rec.createdAt,
+        spawnSeq: rec.spawnSeq,
+      };
+      const claimedBy = labelClaimedBy.get(labelKey);
+      if (claimedBy === undefined || isLaterSpawn(spawnKey, claimedBy)) {
+        labelClaimedBy.set(labelKey, spawnKey);
         this.labelIndex.set(labelKey, rec.id);
       }
 

@@ -4,9 +4,14 @@
  *
  * This module owns only the durable row shape and raw SQL. The mapping to and
  * from the manager's `SubagentState` lives in `SubagentManager`, keeping this
- * layer decoupled from the subagent domain types.
+ * layer decoupled from the subagent domain types. The one domain function it
+ * does reach for is `normalizeSubagentLabel`: label lookups have to fold
+ * exactly the way the manager's in-memory index folds, and SQLite has no
+ * equivalent (`lower()` is ASCII-only), so the comparison runs in JS against
+ * the single shared normalizer rather than a SQL predicate that can drift.
  */
 
+import { normalizeSubagentLabel } from "../subagent/types.js";
 import { rawAll, rawGet, rawRun } from "./raw-query.js";
 
 /** A durable subagent lifecycle record (camelCase mirror of the row). */
@@ -35,6 +40,16 @@ export interface SubagentRecord {
   estimatedCost: number;
 }
 
+/**
+ * A record plus its SQLite `rowid`, which is insertion order and therefore
+ * spawn order (a row is written when the subagent is spawned). Breaks a
+ * same-millisecond `created_at` tie deterministically. Kept off
+ * `SubagentRecord` so it cannot ride a record spread onto a wire response.
+ */
+export interface RehydratableSubagentRecord extends SubagentRecord {
+  spawnSeq: number;
+}
+
 /** Raw row shape (snake_case, SQLite stores booleans as 0/1). */
 interface SubagentRow {
   id: string;
@@ -54,6 +69,10 @@ interface SubagentRow {
   input_tokens: number;
   output_tokens: number;
   estimated_cost: number;
+}
+
+interface RehydratableSubagentRow extends SubagentRow {
+  spawn_seq: number;
 }
 
 function rowToRecord(r: SubagentRow): SubagentRecord {
@@ -77,6 +96,12 @@ function rowToRecord(r: SubagentRow): SubagentRecord {
     outputTokens: r.output_tokens,
     estimatedCost: r.estimated_cost,
   };
+}
+
+function rowToRehydratableRecord(
+  r: RehydratableSubagentRow,
+): RehydratableSubagentRecord {
+  return { ...rowToRecord(r), spawnSeq: r.spawn_seq };
 }
 
 /**
@@ -140,18 +165,22 @@ export function loadAllSubagentRecords(): SubagentRecord[] {
  *
  * The terminal status set is supplied by the caller so this layer stays
  * decoupled from the subagent domain's status enum.
+ *
+ * Each record carries its `spawnSeq`: the branches are unordered relative to
+ * each other, so the caller needs a spawn key that does not depend on the order
+ * rows arrive in.
  */
 export function loadRehydratableSubagentRecords(bound: {
   terminalStatuses: readonly string[];
   maxTerminal: number;
-}): SubagentRecord[] {
+}): RehydratableSubagentRecord[] {
   const placeholders = bound.terminalStatuses.map(() => "?").join(", ");
-  return rawAll<SubagentRow>(
+  return rawAll<RehydratableSubagentRow>(
     "subagent:loadRehydratable",
-    `SELECT * FROM subagents WHERE status NOT IN (${placeholders})
+    `SELECT *, rowid AS spawn_seq FROM subagents WHERE status NOT IN (${placeholders})
      UNION ALL
      SELECT * FROM (
-       SELECT * FROM subagents
+       SELECT *, rowid AS spawn_seq FROM subagents
          WHERE status IN (${placeholders})
          ORDER BY COALESCE(completed_at, created_at) DESC
          LIMIT ?
@@ -159,7 +188,7 @@ export function loadRehydratableSubagentRecords(bound: {
     ...bound.terminalStatuses,
     ...bound.terminalStatuses,
     bound.maxTerminal,
-  ).map(rowToRecord);
+  ).map(rowToRehydratableRecord);
 }
 
 /**
@@ -197,29 +226,35 @@ export function getSubagentRecordById(id: string): SubagentRecord | undefined {
 /**
  * The most recent subagent a parent spawned under `normalizedLabel`, or
  * `undefined` when it never used that label. The durable counterpart of the
- * manager's label index, for a subagent the manager no longer holds; the
- * caller supplies the label already normalized so this layer stays decoupled
- * from the subagent domain's normalization rule.
+ * manager's label index, for a subagent the manager no longer holds. The
+ * caller supplies the label already normalized, by `normalizeSubagentLabel`,
+ * which is what the rows are folded with here too.
  *
- * Ordered by spawn time, matching the in-memory index, which the manager moves
+ * The match runs in JS, not SQL: SQLite's `lower()` folds ASCII only, so a SQL
+ * predicate silently misses a label such as `ÉTAPE` that the Unicode-aware
+ * normalizer matches, and the durable path would then disagree with the
+ * in-memory index. Only the parent's own rows are read, served by
+ * `idx_subagents_parent_conversation_id` and few per conversation.
+ *
+ * Ordered by spawn order, matching the in-memory index, which the manager moves
  * to the newest subagent to claim the label whatever order the runs finish in.
  * Ordering by completion instead would resolve two concurrent same-label runs
- * to the older one whenever the newer finished first. `label` is unindexed, but
- * the parent predicate is served by `idx_subagents_parent_conversation_id` and
- * one conversation's subagents are few.
+ * to the older one whenever the newer finished first. `rowid` breaks a
+ * same-millisecond `created_at` tie by insertion order, which is spawn order.
  */
 export function getSubagentRecordByLabel(
   parentConversationId: string,
   normalizedLabel: string,
 ): SubagentRecord | undefined {
-  const row = rawGet<SubagentRow>(
+  const rows = rawAll<SubagentRow>(
     "subagent:getByLabel",
     `SELECT * FROM subagents
-       WHERE parent_conversation_id = ? AND lower(trim(label)) = ?
-       ORDER BY created_at DESC
-       LIMIT 1`,
+       WHERE parent_conversation_id = ?
+       ORDER BY created_at DESC, rowid DESC`,
     parentConversationId,
-    normalizedLabel,
+  );
+  const row = rows.find(
+    (r) => normalizeSubagentLabel(r.label) === normalizedLabel,
   );
   return row ? rowToRecord(row) : undefined;
 }

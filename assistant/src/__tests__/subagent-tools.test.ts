@@ -2234,3 +2234,62 @@ describe("Subagent tools past the startup rehydration bound", () => {
     expect(result.content).toContain("No subagent found");
   });
 });
+
+// ── List-all merges live children with durable rows ─────────────────
+
+describe("subagent_status list-all past the in-memory window", () => {
+  const mergeParent = "list-merge-parent";
+
+  // A run the retention sweep evicted from memory while keeping its row, plus
+  // a stale row for a subagent the manager still holds live.
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "list-merge-swept",
+      parentConversationId: mergeParent,
+      conversationId: "conv-list-merge-swept",
+      label: "Swept worker",
+      createdAt: 1_000,
+      completedAt: 2_000,
+    }),
+  );
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "list-merge-live",
+      parentConversationId: mergeParent,
+      conversationId: "conv-list-merge-live",
+      label: "Live worker",
+      createdAt: 3_000,
+      completedAt: 4_000,
+    }),
+  );
+
+  const listMergeManager = getSubagentManager();
+  injectSubagent(listMergeManager, "list-merge-live", mergeParent, "running");
+
+  function listedSubagents(content: string) {
+    return JSON.parse(content) as Array<{ subagentId: string; status: string }>;
+  }
+
+  test("lists a swept subagent alongside the live one", async () => {
+    const result = await executeSubagentStatus({}, makeContext(mergeParent));
+    expect(result.isError).toBe(false);
+    expect(
+      listedSubagents(result.content)
+        .map((s) => s.subagentId)
+        .sort(),
+    ).toEqual(["list-merge-live", "list-merge-swept"]);
+  });
+
+  test("prefers live state over the row, and settles a row-only entry", async () => {
+    const result = await executeSubagentStatus({}, makeContext(mergeParent));
+    const listed = listedSubagents(result.content);
+
+    // The row says `completed`; the manager is still running it.
+    expect(listed.find((s) => s.subagentId === "list-merge-live")?.status).toBe(
+      "running",
+    );
+    expect(
+      listed.find((s) => s.subagentId === "list-merge-swept")?.status,
+    ).toBe("completed");
+  });
+});
