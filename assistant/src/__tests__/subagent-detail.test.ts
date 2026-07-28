@@ -48,7 +48,7 @@ mock.module("../subagent/index.js", () => ({
 /** Subagents that survive only in durable records, keyed by subagent id. */
 const durableRecords = new Map<
   string,
-  { conversationId: string; label: string }
+  { conversationId: string; label: string; status: string }
 >();
 
 mock.module("../persistence/subagent-store.js", () => ({
@@ -292,14 +292,54 @@ describe("getSubagentDetail route resolution", () => {
     durableRecords.set("sub-evicted", {
       conversationId: "evicted-child-conv",
       label: "Recorded label",
+      status: "completed",
     });
 
     const result = fetchDetail("sub-evicted", "parent-conv");
 
     expect(result.events.map((e) => e.content)).toContain("evicted transcript");
-    expect(result.status).toBeUndefined();
+    expect(result.status).toBe("completed");
     expect(result.label).toBe("Recorded label");
     expect(result.conversationId).toBe("evicted-child-conv");
+  });
+
+  test("serves the row the TTL sweep left behind, terminal status included", () => {
+    // The sweep frees in-memory metadata (`dispose(id, { keepRecord: true })`)
+    // but keeps the durable row, so the manager no longer knows this subagent
+    // while the record still answers for it.
+    seedConversation("swept-child-conv", "swept transcript");
+    durableRecords.set("sub-swept", {
+      conversationId: "swept-child-conv",
+      label: "Swept label",
+      status: "aborted",
+    });
+
+    // Client recovering from a missed spawn only knows the PARENT id.
+    const result = fetchDetail("sub-swept", "parent-conv");
+
+    expect(result.events.map((e) => e.content)).toContain("swept transcript");
+    expect(result.conversationId).toBe("swept-child-conv");
+    expect(result.label).toBe("Swept label");
+    // Without this the client keeps its stub marked running forever.
+    expect(result.status).toBe("aborted");
+  });
+
+  test("omits status when the durable record holds an out-of-enum value", () => {
+    seedConversation("odd-child-conv", "odd transcript");
+    durableRecords.set("sub-odd", {
+      conversationId: "odd-child-conv",
+      label: "Odd label",
+      status: "zombie",
+    });
+
+    const result = fetchDetail("sub-odd", "parent-conv");
+
+    // The row still resolves conversation and label; only the unparseable
+    // status is dropped, so the closed response enum stays honest.
+    expect(result.events.map((e) => e.content)).toContain("odd transcript");
+    expect(result.conversationId).toBe("odd-child-conv");
+    expect(result.label).toBe("Odd label");
+    expect(result.status).toBeUndefined();
   });
 
   test("uses the query param when the daemon knows nothing about the subagent", () => {

@@ -1,6 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
+import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import {
+  getSubagentRecordById,
+  type SubagentRecord,
+  upsertSubagentRecord,
+} from "../persistence/subagent-store.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 
@@ -355,6 +362,99 @@ describe("SubagentManager terminal disposal", () => {
     expect(state.status).toBe("completed");
 
     asInternals(manager).stopSweep();
+  });
+});
+
+describe("durable record lifetime across disposal paths", () => {
+  beforeEach(() => {
+    // Idempotent; the table may already exist from a prior run.
+    migrateCreateSubagentsTable();
+    resetTestTables("subagents");
+  });
+
+  function seedRecord(id: string): void {
+    const rec: SubagentRecord = {
+      id,
+      parentConversationId: "parent-sess-1",
+      conversationId: "conv-sub-1",
+      label: "Test subagent",
+      objective: "Do something",
+      role: "generalist",
+      isFork: false,
+      sendResultToUser: null,
+      status: "completed",
+      error: null,
+      createdAt: 1000,
+      startedAt: 1001,
+      completedAt: 2000,
+      inputTokens: 5,
+      outputTokens: 7,
+      estimatedCost: 0.01,
+    };
+    upsertSubagentRecord(rec);
+  }
+
+  test("TTL sweep frees in-memory metadata but keeps the durable row", () => {
+    const manager = new SubagentManager();
+    seedRecord("sub-swept");
+    injectFakeSubagent(
+      manager,
+      "sub-swept",
+      makeState("sub-swept", { status: "completed" }),
+      undefined,
+      null, // conversation already released
+    );
+    asInternals(manager).subagents.get("sub-swept")!.retainedUntil =
+      Date.now() - 1000; // expired
+
+    asInternals(manager).sweepTerminal();
+
+    // Metadata is gone…
+    expect(manager.getState("sub-swept")).toBeUndefined();
+    // …but the row survives, so getSubagentDetail can still resolve the child
+    // conversation for a client that missed `subagent_spawned`.
+    expect(getSubagentRecordById("sub-swept")?.conversationId).toBe(
+      "conv-sub-1",
+    );
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("disposeAllForParent deletes the durable row", () => {
+    const manager = new SubagentManager();
+    seedRecord("sub-parent-gone");
+    injectFakeSubagent(
+      manager,
+      "sub-parent-gone",
+      makeState("sub-parent-gone", { status: "completed" }),
+      undefined,
+      null,
+    );
+
+    // The parent conversation's data is going away — the child goes with it.
+    manager.disposeAllForParent("parent-sess-1");
+
+    expect(manager.getState("sub-parent-gone")).toBeUndefined();
+    expect(getSubagentRecordById("sub-parent-gone")).toBeUndefined();
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("shutdown disposal keeps the row for rehydration", () => {
+    const manager = new SubagentManager();
+    seedRecord("sub-shutdown");
+    injectFakeSubagent(
+      manager,
+      "sub-shutdown",
+      makeState("sub-shutdown", { status: "running" }),
+      undefined,
+      null,
+    );
+
+    manager.disposeAll();
+
+    expect(manager.getState("sub-shutdown")).toBeUndefined();
+    expect(getSubagentRecordById("sub-shutdown")).toBeDefined();
   });
 });
 

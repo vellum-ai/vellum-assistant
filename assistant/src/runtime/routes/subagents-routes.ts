@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 
+import { SubagentStatusSchema } from "../../api/events/subagent-status-changed.js";
 import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detail.js";
 import {
   getMessages,
@@ -256,9 +257,17 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams, queryParams }) => {
       const manager = getSubagentManager();
       const state = manager.getState(pathParams!.id);
-      // Durable records outlive manager state (TTL eviction, daemon restart),
-      // so they answer for both the conversation and the label once it's gone.
+      // Durable rows outlive manager state — the TTL sweep evicts in-memory
+      // metadata but keeps the row, and after a restart the row answers until
+      // `rehydrateFromDb()` runs — so they supply the conversation, label and
+      // status once the live state is gone.
       const record = state ? undefined : getSubagentRecordById(pathParams!.id);
+      // `SubagentRecord.status` is an untyped column; the response contract is
+      // the closed `SubagentStatusSchema` enum. Drop anything that doesn't
+      // parse rather than widening the wire type.
+      const recordStatus = record
+        ? SubagentStatusSchema.safeParse(record.status)
+        : undefined;
 
       // Prefer the authoritative child-conversation id the daemon holds.
       // Clients recovering from a missed `subagent_spawned` only know the
@@ -275,7 +284,9 @@ export const ROUTES: RouteDefinition[] = [
       return {
         ...getSubagentDetail(pathParams!.id, conversationId),
         conversationId,
-        status: state?.status,
+        status:
+          state?.status ??
+          (recordStatus?.success ? recordStatus.data : undefined),
         label: state?.config.label ?? record?.label,
         parentToolUseId: state?.config.parentToolUseId,
       };
