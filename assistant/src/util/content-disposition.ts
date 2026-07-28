@@ -45,7 +45,6 @@ function decodeExtValue(raw: string): string | undefined {
  */
 function sanitizeFilename(value: string): string | undefined {
   const cleaned = value
-    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .split(/[/\\]/)
     .pop()
@@ -103,8 +102,7 @@ export function filenameResponseHeaders(
 ): Record<string, string> {
   const ascii = PRINTABLE_ASCII.test(filename)
     ? filename
-    : // eslint-disable-next-line no-control-regex
-      filename.replace(/[^\x20-\x7e]/g, "_");
+    : filename.replace(/[^\x20-\x7e]/g, "_");
 
   return {
     "x-filename": ascii,

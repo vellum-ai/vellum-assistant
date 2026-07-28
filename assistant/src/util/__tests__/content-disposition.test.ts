@@ -163,7 +163,6 @@ describe("filenameResponseHeaders", () => {
 
     // THEN every emitted byte is US-ASCII, as RFC 9110 §5.5 requires
     for (const value of Object.values(headers)) {
-      // eslint-disable-next-line no-control-regex
       expect(value).toMatch(/^[\x20-\x7e]*$/);
     }
 
