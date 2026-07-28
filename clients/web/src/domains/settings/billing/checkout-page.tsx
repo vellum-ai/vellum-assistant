@@ -5,7 +5,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { useMutation } from "@tanstack/react-query";
 
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { usePlatformGateWithPending } from "@/hooks/use-platform-gate";
 import { checkoutContinuation } from "@/lib/billing/checkout-continuation";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl } from "@/runtime/browser";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -53,6 +54,8 @@ type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
  *     it was on still lands somewhere useful. Off landing mid-flight settles the
  *     attempt so the response can't open Stripe behind the switch; off landing
  *     after the hand-off leaves the checkout, and its stash, alone.
+ *   - Org header still resolving → hold on the spinner; resolution over with no
+ *     organization → the retryable error, whose retry re-runs that resolution.
  *   - Gate `"full"` → fire the upgrade once and either redirect to Stripe
  *     (`redirect`), fall back to plans (`no_op`, already Pro), or surface a
  *     retryable error. It never dead-ends.
@@ -78,7 +81,9 @@ export function CheckoutPage() {
   // The request interceptor reads `Vellum-Organization-Id` from the org store,
   // which hydrates asynchronously after auth. On a cold deep link the platform
   // session can settle before the org id lands, so gate the fire on this too.
-  const isOrgReady = useIsOrgReady();
+  // The tri-state, not the boolean: an id that hasn't arrived yet is worth
+  // waiting for, and one that resolution concluded without is not.
+  const orgReadiness = useOrgHeaderReadiness();
   // Kill switch over the pricing funnel. `"pending"` until the real flag value
   // lands — the flag defaults off, so redirecting on the cold-load default
   // would bounce every legitimate deep link.
@@ -149,6 +154,22 @@ export function CheckoutPage() {
     }
   }, [bailTarget, mutateAsync, navigate, packageKey]);
 
+  // The retry the failure UI offers. A failed upgrade re-runs the upgrade; a
+  // missing organization re-runs org resolution instead, since resending a
+  // request that still can't name an organization fails the same way. Either
+  // path re-arms the attempt, and the effect below fires it once an id lands.
+  const retryCheckout = useCallback(() => {
+    if (orgReadiness === "ready") {
+      void runCheckout();
+      return;
+    }
+    phaseRef.current = "idle";
+    setFailed(false);
+    if (orgReadiness === "unavailable") {
+      void useOrganizationStore.getState().fetchOrganizations();
+    }
+  }, [orgReadiness, runCheckout]);
+
   useEffect(() => {
     // No package to check out, a session that can't reach checkout, or the
     // pricing funnel switched off: fall back to the continuation, or to the
@@ -175,24 +196,37 @@ export function CheckoutPage() {
       navigate(bailTarget, { replace: true });
       return;
     }
-    // Hold until the funnel flag resolves, the platform gate is full (a
-    // `"pending"` session lands here), AND the org store is ready. Firing
-    // before the org id hydrates sends a header-less request that fails; the
-    // "Preparing checkout…" spinner keeps showing meanwhile.
+    // Hold until the funnel flag resolves and the platform gate is full (a
+    // `"pending"` session lands here). The phase check keeps the branches below
+    // to a single attempt, whichever way they decide it.
     if (
       takeover !== "enabled" ||
       gate !== "full" ||
-      !isOrgReady ||
       phaseRef.current !== "idle"
     ) {
+      return;
+    }
+    if (orgReadiness === "resolving") {
+      // Firing before the org id hydrates sends a header-less request that
+      // fails, and resolution is bounded, so the "Preparing checkout…" spinner
+      // keeps showing until it ends one way or the other.
+      return;
+    }
+    if (orgReadiness === "unavailable") {
+      // Resolution ended without an id: the header is never arriving on its
+      // own, so waiting is waiting forever. Settle into the retry — it re-runs
+      // org resolution, and the deep link is still worth completing, which a
+      // silent bounce to plans would throw away.
+      phaseRef.current = "settled";
+      setFailed(true);
       return;
     }
     void runCheckout();
   }, [
     bailTarget,
     gate,
-    isOrgReady,
     navigate,
+    orgReadiness,
     packageKey,
     runCheckout,
     takeover,
@@ -205,7 +239,7 @@ export function CheckoutPage() {
           We couldn&rsquo;t start your checkout. Please try again.
         </p>
         <div className="flex items-center gap-4">
-          <Button onClick={() => void runCheckout()}>Try again</Button>
+          <Button onClick={retryCheckout}>Try again</Button>
           {/*
            * Taking the escape ends the attempt, so the stash goes with it.
            * Nothing was bought, and a signup-marked intent left behind is one

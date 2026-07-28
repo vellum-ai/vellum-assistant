@@ -51,7 +51,7 @@ mock.module("@/runtime/browser", () => ({
 // the only thing the page is waiting on.
 mock.module("@/hooks/use-is-org-ready", () => ({
   ...orgReadyMod,
-  useIsOrgReady: () => true,
+  useOrgHeaderReadiness: () => "ready",
 }));
 
 mock.module("@/hooks/use-marketing-pricing-takeover", () => ({

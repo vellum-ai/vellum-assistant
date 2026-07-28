@@ -16,6 +16,7 @@ import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as orgReadyMod from "@/hooks/use-is-org-ready";
+import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import * as platformGateMod from "@/hooks/use-platform-gate";
 import type { PlatformGateStateWithPending } from "@/hooks/use-platform-gate";
 import * as takeoverMod from "@/hooks/use-marketing-pricing-takeover";
@@ -34,8 +35,10 @@ let openedUrl: string | null = null;
 // Gate value the mocked `usePlatformGateWithPending` returns (default:
 // session-only full).
 let gateValue: PlatformGateStateWithPending = "full";
-// Org-readiness the mocked `useIsOrgReady` returns (default: hydrated/ready).
-let orgReadyValue = true;
+// Org-header readiness the mocked hooks report (default: hydrated/ready).
+let orgReadinessValue: OrgHeaderReadiness = "ready";
+// Re-runs of the org fetch, which is what a retry with no organization does.
+let fetchOrganizationsCalls = 0;
 // `marketing-pricing-takeover` state (default: funnel on).
 let takeoverValue: MarketingPricingTakeoverState = "enabled";
 // When true the upgrade rejects — drives the error path. Otherwise it resolves
@@ -85,7 +88,10 @@ mock.module("@/hooks/use-platform-gate", () => ({
 
 mock.module("@/hooks/use-is-org-ready", () => ({
   ...orgReadyMod,
-  useIsOrgReady: () => orgReadyValue,
+  useOrgHeaderReadiness: () => orgReadinessValue,
+  // The real derivation, so the boolean gate and the tri-state can never
+  // disagree about the same store state.
+  useIsOrgReady: () => orgReadinessValue === "ready",
 }));
 
 mock.module("@/hooks/use-marketing-pricing-takeover", () => ({
@@ -93,6 +99,7 @@ mock.module("@/hooks/use-marketing-pricing-takeover", () => ({
   useMarketingPricingTakeover: () => takeoverValue,
 }));
 
+const { useOrganizationStore } = await import("@/stores/organization-store");
 const { CheckoutPage } = await import("./checkout-page");
 
 function LocationProbe() {
@@ -144,8 +151,14 @@ beforeEach(() => {
   upgradeCalls.length = 0;
   openedUrl = null;
   gateValue = "full";
-  orgReadyValue = true;
+  orgReadinessValue = "ready";
   takeoverValue = "enabled";
+  fetchOrganizationsCalls = 0;
+  useOrganizationStore.setState({
+    fetchOrganizations: async () => {
+      fetchOrganizationsCalls += 1;
+    },
+  });
   upgradeRejects = false;
   holdUpgrade = false;
   releaseUpgrade = null;
@@ -181,8 +194,8 @@ describe("CheckoutPage", () => {
     });
   });
 
-  test("holds the upgrade until org is ready, then fires once it hydrates", async () => {
-    orgReadyValue = false;
+  test("holds the upgrade while org is resolving, then fires once it hydrates", async () => {
+    orgReadinessValue = "resolving";
     const client = freshQueryClient();
     // A fresh element each render so the rerender doesn't hit React's
     // same-reference bailout and actually re-reads the org-readiness value.
@@ -199,7 +212,48 @@ describe("CheckoutPage", () => {
     );
 
     // Once the org id lands, the upgrade fires exactly once.
-    orgReadyValue = true;
+    orgReadinessValue = "ready";
+    rerender(makeTree());
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
+    await flushPending();
+    expect(upgradeCalls.length).toBe(1);
+  });
+
+  test("an org id that is never coming reaches the retry, not the spinner", async () => {
+    // Org resolution settled terminally in `error` with nothing persisted, so
+    // the header the upgrade needs is not on its way — waiting here is waiting
+    // forever.
+    orgReadinessValue = "unavailable";
+    const { findByRole, getByTestId, queryByLabelText } = renderCheckout(
+      "/assistant/checkout?package=super",
+    );
+
+    await findByRole("button", { name: "Try again" });
+    await findByRole("link", { name: "View plans" });
+    expect(queryByLabelText("Preparing checkout")).toBeNull();
+    // Deciding must not mean sending the request anyway: without
+    // `Vellum-Organization-Id` the upgrade fails.
+    expect(upgradeCalls.length).toBe(0);
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/checkout?package=super",
+    );
+  });
+
+  test("Try again with no organization re-runs org resolution, then checks out", async () => {
+    orgReadinessValue = "unavailable";
+    const client = freshQueryClient();
+    const makeTree = () =>
+      checkoutTree("/assistant/checkout?package=super", client);
+    const { findByRole, rerender } = render(makeTree());
+
+    fireEvent.click(await findByRole("button", { name: "Try again" }));
+
+    // Retrying what actually failed is the org fetch — re-sending an upgrade
+    // that still can't name an organization fails the same way.
+    expect(fetchOrganizationsCalls).toBe(1);
+    expect(upgradeCalls.length).toBe(0);
+
+    orgReadinessValue = "ready";
     rerender(makeTree());
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
   });
