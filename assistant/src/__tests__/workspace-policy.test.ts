@@ -1,6 +1,12 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
 import * as envRegistry from "../config/env-registry.js";
@@ -560,6 +566,40 @@ describe("isControlPlaneWorkspaceWrite / prompt surfaces", () => {
       true,
     );
   });
+
+  // The reverse symlink dodge: the control-plane *name* is itself a link to
+  // a benign path. The write's bytes land at the destination, but the
+  // renderer and the loaders open the control-plane name and follow the
+  // link — so the addressed name must match the baselines even though the
+  // canonical destination does not.
+  test.each([
+    ["a section override", "prompts/system/06-credential-security.md"],
+    ["an executable sink entry", "hooks/on-boot.ts"],
+    ["a per-user context file", "users/someone.md"],
+  ])(
+    "blocks a write addressed at %s that is a symlink to a benign path",
+    (_label, addressedPath) => {
+      const parentDir = join(wsRoot, dirname(addressedPath));
+      const parentExisted = existsSync(parentDir);
+      mkdirSync(parentDir, { recursive: true });
+      const destination = join(wsRoot, "notes-real", "decoy.txt");
+      symlinkSync(destination, join(wsRoot, addressedPath));
+      try {
+        expect(
+          isControlPlaneWorkspaceWrite(
+            "file_write",
+            { path: addressedPath },
+            wsRoot,
+          ),
+        ).toBe(true);
+      } finally {
+        rmSync(join(wsRoot, addressedPath), { force: true });
+        if (!parentExisted) {
+          rmSync(parentDir, { recursive: true, force: true });
+        }
+      }
+    },
+  );
 
   // Drift guard: the override path for every bundled section id must be
   // covered, so adding a section cannot silently open a writable override

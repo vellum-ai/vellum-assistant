@@ -44,6 +44,20 @@ function canonicalizeExisting(abs: string): string {
 }
 
 /**
+ * Canonicalize a path's directory chain while keeping the final segment as
+ * addressed: symlinks among the ancestors (macOS `/var` → `/private/var`, a
+ * linked parent directory) resolve, a trailing symlink does not. This is
+ * the *name* the daemon acts on — the prompt renderer and the code loaders
+ * open control-plane paths by name and follow links while reading, so when
+ * the final segment is itself a symlink, a write addressed at it changes
+ * what they read even though the bytes land at the link's destination.
+ */
+function canonicalizeAddressedName(p: string): string {
+  const abs = resolve(p);
+  return `${canonicalizeExisting(dirname(abs))}/${basename(abs)}`;
+}
+
+/**
  * Whether a canonical path is a canonical directory or falls under it. The
  * trailing separator keeps `/workspace-extra` from matching `/workspace`.
  * Both arguments must already be canonicalized — comparing a canonical path
@@ -244,10 +258,20 @@ const PROMPT_SURFACE_DIRS = ["users", "channels"];
  * mode too: the workspace boundary is what contains an escaping *path*, and
  * these paths do not escape — the daemon acts on them from inside.
  *
- * Both sides are canonicalized before comparing, for the same reason
- * {@link isPathWithinWorkspaceRoot} canonicalizes: a symlink whose name
- * looks benign but whose target is a control-plane path is a write to that
- * path, and a lexical prefix check does not see it.
+ * Two views of the write are checked against every baseline, because a
+ * symlink at either end dodges a single view:
+ *
+ * - The canonical destination ({@link canonicalize}): a benign-looking name
+ *   whose trailing link points at a control-plane path is a write to that
+ *   path, and a lexical check does not see it.
+ * - The addressed name ({@link canonicalizeAddressedName}): a control-plane
+ *   name that is itself a symlink to a benign path still changes what the
+ *   daemon reads under that name — the renderer and the loaders follow the
+ *   link — while the destination alone canonicalizes past the surface.
+ *
+ * The baselines are canonicalized too: a prompt surface may itself be a
+ * symlink (SOUL.md → personas/current.md), and the renderer reads through
+ * it — so a write to the link's destination must match as well.
  */
 export function isControlPlaneWorkspaceWrite(
   toolName: string,
@@ -262,22 +286,22 @@ export function isControlPlaneWorkspaceWrite(
     return false;
   }
   const target = canonicalize(filePath);
+  const addressed = canonicalizeAddressedName(filePath);
   const root = canonicalize(workspaceRoot);
-  // The baselines are canonicalized too, not just the target: a prompt
-  // surface may itself be a symlink (SOUL.md → personas/current.md), and the
-  // renderer reads through it — so a write to either name must match. A
-  // lexical baseline would miss both the through-link write (target
-  // canonicalizes past it) and the direct write to the link's destination.
+  const writesUnder = (dir: string): boolean => {
+    const canonicalDir = canonicalize(dir);
+    return (
+      isAtOrUnderCanonicalDir(target, canonicalDir) ||
+      isAtOrUnderCanonicalDir(addressed, canonicalDir)
+    );
+  };
   return (
-    executableSinkDirs().some((dir) =>
-      isAtOrUnderCanonicalDir(target, canonicalize(dir)),
-    ) ||
-    PROMPT_SURFACE_FILES.some(
-      (file) => target === canonicalize(`${root}/${file}`),
-    ) ||
-    PROMPT_SURFACE_DIRS.some((dir) =>
-      isAtOrUnderCanonicalDir(target, canonicalize(`${root}/${dir}`)),
-    ) ||
+    executableSinkDirs().some(writesUnder) ||
+    PROMPT_SURFACE_FILES.some((file) => {
+      const canonicalFile = canonicalize(`${root}/${file}`);
+      return target === canonicalFile || addressed === canonicalFile;
+    }) ||
+    PROMPT_SURFACE_DIRS.some((dir) => writesUnder(`${root}/${dir}`)) ||
     // The system-section override layer: a `<section-id>.md` under
     // `prompts/system/` replaces the bundled section of the same id — or,
     // stripped to nothing, silences it — including the security-policy
@@ -285,7 +309,7 @@ export function isControlPlaneWorkspaceWrite(
     // boundary). A brand-new id adds a workspace-only section, so the whole
     // directory is a prompt surface. The baseline is the getter the renderer
     // itself resolves, like {@link executableSinkDirs}.
-    isAtOrUnderCanonicalDir(target, canonicalize(getWorkspaceSystemPromptDir()))
+    writesUnder(getWorkspaceSystemPromptDir())
   );
 }
 
