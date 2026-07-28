@@ -146,8 +146,7 @@ import {
   createChannelIngressRevokeHandler,
 } from "./http/routes/channel-ingress.js";
 import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
-import { resolveDiscoveredPluginIngress } from "./channels/plugin-ingress-approvals.js";
-import { PluginIngressCache } from "./channels/plugin-ingress.js";
+import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
 import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
@@ -608,12 +607,9 @@ async function main() {
     createChannelAdmissionPolicyDeleteHandler();
   const handleChannelIngressApprove = createChannelIngressApproveHandler();
   const handleChannelIngressRevoke = createChannelIngressRevokeHandler();
-  // TTL-cached so an inbound webhook does not re-walk the plugins directory,
-  // while installs and toggles still take effect without a gateway restart.
-  const pluginIngressCache = new PluginIngressCache();
   const handlePluginWebhook = createPluginWebhookHandler({
     config,
-    resolve: () => resolveDiscoveredPluginIngress(pluginIngressCache.get()),
+    resolve: resolveCachedPluginIngress,
   });
   const handleChannelPermissionOverridesList =
     createChannelPermissionOverridesListHandler();

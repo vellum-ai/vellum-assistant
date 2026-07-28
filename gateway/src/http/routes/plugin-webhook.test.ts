@@ -14,6 +14,7 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
 const CONFIG = {
   assistantRuntimeBaseUrl: "http://runtime.test:7821",
   runtimeTimeoutMs: 1000,
+  maxWebhookPayloadBytes: 1024,
 } as GatewayConfig;
 
 const ROUTE = {
@@ -79,7 +80,7 @@ describe("approved routes", () => {
     expect(res.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe(
-      "http://runtime.test:7821/x/plugins/meeting-bot/realtime",
+      "http://runtime.test:7821/v1/x/plugins/meeting-bot/realtime",
     );
     expect(calls[0]!.method).toBe("POST");
     expect(calls[0]!.body).toBe('{"event":"joined"}');
@@ -245,6 +246,75 @@ describe("the gate", () => {
 
     expect(res.status).toBe(500);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("payload limits", () => {
+  it("rejects a body over the webhook cap without forwarding it", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "x".repeat(2048)),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(413);
+    expect(calls).toEqual([]);
+  });
+
+  it("caps on the streamed bytes, not the Content-Length header", async () => {
+    // The caller is unauthenticated, so Content-Length is attacker-controlled
+    // and absent on chunked requests — a header-only guard would be bypassable.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const oversized = new Request(
+      "http://gateway/webhooks/plugins/meeting-bot/realtime",
+      {
+        method: "POST",
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("x".repeat(2048)));
+            controller.close();
+          },
+        }),
+        // @ts-expect-error -- duplex is required for a streamed request body
+        duplex: "half",
+      },
+    );
+
+    const res = await handle(oversized, "meeting-bot", "realtime");
+
+    expect(res.status).toBe(413);
+    expect(calls).toEqual([]);
+  });
+
+  it("forwards a body at the cap", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      resolve: () => approvedWith([ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "x".repeat(1024)),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls[0]!.body).toHaveLength(1024);
   });
 });
 

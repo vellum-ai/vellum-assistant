@@ -18,13 +18,23 @@ import type { PluginIngressResolution } from "../../channels/plugin-ingress-appr
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
+import { readLimitedBodyBytes } from "../read-limited-body.js";
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
 const log = getLogger("plugin-webhook");
 
-/** Upstream namespace the assistant serves plugin routes from. */
+/** Methods a Request refuses to carry a body for. */
+const METHODS_WITHOUT_BODY = new Set(["GET", "HEAD"]);
+
+/**
+ * Upstream path for a plugin route.
+ *
+ * The `/v1` prefix is load-bearing: the runtime 404s anything outside it
+ * before route matching begins, then strips it and matches the plugin
+ * catch-all `x/:path*` (assistant/src/runtime/routes/user-routes.ts).
+ */
 function pluginRouteUpstreamPath(plugin: string, path: string): string {
-  return `/x/plugins/${plugin}/${path}`;
+  return `/v1/x/plugins/${plugin}/${path}`;
 }
 
 export interface PluginWebhookHandlerDeps {
@@ -73,10 +83,30 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
       return Response.json({ error: "Not Found" }, { status: 404 });
     }
 
+    // Cap the body on the streamed bytes before anything forwards it. The
+    // caller is unauthenticated and Content-Length is attacker-controlled
+    // (and absent on chunked requests), so without this each request could
+    // buffer up to the server-wide maxRequestBodySize. See gateway/AGENTS.md.
+    const body = await readLimitedBodyBytes(req, config.maxWebhookPayloadBytes);
+    if (body.status === "too_large") {
+      log.warn({ plugin, path }, "Plugin webhook payload too large");
+      return Response.json({ error: "Payload Too Large" }, { status: 413 });
+    }
+    if (body.status === "unreadable") {
+      return Response.json({ error: "Bad Request" }, { status: 400 });
+    }
+
     const upstreamPath = pluginRouteUpstreamPath(plugin, path);
     const search = new URL(req.url).search;
     const start = performance.now();
-    const response = await proxyForwardToResponse(req, {
+    // The body is already drained, so hand the proxy a request carrying the
+    // bytes we accepted rather than the consumed original.
+    const forwardable = new Request(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body: METHODS_WITHOUT_BODY.has(req.method) ? undefined : body.bytes,
+    });
+    const response = await proxyForwardToResponse(forwardable, {
       baseUrl: config.assistantRuntimeBaseUrl,
       path: upstreamPath,
       search: search || undefined,
