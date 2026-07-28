@@ -141,6 +141,41 @@ describe("saveTakeoverAvatarStash / readTakeoverAvatarStash", () => {
         colors: BUNDLED_COMPONENTS.colors,
       },
     ],
+    ["empty bodyShapes", { ...BUNDLED_COMPONENTS, bodyShapes: [] }],
+    [
+      "a bodyShape entry without a viewBox",
+      {
+        ...BUNDLED_COMPONENTS,
+        bodyShapes: [
+          { id: "blob", svgPath: "M0 0", faceCenter: { x: 1, y: 1 } },
+        ],
+      },
+    ],
+    [
+      "an eyeStyle entry whose paths is not an array",
+      {
+        ...BUNDLED_COMPONENTS,
+        eyeStyles: [
+          {
+            id: "default",
+            sourceViewBox: { width: 1, height: 1 },
+            eyeCenter: { x: 1, y: 1 },
+            paths: "nope",
+          },
+        ],
+      },
+    ],
+    [
+      "a color entry without a hex",
+      { ...BUNDLED_COMPONENTS, colors: [{ id: "purple" }] },
+    ],
+    [
+      "a faceCenterOverride entry without a faceCenter",
+      {
+        ...BUNDLED_COMPONENTS,
+        faceCenterOverrides: [{ bodyShape: "blob", eyeStyle: "default" }],
+      },
+    ],
   ];
 
   for (const [label, components] of MALFORMED_COMPONENTS) {

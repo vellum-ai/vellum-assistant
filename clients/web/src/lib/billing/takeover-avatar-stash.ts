@@ -272,9 +272,94 @@ function isTakeoverAvatarStash(value: unknown): value is TakeoverAvatarStash {
   }
   const parts = components as Record<string, unknown>;
   return (
-    Array.isArray(parts.bodyShapes) &&
-    Array.isArray(parts.eyeStyles) &&
-    Array.isArray(parts.colors) &&
-    Array.isArray(parts.faceCenterOverrides)
+    isNonEmptyArrayOf(parts.bodyShapes, isBodyShapeEntry) &&
+    isNonEmptyArrayOf(parts.eyeStyles, isEyeStyleEntry) &&
+    isNonEmptyArrayOf(parts.colors, isColorEntry) &&
+    Array.isArray(parts.faceCenterOverrides) &&
+    parts.faceCenterOverrides.every(isFaceCenterOverrideEntry)
+  );
+}
+
+// Entry-level guards mirror what the render path dereferences unconditionally
+// (resolveDefinitions/computeTransforms and AnimatedAvatar read viewBox,
+// sourceViewBox, eyeCenter, faceCenter, svgPath, paths, and hex on whichever
+// entry the traits select), so a cross-version or corrupted record is rejected
+// here instead of crashing the takeover mid-provisioning.
+
+function isNonEmptyArrayOf(
+  value: unknown,
+  guard: (entry: unknown) => boolean,
+): boolean {
+  return Array.isArray(value) && value.length > 0 && value.every(guard);
+}
+
+function isPoint(value: unknown): value is { x: number; y: number } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const point = value as Record<string, unknown>;
+  return typeof point.x === "number" && typeof point.y === "number";
+}
+
+function isBox(value: unknown): value is { width: number; height: number } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const box = value as Record<string, unknown>;
+  return typeof box.width === "number" && typeof box.height === "number";
+}
+
+function isBodyShapeEntry(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.id === "string" &&
+    typeof entry.svgPath === "string" &&
+    isBox(entry.viewBox) &&
+    isPoint(entry.faceCenter)
+  );
+}
+
+function isEyeStyleEntry(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const entry = value as Record<string, unknown>;
+  if (
+    typeof entry.id !== "string" ||
+    !isBox(entry.sourceViewBox) ||
+    !isPoint(entry.eyeCenter) ||
+    !Array.isArray(entry.paths)
+  ) {
+    return false;
+  }
+  return entry.paths.every((path) => {
+    if (typeof path !== "object" || path === null) {
+      return false;
+    }
+    const p = path as Record<string, unknown>;
+    return typeof p.svgPath === "string" && typeof p.color === "string";
+  });
+}
+
+function isColorEntry(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const entry = value as Record<string, unknown>;
+  return typeof entry.id === "string" && typeof entry.hex === "string";
+}
+
+function isFaceCenterOverrideEntry(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.bodyShape === "string" &&
+    typeof entry.eyeStyle === "string" &&
+    isPoint(entry.faceCenter)
   );
 }
