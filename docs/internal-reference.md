@@ -624,6 +624,10 @@ Run `/release [patch|minor|major|hotfix]` in Claude Code. The command:
 
 A lingering `release/vX.Y.Z` branch with no matching GitHub Release means a scheduled cut was never promoted to production; re-running step 2 refreshes it from current `main`.
 
+#### Scheduling a minor or major
+
+Scheduled cuts default to a patch bump. The one-shot `NEXT_RELEASE_BUMP` repository variable upgrades the next scheduled tick without any dispatch: set it to `minor` or `major` (`gh variable set NEXT_RELEASE_BUMP --body minor`), and the next scheduled cut consumes the value and resets the variable to `patch`. Invalid values (including `hotfix`, which is dispatch-only) fail the scheduled run with a Slack notification rather than silently falling back. Manual dispatches ignore the variable.
+
 #### What happens after a release is created
 
 Creating the GitHub Release triggers three workflows in parallel:
