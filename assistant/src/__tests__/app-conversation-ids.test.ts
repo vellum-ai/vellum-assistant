@@ -7,6 +7,7 @@ import {
   addAppConversationId,
   createApp,
   getApp,
+  isDirectAppConversation,
   linkAppToConversationLineage,
   listAppsByConversation,
 } from "../apps/app-store.js";
@@ -281,5 +282,74 @@ describe("linkAppToConversationLineage", () => {
     expect(() =>
       linkAppToConversationLineage("nonexistent-id", "conv-fork"),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Direct vs inherited associations
+// ---------------------------------------------------------------------------
+
+describe("isDirectAppConversation", () => {
+  test("the seed conversation is direct and its ancestors are inherited", () => {
+    registerConversation("conv-visible");
+    registerSubagent("conv-fork", "conv-visible");
+
+    const app = createApp(makeAppParams("Continuation App"));
+    linkAppToConversationLineage(app.id, "conv-fork");
+
+    const loaded = getApp(app.id)!;
+    expect(loaded.inheritedConversationIds).toEqual(["conv-visible"]);
+    expect(isDirectAppConversation(loaded, "conv-fork")).toBe(true);
+    expect(isDirectAppConversation(loaded, "conv-visible")).toBe(false);
+  });
+
+  test("an inherited association still lists the app in the ancestor thread", () => {
+    registerConversation("conv-visible");
+    registerSubagent("conv-fork", "conv-visible");
+
+    const app = createApp(makeAppParams("Continuation App"));
+    linkAppToConversationLineage(app.id, "conv-fork");
+
+    expect(listAppsByConversation("conv-visible").map((a) => a.id)).toEqual([
+      app.id,
+    ]);
+  });
+
+  test("a record carrying no inherited list treats every association as direct", () => {
+    const app = createApp(makeAppParams("Plain App"));
+    addAppConversationId(app.id, "conv-plain");
+
+    const loaded = getApp(app.id)!;
+    expect(loaded.inheritedConversationIds).toBeUndefined();
+    expect(isDirectAppConversation(loaded, "conv-plain")).toBe(true);
+  });
+
+  test("a direct association supersedes an earlier inherited one", () => {
+    registerConversation("conv-visible");
+    registerSubagent("conv-fork", "conv-visible");
+
+    const app = createApp(makeAppParams("Adopted App"));
+    linkAppToConversationLineage(app.id, "conv-fork");
+    // The user later works on the same app in the thread they can see.
+    expect(addAppConversationId(app.id, "conv-visible")).toBe(false);
+
+    const loaded = getApp(app.id)!;
+    expect(loaded.conversationIds).toEqual(["conv-fork", "conv-visible"]);
+    expect(loaded.inheritedConversationIds).toEqual([]);
+    expect(isDirectAppConversation(loaded, "conv-visible")).toBe(true);
+  });
+
+  test("an inherited link never demotes an existing direct association", () => {
+    registerConversation("conv-visible");
+    registerSubagent("conv-fork", "conv-visible");
+
+    const app = createApp(makeAppParams("Foreground App"));
+    addAppConversationId(app.id, "conv-visible");
+    linkAppToConversationLineage(app.id, "conv-fork");
+
+    const loaded = getApp(app.id)!;
+    expect(loaded.conversationIds).toEqual(["conv-visible", "conv-fork"]);
+    expect(loaded.inheritedConversationIds).toBeUndefined();
+    expect(isDirectAppConversation(loaded, "conv-visible")).toBe(true);
   });
 });
