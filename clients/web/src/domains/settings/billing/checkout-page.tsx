@@ -30,7 +30,9 @@ import { Button } from "@vellumai/design-library/components/button";
  * `handed_off` is the line that matters. Before it, this route owns the stash
  * and a bail clears it; after it, the stash belongs to the post-checkout return
  * trip and nothing here may touch it. Electron and native Capacitor open Stripe
- * without unloading the page, so the route is still mounted to enforce that.
+ * without unloading the page, so the route is still mounted to enforce that —
+ * and to offer the way out a browser closed short of paying otherwise leaves
+ * the user without.
  */
 type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
 
@@ -63,6 +65,13 @@ type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
  * Every "no purchase happens here" exit honors the `continue` param when one is
  * present (see `checkout-continuation`), so a caller mid-flow — onboarding —
  * gets back to its own next step instead of the plans takeover.
+ *
+ * On the shells that take the custom-scheme return — Electron's system browser,
+ * native Capacitor's `SFSafariViewController` — the hand-off leaves this route
+ * mounted behind the browser it opened, and the page it leaves there offers a
+ * reopen and an escape. That is the whole story for a checkout the user closes
+ * without paying: the return never arrives, so nothing else is coming to move
+ * them off this route.
  */
 export function CheckoutPage() {
   const navigate = useNavigate();
@@ -103,6 +112,11 @@ export function CheckoutPage() {
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
   const [failed, setFailed] = useState(false);
+  // Set by a hand-off whose return comes back as a deep link rather than as a
+  // page navigation, which is exactly the case where this route survives to
+  // render anything at all. Plain web navigates the tab to Stripe, so it stays
+  // false there and the render below is the spinner it always was.
+  const [awaitingReturn, setAwaitingReturn] = useState(false);
   // StrictMode double-invokes mount effects; the phase gates the upgrade to one
   // fire. It is also how a bail and an in-flight upgrade agree on who won: the
   // bail settles the attempt, and the continuation below drops a result that
@@ -112,13 +126,15 @@ export function CheckoutPage() {
   const runCheckout = useCallback(async () => {
     phaseRef.current = "running";
     setFailed(false);
+    setAwaitingReturn(false);
+    const returnTarget = checkoutReturnTarget();
     try {
       const result = await mutateAsync({
         body: {
           target_plan_id: "pro",
           package: packageKey,
           confirm: true,
-          return_target: checkoutReturnTarget(),
+          return_target: returnTarget,
         },
       });
       if (phaseRef.current !== "running") {
@@ -136,6 +152,7 @@ export function CheckoutPage() {
         // Stash the selection so the post-checkout provisioning screen can show
         // the purchased package before the subscribe webhook lands.
         saveCheckoutIntent({ kind: "package", packageKey });
+        setAwaitingReturn(returnTarget === "native");
         void openUrl(result.checkout_url);
         return;
       }
@@ -154,10 +171,11 @@ export function CheckoutPage() {
     }
   }, [bailTarget, mutateAsync, navigate, packageKey]);
 
-  // The retry the failure UI offers. A failed upgrade re-runs the upgrade; a
-  // missing organization re-runs org resolution instead, since resending a
-  // request that still can't name an organization fails the same way. Either
-  // path re-arms the attempt, and the effect below fires it once an id lands.
+  // The retry the failure and hand-off UIs offer. A failed or abandoned attempt
+  // re-runs the upgrade; a missing organization re-runs org resolution instead,
+  // since resending a request that still can't name an organization fails the
+  // same way. Either path re-arms the attempt, and the effect below fires it
+  // once an id lands.
   const retryCheckout = useCallback(() => {
     if (orgReadiness === "ready") {
       void runCheckout();
@@ -165,6 +183,7 @@ export function CheckoutPage() {
     }
     phaseRef.current = "idle";
     setFailed(false);
+    setAwaitingReturn(false);
     if (orgReadiness === "unavailable") {
       void useOrganizationStore.getState().fetchOrganizations();
     }
@@ -248,6 +267,33 @@ export function CheckoutPage() {
           <Link
             to={bailTarget}
             onClick={clearCheckoutIntent}
+            className="text-sm text-[var(--content-tertiary)] underline"
+          >
+            {bailLabel}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (awaitingReturn) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-[var(--content-default)]">
+          Checkout opened in your browser. Finish there to complete your
+          upgrade.
+        </p>
+        <div className="flex items-center gap-4">
+          <Button onClick={retryCheckout}>Reopen checkout</Button>
+          {/*
+           * No `clearCheckoutIntent` here, unlike the failure escape: a
+           * checkout that reached Stripe may have been paid for, and this page
+           * can't tell. The hand-off already rewrote the stash without the
+           * signup marker, so leaving it can only help the return trip — it
+           * carries a package name and resumes nothing on its own.
+           */}
+          <Link
+            to={bailTarget}
             className="text-sm text-[var(--content-tertiary)] underline"
           >
             {bailLabel}

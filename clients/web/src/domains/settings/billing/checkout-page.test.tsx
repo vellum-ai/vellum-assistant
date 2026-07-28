@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import * as capacitorCore from "@capacitor/core";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as orgReadyMod from "@/hooks/use-is-org-ready";
@@ -41,6 +42,9 @@ let orgReadinessValue: OrgHeaderReadiness = "ready";
 let fetchOrganizationsCalls = 0;
 // `marketing-pricing-takeover` state (default: funnel on).
 let takeoverValue: MarketingPricingTakeoverState = "enabled";
+// Drives `Capacitor.isNativePlatform()`, which is what puts checkout in an
+// `SFSafariViewController` that leaves this route mounted underneath it.
+let nativePlatform = false;
 // When true the upgrade rejects — drives the error path. Otherwise it resolves
 // with `upgradeData`.
 let upgradeRejects = false;
@@ -70,6 +74,14 @@ mock.module("@/generated/api/sdk.gen", () => ({
       return heldUpgrade;
     }
     return Promise.resolve({ data: upgradeData, response: { ok: true } });
+  },
+}));
+
+mock.module("@capacitor/core", () => ({
+  ...capacitorCore,
+  Capacitor: {
+    ...capacitorCore.Capacitor,
+    isNativePlatform: () => nativePlatform,
   },
 }));
 
@@ -153,6 +165,8 @@ beforeEach(() => {
   gateValue = "full";
   orgReadinessValue = "ready";
   takeoverValue = "enabled";
+  nativePlatform = false;
+  delete (window as { vellum?: unknown }).vellum;
   fetchOrganizationsCalls = 0;
   useOrganizationStore.setState({
     fetchOrganizations: async () => {
@@ -440,6 +454,97 @@ describe("CheckoutPage", () => {
     const stashed = JSON.parse(sessionStorage.getItem(INTENT_KEY)!);
     expect(stashed).toMatchObject({ kind: "package", packageKey: "super" });
     expect(stashed.resumeAfterOnboarding).toBeUndefined();
+  });
+
+  test("a dismissed native sheet lands on the reopen/escape page, not a spinner", async () => {
+    nativePlatform = true;
+    const { findByRole, queryByLabelText } = renderCheckout(
+      "/assistant/checkout?package=super",
+    );
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    expect(upgradeCalls[0]!.body).toMatchObject({ return_target: "native" });
+
+    // `SFSafariViewController` covers the app without unloading this route, and
+    // the only thing a dismissal delivers is `browserFinished` — no deep-link
+    // return, no navigation. So whatever the hand-off rendered is exactly what
+    // the user comes back to, and it has to be something they can act on.
+    await findByRole("button", { name: "Reopen checkout" });
+    await findByRole("link", { name: "View plans" });
+    expect(queryByLabelText("Preparing checkout")).toBeNull();
+  });
+
+  test("the hand-off page leaves the stash and the route to the return trip", async () => {
+    nativePlatform = true;
+    const { findByRole, getByTestId } = renderCheckout(
+      "/assistant/checkout?package=super",
+    );
+
+    await findByRole("button", { name: "Reopen checkout" });
+    await flushPending();
+
+    // A completed checkout comes back as a deep link and reads this stash. The
+    // hand-off page can't tell that apart from an abandoned sheet, so it settles
+    // nothing: the stash stays and the route stays where the hand-off left it.
+    expect(JSON.parse(sessionStorage.getItem(INTENT_KEY)!)).toMatchObject({
+      kind: "package",
+      packageKey: "super",
+    });
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/checkout?package=super",
+    );
+  });
+
+  test("the hand-off escape walks away without dropping the stash", async () => {
+    nativePlatform = true;
+    const { findByRole, getByTestId } = renderCheckout(
+      "/assistant/checkout?package=super",
+    );
+
+    fireEvent.click(await findByRole("link", { name: "View plans" }));
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+    // Unlike the failure escape: a checkout that reached Stripe may still be
+    // paid for, and the hand-off already rewrote the stash unmarked, so leaving
+    // it can only help the return trip and can't resume anything on its own.
+    expect(sessionStorage.getItem(INTENT_KEY)).not.toBeNull();
+  });
+
+  test("Reopen checkout re-runs the upgrade for a fresh Stripe session", async () => {
+    nativePlatform = true;
+    const { findByRole } = renderCheckout("/assistant/checkout?package=super");
+
+    fireEvent.click(await findByRole("button", { name: "Reopen checkout" }));
+
+    await waitFor(() => expect(upgradeCalls.length).toBe(2));
+  });
+
+  test("the Electron hand-off gets the same escape, having no dismissal signal", async () => {
+    // `openUrlFinishedListener` is Capacitor-only, so closing the system browser
+    // tells the shell nothing at all. The page behind it is the whole affordance.
+    (window as { vellum?: unknown }).vellum = { platform: "electron" };
+    const { findByRole } = renderCheckout("/assistant/checkout?package=super");
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    expect(upgradeCalls[0]!.body).toMatchObject({ return_target: "native" });
+    await findByRole("button", { name: "Reopen checkout" });
+  });
+
+  test("plain web hands off by unloading the tab and never renders the escape", async () => {
+    const { getByLabelText, queryByRole } = renderCheckout(
+      "/assistant/checkout?package=super",
+    );
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    await flushPending();
+
+    // Same-tab navigation takes this route with it, so the spinner is the last
+    // thing rendered and the escape would only ever flash before the unload.
+    expect(upgradeCalls[0]!.body).toMatchObject({ return_target: "web" });
+    getByLabelText("Preparing checkout");
+    expect(queryByRole("button", { name: "Reopen checkout" })).toBeNull();
   });
 
   test("the pricing funnel switched off redirects to plans without charging", async () => {
