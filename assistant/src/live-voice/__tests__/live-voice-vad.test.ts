@@ -2101,6 +2101,43 @@ describe("LiveVoiceSession server VAD", () => {
     expect(message).toContain("first question");
   });
 
+  test("closing during an active announcement delivers the result into the conversation", async () => {
+    injectMessageIntoParentMock.mockClear();
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
+    const { frames, session } = createHarness({
+      finals: ["first question", ""],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+
+    continuation.finish("THE_RESULT");
+    await waitFor(() => announcementOf(calls) !== undefined);
+    expect(injectMessageIntoParentMock).not.toHaveBeenCalled();
+
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock).toHaveBeenCalledTimes(1);
+    const [conversationId, message] =
+      injectMessageIntoParentMock.mock.calls[0] ?? [];
+    expect(conversationId).toBe("conversation-123");
+    expect(message).toContain("THE_RESULT");
+    expect(message).toContain("[Background work finished]");
+    expect(message).toContain("first question");
+  });
+
   test("a speculatively dispatched turn carries the stashed answer and cancels the announcement", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();

@@ -755,7 +755,7 @@ function buildClosedSessionDeliveryPrompt(
   answer: string,
 ): string {
   const what = describeInterruptedRequest(interruptedRequest);
-  return `[Background work finished] The voice call ended while you were still finishing ${what} in the background. You have now finished it. Tell the user briefly that it is done and give them the result. Do not re-run any tool calls; the work is already complete. What you produced was:\n\n${answer}`;
+  return `[Background work finished] The voice call ended before the completed result for ${what} could be delivered. Tell the user briefly that it is done and give them the result. Do not re-run any tool calls; the work is already complete. What you produced was:\n\n${answer}`;
 }
 
 // A fresh cycle: nothing captured, nothing released, no metrics turn open.
@@ -1219,14 +1219,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.deliverPendingContinuationToConversation();
     this.clearContinuationAnnouncement();
     this.stopSessionTranscriber();
-    // Deliberately NOT aborting detached continuations: outliving the call is
-    // the entire premise of the handoff. Hanging up used to destroy the work
-    // the user had just asked to keep — and the natural test sequence (barge
-    // in, hear the answer, close the room, go look for the result) hit that
-    // every time. A deliberate `interrupt()` still aborts; ending the session
-    // does not. With no next voice turn to fold into, a continuation that
-    // finishes after this point delivers into the conversation instead (see
-    // the completion handler in detachInterruptedTurn).
+    // Detached continuations outlive the call. A deliberate `interrupt()`
+    // aborts them; ending the session leaves them running. With no next voice
+    // turn to fold into, a continuation that finishes after this point delivers
+    // into the conversation instead (see detachInterruptedTurn).
     await this.cancelAssistantTurn("session_closed");
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
@@ -2086,11 +2082,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * injection lands, so a close cannot deliver twice.
    */
   private async deliverPendingContinuationToConversation(): Promise<void> {
-    const announcement = this.pendingAnnouncement;
+    const activeTurn = this.activeAssistantTurn;
+    const activeAnnouncement = activeTurn?.continuationDelivery ?? null;
+    const announcement = this.pendingAnnouncement ?? activeAnnouncement;
     const answer = announcement?.answer ?? this.pendingContinuationResult;
     const request = announcement?.request ?? "";
     this.pendingAnnouncement = null;
     this.pendingContinuationResult = null;
+    if (activeTurn !== null) {
+      activeTurn.continuationDelivery = null;
+    }
     if (answer === null || answer.length === 0) {
       return;
     }
@@ -3629,6 +3630,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               return;
             }
             current.assistantMessageId = msg.messageId ?? null;
+            current.continuationDelivery = null;
             this.completeTtsForTurn(token);
           },
           persisted_user_message_id: (messageId) => {
