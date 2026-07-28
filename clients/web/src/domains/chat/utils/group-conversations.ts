@@ -36,6 +36,9 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 export interface CustomGroup {
   id: string;
   name: string;
+  /** Stored icon name from the group row; null when none was chosen
+   *  (older assistants omit the field entirely). */
+  icon: string | null;
   conversations: Conversation[];
 }
 
@@ -187,7 +190,12 @@ export function groupConversations(
   if (options?.groups) {
     for (const g of options.groups) {
       if (g.isSystemGroup) continue;
-      const bucket: CustomGroup = { id: g.id, name: g.name, conversations: [] };
+      const bucket: CustomGroup = {
+        id: g.id,
+        name: g.name,
+        icon: g.icon ?? null,
+        conversations: [],
+      };
       groupLookup.set(g.id, bucket);
       customGroupsList.push(bucket);
     }

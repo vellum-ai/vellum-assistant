@@ -11875,6 +11875,11 @@ paths:
                           type: string
                         name:
                           type: string
+                        icon:
+                          description: Client-chosen icon name; null when the group has none
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         sortPosition:
                           type: number
                         isSystemGroup:
@@ -11904,6 +11909,11 @@ paths:
                 name:
                   type: string
                   description: Group name
+                icon:
+                  description: Client-chosen icon name
+                  anyOf:
+                    - type: string
+                    - type: "null"
               required:
                 - name
       responses:
@@ -11918,6 +11928,11 @@ paths:
                     type: string
                   name:
                     type: string
+                  icon:
+                    description: Client-chosen icon name; null when the group has none
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   sortPosition:
                     type: number
                   isSystemGroup:
@@ -11953,7 +11968,7 @@ paths:
     patch:
       operationId: groups_by_groupId_patch
       summary: Update group
-      description: Update a conversation group's name or sort position.
+      description: Update a conversation group's name, icon, or sort position.
       tags:
         - groups
       parameters:
@@ -11971,6 +11986,11 @@ paths:
               properties:
                 name:
                   type: string
+                icon:
+                  description: Client-chosen icon name; null clears it
+                  anyOf:
+                    - type: string
+                    - type: "null"
                 sortPosition:
                   type: number
       responses:
@@ -11985,6 +12005,11 @@ paths:
                     type: string
                   name:
                     type: string
+                  icon:
+                    description: Client-chosen icon name; null when the group has none
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   sortPosition:
                     type: number
                   isSystemGroup:

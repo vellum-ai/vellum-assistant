@@ -167,6 +167,7 @@ Each module owns one feature's old/new split. Current registry:
 | `use-supports-credentials-settings.ts` | `0.10.8`                       | No credentials-page daemon routes or `credential-requests` mint route; the Settings → Credentials tab is hidden and the page renders NotFound | Routes exist; the Credentials tab, page, and one-time credential-link actions render |
 | `use-supports-redacted-credential-chips.ts` | `0.10.10`                 | Sentinel-shaped transcript text renders as plain text (daemon neither mints nor neutralizes sentinels)   | Assistant-message sentinels upgrade to redacted-credential reveal chips                     |
 | `use-supports-noninteractive-voice-turns.ts` | `0.11.0`                 | Voice turns can raise `oauth_connect` surfaces mid-call; the voice room renders its own reachable connect card | Voice turns force `supportsDynamicUi: false` (no mid-call surfaces); the room card stays hidden |
+| `use-supports-group-icons.ts`       | `0.11.0`                          | Group rows carry no `icon` field; the group create/rename dialog is name-only and group writes omit `icon` | Groups persist a nullable icon name; the dialog shows an icon picker and group writes include `icon` |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.

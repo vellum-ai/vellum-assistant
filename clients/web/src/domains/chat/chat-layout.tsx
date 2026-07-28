@@ -501,11 +501,10 @@ export function ChatLayout({
   );
   const handleRequestRenameGroup = useCallback(
     (groupId: string) => {
-      const currentName =
-        conversationGroups.find((g) => g.id === groupId)?.name ?? "";
+      const group = conversationGroups.find((g) => g.id === groupId);
       useGroupNameRequestStore
         .getState()
-        .requestRenameGroup(groupId, currentName);
+        .requestRenameGroup(groupId, group?.name ?? "", group?.icon ?? null);
     },
     [conversationGroups],
   );
