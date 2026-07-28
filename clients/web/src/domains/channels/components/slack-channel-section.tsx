@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 
 import { Card } from "@vellumai/design-library/components/card";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
+import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { SlackChannelList } from "@/domains/channels/components/slack-channel-list";
@@ -101,6 +102,16 @@ export function SlackChannelSection({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* The pickers below hold disabled while the stored cells are unknown
+          (see `useChannelPermissionOverrides`); say why, or a dead dropdown is
+          all the user sees. Writing over cells we couldn't read would silently
+          clobber them, so there's nothing to offer here but a reload. */}
+      {overrides.isError ? (
+        <Notice tone="error">
+          Couldn’t load access settings. These controls stay disabled until they
+          load. Try reopening this page.
+        </Notice>
+      ) : null}
       <SlackChannelTypeDefaults
         assistantName={assistantDisplayName}
         globalDefaultTier={interactive}
