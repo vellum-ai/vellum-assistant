@@ -91,6 +91,7 @@ export interface StreamHandlerContext {
 
   // --- Queue management ---
   shiftPendingQueuedMessageId: () => string | undefined;
+  takePendingQueuedMessageId: (messageId: string) => string | undefined;
   setRequestIdMapping: (requestId: string, messageId: string) => void;
   popRequestIdMapping: (requestId: string) => string | undefined;
   consumePendingLocalDeletion: (messageId: string) => boolean;

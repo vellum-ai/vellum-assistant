@@ -19,8 +19,15 @@ export function handleMessageQueued(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.enqueueMessage();
-  const { requestId, position } = event;
-  const messageId = ctx.shiftPendingQueuedMessageId();
+  const { requestId, position, clientMessageId } = event;
+  // When the ack names its send, bind by identity: consume that exact
+  // pending entry, and ignore acks for sends this client did not originate
+  // (another tab's send or a daemon-internal enqueue must not touch local
+  // rows). Events without a nonce (surface actions, older daemons) fall
+  // back to the arrival-order FIFO shift.
+  const messageId = clientMessageId
+    ? ctx.takePendingQueuedMessageId(clientMessageId)
+    : ctx.shiftPendingQueuedMessageId();
   if (!messageId) {
     return;
   }

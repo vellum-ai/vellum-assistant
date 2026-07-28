@@ -60,6 +60,48 @@ describe("handleMessageQueued", () => {
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
+  it("binds by clientMessageId even when the nonce is not at the FIFO head", () => {
+    const pending = ["other-send", "stable-1"];
+    const ctx = makeCtx({
+      pendingQueuedMessageIds: pending,
+    });
+    handleMessageQueued(
+      {
+        type: "message_queued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 2,
+        clientMessageId: "stable-1",
+      },
+      ctx,
+    );
+    expect(ctx.setRequestIdMapping).toHaveBeenCalledWith("req-1", "stable-1");
+    expect(ctx.shiftPendingQueuedMessageId).not.toHaveBeenCalled();
+    // The unrelated pending entry keeps its place for its own ack.
+    expect(pending).toEqual(["other-send"]);
+  });
+
+  it("ignores an ack whose clientMessageId this client is not tracking", () => {
+    const pending = ["stable-1"];
+    const ctx = makeCtx({
+      pendingQueuedMessageIds: pending,
+    });
+    handleMessageQueued(
+      {
+        type: "message_queued",
+        conversationId: "conv-1",
+        requestId: "req-foreign",
+        position: 3,
+        clientMessageId: "someone-elses-send",
+      },
+      ctx,
+    );
+    expect(ctx.setRequestIdMapping).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+    // The local pending entry is untouched and still awaits its own ack.
+    expect(pending).toEqual(["stable-1"]);
+  });
+
   it("deletes queued message when messageId is in pending deletions", () => {
     const ctx = makeCtx({
       pendingQueuedMessageIds: ["stable-1"],

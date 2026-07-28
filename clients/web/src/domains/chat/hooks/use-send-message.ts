@@ -734,9 +734,15 @@ export function useSendMessage({
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        useChatSessionStore
-          .getState()
-          .pushPendingQueuedMessageId(userMessage.id);
+        // A hidden send renders no optimistic row and the daemon suppresses
+        // its queued ack, so there is nothing for the pending FIFO to bind.
+        // Tracking it would park a dead entry at the head that the next
+        // visible send's ack would bind to instead of its own row.
+        if (!isHidden) {
+          useChatSessionStore
+            .getState()
+            .pushPendingQueuedMessageId(userMessage.id);
+        }
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
