@@ -1,6 +1,6 @@
 ---
 name: vellum-self-knowledge
-description: Answer questions about Vellum, the assistant's architecture, capabilities, and current configuration by routing to live sources of truth
+description: Answer questions about Vellum, the assistant's architecture, capabilities, current configuration, pricing, billing, installation, and hosting options by routing to live sources of truth
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🪞"
@@ -12,6 +12,10 @@ metadata:
       - "When the user asks about Vellum, how the assistant works, or its architecture"
       - "When the user asks about the assistant's current configuration or settings"
       - "When the user asks what the assistant can do or what skills/tools are available"
+      - "When the user asks how much Vellum costs, about pricing, or about their credit balance"
+      - "When the user asks what plan, subscription, or billing tier they are on"
+      - "When the user asks how to install, download, or set up Vellum"
+      - "When the user asks how to run the assistant locally, self-host it, or use their own API key"
     avoid-when:
       - "When the user wants to change configuration (use in-chat config instead)"
 ---
@@ -43,6 +47,7 @@ The CLI is the single source of truth for anything about the running assistant's
 | MCP servers                         | `assistant mcp list`                                                       |
 | Watchers                            | `assistant watchers list`                                                  |
 | Token usage/costs                   | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
+| Credit balance (managed)            | `assistant platform credits`                                               |
 | Version                             | `assistant --version`                                                      |
 
 Run `assistant --help` or `assistant <command> --help` to discover more.
