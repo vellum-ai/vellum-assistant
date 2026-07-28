@@ -163,6 +163,60 @@ describe("reconcileSubagentStoreFromNotifications", () => {
     expect(entry.parentConversationId).toBe(PARENT);
   });
 
+  test("anchors an entry reconcile recovered to its spawning message", () => {
+    // Reconcile materializes rows with no parent message id at all, so
+    // `byParent` has no bucket for them and the transcript can't place their
+    // inline card. The notification is the only source that names the message.
+    spawn("silent", "completed");
+    expect(useSubagentStore.getState().byParent.size).toBe(0);
+
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "silent",
+          label: "silent",
+          status: "completed",
+          parentMessageId: "msg-1",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+
+    expect(store().byId["silent"]?.parentMessageId).toBe("msg-1");
+    expect(
+      useSubagentStore.getState().byParent.get("msg-1")?.map((e) => e.subagentId),
+    ).toEqual(["silent"]);
+  });
+
+  test("leaves an entry already anchored to its message alone", () => {
+    store().spawnSubagent({
+      subagentId: "anchored",
+      label: "anchored",
+      objective: "",
+      timestamp: NOW,
+      status: "running",
+      parentMessageId: "msg-original",
+    });
+
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "anchored",
+          label: "anchored",
+          status: "running",
+          parentMessageId: "msg-other",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+
+    expect(store().byId["anchored"]?.parentMessageId).toBe("msg-original");
+  });
+
   test("stamps the parent id on a live entry via the merge path", () => {
     spawn("sub", "running");
     reconcileSubagentStoreFromNotifications(

@@ -3,10 +3,9 @@
  *
  * - Reset subagent tracking state (needed for URL-navigation paths that
  *   bypass the `switchConversation` / `startNewConversation` wrappers)
- * - Auto-fetch detail for subagents reconstructed from conversation history
- *   (entries with a `conversationId` but no events yet) and for stubs
- *   recovered from a missed `subagent_spawned` that are awaiting their
- *   backfill (`hydrationPending`)
+ * - Auto-fetch detail for the subagents that can't wait for a click: the ones
+ *   still running, and the stubs deferring their live events until a backfill
+ *   lands
  *
  * Note: interaction store cleanup (`dismissQuestion`, `resetAll`) is NOT
  * handled here — `switchToConversation()` in `chat-session-store` already
@@ -20,20 +19,29 @@ import {
   useSubagentStore,
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
+import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { isActiveStatus } from "@/utils/subagent-status";
 
 /**
- * An entry whose timeline is still empty and that carries an id the daemon can
- * resolve. `hydrationPending` covers the stub armed with only a parent
- * conversation id: `fetchDetailIfNeeded` can address it (0.10.13+ daemons
- * self-resolve the subagent's conversation) even though the child-semantic
- * `conversationId` is deliberately unset. Without it such a stub would defer
- * live events forever waiting on a fetch nothing triggers.
+ * An entry with an empty timeline that the daemon can be asked about, and
+ * that can't afford to wait for the user to open its panel:
+ *
+ * - **Active** — its card is on screen showing live progress, so the timeline
+ *   has to be there before the next event extends it.
+ * - **`hydrationPending`** — it is dropping live events until the backfill
+ *   lands, so nothing else would ever un-stick it.
+ *
+ * A settled entry is deliberately excluded. Reconcile materializes every
+ * subagent the conversation ever ran, and a GET per terminal row turns a busy
+ * chat's load into a request burst for timelines nobody has asked to see; the
+ * detail panel fetches those on open (`onRequestDetail`).
  */
 function needsDetailFetch(entry: SubagentEntry): boolean {
   return (
     entry.events.length === 0 &&
-    Boolean(entry.conversationId || entry.hydrationPending)
+    canAddressSubagentDetail(entry) &&
+    (isActiveStatus(entry.status) || Boolean(entry.hydrationPending))
   );
 }
 

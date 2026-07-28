@@ -251,10 +251,30 @@ describe("handleSubagentStatusChanged — unknown subagent id", () => {
     expect(entry).toBeDefined();
     expect(entry?.status).toBe("completed");
     expect(entry?.inputTokens).toBe(10);
-    // A status event carries no conversation ids at all.
+    // The event carries no conversation ids, and with no conversation on
+    // screen there is nothing to fall back to either.
     expect(entry?.conversationId).toBeUndefined();
     expect(entry?.parentConversationId).toBeUndefined();
     expect(entry?.hydrationPending).toBeUndefined();
+  });
+
+  it("scopes the stub to the conversation on screen", () => {
+    // A status event names no conversation, and an entry with no parent id is
+    // shown by the Active-Subagents overlay in EVERY conversation while
+    // reconcile's per-parent orphan pass settles it in none.
+    useConversationStore.getState().setActiveConversationId(PARENT);
+
+    handleSubagentStatusChanged(
+      { type: "subagent_status_changed", subagentId: "sa-9", status: "running" },
+      ctx,
+    );
+
+    const entry = useSubagentStore.getState().byId["sa-9"];
+    expect(entry?.parentConversationId).toBe(PARENT);
+    // The parent id addresses the backfill on a self-lookup daemon, so the
+    // stub now defers its live events until the fetch lands.
+    expect(entry?.conversationId).toBeUndefined();
+    expect(entry?.hydrationPending).toBe(true);
   });
 });
 

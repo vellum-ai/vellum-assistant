@@ -19,6 +19,7 @@ import {
     formatNumber,
 } from "@/domains/chat/components/metric-card";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
+import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/subagent-status";
@@ -210,11 +211,18 @@ export function SubagentDetailPanel({
     setObjectiveOverflows(node.scrollHeight > node.clientHeight);
   }, [entry.subagentId, entry.objective, objectiveExpanded]);
 
+  // The panel is where a settled subagent's timeline is fetched: the
+  // conversation-load auto-fetch only covers live rows, so opening one of the
+  // many terminal rows reconcile materializes is what pays for its detail.
+  // Addressability goes through the shared predicate so a stub that knows only
+  // its parent conversation (0.10.13+ daemons resolve the child themselves)
+  // isn't skipped here while the auto-fetch happily fetches it.
+  const canFetchDetail = canAddressSubagentDetail(entry);
   useEffect(() => {
-    if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
+    if (onRequestDetail && canFetchDetail && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
     }
-  }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
+  }, [entry.subagentId, canFetchDetail, entry.events.length, onRequestDetail]);
 
   // The selected tool's nested payload, or `undefined` when nothing is selected
   // or the id has no payload (defensive — fall back to the timeline view).

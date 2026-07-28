@@ -19,10 +19,12 @@
  *   ring replay.
  *
  * Drafts are excluded — a conversation the server has never seen has no
- * subagents to reconcile against.
+ * subagents to reconcile against. Both triggers fire freely: the store
+ * throttles per parent conversation, so a flapping stream costs one round-trip
+ * per window rather than one per reopen.
  */
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -42,7 +44,7 @@ export function useSubagentReconcile(
   conversationId: string | null,
   conversationExistsOnServer: boolean,
 ): void {
-  useEffect(() => {
+  const resync = useCallback(() => {
     if (!assistantId || !conversationId || !conversationExistsOnServer) {
       return;
     }
@@ -51,18 +53,14 @@ export function useSubagentReconcile(
       .reconcileFromDaemon(assistantId, conversationId);
   }, [assistantId, conversationId, conversationExistsOnServer]);
 
+  useEffect(() => {
+    resync();
+  }, [resync]);
+
   useBusSubscription("sse.opened", ({ assistantId: openedFor, cause }) => {
-    if (!RESYNC_CAUSES.has(cause)) {
+    if (!RESYNC_CAUSES.has(cause) || openedFor !== assistantId) {
       return;
     }
-    if (!assistantId || !conversationId || !conversationExistsOnServer) {
-      return;
-    }
-    if (openedFor !== assistantId) {
-      return;
-    }
-    void useSubagentStore
-      .getState()
-      .reconcileFromDaemon(assistantId, conversationId);
+    resync();
   });
 }

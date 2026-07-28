@@ -19,6 +19,11 @@
  * 3. The auto-fetch reaches a stub recovered from a missed `subagent_spawned`
  *    that only knows its parent conversation. Such a stub defers live events
  *    until its backfill lands, so nothing else would ever un-stick it.
+ *
+ * 4. The auto-fetch is bounded to rows that can't wait: live ones, and stubs
+ *    deferring their events. Reconcile materializes every subagent the
+ *    conversation ever ran, and a GET per settled row would turn a busy chat's
+ *    load into a request burst; the detail panel fetches those on open.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -140,6 +145,60 @@ describe("useConversationChangeEffects — stub detail auto-fetch", () => {
         "sa-stub",
         "conv-A",
       ),
+    );
+  });
+
+  test("fetches a still-running row whose timeline is empty", async () => {
+    render(<Harness />);
+
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-live",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      conversationId: "conv-child",
+      timestamp: NOW,
+    });
+
+    await waitFor(() =>
+      expect(fetchSubagentDetail).toHaveBeenCalledWith(
+        "asst-1",
+        "sa-live",
+        "conv-child",
+      ),
+    );
+  });
+
+  test("does not fetch the settled rows reconcile materializes", async () => {
+    render(<Harness />);
+
+    // A busy chat's history: every one of these carries a child conversation
+    // id and an empty timeline, and none of them is on screen.
+    for (const subagentId of ["sa-1", "sa-2", "sa-3"]) {
+      useSubagentStore.getState().spawnSubagent({
+        subagentId,
+        label: "Agent",
+        objective: "",
+        status: "completed",
+        conversationId: `conv-child-${subagentId}`,
+        timestamp: NOW,
+      });
+    }
+    // A live sibling proves the effect ran at all rather than never firing.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-live",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      conversationId: "conv-child-live",
+      timestamp: NOW,
+    });
+
+    await waitFor(() => expect(fetchSubagentDetail).toHaveBeenCalledTimes(1));
+    expect(fetchSubagentDetail).toHaveBeenCalledWith(
+      "asst-1",
+      "sa-live",
+      "conv-child-live",
     );
   });
 });

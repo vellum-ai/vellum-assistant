@@ -22,6 +22,12 @@ mock.module("@/components/avatar-renderer", () => ({
   AvatarRenderer: () => <div data-testid="avatar" />,
 }));
 
+// Detail addressability is version-gated; pin it on so the open-fetch tests
+// below exercise the parent-only fallback a 0.10.13+ daemon supports.
+mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
+  supportsSubagentDetailSelfLookup: () => true,
+}));
+
 mock.module("@/domains/chat/components/subagent-status-badge", () => ({
   StatusBadge: ({ status }: { status: string }) => (
     <div data-testid="status-badge" data-status={status} />
@@ -208,6 +214,59 @@ describe("SubagentDetailPanel — timeline empty state", () => {
     );
     expect(screen.queryByText("No events yet")).toBeNull();
     expect(screen.getByTestId("timeline")).toBeDefined();
+  });
+});
+
+/**
+ * Opening the panel is what pays for a settled subagent's timeline: the
+ * conversation-load auto-fetch only covers live rows, so this is the single
+ * fetch trigger for everything reconcile materializes as terminal.
+ */
+describe("SubagentDetailPanel — detail fetch on open", () => {
+  function requestedIdsFor(entry: Partial<SubagentEntry>): string[] {
+    const requested: string[] = [];
+    render(
+      <SubagentDetailPanel
+        entry={makeEntry(entry)}
+        onClose={noop}
+        onRequestDetail={(id) => requested.push(id)}
+      />,
+    );
+    return requested;
+  }
+
+  test("fetches a settled row with an empty timeline", () => {
+    expect(
+      requestedIdsFor({ status: "completed", conversationId: "conv-child" }),
+    ).toEqual(["sub-1"]);
+  });
+
+  test("fetches a stub that knows only its parent conversation", () => {
+    // The child-semantic `conversationId` is deliberately unset on such a
+    // stub; gating the fetch on it left the panel permanently empty.
+    expect(
+      requestedIdsFor({ conversationId: undefined, parentConversationId: "conv-parent" }),
+    ).toEqual(["sub-1"]);
+  });
+
+  test("does not fetch for an entry no id can address", () => {
+    expect(requestedIdsFor({ conversationId: undefined })).toEqual([]);
+  });
+
+  test("does not fetch for an entry that already has a timeline", () => {
+    expect(
+      requestedIdsFor({
+        conversationId: "conv-child",
+        events: [
+          {
+            id: "te-1",
+            type: "text",
+            content: "hello",
+            timestamp: Date.now(),
+          },
+        ],
+      }),
+    ).toEqual([]);
   });
 });
 
