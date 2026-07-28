@@ -1,3 +1,5 @@
+import * as Sentry from "@sentry/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 
 import {
@@ -11,9 +13,13 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
+import { seedHatchAvatar } from "@/assistant/seed-hatch-avatar";
+import { awaitPurchasedProvisioning } from "@/domains/onboarding/purchased-provisioning";
 import { getLockfileAssistant, probeLocalGatewayReady } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { randomCharacterTraits } from "@/utils/avatar-random";
 
 // Mirrors the poll/backoff constants in
 // `@/domains/onboarding/pages/hatching-screen.tsx`. The research-onboarding
@@ -35,6 +41,12 @@ const sleep = (ms: number): Promise<void> =>
 export interface UseBackgroundHatch {
   /** Fire the hatch. Idempotent — only the first call provisions. */
   start: () => void;
+  /**
+   * Re-run a failed hatch from the top, clearing the terminal state first.
+   * `awaitReady()` waiters from the failed attempt were already rejected at
+   * `settleError` time, so callers must re-await after retrying.
+   */
+  retry: () => void;
   /** True only once the assistant has passed a health check. */
   ready: boolean;
   /** The provisioned assistant id, set once the hatch resolves. */
@@ -66,6 +78,13 @@ export interface UseBackgroundHatchOptions {
    * out stale), discovery falls back to the selected/active assistant.
    */
   adoptAssistantId?: string;
+  /**
+   * The hatch is the return leg of a completed checkout (`post_checkout=1`):
+   * after healthz, hold `ready` until the purchased machine/storage resize
+   * converges (`awaitPurchasedProvisioning`), then re-probe healthz. Never set
+   * on the free path — the free hatch must not add subscription polling.
+   */
+  postCheckoutReturn?: boolean;
 }
 
 /**
@@ -79,15 +98,22 @@ export interface UseBackgroundHatchOptions {
  * the hatch return.
  *
  * When `adoptExisting` is set (a local-hosting onboarding), the managed hatch is
- * skipped and we adopt the already-live assistant instead.
+ * skipped and we adopt the already-live assistant instead. When
+ * `postCheckoutReturn` is set, `ready` additionally waits on the purchased
+ * machine/storage resize so the paid user never starts on a baseline assistant.
  *
  * Terminal failures (platform-hosted disabled, non-recoverable hatch errors,
  * lifecycle errors, timeout) set `error` and reject `awaitReady()`.
  * Recoverable failures (5xx / network) keep polling.
  */
 export function useBackgroundHatch(
-  { adoptExisting = false, adoptAssistantId }: UseBackgroundHatchOptions = {},
+  {
+    adoptExisting = false,
+    adoptAssistantId,
+    postCheckoutReturn = false,
+  }: UseBackgroundHatchOptions = {},
 ): UseBackgroundHatch {
+  const queryClient = useQueryClient();
   const [ready, setReady] = useState(false);
   const [assistantId, setAssistantId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +200,16 @@ export function useBackgroundHatch(
           if (result.ok) {
             hatchedAssistantId = result.data.id;
             setAssistantId(result.data.id);
+            // The Dock/tray icons are avatar-driven, so a freshly hatched (201)
+            // assistant needs seeded traits — parity with the foreground hatch.
+            // Fire-and-forget; the research face step overwrites them later.
+            if (postCheckoutReturn && result.status === 201) {
+              void seedHatchAvatar(
+                result.data.id,
+                randomCharacterTraits(BUNDLED_COMPONENTS),
+                queryClient,
+              );
+            }
           } else {
             if (isPlatformHostedDisabled(result.status, result.error)) {
               settleError(PLATFORM_HOSTED_DISABLED_MESSAGE);
@@ -259,9 +295,50 @@ export function useBackgroundHatch(
         }
       }
 
+      // 4. On a paid return, hold `ready` until the purchased resize converges.
+      //
+      // `managedHatch` is true by construction: the checkout destination always
+      // carries `hosting=vellum-cloud`, and `adoptExisting` already excludes the
+      // local foreground hatch.
+      if (!adoptExisting && postCheckoutReturn) {
+        const outcome = await awaitPurchasedProvisioning({
+          assistantId: activeAssistantId,
+          postCheckoutReturn: true,
+          managedHatch: true,
+          hatchStartMs: startMs,
+          isCancelled: () => settledRef.current?.kind === "error",
+        });
+        if (outcome === "health_timeout") {
+          // The assistant never answered healthz after the resize; completing
+          // would hand the user an unreachable assistant.
+          Sentry.captureMessage("Onboarding hatch wait exceeded timeout", {
+            level: "warning",
+            extra: { maxWaitMs: MAX_HATCH_WAIT_MS, stage: "post_resize_health" },
+          });
+          settleError(TIMEOUT_ERROR);
+          return;
+        }
+      }
+
       settleReady(activeAssistantId);
     })();
-  }, [settleError, settleReady, adoptExisting, adoptAssistantId]);
+  }, [
+    settleError,
+    settleReady,
+    adoptExisting,
+    adoptAssistantId,
+    postCheckoutReturn,
+    queryClient,
+  ]);
+
+  const retry = useCallback(() => {
+    startedRef.current = false;
+    settledRef.current = null;
+    setError(null);
+    setReady(false);
+    setAssistantId(null);
+    start();
+  }, [start]);
 
   const awaitReady = useCallback((): Promise<string> => {
     const settled = settledRef.current;
@@ -272,5 +349,5 @@ export function useBackgroundHatch(
     });
   }, []);
 
-  return { start, ready, assistantId, error, awaitReady };
+  return { start, retry, ready, assistantId, error, awaitReady };
 }
