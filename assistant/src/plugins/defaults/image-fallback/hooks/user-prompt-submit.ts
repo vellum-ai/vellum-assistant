@@ -10,9 +10,10 @@
  * 1. Checks whether the turn's model needs image→text fallback via
  *    {@link needsImageFallback}, using the turn's effective `modelProfileKey`.
  *    If the model handles images, the hook is a no-op.
- * 2. Finds a vision-capable profile for captioning via `findVisionProfile`.
- *    If none exists, images are replaced with a fail-open placeholder so the
- *    model at least knows an image was present.
+ * 2. Resolves a vision provider for captioning via
+ *    `createVisionProviderResolver` (cheapest usable profile first). If no
+ *    vision profile exists, images are replaced with a fail-open placeholder so
+ *    the model at least knows an image was present.
  * 3. Replaces each image block with a `[Image …]` text caption via
  *    {@link captionImagesInMessages} (which also persists the original and
  *    caches captions across turns), sweeping top-level blocks and images
@@ -32,20 +33,22 @@ import {
   captionImagesInMessages,
   needsImageFallback,
 } from "../src/caption-blocks.js";
-import { findVisionProfile } from "../src/vision-caption.js";
+import { createVisionProviderResolver } from "../src/vision-caption.js";
 
 const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // If the turn's model already supports vision, nothing to do.
-  if (!needsImageFallback(ctx.modelProfileKey)) return;
+  if (!needsImageFallback(ctx.modelProfileKey)) {
+    return;
+  }
 
-  // Find a vision-capable profile for captioning.
-  const visionProfileKey = findVisionProfile();
+  // Rank-then-resolve a vision provider (cheapest first) for captioning.
+  const resolver = createVisionProviderResolver(ctx.logger);
 
   // Scan all messages for image blocks and replace them with captions.
   const imageCount = await captionImagesInMessages(
     ctx.latestMessages,
     ctx.conversationId,
-    visionProfileKey,
+    resolver,
     ctx.logger,
   );
 

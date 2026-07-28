@@ -49,6 +49,9 @@ mock.module("@vellumai/plugin-api", () => ({
   doesSupportVision: (arg: ModelProfileInfo | string) =>
     typeof arg === "string" ? false : visionProfiles.has(arg.key),
   getModelProfiles: () => mockProfiles,
+  getProfileInputTokenPrice: () => null,
+  getModelInputTokenPrice: () => null,
+  resolveCallSiteModel: () => null,
   resolveMediaSourceData: mockResolveMediaSourceData,
   getConfiguredProvider: async () => fakeProvider,
   isVisionNotSupportedError,

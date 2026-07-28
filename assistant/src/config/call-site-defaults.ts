@@ -78,12 +78,17 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   trustRuleSuggestion: { profile: "cost-optimized" },
   styleAnalyzer: { profile: "cost-optimized" },
   inference: { profile: "cost-optimized" },
-  // Vision captioning for the image-fallback plugin. No pinned profile — the
-  // plugin resolves a vision-capable profile itself via `doesSupportVision` and
-  // passes it as an `overrideProfile`, so the call-site default is a fallback
-  // that inherits the workspace default. Pinning a managed profile would break
-  // BYOK installs where managed profiles are uncredentialed.
-  vision: {},
+  // Vision captioning for the image-fallback plugin. The model pin is the
+  // managed-install default captioner: a bare model implies its catalog
+  // provider and keeps the provider-agnostic managed connection (see
+  // `resolveOverrideOrDefault`), pinning a cheaper vision-capable model than
+  // the only vision-capable default profile (`quality-optimized`) resolves to.
+  // The plugin ranks this call-site default against every enabled
+  // vision-capable profile and captions on whichever is cheapest; a BYOK
+  // install lacking the pinned model's provider credentials fails this
+  // candidate's resolution and falls through to a vision profile via the
+  // plugin's per-candidate error handling.
+  vision: { model: "claude-haiku-4-5-20251001" },
 
   heartbeatAgent: {
     profile: "cost-optimized",

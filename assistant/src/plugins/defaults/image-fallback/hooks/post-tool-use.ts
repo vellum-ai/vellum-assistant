@@ -24,24 +24,28 @@ import {
 } from "@vellumai/plugin-api";
 
 import { captionImageBlocks } from "../src/caption-blocks.js";
-import { findVisionProfile } from "../src/vision-caption.js";
+import { createVisionProviderResolver } from "../src/vision-caption.js";
 
 const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   // Cheapest gate first: bail unless the tool actually returned an image,
   // before touching the model catalog or resolving a vision profile.
   const blocks = ctx.toolResponse.contentBlocks;
-  if (blocks == null || !blocks.some((b) => b.type === "image")) return;
+  if (blocks == null || !blocks.some((b) => b.type === "image")) {
+    return;
+  }
 
   // If the model that ran already supports vision, leave the image in place.
-  if (doesSupportVision(ctx.model)) return;
+  if (doesSupportVision(ctx.model)) {
+    return;
+  }
 
-  // Find a vision-capable profile for captioning.
-  const visionProfileKey = findVisionProfile();
+  // Rank-then-resolve a vision provider (cheapest first) for captioning.
+  const resolver = createVisionProviderResolver(ctx.logger);
 
   const imageCount = await captionImageBlocks(
     blocks,
     ctx.conversationId,
-    visionProfileKey,
+    resolver,
     ctx.logger,
   );
 

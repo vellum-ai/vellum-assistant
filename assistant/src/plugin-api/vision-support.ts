@@ -16,13 +16,11 @@
  * over silently shipping a raw image to a provider that may reject it.
  */
 
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
-import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
-  getCatalogProviderForModel,
-  PROVIDER_CATALOG,
-} from "../providers/model-catalog.js";
+  resolveDispatchProfileEntry,
+  resolveEntryCatalogModel,
+} from "./profile-catalog-resolution.js";
 import type { ModelProfileInfo } from "./types.js";
 
 /**
@@ -30,15 +28,22 @@ import type { ModelProfileInfo } from "./types.js";
  *
  * `modelOrProfile` may be a concrete model id, a profile key, or a
  * {@link ModelProfileInfo}. A bare string is resolved as a model id first and,
- * failing that, as a profile key. Returns `false` when nothing resolves.
+ * failing that, as a profile key. For a concrete model id, pass the resolved
+ * `provider` to read the provider-specific catalog entry — a model can support
+ * vision under one provider and not another. `provider` is ignored for a
+ * profile (a profile carries its own provider). Returns `false` when nothing
+ * resolves.
  */
 export function doesSupportVision(
   modelOrProfile: ModelProfileInfo | string,
+  provider?: string,
 ): boolean {
   if (typeof modelOrProfile === "string") {
     // Concrete model id first, then fall back to treating it as a profile key.
     return (
-      modelVision(modelOrProfile) ?? profileVision(modelOrProfile) ?? false
+      modelVision(modelOrProfile, provider) ??
+      profileVision(modelOrProfile) ??
+      false
     );
   }
   return profileVision(modelOrProfile.key) ?? false;
@@ -46,29 +51,39 @@ export function doesSupportVision(
 
 /**
  * Catalog vision flag for a concrete model id, or `undefined` when the catalog
- * doesn't know the model. The same model id carries the same capability under
- * every provider that offers it, so the first catalog match wins.
+ * doesn't know the model. When `provider` is given, the provider-specific
+ * catalog entry decides; when it is omitted, or the provider doesn't offer this
+ * model, the first catalog provider that offers the model wins. A routing
+ * identity (e.g. `vellum`) resolves through the model's catalog owner.
  */
-function modelVision(model: string): boolean | undefined {
-  for (const provider of PROVIDER_CATALOG) {
-    const catalogModel = provider.models.find((m) => m.id === model);
-    if (catalogModel != null) {
-      return catalogModel.supportsVision ?? false;
+function modelVision(model: string, provider?: string): boolean | undefined {
+  if (provider != null) {
+    const scoped = resolveEntryCatalogModel({ model, provider });
+    if (scoped != null) {
+      return scoped.supportsVision ?? false;
     }
+    // Provider unknown or doesn't offer this model — fall back to the
+    // model-id-only catalog match below.
   }
-  return undefined;
+  const catalogModel = resolveEntryCatalogModel({ model });
+  return catalogModel != null
+    ? (catalogModel.supportsVision ?? false)
+    : undefined;
 }
 
 /**
- * Resolve a profile key through `llm.profiles` to its vision capability, or
- * `undefined` when the key is unknown or resolves to a model the catalog
- * doesn't know. A mix profile resolves to `true` if any arm supports vision
- * (the mix can route to it) and `false` only once every arm is a known
- * text-only model.
+ * Resolve a profile key to its vision capability, or `undefined` when the key
+ * is unknown or resolves to a model the catalog doesn't know. Resolution
+ * follows the same `llm.defaultProvider`-aware path dispatch uses (see
+ * {@link resolveDispatchProfileEntry}), so on a BYOK install a default profile
+ * is capability-checked against the model it actually runs — the default
+ * provider's column — not the managed `vellum` body. A mix profile resolves to
+ * `true` if any arm supports vision (the mix can route to it) and `false` only
+ * once every arm is a known text-only model.
  */
 function profileVision(profileKey: string): boolean | undefined {
   const { llm } = getConfig();
-  const entry = getEffectiveProfile(llm.profiles, profileKey);
+  const entry = resolveDispatchProfileEntry(llm, profileKey);
   if (entry == null) {
     return undefined;
   }
@@ -76,7 +91,7 @@ function profileVision(profileKey: string): boolean | undefined {
   if (entry.mix != null) {
     let sawUnknown = false;
     for (const arm of entry.mix) {
-      const armEntry = getEffectiveProfile(llm.profiles, arm.profile);
+      const armEntry = resolveDispatchProfileEntry(llm, arm.profile);
       const armVision =
         armEntry == null ? undefined : resolveEntryVision(armEntry);
       if (armVision === true) {
@@ -94,36 +109,13 @@ function profileVision(profileKey: string): boolean | undefined {
 
 /**
  * Resolve whether a concrete (non-mix) profile entry supports vision from its
- * own `(provider, model)`, inferring the provider from the catalog when only
- * the model is set. Returns `undefined` when the effective `(provider, model)`
- * can't be determined or isn't in the catalog — an entry that omits its model
- * is not a usable resolution target, so it fails safe to "caption".
+ * own `(provider, model)`. Returns `undefined` when the entry doesn't resolve
+ * to a known catalog model — an entry that omits its model is not a usable
+ * resolution target, so it fails safe to "caption".
  */
 function resolveEntryVision(entry: {
   provider?: string;
   model?: string;
 }): boolean | undefined {
-  // Routing identities ("vellum"/"chatgpt") are not catalog providers; the
-  // model's catalog owner is the capability source for them.
-  const provider =
-    entry.provider != null && ROUTING_IDENTITY_PROVIDERS.has(entry.provider)
-      ? undefined
-      : entry.provider;
-  const model = entry.model;
-
-  // Infer provider from model when missing (mirrors the resolver's catalog
-  // provider implication).
-  const effectiveProvider =
-    provider ??
-    (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);
-
-  if (typeof effectiveProvider !== "string" || typeof model !== "string") {
-    return undefined;
-  }
-
-  const catalogProvider = PROVIDER_CATALOG.find(
-    (p) => p.id === effectiveProvider,
-  );
-  const catalogModel = catalogProvider?.models.find((m) => m.id === model);
-  return catalogModel?.supportsVision;
+  return resolveEntryCatalogModel(entry)?.supportsVision;
 }
