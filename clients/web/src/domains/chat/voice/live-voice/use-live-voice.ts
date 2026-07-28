@@ -372,6 +372,10 @@ export function useLiveVoice(
   // useCallback self-reference cycle.
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Owns the prewarmed player while a reconnect is waiting on its backoff
+  // timer. Keeping its MediaStream element alive preserves the user activation
+  // that started iOS voice-processing playback.
+  const reconnectPlayerRef = useRef<LiveVoiceAudioPlayer | null>(null);
   // Initial-connect resilience (JARVIS-1282). `hasReadyRef` records whether the
   // current session lifecycle ever reached `ready` — false during the very
   // first connect, so a transient pre-`ready` connection failure (cold velay
@@ -392,10 +396,15 @@ export function useLiveVoice(
     | null
   >(null);
 
-  const clearReconnectTimer = useCallback(() => {
+  const cancelReconnect = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
+    }
+    const player = reconnectPlayerRef.current;
+    reconnectPlayerRef.current = null;
+    if (player) {
+      void player.dispose();
     }
   }, []);
 
@@ -412,7 +421,7 @@ export function useLiveVoice(
   const teardown = useCallback(() => {
     // Cancel any pending hands-free reconnect first — teardown is terminal, so
     // a queued reconnect must not resurrect the session behind idle UI.
-    clearReconnectTimer();
+    cancelReconnect();
     reconnectAttemptRef.current = 0;
     initialConnectAttemptRef.current = 0;
     hasReadyRef.current = false;
@@ -432,12 +441,12 @@ export function useLiveVoice(
     sessionRef.current = null;
     disposeSessionPrimitives(session);
     useLiveVoiceStore.getState().reset();
-  }, [clearReconnectTimer]);
+  }, [cancelReconnect]);
 
   const stop = useCallback(async () => {
     // A user-initiated stop ends the session outright — drop any pending
     // reconnect and its attempt budget.
-    clearReconnectTimer();
+    cancelReconnect();
     reconnectAttemptRef.current = 0;
     initialConnectAttemptRef.current = 0;
     hasReadyRef.current = false;
@@ -462,7 +471,7 @@ export function useLiveVoice(
     // here would leave that session's mic hot behind idle UI.
     if (startGenerationRef.current !== startGeneration) return;
     useLiveVoiceStore.getState().reset();
-  }, [clearReconnectTimer]);
+  }, [cancelReconnect]);
 
   /**
    * Manual turn release ("send now"). Guarded to `listening` so a stray click
@@ -593,13 +602,15 @@ export function useLiveVoice(
       const client = (
         opts.createClient ?? (() => new LiveVoiceChannelClient())
       )();
-      const player = (
-        opts.createPlayer ?? (() => new LiveVoiceAudioPlayer())
-      )();
-      // Resume the playback AudioContext now, while we're still in the
-      // mic-button click's gesture. Deferring to the first `tts_audio` frame
-      // (its lazy creation point) lands outside any gesture, so the browser
-      // starts it suspended and the first turn's audio is silently dropped.
+      const player =
+        reconnectPlayerRef.current ??
+        (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
+      reconnectPlayerRef.current = null;
+      // A fresh session prewarms playback inside the mic-button gesture.
+      // Reconnects reuse that already-started player, and this repeated call is
+      // a no-op while its AudioContext is running. Deferring fresh setup to the
+      // first `tts_audio` frame would land outside any gesture and start
+      // suspended.
       player.prewarm();
       // Route the room avatar's `responding` pulse to real TTS output. The mic
       // amplitude (the only prior source) is near-silent while the assistant
@@ -940,7 +951,8 @@ export function useLiveVoice(
               // entry origin, which the re-entered `connectSession` preserves),
               // so the avatar keeps animating and the user can still bail.
               sessionRef.current = null;
-              disposeSessionPrimitives(session);
+              reconnectPlayerRef.current = session.player;
+              disposeSessionPrimitives(session, { keepPlayerAlive: true });
               const s = useLiveVoiceStore.getState();
               s.setState("connecting");
               s.setControls({
@@ -999,7 +1011,8 @@ export function useLiveVoice(
             // reconnect rather than a vanished session and the user can still
             // bail during the gap.
             sessionRef.current = null;
-            disposeSessionPrimitives(session);
+            reconnectPlayerRef.current = session.player;
+            disposeSessionPrimitives(session, { keepPlayerAlive: true });
             const s = useLiveVoiceStore.getState();
             s.setState("connecting");
             // Hold the reconnect label through the backoff gap (before the
@@ -1082,13 +1095,13 @@ export function useLiveVoice(
       if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
       // Fresh user-initiated session: drop any stale reconnect budget/timer and
       // the initial-connect resilience budget (a new session starts unreadied).
-      clearReconnectTimer();
+      cancelReconnect();
       reconnectAttemptRef.current = 0;
       initialConnectAttemptRef.current = 0;
       hasReadyRef.current = false;
       await connectSession(assistantId, conversationId, startOptions ?? {});
     },
-    [connectSession, clearReconnectTimer],
+    [connectSession, cancelReconnect],
   );
 
   // Release everything if the consumer unmounts mid-session. teardown() also
@@ -1114,20 +1127,28 @@ export function useLiveVoice(
 // ---------------------------------------------------------------------------
 
 /**
- * Release a session's primitives (event subscriptions, socket, playback
- * AudioContext, mic capture) and bump its generation so any in-flight async
- * callbacks become stale no-ops. Does NOT touch the store — callers set the
- * next store phase themselves (`teardown()` → idle; the reconnect path →
- * `connecting`). `dispose()` (not a bare `stop()`) releases the AudioContext,
- * which a bare stop would leak across sessions until page unload.
+ * Release a session's primitives and bump its generation so any in-flight
+ * async callbacks become stale no-ops. A reconnect keeps the prewarmed player
+ * alive but stops queued audio; terminal disposal releases its AudioContext.
+ * Does NOT touch the store — callers set the next store phase themselves
+ * (`teardown()` → idle; the reconnect path → `connecting`).
  */
-function disposeSessionPrimitives(session: SessionContext): void {
+function disposeSessionPrimitives(
+  session: SessionContext,
+  options?: { keepPlayerAlive?: boolean },
+): void {
   session.generation += 1;
   clearAssistantAudioActive(session);
-  for (const unsubscribe of session.unsubscribes) unsubscribe();
+  for (const unsubscribe of session.unsubscribes) {
+    unsubscribe();
+  }
   session.unsubscribes = [];
   session.client.close();
-  void session.player.dispose();
+  if (options?.keepPlayerAlive) {
+    session.player.stop();
+  } else {
+    void session.player.dispose();
+  }
   void session.capture.shutdown();
 }
 
