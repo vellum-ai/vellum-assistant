@@ -40,6 +40,10 @@ import {
   startWorkerPidFileGuard,
 } from "../util/worker-process.js";
 import {
+  startDbIntegritySampler,
+  stopDbIntegritySampler,
+} from "./db-integrity-sample.js";
+import {
   type PluginSourceWatchHandle,
   startPluginSourceWatch,
 } from "./plugin-source-watch.js";
@@ -94,6 +98,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     stopConfigSnapshotReporter();
     stopMemoryTierReporter();
+    stopDbIntegritySampler();
     sourceWatch?.stop();
     sampler?.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This
@@ -154,6 +159,10 @@ async function main(): Promise<void> {
 
   // Emit the coarse memory tier as a periodic per-assistant watchdog heartbeat.
   startMemoryTierReporter();
+
+  // Sample the database's structural integrity (at most daily) so the fleet's
+  // corruption prevalence is measurable.
+  startDbIntegritySampler();
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
