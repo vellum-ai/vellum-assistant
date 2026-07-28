@@ -69,9 +69,19 @@ const CHECKOUT_URL = "https://stripe.test/checkout/session";
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
 let openedUrl: string | null = null;
+// What the two billing reads answer when they are actually fetched. The
+// harnesses default them to whatever they seeded into the cache, so a read
+// serves the same data the cache holds unless a test deliberately drifts them
+// apart to stand for a cache the server has moved past.
+let serverSubscription: SubscriptionResponse | null = null;
+let serverCatalog: PlanListResponse | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
+  organizationsBillingSubscriptionRetrieve: () =>
+    Promise.resolve({ data: serverSubscription, response: { ok: true } }),
+  organizationsBillingPlansRetrieve: () =>
+    Promise.resolve({ data: serverCatalog, response: { ok: true } }),
   organizationsBillingSubscriptionUpgradeCreate: (opts: Captured) => {
     upgradeCall = opts;
     return Promise.resolve({
@@ -195,15 +205,33 @@ function LocationProbe() {
   return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
+/**
+ * @param subscription seeded into the cache — what the page reads before any
+ *   fetch settles.
+ * @param options.server what the subscription read answers. Defaults to
+ *   `subscription`; a different value stands for a cache the server has already
+ *   moved past.
+ * @param options.backgroundRefetch mounts on the app's real query defaults
+ *   (`staleTime: 0`), so the seeded cache serves the first render while a
+ *   refetch runs behind it. The default pins the cache instead, which is the
+ *   other shape of the same staleness — a read fresh enough by `staleTime` that
+ *   no refetch is scheduled at all.
+ */
 function renderPage(
   subscription: SubscriptionResponse,
   entry = "/assistant/plans",
+  options: {
+    server?: SubscriptionResponse;
+    backgroundRefetch?: boolean;
+  } = {},
 ) {
+  serverSubscription = options.server ?? subscription;
+  serverCatalog = fullCatalog();
   const client = new QueryClient({
     defaultOptions: {
-      // The seeded cache is the only data source — the read endpoints aren't
-      // mocked, so a background refetch would hit the network.
-      queries: { retry: false, staleTime: Infinity, refetchOnMount: false },
+      queries: options.backgroundRefetch
+        ? { retry: false }
+        : { retry: false, staleTime: Infinity, refetchOnMount: false },
     },
   });
   client.setQueryData(
@@ -243,6 +271,8 @@ function renderRouted(
   entry: string,
   catalog: PlanListResponse = fullCatalog(),
 ) {
+  serverSubscription = subscription;
+  serverCatalog = catalog;
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity, refetchOnMount: false },
@@ -299,6 +329,8 @@ beforeEach(() => {
   openedUrl = null;
   platformHosted = true;
   lifecycleLoading = false;
+  serverSubscription = null;
+  serverCatalog = null;
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
   // leaves a prior test's intent readable.
   clearCheckoutIntent();
@@ -449,6 +481,39 @@ describe("PlansPage — ?package= deep link", () => {
     expect(queryAllByTestId("confirm-free-downgrade-button").length).toBe(0);
     expect(queryAllByTestId("confirm-package-switch-button").length).toBe(0);
     expect(upgradeCall).toBeNull();
+  });
+
+  // The link is spent the first time it is acted on, so it has to be acted on
+  // against what the server says now. The checkout `no_op` bail is the case
+  // that makes this load-bearing: it routes here *because* the account is
+  // already Pro, which is precisely when a subscription cached from before the
+  // upgrade still reads Base.
+  test("a cached Base read can't consume the link while a refetch is in flight", async () => {
+    const { findByText, getByTestId } = renderPage(
+      freeSubscription(),
+      "/assistant/plans?package=super",
+      { server: proMightySubscription(), backgroundRefetch: true },
+    );
+
+    await findByText("Upgrade to Super");
+    expect(upgradeCall).toBeNull();
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
+  });
+
+  test("a cached Base read can't consume the link when no refetch is scheduled", async () => {
+    const { findByText, getByTestId } = renderPage(
+      freeSubscription(),
+      "/assistant/plans?package=super",
+      { server: proMightySubscription() },
+    );
+
+    await findByText("Upgrade to Super");
+    expect(upgradeCall).toBeNull();
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(ON_PLANS_WITHOUT_PARAM),
+    );
   });
 
   test("the param is consumed once — later subscription changes don't reopen the modal", async () => {

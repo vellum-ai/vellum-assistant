@@ -82,6 +82,10 @@ const PAGE_BACKGROUND = "#0A0A0B";
 // (also used by the AI settings pricing banner).
 const DOCS_URL = "https://www.vellum.ai/docs/pricing";
 
+// How long the `?package=` deep link waits for its forced re-read of the
+// billing data before deciding on whatever the cache already holds.
+const DEEP_LINK_REFRESH_TIMEOUT_MS = 8_000;
+
 // The screen is a wall of creature avatars; warm the bundled component chunk at
 // module load so they resolve before first paint instead of popping in.
 preloadBundledAvatarComponents();
@@ -202,6 +206,10 @@ export function PlansPage() {
   // `?package=<key>` is a one-shot deep link (from marketing / the checkout
   // no-op bail); once acted on it must never re-fire.
   const packageParamConsumedRef = useRef(false);
+  // Whether the billing reads the deep link decides from have been re-read
+  // from the server, or the bounded wait for that re-read has run out.
+  const [billingReadsRefreshed, setBillingReadsRefreshed] = useState(false);
+  const billingRefreshStartedRef = useRef(false);
   // The requested package, held from the moment the param is stripped until
   // the stripped URL commits. See the deep-link effects below.
   const [pendingPackage, setPendingPackage] = useState<string | null>(null);
@@ -410,6 +418,43 @@ export function PlansPage() {
   // cancellation rather than a package — but the param is dropped either way so
   // it can't fire later once they are Pro.
   const packageParam = searchParams.get(PACKAGE_PARAM);
+
+  // Both reads answer `isSuccess` off the cache the moment the page mounts, and
+  // `staleTime` can keep them from refetching at all — so the one-shot link
+  // would be spent on whatever was true the last time anything asked. The
+  // checkout `no_op` bail is the case that makes this load-bearing: it routes
+  // here *because* the account is already Pro, and a subscription cached from
+  // before that reads Base, which drops the package instead of opening the
+  // switch. Re-read both, and let the effect below decide on the answer.
+  useEffect(() => {
+    if (packageParam == null || packageParamConsumedRef.current) {
+      return;
+    }
+    if (cannotResolve || !platformReady || billingRefreshStartedRef.current) {
+      return;
+    }
+    billingRefreshStartedRef.current = true;
+    // A read that never answers decides on the cache instead of holding the
+    // link open forever. The bound owns no effect cleanup: the body runs once
+    // for the page's life, so a cleanup — including StrictMode's simulated one
+    // — would drop the bound and leave nothing to fall back on.
+    const bound = setTimeout(() => {
+      setBillingReadsRefreshed(true);
+    }, DEEP_LINK_REFRESH_TIMEOUT_MS);
+    const settle = () => {
+      clearTimeout(bound);
+      setBillingReadsRefreshed(true);
+    };
+    void Promise.all([
+      queryClient.refetchQueries({
+        queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
+      }),
+      queryClient.refetchQueries({
+        queryKey: organizationsBillingPlansRetrieveQueryKey(),
+      }),
+    ]).then(settle, settle);
+  }, [cannotResolve, packageParam, platformReady, queryClient]);
+
   useEffect(() => {
     if (packageParam == null || packageParamConsumedRef.current) {
       return;
@@ -420,6 +465,7 @@ export function PlansPage() {
     if (
       cannotResolve ||
       !platformReady ||
+      !billingReadsRefreshed ||
       !subscriptionQuery.isSuccess ||
       !plansQuery.isSuccess
     ) {
@@ -438,6 +484,7 @@ export function PlansPage() {
       { replace: true },
     );
   }, [
+    billingReadsRefreshed,
     cannotResolve,
     packageParam,
     platformReady,

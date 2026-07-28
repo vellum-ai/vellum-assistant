@@ -1,5 +1,5 @@
 import {
-  POST_CHECKOUT_LANDING_PATHS,
+  isPostCheckoutReturn,
   postCheckoutHatchReturnTo,
   resolveNavigation,
 } from "@/lib/navigation/navigation-resolver";
@@ -66,15 +66,6 @@ const PLATFORM_ONLY_PATHS: readonly string[] = [
   routes.account.root,
 ];
 
-/** Whether `destination` carries Stripe's `session_id` — a finished checkout. */
-function carriesStripeSession(destination: string): boolean {
-  const qIdx = destination.indexOf("?");
-  if (qIdx < 0) {
-    return false;
-  }
-  return new URLSearchParams(destination.slice(qIdx + 1)).has("session_id");
-}
-
 /**
  * Does landing on `destination` need a live platform session, or is a local
  * gateway identity enough?
@@ -105,9 +96,7 @@ export function requiresPlatformSession(destination: string): boolean {
   if (postCheckoutHatchReturnTo(destination) !== null) {
     return true;
   }
-  return (
-    POST_CHECKOUT_LANDING_PATHS.has(path) && carriesStripeSession(destination)
-  );
+  return isPostCheckoutReturn(destination);
 }
 
 export function resolvePostLoginDestination(
