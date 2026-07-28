@@ -271,14 +271,15 @@ export function getOrCreateConversation(
   if (result.created) {
     initConversationDir({ ...result.conversation, originChannel: null });
     // Attribution for every key-materialized conversation: this is the single
-    // choke point through which all unseen-key creations flow (SSE subscribe,
-    // channel inbound, launchers, voice, signals), and a runaway caller here
-    // manifests as bursts of empty placeholder-titled conversations
-    // (LUM-2870). The caller frames make those attributable from the log
-    // alone; creations are rare enough that the stack capture is free.
+    // choke point through which all unseen-key creations flow, and the key
+    // shape + caller frames identify the entry point from the log alone. The
+    // raw key is never logged — channel-backed keys embed external chat ids
+    // (phone numbers, Slack/Telegram ids), and assistant logs travel in
+    // support bundles. Emitted only on the creation branch, never on hot
+    // read/write paths.
     log.info(
       {
-        conversationKey,
+        conversationKeyShape: classifyConversationKey(conversationKey),
         conversationId: result.conversationId,
         conversationType,
         hasCustomTitle: Boolean(opts?.title?.trim()),
@@ -293,6 +294,32 @@ export function getOrCreateConversation(
     conversationType: result.conversationType,
     created: result.created,
   };
+}
+
+const UUID_SHAPE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * PII-free shape label for a conversation key. Channel-backed keys embed
+ * external chat/user ids, so only the structural prefix is kept (e.g.
+ * `asst:<id>:slack:<chat>:thread:<ts>` → "asst-scoped:slack:threaded");
+ * free-form keys collapse to a coarse class.
+ */
+function classifyConversationKey(conversationKey: string): string {
+  if (conversationKey.startsWith("asst:")) {
+    const parts = conversationKey.split(":");
+    const channel = parts[2] ?? "unknown";
+    const threaded = parts.includes("thread") ? ":threaded" : "";
+    return `asst-scoped:${channel}${threaded}`;
+  }
+  const prefixed = conversationKey.match(/^([a-z-]+)[:-]/i);
+  if (prefixed) {
+    return `prefixed:${prefixed[1].toLowerCase()}`;
+  }
+  if (UUID_SHAPE_RE.test(conversationKey)) {
+    return "uuid";
+  }
+  return "opaque";
 }
 
 /**
