@@ -1471,11 +1471,8 @@ export class SlackSocketModeClient {
     // DMs by the conversation ID prefix.
     const isDm = isSlackDmChannel(channel);
     // Slack only emits `app_mention` in non-DM channels, even when the bot is
-    // `<@U…>`-mentioned in a DM body. Synthesizing a DM as `app_mention` would
-    // route through `normalizeSlackAppMention`, which (intentionally) lacks the
-    // DM default-assistant fallback that `normalizeSlackDirectMessage`
-    // provides, so an unrouted DM @-mention would silently drop in
-    // `unmappedPolicy: "reject"` deployments.
+    // `<@U…>`-mentioned in a DM body. Keep DMs on the `message` path so they
+    // normalize as direct messages rather than mentions.
     const eventType: "app_mention" | "message" =
       mentionsBot && !isDm ? "app_mention" : "message";
 

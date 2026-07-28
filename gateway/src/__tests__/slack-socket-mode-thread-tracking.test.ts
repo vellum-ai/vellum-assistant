@@ -98,7 +98,6 @@ type SocketModeHarness = {
 function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "ast-default",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -122,7 +121,6 @@ function makeConfig(): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "reject",
     trustProxy: false,
   };
 }
@@ -787,8 +785,8 @@ describe("SlackSocketModeClient thread tracking", () => {
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
     // Workspace routes by actor, not by channel: no conversation_id entry
-    // exists for any channel, and unmappedPolicy stays "reject". The key
-    // must look like a real Slack user ID (uppercase, U-prefixed) — that's
+    // exists for any channel. The key must look like a real Slack user ID
+    // (uppercase, U-prefixed) — that's
     // how the tracking check tells Slack actor routes apart from other
     // channels' actor keys in the shared routingEntries list.
     client.config.gatewayConfig.routingEntries = [
