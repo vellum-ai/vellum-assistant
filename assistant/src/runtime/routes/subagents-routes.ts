@@ -204,7 +204,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the live in-memory status of all subagents known to the daemon for a given parent conversation. Subagents not in the response are orphaned.",
+      "Returns the live in-memory status of all subagents known to the daemon for a given parent conversation, with the identity fields a client needs to rebuild a store entry it never saw spawn (label, the subagent's own conversation id, and the spawning tool-use id). Subagents not in the response are orphaned.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -218,6 +218,10 @@ export const ROUTES: RouteDefinition[] = [
         z.string(),
         z.object({
           status: z.string(),
+          label: z.string().optional(),
+          /** The subagent's OWN conversation id (not the parent's). */
+          conversationId: z.string().optional(),
+          parentToolUseId: z.string().optional(),
         }),
       ),
     }),
@@ -230,9 +234,22 @@ export const ROUTES: RouteDefinition[] = [
       }
       const manager = getSubagentManager();
       const children = manager.getChildrenOf(parentConversationId);
-      const subagents: Record<string, { status: string }> = {};
+      const subagents: Record<
+        string,
+        {
+          status: string;
+          label?: string;
+          conversationId?: string;
+          parentToolUseId?: string;
+        }
+      > = {};
       for (const child of children) {
-        subagents[child.config.id] = { status: child.status };
+        subagents[child.config.id] = {
+          status: child.status,
+          label: child.config.label,
+          conversationId: child.conversationId,
+          parentToolUseId: child.config.parentToolUseId,
+        };
       }
       return { subagents };
     },

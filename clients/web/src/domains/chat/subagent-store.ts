@@ -71,7 +71,15 @@ export interface SubagentEntry {
   totalCost: number;
   spawnedAt: number;
   events: SubagentTimelineEvent[];
-  /** The subagent's own conversation ID, used to fetch detail data. */
+  /**
+   * Conversation id passed to the detail fetch. History hydration and
+   * reconcile-on-load supply the subagent's OWN conversation id; the live
+   * `subagent_event` path stamps the PARENT's (the only id that event
+   * carries). The ambiguity is harmless on 0.10.13+ daemons — the detail
+   * route resolves the true conversation from manager state and treats
+   * this value as a fallback — and the stamping is version-gated so
+   * pre-0.10.13 daemons are never sent a parent id they'd trust verbatim.
+   */
   conversationId?: string;
   /** StableId of the parent assistant message that spawned this subagent. */
   parentMessageStableId?: string;
@@ -174,22 +182,29 @@ export interface SubagentActions {
   }) => void;
 
   /**
-   * Create a stub entry for a subagent known only from mid-run evidence —
-   * a `subagent_event` or `subagent_status_changed` whose id has no entry
-   * because the `subagent_spawned` event was missed (SSE gap, page reload)
-   * or the store was reset after it arrived. No-op when the entry exists.
+   * Create a stub entry for a subagent the store never saw spawn — either
+   * from mid-run evidence (a `subagent_event` / `subagent_status_changed`
+   * whose id has no entry because the `subagent_spawned` event was missed
+   * or the store was reset after it arrived) or from the daemon's
+   * reconcile-on-load snapshot. No-op when the entry exists.
    *
    * When `conversationId` is provided the stub is marked
    * `hydrationPending` and left with zero events, which makes the
    * detail auto-fetch (`fetchDetailIfNeeded`) backfill the authoritative
    * label/objective/status/timeline. Without one the stub renders from
    * whatever streams in — a generic but functional card.
+   *
+   * `label` / `parentToolUseId` are supplied by the reconcile path (which
+   * gets them from the daemon in the same response); evidence-driven stubs
+   * omit them and rely on the detail backfill.
    */
   ensureEntry: (params: {
     subagentId: string;
     timestamp: number;
     conversationId?: string;
     status?: SubagentStatus;
+    label?: string;
+    parentToolUseId?: string;
   }) => void;
 
   receiveEvent: (params: {
@@ -465,13 +480,15 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     if (get().byId[params.subagentId]) return;
     get().spawnSubagent({
       subagentId: params.subagentId,
-      // Placeholder identity — the detail fetch backfills the real label
-      // and objective on 0.10.13+ daemons (see `loadDetail`).
-      label: "",
+      // Reconcile-driven creation supplies real identity; evidence-driven
+      // stubs get a placeholder that the detail fetch backfills on
+      // 0.10.13+ daemons (see `loadDetail`).
+      label: params.label ?? "",
       objective: "",
       status: params.status ?? "running",
       conversationId: params.conversationId,
       timestamp: params.timestamp,
+      parentToolUseId: params.parentToolUseId,
     });
     if (params.conversationId) {
       const { byId } = get();

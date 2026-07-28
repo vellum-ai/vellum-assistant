@@ -6,7 +6,7 @@ import {
 } from "@vellumai/assistant-api";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { supportsSubagentDetailSelfLookup } from "@/lib/backwards-compat/subagent-detail-self-lookup";
+import { supportsSubagentRecovery } from "@/lib/backwards-compat/subagent-recovery";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 
 export function handleSubagentSpawned(
@@ -66,7 +66,7 @@ export function handleSubagentEvent(
     store.ensureEntry({
       subagentId: event.subagentId,
       timestamp: Date.now(),
-      conversationId: supportsSubagentDetailSelfLookup()
+      conversationId: supportsSubagentRecovery()
         ? event.conversationId
         : undefined,
     });
@@ -75,7 +75,7 @@ export function handleSubagentEvent(
   // daemon: it would arm the detail auto-fetch with an id the old daemon
   // trusts verbatim, backfilling the PARENT conversation's messages as the
   // subagent's. Known entries keep the historical behavior.
-  if (event.conversationId && (wasKnown || supportsSubagentDetailSelfLookup())) {
+  if (event.conversationId && (wasKnown || supportsSubagentRecovery())) {
     store.setConversationId(event.subagentId, event.conversationId);
   }
 

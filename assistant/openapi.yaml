@@ -29495,8 +29495,9 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation.
-        Subagents not in the response are orphaned.
+        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation,
+        with the identity fields a client needs to rebuild a store entry it never saw spawn (label, the subagent's own
+        conversation id, and the spawning tool-use id). Subagents not in the response are orphaned.
       tags:
         - subagents
       parameters:
@@ -29522,6 +29523,12 @@ paths:
                       type: object
                       properties:
                         status:
+                          type: string
+                        label:
+                          type: string
+                        conversationId:
+                          type: string
+                        parentToolUseId:
                           type: string
                       required:
                         - status

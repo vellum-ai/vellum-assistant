@@ -17,8 +17,8 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 
 let selfLookupSupported = true;
-mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
-  supportsSubagentDetailSelfLookup: () => selfLookupSupported,
+mock.module("@/lib/backwards-compat/subagent-recovery", () => ({
+  supportsSubagentRecovery: () => selfLookupSupported,
 }));
 
 const { handleSubagentEvent, handleSubagentStatusChanged } = await import(
