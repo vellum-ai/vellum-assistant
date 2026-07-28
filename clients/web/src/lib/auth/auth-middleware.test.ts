@@ -36,15 +36,22 @@ mock.module("@/lib/auth/gateway-session", () => ({
   isGatewayAuthMode: () => mockGatewayAuthMode,
 }));
 
-// Consent prefs are read by buildNavigationState; pin them current so the
-// consent gate doesn't interfere with the session-admission assertions below.
+// Consent prefs are read by buildNavigationState; pinned current by default so
+// the consent gate doesn't interfere with the session-admission assertions
+// below. `consentPrefs` lets a case drive the boot defaults instead.
+const consentPrefs = {
+  tos: true,
+  privacy: true,
+  analytics: true,
+  diagnostics: true,
+};
 const prefsActual = await import("@/domains/onboarding/prefs");
 mock.module("@/domains/onboarding/prefs", () => ({
   ...prefsActual,
-  readTosAccepted: () => true,
-  readPrivacyConsent: () => true,
-  readAnalyticsConsentCurrent: () => true,
-  readDiagnosticsConsentCurrent: () => true,
+  readTosAccepted: () => consentPrefs.tos,
+  readPrivacyConsent: () => consentPrefs.privacy,
+  readAnalyticsConsentCurrent: () => consentPrefs.analytics,
+  readDiagnosticsConsentCurrent: () => consentPrefs.diagnostics,
 }));
 
 // Clamp whenStoreState timeouts so hydration-timeout paths are testable
@@ -202,6 +209,10 @@ const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   isLocalModeMock.mockImplementation(() => true);
   hasAssistantsMock.mockImplementation(() => false);
+  consentPrefs.tos = true;
+  consentPrefs.privacy = true;
+  consentPrefs.analytics = true;
+  consentPrefs.diagnostics = true;
   mockSelectedAssistant = undefined;
   mockGatewayTokenPresent = false;
   mockGatewayAuthMode = false;
@@ -664,6 +675,67 @@ describe("authMiddleware — hydration timeout", () => {
       useResolvedAssistantsStore.setState({
         assistantsHydrated: priorAssistantsHydrated,
       });
+    }
+  });
+
+  // The research entry waits for consent to hydrate. Forcing the hydration flag
+  // after the timeout leaves the consent flags at their boot `false`, so the
+  // funnel's own gate would read a consented user as un-onboarded and evict
+  // them into privacy — losing a paid return's markers, restarting a free
+  // user's onboarding. It admits instead.
+  test("admits a research funnel entry whose consent hydration hung", async () => {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "present",
+    });
+    // The boot state a cold deep link sees: nothing read back from the server
+    // yet, and the fetch that would never reports.
+    consentPrefs.tos = false;
+    consentPrefs.privacy = false;
+    const priorConsentHydrated = useOnboardingStore.getState().consentHydrated;
+    useOnboardingStore.setState({ consentHydrated: false });
+    useResolvedAssistantsStore.setState({
+      assistants: [],
+      assistantsHydrated: true,
+    });
+
+    try {
+      const outcome = await runMiddlewareOutcome(managedFunnel);
+      expect(outcome.admitted).toBe(true);
+    } finally {
+      useOnboardingStore.setState({ consentHydrated: priorConsentHydrated });
+    }
+  });
+
+  // Fail-open is scoped to the unhydrated read: consent that actually hydrated
+  // on an unconsented user still bounces, carrying the funnel URL so the paid
+  // markers survive the privacy screen.
+  test("bounces the same entry once consent hydrates unconsented", async () => {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "present",
+    });
+    consentPrefs.tos = false;
+    consentPrefs.privacy = false;
+    const priorConsentHydrated = useOnboardingStore.getState().consentHydrated;
+    useOnboardingStore.setState({ consentHydrated: true });
+    useResolvedAssistantsStore.setState({
+      assistants: [],
+      assistantsHydrated: true,
+    });
+
+    try {
+      const res = await runMiddleware(managedFunnel);
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe(
+        `${routes.onboarding.privacy}?returnTo=${encodeURIComponent(managedFunnel)}`,
+      );
+    } finally {
+      useOnboardingStore.setState({ consentHydrated: priorConsentHydrated });
     }
   });
 });

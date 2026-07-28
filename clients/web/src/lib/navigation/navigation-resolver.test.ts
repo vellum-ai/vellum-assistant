@@ -892,8 +892,8 @@ describe("resolveNavigation", () => {
       });
     });
 
-    // Closes a consent gap: an unconsented user could previously walk the
-    // research funnel directly, which provisions an assistant.
+    // The research funnel provisions an assistant, so an unconsented user does
+    // not reach it by navigating there directly either.
     test("bounces an unconsented bare research visit to the entrypoint", () => {
       expect(guard(s(UNCONSENTED), "/assistant/onboarding/research")).toEqual({
         action: "redirect",
@@ -910,6 +910,25 @@ describe("resolveNavigation", () => {
         guard(s({ hasAssistants: false }), "/assistant/onboarding/research"),
       ).toEqual(ALLOW);
       expect(guard(s({}), RESEARCH_FUNNEL_URL)).toEqual(ALLOW);
+    });
+
+    // Onboarding is complete but a toggle went stale: the terms are re-reviewed
+    // before the purchased hatch, with the funnel URL (markers intact) as
+    // `returnTo` so the plan is not lost on the round trip. The marker is what
+    // scopes this — an ordinary research visit keeps its onboarding exemption.
+    test("sends a stale-consent paid research return to review-terms", () => {
+      for (const stale of [
+        { analyticsConsentCurrent: false },
+        { diagnosticsConsentCurrent: false },
+      ]) {
+        expect(guard(s({ ...EMPTY_ORG, ...stale }), RESEARCH_FUNNEL_URL)).toEqual({
+          action: "redirect",
+          to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+        });
+        expect(
+          guard(s({ ...EMPTY_ORG, ...stale }), "/assistant/onboarding/research"),
+        ).toEqual(ALLOW);
+      }
     });
 
     // A cold paid deep link reaches the research route before the consent flags
@@ -933,6 +952,70 @@ describe("resolveNavigation", () => {
       expect(
         guard(
           s({ ...UNCONSENTED, consentHydrated: false }),
+          HATCHING_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(HATCHING_FUNNEL_URL)}`,
+      });
+    });
+
+    // The auth middleware forces `consentHydrated` once its wait runs out, so
+    // the flags underneath are still their boot `false`. Bouncing on them
+    // evicts an already-consented user mid-funnel — a paid return loses its
+    // markers, a free one restarts onboarding — so the research entry falls
+    // back to the unconditional admission it had before it joined the funnel.
+    test("admits the research route when consent hydration timed out", () => {
+      for (const url of ["/assistant/onboarding/research", RESEARCH_FUNNEL_URL]) {
+        expect(
+          guard(
+            s({
+              ...EMPTY_ORG,
+              ...UNCONSENTED,
+              consentHydrated: true,
+              consentHydrationTimedOut: true,
+            }),
+            url,
+          ),
+        ).toEqual(ALLOW);
+      }
+      // The stale-toggle gate reads the same unhydrated flags, so it fails open
+      // too rather than sending a paid return to review-terms it can't answer.
+      expect(
+        guard(
+          s({
+            ...EMPTY_ORG,
+            analyticsConsentCurrent: false,
+            diagnosticsConsentCurrent: false,
+            consentHydrated: true,
+            consentHydrationTimedOut: true,
+          }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual(ALLOW);
+    });
+
+    // Fail-open is scoped to the unhydrated read: a hydration that actually
+    // landed on an unconsented user still bounces.
+    test("still bounces a genuinely hydrated unconsented research visit", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), RESEARCH_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // The hatching entry never waits on hydration, so it never sees the forced
+    // flag either — its bounce is unchanged by the fail-open.
+    test("the hatching bounce is unaffected by a consent hydration timeout", () => {
+      expect(
+        guard(
+          s({
+            ...UNCONSENTED,
+            consentHydrated: true,
+            consentHydrationTimedOut: true,
+          }),
           HATCHING_FUNNEL_URL,
         ),
       ).toEqual({
@@ -993,24 +1076,39 @@ describe("resolveNavigation", () => {
     // Onboarding is complete but a toggle went stale, so the terms are
     // re-reviewed before the purchased hatch — with the funnel URL as
     // `returnTo`, so the markers survive and the plan is not lost.
-    test("sends a stale-consent gateway-auth paid return to review-terms", () => {
-      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+    test("sends a stale-consent gateway-auth paid research return to review-terms", () => {
+      for (const stale of [
+        { analyticsConsentCurrent: false },
+        { diagnosticsConsentCurrent: false },
+      ]) {
         expect(
-          guard(s({ ...ELECTRON_PAID, analyticsConsentCurrent: false }), url),
+          guard(s({ ...ELECTRON_PAID, ...stale }), RESEARCH_FUNNEL_URL),
         ).toEqual({
           action: "redirect",
-          to: `/assistant/review-terms?returnTo=${encodeURIComponent(url)}`,
+          to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
         });
       }
-      expect(
-        guard(
-          s({ ...ELECTRON_PAID, diagnosticsConsentCurrent: false }),
-          RESEARCH_FUNNEL_URL,
-        ),
-      ).toEqual({
-        action: "redirect",
-        to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
-      });
+    });
+
+    // The stale-toggle gate is research-only. The hatching entry — where the
+    // native paid return lands, and where a `returnTo` stashed by an older
+    // client still points — resolves `allow` here and re-reviews stale terms at
+    // the screen's own `hatch-gate` instead.
+    test("leaves a stale-consent paid hatching return on its allow", () => {
+      for (const stale of [
+        { analyticsConsentCurrent: false },
+        { diagnosticsConsentCurrent: false },
+      ]) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...stale }), HATCHING_FUNNEL_URL),
+        ).toEqual(ALLOW);
+        expect(
+          guard(
+            s({ ...EMPTY_ORG, isNative: true, ...stale }),
+            HATCHING_FUNNEL_URL,
+          ),
+        ).toEqual(ALLOW);
+      }
     });
 
     // Only the paid marker suspends the bypass. The local adopt flow reaches

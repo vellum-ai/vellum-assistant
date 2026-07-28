@@ -81,9 +81,18 @@ const resolveWithGuard = async (
   // a non-decision into that documented fallback. A result that lands after the
   // timeout re-runs the guard (see `revalidateWhenPlatformProbeSettles`), so a
   // slow-but-successful probe still reaches its platform-session destination.
+  //
+  // Forcing `consentHydrated` hides that the consent flags underneath it are
+  // still their boot `false`, so the forcing itself is reported too: a step
+  // that would otherwise read them as a settled "not consented" — and evict a
+  // consented user mid-funnel — can fail open on it instead.
   const state = buildNavigationState({
     ...(hydrationTimedOut
-      ? { consentHydrated: true, assistantsHydrated: true }
+      ? {
+          consentHydrated: true,
+          consentHydrationTimedOut: true,
+          assistantsHydrated: true,
+        }
       : {}),
     ...(platformProbeTimedOut ? { platformSession: "absent" as const } : {}),
   });

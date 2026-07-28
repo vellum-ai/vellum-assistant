@@ -45,6 +45,14 @@ export interface NavigationState {
    * hydration would misread an established user as un-onboarded.
    */
   consentHydrated: boolean;
+  /**
+   * Whether `consentHydrated` above was forced by the auth middleware after its
+   * hydration wait timed out. The consent flags then still read their boot
+   * `false`, so a gate that treats them as a settled "not consented" would
+   * evict a consented user. Absent on every other caller — only the middleware
+   * can know its own wait ran out.
+   */
+  consentHydrationTimedOut?: boolean;
   /** Whether the resolved assistants list reflects at least one authoritative load. */
   assistantsHydrated: boolean;
 }
@@ -196,9 +204,11 @@ function managedProvisioningDestination(state: NavigationState): string {
 
 /**
  * The provisioning funnel entries a paid return can name: the foreground
- * hatching screen (native, and local/Docker hosting) and the headless research
- * onboarding (web). Both provision the purchased assistant, so both are
- * consent-gated and both are resumable from the privacy screen.
+ * hatching screen (native only) and the headless research onboarding (web and
+ * Electron). The shell is the only fork — {@link managedProvisioningDestination}
+ * always resolves a managed hatch, so hosting never picks the entry. Both
+ * provision the purchased assistant, so both are consent-gated and both are
+ * resumable from the privacy screen.
  */
 const PROVISIONING_FUNNEL_PATHS: Set<string> = new Set([
   routes.onboarding.hatching,
@@ -533,9 +543,13 @@ function enforceModeBoundary(
  * A paid return carries its funnel URL as `returnTo`, the same contract
  * `review-terms` uses, and the privacy screen resumes it on Start. Without the
  * carry the funnel's markers are lost on the bounce and the paying user
- * finishes the hatch at the baseline plan. Every other funnel bounce — and
- * local mode, whose entrypoint is `welcome` and reads no `returnTo` — gets the
+ * finishes the hatch at the baseline plan. Every other funnel bounce gets the
  * bare entrypoint.
+ *
+ * Local mode is a deliberate exception to that carry: its entrypoint is
+ * `welcome`, which reads no `returnTo`, so an unconsented local paid return
+ * finishes the hatch at baseline and the server-side post-hatch reconcile
+ * applies the purchased specs. That is the parity local mode has always had.
  */
 function consentBounceDestination(
   state: NavigationState,
@@ -561,48 +575,77 @@ function allowSetupRoutes(
     return { action: "allow" };
   }
 
-  if (isOnboardingPath(path)) {
-    // The research route is the headless funnel entry, so it is the one reached
-    // by a cold paid deep link — the consent flags are still at their boot
-    // defaults there, and bouncing on them would send an already-consented user
-    // to privacy. Local mode is excluded for the same reason as in
-    // `requireConsent`: its consent either hydrates synchronously during session
-    // init or never does, so waiting would hang navigation.
-    if (
-      path === routes.onboarding.research &&
-      !state.isLocalMode &&
-      !state.consentHydrated
-    ) {
+  if (!isOnboardingPath(path)) {
+    return null;
+  }
+
+  return enforceFunnelConsent(state, path, pathnameWithSearch) ?? { action: "allow" };
+}
+
+/**
+ * Consent for the two provisioning funnel entries, which `requireConsent` never
+ * reaches — every onboarding path is allowed before it runs.
+ *
+ * The hatching entry keeps exactly the gate it has always had — reached from
+ * in-app navigation and from the native paid return, it decides on the flags in
+ * hand and leaves stale-toggle review to the screen's own `hatch-gate`. The
+ * research entry is the one a cold paid deep link lands on, so it also waits
+ * for the flags to hydrate and re-reviews a stale toggle before starting a
+ * hatch the user paid for.
+ */
+function enforceFunnelConsent(
+  state: NavigationState,
+  path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  if (!PROVISIONING_FUNNEL_PATHS.has(path)) {
+    return null;
+  }
+
+  if (path === routes.onboarding.research) {
+    // The consent flags are still at their boot defaults on a cold deep link,
+    // and bouncing on them would send an already-consented user to privacy.
+    // Local mode is excluded for the same reason as in `requireConsent`: its
+    // consent either hydrates synchronously during session init or never does,
+    // so waiting would hang navigation.
+    if (!state.isLocalMode && !state.consentHydrated) {
       return { action: "wait" };
     }
-
-    if (PROVISIONING_FUNNEL_PATHS.has(path)) {
-      if (!hasCompletedOnboarding(state)) {
-        return {
-          action: "redirect",
-          to: consentBounceDestination(state, pathnameWithSearch),
-        };
-      }
-      // A stale toggle must be re-reviewed before a hatch the user paid for.
-      // `requireConsent` can't reach this — every onboarding path is allowed
-      // above — so the paid funnel enforces it here, scoped to the paid marker
-      // so the ordinary funnel keeps its exemption. Gated on a live platform
-      // session for the same reason as `requireConsent`: there is nothing to
-      // re-review against without one.
-      if (
-        postCheckoutHatchReturnTo(pathnameWithSearch) &&
-        !state.isPlatformDisabled &&
-        state.platformSession === "present" &&
-        !consentIsCurrent(state)
-      ) {
-        const returnTo = encodeURIComponent(pathnameWithSearch);
-        return {
-          action: "redirect",
-          to: `${routes.reviewTerms}?returnTo=${returnTo}`,
-        };
-      }
+    // A hydration that never landed leaves those boot defaults behind a forced
+    // `consentHydrated`, so the gates below would read a consented user as
+    // un-onboarded and restart their funnel. Fail open to the entry's
+    // unconditional contract instead; a hydrated read still gates.
+    if (state.consentHydrationTimedOut) {
+      return null;
     }
-    return { action: "allow" };
+  }
+
+  if (!hasCompletedOnboarding(state)) {
+    return {
+      action: "redirect",
+      to: consentBounceDestination(state, pathnameWithSearch),
+    };
+  }
+
+  // A stale toggle must be re-reviewed before a hatch the user paid for.
+  // Research-only: the hatching entry — the native paid return, and a
+  // `returnTo` stashed by an older client — reaches a screen whose own
+  // `hatch-gate` already re-reviews stale terms, so gating it twice would only
+  // change where it lands. Gated on the paid marker so the ordinary funnel
+  // keeps its exemption, and on a live platform session for the same reason as
+  // `requireConsent`: there is nothing to re-review against without one.
+  if (
+    path === routes.onboarding.research &&
+    postCheckoutHatchReturnTo(pathnameWithSearch) &&
+    !state.isPlatformDisabled &&
+    state.platformSession === "present" &&
+    !consentIsCurrent(state)
+  ) {
+    const returnTo = encodeURIComponent(pathnameWithSearch);
+    return {
+      action: "redirect",
+      to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+    };
   }
 
   return null;
