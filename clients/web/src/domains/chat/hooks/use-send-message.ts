@@ -902,6 +902,24 @@ export function useSendMessage({
             useConversationStore.getState().setActiveConversationId(newConversationId);
             void navigate(routes.conversation(newConversationId), { replace: true });
           }
+        } else if (resolvedId && isDraft) {
+          // Legacy (pre-0.8.6) assistants echo the client-minted draft id
+          // back, so the re-key above is skipped. The row is persisted
+          // server-side now — a profile picked while the POST was in flight
+          // still sits in the stash, and nothing would push it: the row's
+          // draft flag only clears via the async list refetch, which doesn't
+          // touch the promotion effect's deps. Clear the flag and re-set the
+          // stash entry (a Map-identity change) so the composer's promotion
+          // effect re-runs and persists the selection (ATL-1136).
+          const stashedProfile = useConversationStore
+            .getState()
+            .pendingDraftProfiles.get(activeConversationId);
+          if (stashedProfile !== undefined) {
+            resolveDraftKey(queryClient, assistantId, activeConversationId, activeConversationId);
+            useConversationStore
+              .getState()
+              .setPendingDraftProfile(activeConversationId, stashedProfile);
+          }
         }
 
         void refreshConversations();
