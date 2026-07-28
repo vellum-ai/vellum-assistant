@@ -43,8 +43,10 @@ export function handleMessageQueued(
       });
     }
   } else {
+    // The wire position is already 1-based (it counts visible queue items,
+    // matching the queued rows list-messages synthesizes on a cold load).
     ctx.setOptimisticSends((prev) =>
-      setQueuePosition(prev, messageId, position + 1),
+      setQueuePosition(prev, messageId, position),
     );
   }
 }

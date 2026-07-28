@@ -708,7 +708,7 @@ describe("Conversation message queue", () => {
     await p1;
     await waitForPendingRun(2);
 
-    // Check for message_dequeued with correct fields — the nonce from the
+    // Check for message_dequeued with correct fields: the nonce from the
     // enqueue round-trips onto the dequeue so clients can match by identity.
     const dequeued = events2.find((e) => e.type === "message_dequeued");
     expect(dequeued).toBeDefined();
@@ -738,7 +738,7 @@ describe("Conversation message queue", () => {
     });
     await waitForPendingRun(1);
 
-    // Hidden sends stay invisible end-to-end: queued, but no ack event —
+    // Hidden sends stay invisible end-to-end: queued, but no ack event,
     // matching their exclusion from list-messages queued snapshots.
     const hidden = conversation.enqueueMessage({
       content: "hidden-msg",

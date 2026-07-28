@@ -631,12 +631,12 @@ export function enqueueMessage(
     });
     return { queued: false, requestId, rejected: true };
   }
-  // Ack the accepted enqueue on the sender's event sink. Emitting here —
-  // rather than at each ingress call site — is what guarantees every path
+  // Ack the accepted enqueue on the sender's event sink. Emitting here,
+  // rather than at each ingress call site, is what guarantees every path
   // that queues (HTTP send, surface actions, agent wake, subagent
   // notifications) surfaces the queued row live. Hidden sends are
   // suppressed from the transcript at every stage, including this ack,
-  // and `position` counts visible items only — both mirroring the
+  // and `position` counts visible items only: both mirror the
   // list-messages queued-snapshot filter so a live ack and a cold reload
   // render the same row at the same position.
   if (!isHiddenMessageMetadata(metadata)) {
