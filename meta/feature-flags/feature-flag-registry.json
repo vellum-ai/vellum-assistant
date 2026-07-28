@@ -8,7 +8,10 @@
       "label": "In-Chat Onboarding Tour",
       "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event), so the funnel measures desktop sessions exclusively. Targeted via LaunchDarkly (70% tour / 30% control).",
       "defaultEnabled": "control",
-      "values": ["control", "tour"]
+      "values": [
+        "control",
+        "tour"
+      ]
     },
     {
       "id": "user-hosted-enabled",
@@ -25,7 +28,10 @@
       "label": "Proactive Tips",
       "description": "Gates the dismissible proactive tip card in the web sidebar. String-valued so future A/B arms can be added as new values.",
       "defaultEnabled": "off",
-      "values": ["off", "on"]
+      "values": [
+        "off",
+        "on"
+      ]
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
@@ -34,7 +40,11 @@
       "label": "Activation Flow Experiment 2026-06-03",
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": ["control", "variant-a", "personal-page"]
+      "values": [
+        "control",
+        "variant-a",
+        "personal-page"
+      ]
     },
     {
       "id": "experiment-billing-cta-2026-07-23",
@@ -43,7 +53,10 @@
       "label": "Experiment: Billing CTA 2026-07-23",
       "description": "Credit paywall CTA experiment. control = single Add Credits CTA for everyone (opens Add Credits modal). upgrade-cta = FREE users (plan_id base) get a single Upgrade CTA (View Plans takeover) instead; PAID users still get Add Credits.",
       "defaultEnabled": "control",
-      "values": ["control", "upgrade-cta"]
+      "values": [
+        "control",
+        "upgrade-cta"
+      ]
     },
     {
       "id": "local-docker-enabled",
@@ -355,6 +368,14 @@
       "key": "marketing-pricing-takeover",
       "label": "Marketing Pricing Takeover",
       "description": "Gates the marketing pricing takeover page (www.vellum.ai/pricing) and the `/assistant/checkout?package=<slug>` deep link its package CTAs target. One flag covers both halves of the funnel so they can never be enabled independently and strand a CTA. When off, the checkout deep link redirects to the in-app plans takeover.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "ios-voice-audio-session",
+      "scope": "client",
+      "key": "ios-voice-audio-session",
+      "label": "iOS Voice Audio Session",
+      "description": "Gates the iOS AVAudioSession (.playAndRecord / .voiceChat) bracketing around a live-voice session, which asks the platform to cancel our own TTS. Default OFF: the first attempt (JARVIS-1364) stopped the mic picking up audio on device, and the native half ships in the app binary, so a web-side gate is the only way to disable it without an iOS release.",
       "defaultEnabled": false
     }
   ]

@@ -195,23 +195,16 @@ export class LiveVoiceAudioCapture {
       await deactivateVoiceAudioSession();
       return { ok: false, error: "aborted" };
     }
-    // Take ownership of the stream *before* the next native round-trip, so a
-    // stop() that lands mid-call releases the mic through teardown() instead
-    // of leaving it live until the bridge answers.
     this.stream = stream;
 
-    // WebKit reconfigures the shared `AVAudioSession` itself when capture
-    // starts, which can drop the mode we just set. Re-assert it now that the
-    // stream is live; the native side is idempotent.
-    await activateVoiceAudioSession();
-
-    // A stop() that raced the re-assert already ran teardown() — including its
-    // deactivate, which our late activate then undid. Tear down again so the
-    // session isn't left held in the duplex category with no owner.
-    if (cancelled()) {
-      await this.teardown();
-      return { ok: false, error: "aborted" };
-    }
+    // Nothing may touch the audio session between getUserMedia resolving and
+    // the assignment above. An earlier revision re-asserted the category here,
+    // on the theory that WebKit reconfigures the shared session when capture
+    // starts. That theory was never verified, the call ran while WebKit's
+    // capture unit was live, and it is the prime suspect for the device
+    // regression that followed (build 202607281114: mic picked up nothing).
+    // If the theory needs testing, read the category back and log it — do not
+    // blind-set it underneath a live capture.
 
     try {
       const context = createAudioContext();
