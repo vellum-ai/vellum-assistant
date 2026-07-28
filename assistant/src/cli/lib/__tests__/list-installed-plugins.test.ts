@@ -196,8 +196,8 @@ describe("listAllPlugins", () => {
   test("includes default plugins with source=default", () => {
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
     const defaults = result.filter((p) => p.source === "default");
-    // All 19 default plugins should be present.
-    expect(defaults.length).toBe(19);
+    // All 20 default plugins should be present.
+    expect(defaults.length).toBe(20);
     // Names should all start with "default-".
     expect(defaults.every((p) => p.name.startsWith("default-"))).toBe(true);
     // None should be disabled by default in a fresh temp dir.

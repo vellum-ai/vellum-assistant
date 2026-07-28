@@ -831,6 +831,8 @@ export {
   TableRowSchema,
   type TableSurfaceData,
   TableSurfaceDataSchema,
+  type VisualSurfaceData,
+  VisualSurfaceDataSchema,
   type WorkResultDiff,
   WorkResultDiffSchema,
   type WorkResultItem,

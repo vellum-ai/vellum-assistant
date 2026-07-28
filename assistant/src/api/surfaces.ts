@@ -458,6 +458,21 @@ export const WorkResultSurfaceDataSchema = z.object({
 });
 export type WorkResultSurfaceData = z.infer<typeof WorkResultSurfaceDataSchema>;
 
+/**
+ * Inline visual drawn by the default-visualize plugin: a self-contained html
+ * fragment rendered in a sandboxed frame. Emitted only by the plugin's
+ * `visualize_render` tool, which validates the fragment (no external
+ * resources, design-token styling) before showing it — see
+ * `DAEMON_INTERNAL_SURFACE_TYPES` for why `ui_show` must reject it.
+ */
+export const VisualSurfaceDataSchema = z.object({
+  /** The visual's markup. Load-bearing: empty renders a blank box. */
+  html: z.string().catch(""),
+  /** Preferred render height in px. */
+  height: tolerantNumber(),
+});
+export type VisualSurfaceData = z.infer<typeof VisualSurfaceDataSchema>;
+
 // === Surface type registry ===
 
 export const SURFACE_TYPES = [
@@ -477,22 +492,28 @@ export const SURFACE_TYPES = [
   "work_result",
   "skill_card",
   "call_summary",
+  "visual",
 ] as const;
 
 export const SurfaceTypeSchema = z.enum(SURFACE_TYPES);
 export type SurfaceType = z.infer<typeof SurfaceTypeSchema>;
 
 /**
- * Surface types the daemon emits and persists directly — the memory
- * retrospective's `skill_card` and a call's `call_summary` — but that the
- * model must never invoke via `ui_show`. They are members of `SurfaceType`
- * so the persistence/restore path can represent them, but they are
- * deliberately absent from the model-facing `ui_show` surface list
- * (`SURFACE_SHAPE_DOCS`), and the `ui_show` resolver rejects them.
+ * Surface types the daemon or a trusted tool emits directly — the memory
+ * retrospective's `skill_card`, a call's `call_summary`, and the
+ * default-visualize plugin's `visual` — but that the model must never invoke
+ * via `ui_show`. They are members of `SurfaceType` so the
+ * persistence/restore path can represent them, but they are deliberately
+ * absent from the model-facing `ui_show` surface list
+ * (`SURFACE_SHAPE_DOCS`), and the `ui_show` resolver rejects them. For
+ * `visual` that rejection is load-bearing: the `visualize_render` tool
+ * validates the fragment (sandbox, token styling) before emitting, and a
+ * raw `ui_show` would bypass those guards.
  */
 export const DAEMON_INTERNAL_SURFACE_TYPES = [
   "skill_card",
   "call_summary",
+  "visual",
 ] as const;
 
 const DAEMON_INTERNAL_SURFACE_TYPE_SET = new Set<string>(
@@ -534,7 +555,8 @@ export type SurfaceData =
   | DynamicPageSurfaceData
   | FileUploadSurfaceData
   | DocumentPreviewSurfaceData
-  | WorkResultSurfaceData;
+  | WorkResultSurfaceData
+  | VisualSurfaceData;
 
 /**
  * Per-type `data` payload shapes, keyed by surface type. This is the
@@ -568,6 +590,7 @@ export interface SurfaceDataByType {
   work_result: WorkResultSurfaceData;
   skill_card: Record<string, unknown>;
   call_summary: Record<string, unknown>;
+  visual: VisualSurfaceData;
 }
 
 /** Any surface `data` payload, including the opaque (non-renderable) types. */
@@ -600,6 +623,7 @@ export const SURFACE_DATA_SCHEMAS: {
   work_result: WorkResultSurfaceDataSchema,
   skill_card: z.record(z.string(), z.unknown()),
   call_summary: z.record(z.string(), z.unknown()),
+  visual: VisualSurfaceDataSchema,
 };
 
 /**
