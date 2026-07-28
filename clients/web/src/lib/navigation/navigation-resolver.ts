@@ -521,6 +521,20 @@ function allowSetupRoutes(
   }
 
   if (isOnboardingPath(path)) {
+    // The research route is the headless funnel entry, so it is the one reached
+    // by a cold paid deep link — the consent flags are still at their boot
+    // defaults there, and bouncing on them would send an already-consented user
+    // to privacy. Local mode is excluded for the same reason as in
+    // `requireConsent`: its consent either hydrates synchronously during session
+    // init or never does, so waiting would hang navigation.
+    if (
+      path === routes.onboarding.research &&
+      !state.isLocalMode &&
+      !state.consentHydrated
+    ) {
+      return { action: "wait" };
+    }
+
     if (PROVISIONING_FUNNEL_PATHS.has(path) && !hasCompletedOnboarding(state)) {
       return {
         action: "redirect",

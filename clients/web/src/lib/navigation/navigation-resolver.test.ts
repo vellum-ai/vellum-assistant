@@ -885,6 +885,50 @@ describe("resolveNavigation", () => {
       expect(guard(s({}), RESEARCH_FUNNEL_URL)).toEqual(ALLOW);
     });
 
+    // A cold paid deep link reaches the research route before the consent flags
+    // hydrate, and they boot false — deciding there would bounce an established
+    // user to privacy, and a `redirect` gives the auth middleware nothing to
+    // wait on.
+    test("waits on the research route until consent hydrates", () => {
+      for (const url of ["/assistant/onboarding/research", RESEARCH_FUNNEL_URL]) {
+        expect(
+          guard(s({ ...EMPTY_ORG, ...UNCONSENTED, consentHydrated: false }), url),
+        ).toEqual(WAIT);
+        // Same wait for an already-consented user whose flags have not been
+        // confirmed yet: hydration is read before the flags either way.
+        expect(guard(s({ consentHydrated: false }), url)).toEqual(WAIT);
+      }
+    });
+
+    // The wait is research-only: the foreground hatching entry is reached from
+    // in-app navigation, never a cold deep link, and it bounces immediately.
+    test("the hatching bounce does not wait on consent hydration", () => {
+      expect(
+        guard(s({ ...UNCONSENTED, consentHydrated: false }), MANAGED_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(MANAGED_FUNNEL_URL)}`,
+      });
+    });
+
+    // Local mode is excluded from hydration waits everywhere in the pipeline —
+    // its consent hydrates during session init or not at all — so its research
+    // bounce decides immediately.
+    test("a local-mode research bounce decides without waiting on hydration", () => {
+      expect(
+        guard(
+          s({ isLocalMode: true, ...UNCONSENTED, consentHydrated: false }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+      expect(
+        guard(
+          s({ isLocalMode: true, ...UNCONSENTED, consentHydrated: false }),
+          "/assistant/onboarding/research",
+        ),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
     // The funnel destination must not itself read as a checkout return, or the
     // redirect would loop.
     test("the funnel destination is not treated as a post-checkout return", () => {
