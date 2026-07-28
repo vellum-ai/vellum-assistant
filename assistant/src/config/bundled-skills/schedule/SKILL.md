@@ -104,6 +104,14 @@ Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execut
 
 Script commands run with the workspace root as the working directory. The assistant injects `__SCHEDULE_ID` (stable across runs of one schedule) and `__SCHEDULE_RUN_ID` (unique per firing) into the environment; `VELLUM_WORKSPACE_DIR` is also set. There is no schedule-name variable — the id is how a command finds anything keyed to its schedule.
 
+**Check for an existing skill before writing one.** An installed skill may already do the work the script is about to reimplement. Before authoring anything non-trivial, search the installed skills for one that covers the task; if there is one, invoke its script rather than writing a second copy. `assistant skills inspect <id> --json` reports the skill's `directoryPath`, and installed skills live at `$VELLUM_WORKSPACE_DIR/skills/<id>/` with their executables under `scripts/`. Invoke by absolute path:
+
+```sh
+python3 "$VELLUM_WORKSPACE_DIR/skills/<skill-id>/scripts/<file>.py"
+```
+
+Skill scripts usually assume their own directory for relative paths and sibling imports, so `cd` into it first when the script reads files next to itself. A skill's scripts can be rewritten by a later edit to that skill; if a schedule depends on one, prefer a script whose behavior is stable, and expect to fix the schedule if the skill changes underneath it.
+
 **Files on disk.** A self-contained command can live directly in the `script` field. A schedule that needs files on disk — a script too large to inline, or state that carries across runs — has a conventional home at `$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID/`. The assistant does not create or manage this directory. Because it is keyed by the schedule id, create the schedule first, read the id from the result, then create and populate `schedules/<id>/`: script files at the top level, run-managed state under `state/`, and a `.gitignore` covering `state/`. At runtime the command may reference the directory by absolute path or `cd` into it — either works. Deleting a schedule does not remove its directory; clean it up separately.
 
 **Handing off to the agent loop.** A script can wake the assistant when it finds something worth acting on:
