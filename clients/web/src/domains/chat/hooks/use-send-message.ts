@@ -908,14 +908,20 @@ export function useSendMessage({
           // server-side now — a profile picked while the POST was in flight
           // still sits in the stash, and nothing would push it: the row's
           // draft flag only clears via the async list refetch, which doesn't
-          // touch the promotion effect's deps. Clear the flag and re-set the
-          // stash entry (a Map-identity change) so the composer's promotion
-          // effect re-runs and persists the selection (ATL-1136).
+          // touch the promotion effect's deps. Clear the flag, then clear and
+          // re-set the stash entry — `setPendingDraftProfile` no-ops on an
+          // unchanged value, so a clear/set pair is needed to change the Map
+          // identity the promotion effect depends on. Whether or not React
+          // batches the pair into one render, the effect re-runs with the
+          // stash present and persists the selection (ATL-1136).
           const stashedProfile = useConversationStore
             .getState()
             .pendingDraftProfiles.get(activeConversationId);
           if (stashedProfile !== undefined) {
             resolveDraftKey(queryClient, assistantId, activeConversationId, activeConversationId);
+            useConversationStore
+              .getState()
+              .clearPendingDraftProfile(activeConversationId);
             useConversationStore
               .getState()
               .setPendingDraftProfile(activeConversationId, stashedProfile);
