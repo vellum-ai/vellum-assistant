@@ -146,7 +146,13 @@ import {
   createChannelIngressRevokeHandler,
 } from "./http/routes/channel-ingress.js";
 import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
+import {
+  createPluginWebhookWebsocketHandler,
+  getPluginWebhookWebsocketHandlers,
+  isPluginWebhookSocketData,
+} from "./http/routes/plugin-webhook-websocket.js";
 import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import { PLUGIN_WEBHOOK_PATH_PATTERN } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
@@ -505,6 +511,11 @@ async function main() {
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
     configFile: configFileCache,
   });
+  const handlePluginWebhookWs = createPluginWebhookWebsocketHandler({
+    config,
+    resolve: resolveCachedPluginIngress,
+    credentials: credentialCache,
+  });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
@@ -518,6 +529,7 @@ async function main() {
     { credentials: credentialCache },
   );
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
+  const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
@@ -703,12 +715,13 @@ async function main() {
       path: "/webhooks/mailgun",
       handler: (req) => handleMailgunWebhook(req),
     },
-    // Plugin-declared webhooks. Unauthenticated like their neighbours above;
-    // what makes them safe is that only a guardian-approved declaration
-    // creates one, and every other path here 404s. Any method — the plugin's
-    // route module decides which verbs it answers.
+    // Plugin-declared webhooks. Public like their neighbours above; what makes
+    // them safe is that only a guardian-approved declaration creates one, every
+    // other path here 404s, and each request is signature-checked. Any method —
+    // the plugin's route module decides which verbs it answers. WebSocket-kind
+    // declarations are upgraded in the pre-router, before this entry is reached.
     {
-      path: /^\/webhooks\/plugins\/([^/]+)\/(.+)$/,
+      path: PLUGIN_WEBHOOK_PATH_PATTERN,
       handler: (req, params) =>
         handlePluginWebhook(req, params[0]!, params[1]!),
     },
@@ -1761,6 +1774,10 @@ async function main() {
           twilioMediaStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isPluginWebhookSocketData(ws.data)) {
+          pluginWebhookWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.open(ws as never);
           return;
@@ -1780,6 +1797,10 @@ async function main() {
           twilioMediaStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isPluginWebhookSocketData(ws.data)) {
+          pluginWebhookWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.message(ws as never, message);
           return;
@@ -1797,6 +1818,10 @@ async function main() {
       close(ws, code, reason) {
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isPluginWebhookSocketData(ws.data)) {
+          pluginWebhookWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isSttStreamSocketData(ws.data)) {
@@ -2000,6 +2025,23 @@ async function main() {
       const upgradeResult = handleTwilioMediaWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
       return undefined as unknown as Response;
+    }
+
+    // Plugin ingress declared as `websocket`. Claimed only for a genuine
+    // upgrade — a plain request to the same path stays with the route table,
+    // where the HTTP half 404s it for not being an approved HTTP route.
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      const match = url.pathname.match(PLUGIN_WEBHOOK_PATH_PATTERN);
+      if (match) {
+        const upgradeResult = await handlePluginWebhookWs(
+          req,
+          server,
+          match[1]!,
+          match[2]!,
+        );
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
+      }
     }
 
     if (url.pathname === "/v1/stt/stream") {

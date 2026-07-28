@@ -129,6 +129,14 @@ export interface PluginIngressDiscovery {
   problems: PluginIngressProblem[];
 }
 
+/**
+ * Matches a public plugin route path, capturing plugin name and route path.
+ * Shared by the HTTP route entry and the WebSocket upgrade branch so the two
+ * halves of the surface cannot come to disagree about its shape.
+ */
+export const PLUGIN_WEBHOOK_PATH_PATTERN =
+  /^\/webhooks\/plugins\/([^/]+)\/(.+)$/;
+
 /** Compose the absolute public path the gateway serves for a route. */
 export function pluginWebhookPath(plugin: string, path: string): string {
   return `${PLUGIN_WEBHOOK_PREFIX}/${plugin}/${path.replace(/^\/+/, "")}`;
