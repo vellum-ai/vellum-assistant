@@ -1,6 +1,6 @@
 ---
 name: vellum-self-knowledge
-description: Answer questions about Vellum's architecture, configuration, installation, and hosting from live sources of truth
+description: Answer questions about Vellum's architecture, configuration, and hosting from live sources of truth
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🪞"
@@ -12,8 +12,8 @@ metadata:
       - "how Vellum works or its architecture"
       - "its current configuration or settings"
       - "what it can do, or what skills/tools are available"
-      - "how to install, download, or set up Vellum"
-      - "how to run it locally, self-host, or use your own API key"
+      - "how to self-host a Vellum assistant"
+      - "how to configure your own model API key"
     avoid-when:
       - "changing configuration (use in-chat config instead)"
 ---
