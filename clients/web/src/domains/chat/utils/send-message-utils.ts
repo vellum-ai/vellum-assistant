@@ -130,12 +130,6 @@ export function completeSubmittedSurface(
   opts?: {
     /** Explicit completion tone (icon/color); e.g. a denied guardian decision. */
     tone?: SurfaceCompletionTone;
-    /**
-     * Guardian decision (apr:*) completion. These are approve/deny outcomes,
-     * never a plain "Cancelled" — so the secondary-style cancellation heuristic
-     * (which would mislabel a "Deny" button click as "Cancelled") is skipped.
-     */
-    isGuardianDecision?: boolean;
   },
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
@@ -144,12 +138,12 @@ export function completeSubmittedSurface(
     if (!OPTIMISTIC_COMPLETION_SURFACE_TYPES.includes(surface.surfaceType)) {
       return prev;
     }
+    if (surface.completed) {
+      return prev;
+    }
     const matchedAction = surface.actions?.find((a) => a.id === actionId);
     const isCancellation =
-      !opts?.isGuardianDecision &&
-      (actionId === "cancel" ||
-        actionId === "dismiss" ||
-        matchedAction?.style === "secondary");
+      actionId === "cancel" || actionId === "dismiss";
     const updated = [...prev];
     updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
       s.surfaceId === surfaceId

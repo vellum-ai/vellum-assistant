@@ -119,7 +119,6 @@ export async function handleSurfaceAction(
 
   patchTranscriptMessages((prev: DisplayMessage[]) =>
     completeSubmittedSurface(prev, surfaceId, actionId, completionText, {
-      isGuardianDecision,
       ...(isGuardianDecision
         ? { tone: guardianDecisionTone(actionId, result) }
         : {}),
