@@ -8,6 +8,7 @@ type SubagentStoreSlice = Pick<
   | "byId"
   | "spawnSubagent"
   | "changeStatus"
+  | "backfillIdentity"
   | "attachParentMessage"
   | "setConversationId"
   | "setParentConversationId"
@@ -19,6 +20,8 @@ export interface SubagentNotificationLike {
   status?: string;
   error?: string;
   conversationId?: string;
+  /** Present from daemons that record it on the notification row. */
+  objective?: string;
   parentMessageId?: string;
 }
 
@@ -61,6 +64,14 @@ export function reconcileSubagentStoreFromNotifications(
       if (parsed.success && shouldApplyStatus(existing.status, parsed.data)) {
         store.changeStatus({ subagentId: n.subagentId, status: parsed.data });
       }
+      // A stub materialized from a bare status event is "known" but blank —
+      // the notification is the first thing to name it. Placeholder yields,
+      // established identity wins.
+      store.backfillIdentity({
+        subagentId: n.subagentId,
+        label: n.label,
+        objective: n.objective,
+      });
       // Entries reconcile materialized carry no parent message id, so nothing
       // has indexed them in `byParent` and the transcript can't place their
       // inline card. The notification is the only source that names the
@@ -76,7 +87,7 @@ export function reconcileSubagentStoreFromNotifications(
       store.spawnSubagent({
         subagentId: n.subagentId,
         label: n.label,
-        objective: "",
+        objective: n.objective ?? "",
         // A notification for an unknown subagent with no parseable status is
         // historical, so a terminal default is the safe read.
         status: parsed.success ? parsed.data : "completed",

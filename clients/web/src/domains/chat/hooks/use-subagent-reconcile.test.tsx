@@ -21,8 +21,11 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { __resetForTesting, publish } from "@/lib/event-bus";
 
+/** Stands in for the assistant version the identity store hydrates async. */
+let reconcileSupported = true;
 mock.module("@/lib/backwards-compat/subagents-reconcile", () => ({
-  supportsSubagentsReconcile: () => true,
+  supportsSubagentsReconcile: () => reconcileSupported,
+  useSupportsSubagentsReconcile: () => reconcileSupported,
 }));
 
 let getCalls = 0;
@@ -67,6 +70,7 @@ function advancePastReconcileWindow() {
 
 beforeEach(() => {
   getCalls = 0;
+  reconcileSupported = true;
   setSystemTime();
   __resetForTesting();
   useSubagentStore.getState().reset();
@@ -94,6 +98,23 @@ describe("useSubagentReconcile", () => {
     mount(ASSISTANT, CONVERSATION, false);
 
     await waitFor(() => expect(getCalls).toBe(0));
+  });
+
+  test("holds the load pass until the assistant version resolves", async () => {
+    // A cold load mounts before the identity fetch lands, so the gate reads
+    // `false` first. Snapshotted once, the conversation-load pass — the only
+    // trigger a silent run has — would be skipped for the whole session.
+    reconcileSupported = false;
+    const { rerender } = mount();
+    await waitFor(() => expect(getCalls).toBe(0));
+
+    reconcileSupported = true;
+    rerender();
+
+    await waitFor(() => expect(getCalls).toBe(1));
+    // And exactly once: a later re-render must not re-fire it.
+    rerender();
+    await waitFor(() => expect(getCalls).toBe(1));
   });
 
   test("reconciles again when the SSE stream reopens on resume", async () => {
