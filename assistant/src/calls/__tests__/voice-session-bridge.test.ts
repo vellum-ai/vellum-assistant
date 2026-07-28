@@ -1101,7 +1101,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     fakeConversation = fake.conversation;
   }
 
-  test("tool_use_start delivers the tool name and toolUseId", async () => {
+  test("tool_use_start delivers the tool name, toolUseId, and input", async () => {
     makeEventEmittingConversation([
       {
         type: "tool_use_start",
@@ -1121,7 +1121,10 @@ describe("startVoiceTurn tool-event forwarding", () => {
     await flushMicrotasks();
 
     expect(starts).toEqual([
-      { toolName: "web_search", detail: { toolUseId: "toolu-1" } },
+      {
+        toolName: "web_search",
+        detail: { toolUseId: "toolu-1", input: { query: "weather" } },
+      },
     ]);
   });
 
