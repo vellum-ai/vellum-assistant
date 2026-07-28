@@ -12,12 +12,8 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import {
-  ByoServiceCard,
-} from "@/domains/settings/ai/shared-ui";
-import {
-  SaveButton,
-} from "@/components/service-form-controls";
+import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { SaveButton } from "@/components/service-form-controls";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
@@ -29,11 +25,14 @@ import {
 import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import {
   configGetOptions,
+  configGetQueryKey,
   configGetSetQueryData,
   configLlmDefaultproviderGetOptions,
   useConfigPatchMutation,
+  useInferenceActiveprofilePutMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+import { useSupportsActiveProfileRoute } from "@/lib/backwards-compat/use-supports-active-profile-route";
 import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useQuery } from "@tanstack/react-query";
 
@@ -49,13 +48,15 @@ export function LanguageModelCard() {
   // Older assistants 404 the default-provider route; the gate keeps the
   // query dark and the notice hidden against them.
   const supportsDefaultProvider = useSupportsDefaultProviderSettings();
-  const { data: defaultProviderStatus, refetch: refetchDefaultProvider } =
-    useQuery({
-      ...configLlmDefaultproviderGetOptions({
-        path: { assistant_id: assistantId },
-      }),
-      enabled: supportsDefaultProvider,
-    });
+  const {
+    data: defaultProviderStatus,
+    refetch: refetchDefaultProvider,
+  } = useQuery({
+    ...configLlmDefaultproviderGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    enabled: supportsDefaultProvider,
+  });
   const availability = defaultProviderStatus?.availability;
 
   const activeProfile = config?.llm?.activeProfile ?? null;
@@ -83,10 +84,26 @@ export function LanguageModelCard() {
     },
   });
 
-  const [effectiveActiveProfile, setDraftActiveProfile] =
-    useDraftOverride(activeProfile);
-  const [effectiveAdvisorProfile, setDraftAdvisorProfile] =
-    useDraftOverride(advisorProfile);
+  // Default-profile saves go through the validated active-profile route on
+  // assistants that serve it — the daemon refuses a profile that cannot
+  // dispatch, so a bad selection errors here instead of on the next chat
+  // turn. The route returns a status object, not the config document, so the
+  // config query is invalidated rather than written through.
+  const supportsActiveProfileRoute = useSupportsActiveProfileRoute(assistantId);
+  const activeProfileMutation = useInferenceActiveprofilePutMutation({
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
+      });
+    },
+  });
+
+  const [effectiveActiveProfile, setDraftActiveProfile] = useDraftOverride(
+    activeProfile,
+  );
+  const [effectiveAdvisorProfile, setDraftAdvisorProfile] = useDraftOverride(
+    advisorProfile,
+  );
 
   // Modal toggles — ephemeral UI state, correct as useState
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
@@ -115,8 +132,8 @@ export function LanguageModelCard() {
     overrideCount === 1
       ? "1 Override"
       : overrideCount > 0
-        ? `${overrideCount} Overrides`
-        : "Overrides";
+      ? `${overrideCount} Overrides`
+      : "Overrides";
   const isProfileDirty = effectiveActiveProfile !== activeProfile;
   const isAdvisorProfileDirty = effectiveAdvisorProfile !== advisorProfile;
 
@@ -131,15 +148,26 @@ export function LanguageModelCard() {
         advisorProfile?: string | null;
       } = {};
       if (isProfileDirty) {
-        llm.activeProfile = effectiveActiveProfile;
+        if (supportsActiveProfileRoute && effectiveActiveProfile != null) {
+          // Validated route first: a refused selection aborts the whole save
+          // before any config write lands.
+          await activeProfileMutation.mutateAsync({
+            path: { assistant_id: assistantId },
+            body: { name: effectiveActiveProfile },
+          });
+        } else {
+          llm.activeProfile = effectiveActiveProfile;
+        }
       }
       if (isAdvisorProfileDirty) {
         llm.advisorProfile = effectiveAdvisorProfile;
       }
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { llm },
-      });
+      if (Object.keys(llm).length > 0) {
+        await configMutation.mutateAsync({
+          path: { assistant_id: assistantId },
+          body: { llm },
+        });
+      }
       toast.success("Saved.");
     } catch (error) {
       // A 400 is the server's verdict on the selection itself — e.g. a profile
@@ -158,6 +186,8 @@ export function LanguageModelCard() {
     effectiveActiveProfile,
     effectiveAdvisorProfile,
     configMutation,
+    activeProfileMutation,
+    supportsActiveProfileRoute,
     assistantId,
   ]);
 
@@ -257,9 +287,12 @@ export function LanguageModelCard() {
             <div className="flex items-center gap-2">
               <SaveButton
                 onClick={handleSave}
-                disabled={configMutation.isPending}
+                disabled={
+                  configMutation.isPending || activeProfileMutation.isPending
+                }
               />
-              {configMutation.isPending && (
+              {(configMutation.isPending ||
+                activeProfileMutation.isPending) && (
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
               )}
             </div>

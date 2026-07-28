@@ -38,9 +38,12 @@ mock.module("../providers/platform-proxy/context.js", () => ({
   }),
 }));
 
+// Vault stand-in: tests that exercise BYOK availability drop the credential
+// they need into this map and clean it up after.
+const storedKeys: Record<string, string> = {};
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyResultAsync: async () => ({
-    value: undefined,
+  getSecureKeyResultAsync: async (key: string) => ({
+    value: storedKeys[key],
     unreachable: false,
   }),
 }));
@@ -66,6 +69,7 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { providerConnections } from "../persistence/schema/inference.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
@@ -396,6 +400,42 @@ describe("setInferenceProfileSession", () => {
       expect(getConversation(conv.id)?.inferenceProfile).toBeNull();
     } finally {
       managedProxyEnabled = true;
+    }
+  });
+
+  test("BYOK default provider — pins a managed preset without a Vellum sign-in", async () => {
+    const conv = createConversation("sess-handler-byok-preset");
+    // Signed out of Vellum, but llm.defaultProvider points the managed
+    // presets at the user's own anthropic connection — the pin must judge
+    // that body, not the Vellum column.
+    managedProxyEnabled = false;
+    storedKeys["credential/anthropic/api_key"] = "test-key";
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "anthropic-personal",
+        provider: "anthropic",
+        auth: JSON.stringify({
+          type: "api_key",
+          credential: "credential/anthropic/api_key",
+        }),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+    try {
+      const result = await setInferenceProfileSession({
+        conversationId: conv.id,
+        profile: "balanced",
+        ttlSeconds: 300,
+      });
+      expect(result.profile).toBe("balanced");
+    } finally {
+      managedProxyEnabled = true;
+      delete storedKeys["credential/anthropic/api_key"];
+      setConfig("llm", {});
     }
   });
 
