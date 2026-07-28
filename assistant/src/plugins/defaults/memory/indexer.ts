@@ -16,12 +16,13 @@ import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../persistence/checkpoints.js";
+import { getDb } from "../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
   upsertDebouncedJob,
 } from "../../../persistence/jobs-store.js";
-import { memorySegments } from "../../../persistence/schema/index.js";
+import { memorySegments, messages } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "./logging.js";
@@ -118,6 +119,21 @@ export async function indexMessageNow(
     type: "embed_segment" | "embed_attachment";
     payload: Record<string, unknown>;
   }> = [];
+
+  // memory_segments has no cross-file FK to messages, so re-check the source row
+  // on the main connection and skip when it is gone. Without this a message
+  // deleted after this job was queued (e.g. a delete racing a v1 backfill) would
+  // be resurrected as searchable segments the conversation-keyed purge cannot
+  // reclaim.
+  const sourceMessage = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, input.messageId))
+    .get();
+  if (!sourceMessage) {
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
+
   mem.transaction((tx) => {
     for (const segment of segments) {
       if (segment.text.length < MIN_SEGMENT_CHARS) {

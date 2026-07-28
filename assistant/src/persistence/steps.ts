@@ -1488,15 +1488,20 @@ export const migrationSteps: MigrationStep[] = [
   {
     name: "migrateMoveMemorySegmentsToMemoryDb",
     run: migrateMoveMemorySegmentsToMemoryDb,
-    // Gate on every migration that creates, alters, or clears memory_segments on
-    // main. migrateDeletePrivateConversations relies on the message-delete
-    // cascade to clear private segments, so it must land before the move; the
-    // runtime conversation-delete path is handled separately by adding
-    // memory_segments to CONVERSATION_KEYED_MEMORY_TABLES.
+    // Gate on every migration that creates, alters, indexes, or reads
+    // memory_segments on main: the FTS triggers, FTS backfill, and index
+    // creation each fail against the dropped table if they run after the move.
+    // migrateDeletePrivateConversations relies on the message-delete cascade to
+    // clear private segments, so it must land before the move; the runtime
+    // conversation-delete path is handled separately by adding memory_segments
+    // to CONVERSATION_KEYED_MEMORY_TABLES.
     dependsOn: [
       "migrateCoreTables",
+      "migrateMemoryFtsBackfill",
       "migrateMemorySegmentsIndexes",
+      "createWatchersAndLogsTables",
       "addCoreColumns",
+      "createCoreIndexes",
       "migrateDeletePrivateConversations",
     ],
   },
