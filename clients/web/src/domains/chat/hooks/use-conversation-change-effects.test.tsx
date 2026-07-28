@@ -11,9 +11,9 @@
  *    closes that race because every layout effect fires before any passive one.
  *
  * 2. The conversation-switch reset clears a still-running subagent. Reconcile-
- *    on-hydration (`reconcileSubagentStoreFromNotifications`) deliberately
- *    preserves in-flight subagents — they stream from SSE, not history
- *    notifications — so this reset is the *only* thing that stops a live
+ *    on-hydration (`reconcileSubagentStoreFromNotifications`) is a pure upsert
+ *    that never deletes — it is one additive evidence source among SSE and the
+ *    reconcile snapshot — so this reset is the *only* thing that stops a
  *    subagent in conversation A from leaking into conversation B.
  *
  * 3. The auto-fetch reaches a stub recovered from a missed `subagent_spawned`

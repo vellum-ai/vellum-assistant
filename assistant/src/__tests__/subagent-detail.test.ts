@@ -324,6 +324,37 @@ describe("getSubagentDetail route resolution", () => {
     expect(result.status).toBe("aborted");
   });
 
+  test("settles a durable row still marked active into interrupted", () => {
+    // `setDbReady(true)` precedes `rehydrateFromDb()` during daemon startup, so
+    // a record can still carry its pre-crash status while the manager knows
+    // nothing about it. Nothing runs without an in-memory entry, so `running`
+    // on an orphaned row is stale — report what the rehydration will write.
+    seedConversation("orphan-child-conv", "orphan transcript");
+    durableRecords.set("sub-orphaned", {
+      conversationId: "orphan-child-conv",
+      label: "Orphaned label",
+      status: "running",
+    });
+
+    const result = fetchDetail("sub-orphaned", "parent-conv");
+
+    expect(result.status).toBe("interrupted");
+    expect(result.label).toBe("Orphaned label");
+    expect(result.conversationId).toBe("orphan-child-conv");
+  });
+
+  test("leaves a live subagent's active status alone", () => {
+    // In-memory state is authoritative: something IS driving this run.
+    seedConversation("still-running-conv", "still running transcript");
+    liveSubagents.set("sub-still-running", {
+      conversationId: "still-running-conv",
+      status: "running",
+      config: { label: "Still running" },
+    });
+
+    expect(fetchDetail("sub-still-running").status).toBe("running");
+  });
+
   test("omits status when the durable record holds an out-of-enum value", () => {
     seedConversation("odd-child-conv", "odd transcript");
     durableRecords.set("sub-odd", {

@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import {
+  type SubagentStatus,
   SubagentStatusSchema,
   SubagentUsageStatsSchema,
 } from "../../api/events/subagent-status-changed.js";
@@ -22,6 +23,7 @@ import {
   getSubagentRecordsByParent,
 } from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import { TERMINAL_STATUSES } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -212,6 +214,30 @@ const ReconciledSubagentSchema = z.object({
 });
 
 /**
+ * Settle the status of a durable row that no live manager entry answers for.
+ *
+ * Invariant: a subagent runs from an in-memory entry, so a durable row without
+ * one can only describe a run that is no longer executing — whatever the row
+ * says, nothing is driving it. Its pre-crash `pending`/`running`/
+ * `awaiting_input` is therefore stale and reported as `interrupted`, exactly
+ * what `SubagentManager.rehydrateFromDb()` writes for the same row. Terminal
+ * statuses are the truth already and pass through untouched.
+ *
+ * This closes a startup window rather than a steady state: `setDbReady(true)`
+ * precedes `rehydrateFromDb()` in `daemon/lifecycle.ts`, so a request can pass
+ * the DB gate while the manager is still empty and read rows the rehydration
+ * has not yet normalized. Without the coercion a client reconciling on its SSE
+ * reopen adopts `running`, and the later rehydration flips the row to
+ * `interrupted` with no status event to say so — leaving the UI stuck.
+ *
+ * Only ever applied to record-derived statuses; live state is authoritative
+ * and never coerced.
+ */
+function settledDurableStatus(status: SubagentStatus): SubagentStatus {
+  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
+}
+
+/**
  * A child that has spent nothing reports no usage at all, matching the detail
  * route — an all-zero snapshot tells a client nothing its own tally doesn't
  * already say.
@@ -284,7 +310,9 @@ export const ROUTES: RouteDefinition[] = [
           continue;
         }
         subagents[record.id] = {
-          status: status.data,
+          // Coerced here, before the live pass below overwrites any id the
+          // manager also holds — so only genuinely orphaned rows keep it.
+          status: settledDurableStatus(status.data),
           conversationId: record.conversationId,
           label: record.label,
           objective: record.objective,
@@ -364,9 +392,13 @@ export const ROUTES: RouteDefinition[] = [
       return {
         ...getSubagentDetail(pathParams!.id, conversationId),
         conversationId,
+        // `record` is only read when the manager has no state, so a
+        // record-derived status is by definition orphaned and gets settled.
         status:
           state?.status ??
-          (recordStatus?.success ? recordStatus.data : undefined),
+          (recordStatus?.success
+            ? settledDurableStatus(recordStatus.data)
+            : undefined),
         label: state?.config.label ?? record?.label,
         parentToolUseId: state?.config.parentToolUseId,
       };

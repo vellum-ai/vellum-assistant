@@ -2261,10 +2261,21 @@ describe("reconcileFromDaemon", () => {
       },
     };
 
+    // A settled entry already in the store — enough to make a reset-based
+    // hydration bump the generation and throw the snapshot away.
+    getState().spawnSubagent({
+      subagentId: "sa-prior",
+      label: "Prior",
+      objective: "",
+      status: "completed",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+
     const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
-    // History for the SAME conversation arrives while the request is out. It
-    // rebuilds from notifications, but with nothing to clear it must not
-    // invalidate the snapshot that recovers a run history never heard about.
+    // History for the SAME conversation arrives while the request is out.
+    // Hydration is a pure upsert — it never resets — so it cannot invalidate
+    // the snapshot that recovers a run history never heard about.
     reconcileSubagentStoreFromNotifications(
       getState(),
       [{ subagentId: "sa-history", label: "Historical", status: "completed" }],
@@ -2275,6 +2286,7 @@ describe("reconcileFromDaemon", () => {
 
     expect(getState().byId["sa-silent"]?.status).toBe("running");
     expect(getState().byId["sa-history"]?.status).toBe("completed");
+    expect(getState().byId["sa-prior"]?.status).toBe("completed");
   });
 
   it("re-requests after a reset instead of joining the invalidated call", async () => {

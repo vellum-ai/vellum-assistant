@@ -40,16 +40,46 @@ describe("reconcileSubagentStoreFromNotifications", () => {
     expect(store().byId["done"]?.status).toBe("completed"); // notified added
   });
 
-  test("rebuilds from notifications (clears stale terminal entries) when nothing is in flight", () => {
-    spawn("old", "completed"); // terminal entry from a prior conversation
+  test("keeps a terminal entry reconcile recovered but no notification mentions", () => {
+    // A silent run — one that streamed nothing — is recovered from the daemon's
+    // durable rows as `interrupted`, so it appears in no history notification.
+    // Hydration is additive; deleting it would make its visibility depend on
+    // which request finished first. Cross-conversation cleanup belongs to the
+    // conversation-change reset, not here.
+    spawn("silent", "interrupted");
     reconcileSubagentStoreFromNotifications(
       store(),
       [{ subagentId: "new", label: "new", status: "completed" }],
       PARENT,
       NOW,
     );
-    expect(store().byId["old"]).toBeUndefined(); // reset cleared it
+    expect(store().byId["silent"]?.status).toBe("interrupted");
     expect(store().byId["new"]?.status).toBe("completed");
+  });
+
+  test("never deletes entries, even with nothing in flight and no notifications", () => {
+    spawn("old", "completed");
+    reconcileSubagentStoreFromNotifications(store(), [], PARENT, NOW);
+    expect(store().byId["old"]?.status).toBe("completed");
+  });
+
+  test("applies a terminal notification to a settled entry without dropping it", () => {
+    spawn("sub", "interrupted");
+    reconcileSubagentStoreFromNotifications(
+      store(),
+      [
+        {
+          subagentId: "sub",
+          label: "sub",
+          status: "completed",
+          conversationId: "conv-x",
+        },
+      ],
+      PARENT,
+      NOW,
+    );
+    expect(store().byId["sub"]?.status).toBe("completed");
+    expect(store().byId["sub"]?.conversationId).toBe("conv-x");
   });
 
   test("applies a terminal notification to a live entry without dropping it", () => {

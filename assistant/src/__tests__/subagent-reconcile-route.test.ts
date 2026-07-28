@@ -191,6 +191,67 @@ describe("reconcileSubagents route", () => {
     expect(entry.error).toBeUndefined();
   });
 
+  test("settles an orphaned durable row still marked active", () => {
+    // The startup window: `setDbReady(true)` precedes `rehydrateFromDb()`, so
+    // a reconcile can read a pre-crash `running` row while the manager is
+    // still empty. Nothing can be running without an in-memory entry.
+    upsertSubagentRecord(record({ status: "running" }));
+    upsertSubagentRecord(
+      record({
+        id: "sub-pending",
+        conversationId: "child-conv-pending",
+        label: "pending",
+        status: "pending",
+      }),
+    );
+    upsertSubagentRecord(
+      record({
+        id: "sub-awaiting",
+        conversationId: "child-conv-awaiting",
+        label: "awaiting",
+        status: "awaiting_input",
+      }),
+    );
+    // Deliberately no `rehydrateFromDb()`.
+
+    const { subagents } = reconcile(PARENT_ID);
+    expect(subagents["sub-1"].status).toBe("interrupted");
+    expect(subagents["sub-pending"].status).toBe("interrupted");
+    expect(subagents["sub-awaiting"].status).toBe("interrupted");
+  });
+
+  test("leaves an orphaned durable row's terminal status untouched", () => {
+    for (const status of ["completed", "failed", "aborted", "interrupted"]) {
+      upsertSubagentRecord(
+        record({
+          id: `sub-${status}`,
+          conversationId: `child-conv-${status}`,
+          label: status,
+          status,
+          completedAt: 2000,
+        }),
+      );
+    }
+
+    const { subagents } = reconcile(PARENT_ID);
+    expect(subagents["sub-completed"].status).toBe("completed");
+    expect(subagents["sub-failed"].status).toBe("failed");
+    expect(subagents["sub-aborted"].status).toBe("aborted");
+    expect(subagents["sub-interrupted"].status).toBe("interrupted");
+  });
+
+  test("does not settle an active child the manager still holds", () => {
+    upsertSubagentRecord(record({ status: "running" }));
+    const manager = getSubagentManager();
+    manager.rehydrateFromDb();
+    // A live entry means something IS driving the run, so its active status is
+    // current rather than stale. `getState` hands back the manager's own state
+    // object — the very one the route's live pass reads.
+    manager.getState("sub-1")!.status = "running";
+
+    expect(reconcile(PARENT_ID).subagents["sub-1"].status).toBe("running");
+  });
+
   test("omits a durable row whose status is out of enum", () => {
     upsertSubagentRecord(record({ status: "zombie" }));
 

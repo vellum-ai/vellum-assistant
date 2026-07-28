@@ -1,12 +1,10 @@
 import { SubagentStatusSchema } from "@vellumai/assistant-api";
 
 import type { SubagentStore } from "@/domains/chat/subagent-store";
-import { isActiveStatus } from "@/utils/subagent-status";
 
 type SubagentStoreSlice = Pick<
   SubagentStore,
   | "byId"
-  | "reset"
   | "spawnSubagent"
   | "changeStatus"
   | "setConversationId"
@@ -23,16 +21,21 @@ export interface SubagentNotificationLike {
 }
 
 /**
- * Apply history subagent notifications to the store while preserving live
- * (in-flight) subagents.
+ * Apply history subagent notifications to the store as a pure upsert.
  *
- * In-flight subagent state streams from SSE, not history notifications, so a
- * blanket reset drops a subagent that's still running when the conversation
- * re-hydrates (e.g. after a tab switch). When nothing is in flight we rebuild
- * from scratch — clearing the prior conversation's terminal entries. When a
- * subagent is in flight we merge instead: upsert notified subagents and apply a
- * terminal status to a live entry that just finished, without discarding its
- * streamed events.
+ * Hydration never deletes. It is one additive evidence source among several —
+ * live SSE and the `/subagents/reconcile` snapshot are the others — and it is
+ * the least complete of them: in-flight state streams over SSE rather than
+ * appearing in history, and a run that streamed nothing at all (recovered from
+ * the daemon's durable rows) has no notification to be represented by. A reset
+ * here would delete exactly what the other two recover — a silent run that
+ * reconcile resurrected as terminal survives no rebuild-from-notifications,
+ * and which one wins would come down to whichever request finished first.
+ *
+ * Entry lifecycle cleanup is owned elsewhere: cross-conversation clearing by
+ * the conversation-change reset (`use-conversation-change-effects`' layout
+ * effect and `switchConversation`), staleness by reconcile's generation guard,
+ * and stuck-active settling by reconcile's orphan pass.
  *
  * `parentConversationId` is the conversation being hydrated — it scopes the
  * Active-Subagents overlay. A notification's own `conversationId` is the
@@ -45,25 +48,13 @@ export function reconcileSubagentStoreFromNotifications(
   now: number,
 ): void {
   const priorById = store.byId;
-  const hasInFlight = Object.values(priorById).some((entry) =>
-    isActiveStatus(entry.status),
-  );
-
-  // An empty store has nothing to clear, and `reset()` is not free: it
-  // invalidates any in-flight `reconcileFromDaemon` as belonging to a
-  // conversation the user left. History hydration races that request on load,
-  // and discarding it would lose exactly the rows it exists to recover — a
-  // mid-run subagent that has streamed nothing and so appears in no
-  // notification.
-  if (!hasInFlight && Object.keys(priorById).length > 0) {
-    store.reset();
-  }
 
   for (const n of notifications) {
     const parsed = SubagentStatusSchema.safeParse(n.status);
-    if (hasInFlight && priorById[n.subagentId]) {
-      // An unparseable status carries no information about a live entry —
-      // keep whatever the stream told us rather than flipping it terminal.
+    if (priorById[n.subagentId]) {
+      // An unparseable status carries no information about an entry we
+      // already hold — keep what SSE or reconcile told us rather than
+      // flipping it terminal.
       if (parsed.success) {
         store.changeStatus({ subagentId: n.subagentId, status: parsed.data });
       }
