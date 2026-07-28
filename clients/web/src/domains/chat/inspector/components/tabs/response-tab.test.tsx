@@ -1,8 +1,9 @@
 /**
- * Tests for the ResponseTab's handling of failed calls. A call the
- * provider rejected carries a structured `error` and no response
- * sections; the tab must surface a failure banner instead of the generic
- * "Section rendering unavailable" fallback.
+ * Tests for the ResponseTab: section rendering (each section header carries
+ * a visible copy affordance) and failed calls. A call the provider rejected
+ * carries a structured `error` and no response sections; the tab must
+ * surface a failure banner instead of the generic "Section rendering
+ * unavailable" fallback.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -29,6 +30,22 @@ function render(entry: LLMRequestLogEntry): string {
   return renderToStaticMarkup(<ResponseTab entry={entry} />);
 }
 
+describe("ResponseTab — sections", () => {
+  test("renders a visible copy icon in the section header", () => {
+    const html = render(
+      makeEntry({
+        responseSections: [
+          { kind: "text", label: "Assistant reply", text: "Hello there" },
+        ],
+      }),
+    );
+    expect(html).toContain("Assistant reply");
+    expect(html).toContain('aria-label="Copy section content"');
+    // The copy affordance must render an actual icon, not an empty button.
+    expect(html).toContain("<svg");
+  });
+});
+
 describe("ResponseTab — failed calls", () => {
   test("renders the failure banner with the provider message and metadata", () => {
     const html = render(
@@ -41,6 +58,10 @@ describe("ResponseTab — failed calls", () => {
           code: "PROVIDER_ERROR",
           provider: "fireworks",
           statusCode: 400,
+          apiErrorCode: "model_not_supported",
+          apiErrorType: "invalid_request_error",
+          apiErrorParam: "model",
+          requestId: "req_abc123",
         },
       }),
     );
@@ -52,6 +73,10 @@ describe("ResponseTab — failed calls", () => {
     expect(html).toContain("400");
     expect(html).toContain("ProviderError");
     expect(html).toContain("PROVIDER_ERROR");
+    // Upstream provider error metadata chips.
+    expect(html).toContain("model_not_supported");
+    expect(html).toContain("invalid_request_error");
+    expect(html).toContain("req_abc123");
     // The generic fallback must not appear when the call failed.
     expect(html).not.toContain("Section rendering unavailable");
   });

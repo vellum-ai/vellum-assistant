@@ -5,8 +5,9 @@
  *
  * 1. **Signal sources.** Wires each `runtime/event-sources/*` helper
  *    once at mount so DOM visibility, network online/offline,
- *    Capacitor app state, Electron `powerMonitor`, and Electron
- *    deep-link events flow into the bus. The lifecycle diagnostics
+ *    Capacitor app state, Capacitor deep links, Electron
+ *    `powerMonitor`, and Electron deep-link events flow into the bus.
+ *    The lifecycle diagnostics
  *    recorder is attached in the same effect so those signals are
  *    captured for support bundles.
  *
@@ -27,6 +28,7 @@ import { sseService } from "@/assistant/sse-service";
 import { subscribeLifecycleDiagnostics } from "@/lib/lifecycle-diagnostics";
 import { setupQueryFocusManager } from "@/lib/query-focus-manager";
 import { publishCapacitorAppStateSource } from "@/runtime/event-sources/capacitor-app-state";
+import { publishCapacitorDeepLinksSource } from "@/runtime/event-sources/capacitor-deep-links";
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
 import { publishElectronConnectivitySource } from "@/runtime/event-sources/electron-connectivity";
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
@@ -57,6 +59,7 @@ export function useEventBusInit({
       publishVisibilitySource(),
       publishWindowOnlineSource(),
       publishCapacitorAppStateSource(),
+      publishCapacitorDeepLinksSource(),
       publishElectronPowerSource(),
       publishElectronDeepLinksSource(),
       publishElectronConnectivitySource(),

@@ -9,7 +9,7 @@
  * its credential hooks so render doesn't fan out daemon queries.
  *
  * Coverage:
- *  - field order is provider-first (Provider before Name/Key/Description),
+ *  - Name and Key live under the create flow's Advanced disclosure,
  *  - selecting a model pre-fills Name + Key from the model display name,
  *  - editing Name then selecting another model does NOT clobber Name/Key,
  *  - "+ Create new provider" mounts the inline ProviderCreateForm, and a
@@ -23,6 +23,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 
@@ -32,6 +33,7 @@ import * as sdkGen from "@/generated/daemon/sdk.gen";
 
 let createdConnection: ProviderConnection;
 let toastSuccessCalls: string[] = [];
+const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 // Spy on the design-library toast so we can assert the shared ProfileEditorModal
 // does NOT fire a profile-create success toast itself — that toast belongs to
@@ -59,12 +61,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     }),
 }));
 
-
 // Stub the credential hooks so the inline ProviderCreateForm renders without
 // issuing real daemon queries.
 mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
-  credentialPresenceQueryKey: (assistantId: string, kind: string, name: string) =>
-    ["credentialPresence", assistantId, kind, name] as const,
+  credentialPresenceQueryKey: (
+    assistantId: string,
+    kind: string,
+    name: string,
+  ) => ["credentialPresence", assistantId, kind, name] as const,
   useStoredCredentialPresence: () => ({
     hasStoredCredential: false,
     isLoading: false,
@@ -78,9 +82,8 @@ mock.module("@/domains/settings/ai/use-provider-credentials-list", () => ({
   }),
 }));
 
-const { ProfileEditorModal } = await import(
-  "@/domains/settings/ai/profile-editor-modal"
-);
+const { ProfileEditorModal } =
+  await import("@/domains/settings/ai/profile-editor-modal");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,7 +91,10 @@ const { ProfileEditorModal } = await import(
 
 const ASSISTANT_ID = "asst-1";
 
-function makeConnection(name: string, provider = "anthropic"): ProviderConnection {
+function makeConnection(
+  name: string,
+  provider = "anthropic",
+): ProviderConnection {
   return {
     name,
     label: null,
@@ -100,7 +106,7 @@ function makeConnection(name: string, provider = "anthropic"): ProviderConnectio
 
 function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, enabled: false } },
   });
   return createElement(QueryClientProvider, { client }, children);
 }
@@ -140,18 +146,27 @@ function dropdownTriggers(): HTMLButtonElement[] {
   );
 }
 
+/** An option row's label, excluding any right-aligned suffix meta. */
+function optionLabel(option: Element): string {
+  return (
+    option.querySelector(".truncate")?.textContent ??
+    option.textContent ??
+    ""
+  ).trim();
+}
+
 /** Open the dropdown trigger and click the option whose label matches. */
-function pickOption(trigger: HTMLButtonElement, optionLabel: string): void {
+function pickOption(trigger: HTMLButtonElement, wantedLabel: string): void {
   fireEvent.click(trigger);
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ).find((o) => o.textContent?.trim() === optionLabel);
+  ).find((o) => optionLabel(o) === wantedLabel);
   if (!option) {
     throw new Error(
-      `expected option "${optionLabel}" — saw: ${Array.from(
+      `expected option "${wantedLabel}" — saw: ${Array.from(
         document.querySelectorAll('[role="option"]'),
       )
-        .map((o) => `"${o.textContent?.trim()}"`)
+        .map((o) => `"${optionLabel(o)}"`)
         .join(", ")}`,
     );
   }
@@ -183,7 +198,7 @@ function selectModel(label: string): void {
     fireEvent.click(trigger);
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((o) => o.textContent?.trim() === label);
+    ).find((o) => optionLabel(o) === label);
     if (option) {
       fireEvent.click(option);
       return;
@@ -263,15 +278,22 @@ function renderView(
   );
 }
 
+/** Finds a Toggle switch by its visible label (wired via aria-labelledby). */
+function findSwitchByLabel(label: string): HTMLButtonElement | null {
+  return (
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="switch"]'),
+    ).find((el) => {
+      const labelId = el.getAttribute("aria-labelledby");
+      const labelEl = labelId ? document.getElementById(labelId) : null;
+      return labelEl?.textContent?.trim() === label;
+    }) ?? null
+  );
+}
+
 /** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
-function topPSwitch(): HTMLElement {
-  const sw = Array.from(
-    document.querySelectorAll<HTMLElement>('[role="switch"]'),
-  ).find((el) => {
-    const labelId = el.getAttribute("aria-labelledby");
-    const labelEl = labelId ? document.getElementById(labelId) : null;
-    return labelEl?.textContent?.trim() === "Top P";
-  });
+function topPSwitch(): HTMLButtonElement {
+  const sw = findSwitchByLabel("Top P");
   if (!sw) throw new Error("expected a Top P switch");
   return sw;
 }
@@ -283,9 +305,9 @@ function topPSwitch(): HTMLElement {
  */
 function findTopPSlider(): HTMLElement | null {
   return (
-    Array.from(
-      document.querySelectorAll<HTMLElement>('[role="slider"]'),
-    ).find((el) => el.getAttribute("aria-valuemax") === "1") ?? null
+    Array.from(document.querySelectorAll<HTMLElement>('[role="slider"]')).find(
+      (el) => el.getAttribute("aria-valuemax") === "1",
+    ) ?? null
   );
 }
 
@@ -299,18 +321,29 @@ function topPSlider(): HTMLElement {
 function fillCreateForm(): void {
   selectProvider("Anthropic");
   selectModel("Claude Opus 4.8");
+  fireEvent.click(getButton("Advanced"));
   fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
     target: { value: "my-profile" },
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   createdConnection = makeConnection("anthropic-personal");
   toastSuccessCalls = [];
+  useAssistantLifecycleStore.setState(initialLifecycleState, true);
+  // Seed a hydrated pre-gate version: the save path awaits
+  // whenAssistantVersionKnown(), and an unhydrated store would stall each
+  // save until that helper's timeout. Gate-on tests override per-test.
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
+  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  const { useAssistantIdentityStore } =
+    await import("@/stores/assistant-identity-store");
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 // ---------------------------------------------------------------------------
@@ -318,20 +351,29 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal create mode — provider-first", () => {
-  test("renders Provider before Name/Key in create mode", () => {
+  test("keeps Name and Key inside Advanced in create mode", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    const text = document.body.textContent ?? "";
-    const providerIdx = text.indexOf("Provider");
-    const nameIdx = text.indexOf("Name");
-    const keyIdx = text.indexOf("Key");
-    expect(providerIdx).toBeGreaterThanOrEqual(0);
-    expect(nameIdx).toBeGreaterThan(providerIdx);
-    expect(keyIdx).toBeGreaterThan(providerIdx);
+    selectProvider("Anthropic");
+    selectModel("Claude Opus 4.8");
+
+    expect(
+      document.querySelector('input[placeholder="e.g. Fast & Cheap"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('input[placeholder="e.g. fast-cheap"]'),
+    ).toBeNull();
+
+    fireEvent.click(getButton("Advanced"));
+
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
+    expect(getInputByPlaceholder("e.g. fast-cheap")).toBeDefined();
   });
 
   test("Advanced is hidden until a model is chosen, then collapsed by default", () => {
     renderCreate([makeConnection("anthropic-personal")]);
+
+    expect(document.body.textContent).not.toContain("Pick a provider");
 
     // No model selected yet → the Advanced disclosure is not rendered.
     const hasAdvancedButton = () =>
@@ -353,6 +395,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
 
     expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe(
       "Claude Opus 4.8",
@@ -367,6 +410,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
 
     // User overrides the Name.
     fireEvent.change(getInputByPlaceholder("e.g. Fast & Cheap"), {
@@ -389,8 +433,457 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     fireEvent.click(providerTrigger());
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((o) => o.textContent?.trim());
+    ).map((o) => optionLabel(o));
     expect(optionLabels).toEqual(["+ Create new provider"]);
+  });
+
+  test("the Vellum-managed connection surfaces every managed-routable provider", () => {
+    // A platform-hosted user's only connection is the single provider-agnostic
+    // `vellum` connection. It must expand into the managed-routable providers
+    // so the picker isn't limited to "+ Create new provider".
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    fireEvent.click(providerTrigger());
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => optionLabel(o));
+    // A single Vellum entry — never the managed upstreams it routes to.
+    expect(optionLabels).toEqual(["Vellum", "+ Create new provider"]);
+  });
+
+  test("selecting Vellum saves the model's managed upstream bound to the vellum connection", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+    selectProvider("Vellum");
+    selectModel("Claude Opus 4.8");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // Legacy wire shape: upstream derived from the model, vellum binding.
+    expect(saveCalls[0].entry.provider).toBe("anthropic");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+  });
+
+  test("a Vellum fireworks-hosted model derives the fireworks upstream", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+    selectProvider("Vellum");
+    selectModel("GLM 5.2");
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+  });
+
+  test("catalog providers show no connection field, even with multiple keys", async () => {
+    renderCreate([
+      makeConnection("anthropic-personal"),
+      makeConnection("anthropic-personal-2"),
+    ]);
+    selectProvider("Anthropic");
+    expect(document.body.textContent).not.toContain("Connection");
+    expect(document.body.textContent).not.toContain("Endpoint");
+  });
+
+  test("each openai-compatible endpoint is its own provider entry", async () => {
+    const lmStudio = {
+      ...makeConnection("lm-studio", "openai-compatible"),
+      models: [{ id: "model-1", displayName: "Model 1" }],
+    } as unknown as ProviderConnection;
+    const vllmBox = {
+      ...makeConnection("vllm-box", "openai-compatible"),
+      models: [{ id: "model-2", displayName: "Model 2" }],
+    } as unknown as ProviderConnection;
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    renderCreate([lmStudio, vllmBox], onSave);
+
+    // Both endpoints are individual entries; no generic collapsed entry and
+    // no second field.
+    fireEvent.click(providerTrigger());
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => optionLabel(o));
+    expect(optionLabels).toEqual([
+      "lm-studio",
+      "vllm-box",
+      "+ Create new provider",
+    ]);
+    fireEvent.click(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((o) => optionLabel(o) === "lm-studio")!,
+    );
+    expect(document.body.textContent).not.toContain("Endpoint");
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+
+    selectModel("Model 1");
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // The endpoint entry implies the provider plus its binding on the wire.
+    expect(saveCalls[0].entry.provider).toBe("openai-compatible");
+    expect(saveCalls[0].entry.provider_connection).toBe("lm-studio");
+    expect(saveCalls[0].entry.model).toBe("model-1");
+  });
+
+  test("a new-enough assistant gets the identity payload: provider vellum, no binding", async () => {
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.10.12", ASSISTANT_ID);
+    try {
+      const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+      const onSave = (name: string, entry: unknown) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      };
+      renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+      selectProvider("Vellum");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("vellum");
+      expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+      expect(saveCalls[0].entry.provider_connection).toBeUndefined();
+    } finally {
+      useAssistantIdentityStore.getState().clearIdentity();
+    }
+  });
+
+  test("an older assistant keeps the legacy payload byte-identical", async () => {
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.10.11");
+    try {
+      const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+      const onSave = (name: string, entry: unknown) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      };
+      renderCreate([makeConnection("vellum-managed", "vellum")], onSave);
+
+      selectProvider("Vellum");
+      selectModel("Claude Opus 4.8");
+
+      await waitFor(() => {
+        expect(getSaveBtn().disabled).toBe(false);
+      });
+      fireEvent.click(getSaveBtn());
+
+      await waitFor(() => {
+        expect(saveCalls.length).toBe(1);
+      });
+      expect(saveCalls[0].entry.provider).toBe("anthropic");
+      expect(saveCalls[0].entry.model).toBe("claude-opus-4-8");
+      expect(saveCalls[0].entry.provider_connection).toBe("vellum-managed");
+    } finally {
+      useAssistantIdentityStore.getState().clearIdentity();
+    }
+  });
+
+  test("an unbound openai-compatible profile keeps its provider label in edit mode", async () => {
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-local"
+          initialValues={
+            {
+              name: "my-local",
+              provider: "openai-compatible",
+              model: "my-model",
+            } as never
+          }
+          existingNames={["my-local"]}
+          connections={[
+            {
+              ...makeConnection("lm-studio", "openai-compatible"),
+              models: [{ id: "my-model" }],
+            },
+            {
+              ...makeConnection("vllm-box", "openai-compatible"),
+              models: [{ id: "other-model" }],
+            },
+          ]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // No endpoint entry matches the unbound state; the bare protocol value
+    // keeps the trigger labeled instead of falling to the placeholder.
+    await waitFor(() => {
+      expect(providerTrigger().textContent?.trim()).toBe("OpenAI-compatible");
+    });
+  });
+
+  test("a legacy-shape managed profile presents as Vellum in edit mode", async () => {
+    // Managed profiles store their real upstream (anthropic) bound to the
+    // vellum connection; the editor must present them as "Vellum".
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "anthropic",
+              model: "claude-opus-4-8",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(optionLabel(providerTrigger())).toBe("Vellum");
+    });
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+  });
+
+  test("editing a Vellum profile with a catalog-unknown model preserves the stored upstream", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "fireworks",
+              model: "accounts/fireworks/models/some-future-model",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // A harmless save must not clear the stored upstream.
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
+  test("a user-owned connection merely named 'vellum' does not trigger Vellum mode", async () => {
+    // The daemon's seeder preserves a user row named "vellum" whose provider
+    // is not the sentinel; editing a profile bound to it must keep the real
+    // provider and not corrupt the binding.
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-local"
+          initialValues={
+            {
+              name: "my-local",
+              provider: "openai-compatible",
+              model: "my-model",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-local"]}
+          connections={[
+            {
+              ...makeConnection("vellum", "openai-compatible"),
+              models: [{ id: "my-model" }],
+            },
+          ]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // The trigger renders the ENDPOINT entry (labeled by the row name) —
+    // not Vellum picker mode; the wire payload proves the distinction.
+    await waitFor(() => {
+      expect(optionLabel(providerTrigger())).toBe("vellum");
+    });
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("openai-compatible");
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
+  test("a routed model string is stripped to the upstream's native id on save", async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "fireworks",
+              model: "fireworks/accounts/fireworks/models/kimi-k2p5",
+              provider_connection: "vellum",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={onSave}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.provider).toBe("fireworks");
+    expect(saveCalls[0].entry.model).toBe(
+      "accounts/fireworks/models/kimi-k2p5",
+    );
+    expect(saveCalls[0].entry.provider_connection).toBe("vellum");
+  });
+
+  test("a routed model resolves advanced controls from its native id", async () => {
+    // Visibility heuristics expect native ids; a routed string must not hide
+    // the upstream's controls (a replace-mode save would then clear them).
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="my-managed"
+          initialValues={
+            {
+              name: "my-managed",
+              provider: "openai",
+              model: "openai/gpt-5.5",
+              provider_connection: "vellum",
+              effort: "high",
+            } as never
+          }
+          existingNames={["my-managed"]}
+          connections={[makeConnection("vellum", "vellum")]}
+          assistantId={ASSISTANT_ID}
+          onSave={() => Promise.resolve()}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // gpt-5.5's controls include Verbosity (an openai-family field) — it
+    // only renders when visibility resolved against the native id.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Verbosity");
+    });
+  });
+
+  test("Vellum hides the Connection sub-dropdown", () => {
+    renderCreate([makeConnection("vellum-managed", "vellum")]);
+    selectProvider("Vellum");
+    expect(document.body.textContent).not.toContain("Connection (optional)");
+    expect(
+      Array.from(document.querySelectorAll("label")).some((l) =>
+        l.textContent?.trim().startsWith("Connection"),
+      ),
+    ).toBe(false);
+  });
+
+  test("a BYOK connection surfaces its own provider", () => {
+    // A self-hosted user who entered an Anthropic API key gets an `anthropic`
+    // connection, which must surface Anthropic as a selectable provider.
+    renderCreate([makeConnection("anthropic-personal", "anthropic")]);
+    fireEvent.click(providerTrigger());
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => optionLabel(o));
+    expect(optionLabels).toEqual(["Anthropic", "+ Create new provider"]);
   });
 
   test("a provider unknown to the catalog shows an explicit empty-model state", () => {
@@ -410,8 +903,44 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     // ...and the hint below spells out why and what to do about it.
     expect(document.body.textContent).toContain(
       "No models are available for this provider in this app version. " +
-        "Update the app, or use an OpenAI-compatible connection to enter a custom model.",
+        "Update the app, or enter a custom model ID.",
     );
+  });
+
+  test("Ollama connections offer the bundled local models", () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "self_hosted" },
+    });
+    renderCreate([makeConnection("ollama", "ollama")]);
+
+    selectProvider("Ollama");
+
+    const triggerLabels = dropdownTriggers().map((t) => t.textContent?.trim());
+    expect(triggerLabels).toContain("Select a model");
+    expect(triggerLabels).not.toContain("No models available");
+
+    selectModel("Llama 3.2");
+    fireEvent.click(getButton("Advanced"));
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe("Llama 3.2");
+    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("llama-3-2");
+
+    selectModel("Mistral");
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe("Mistral");
+    expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe("mistral");
+  });
+
+  test("platform-hosted assistants do not offer Ollama as a new profile provider", () => {
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "active", isLocal: false },
+    });
+    renderCreate([makeConnection("ollama", "ollama")]);
+
+    fireEvent.click(providerTrigger());
+
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => optionLabel(o));
+    expect(optionLabels).toEqual(["+ Create new provider"]);
   });
 
   test("+ Create new provider mounts ProviderCreateForm; successful create selects it and Save enables after a model", async () => {
@@ -419,20 +948,16 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("+ Create new provider");
 
-    // Inline ProviderCreateForm is mounted (its Key field placeholder).
-    const inlineKey = getInputByPlaceholder("e.g. anthropic-personal");
-    expect(inlineKey).toBeDefined();
-
-    // Fill the inline form and create (anthropic defaults to platform auth,
-    // so no API key entry is required).
-    fireEvent.change(inlineKey, { target: { value: "anthropic-personal" } });
-    fireEvent.click(getButton("Create"));
+    // Inline ProviderCreateForm is mounted; auth derives from the provider
+    // (anthropic → api_key), so entering a key is the whole flow.
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
+    });
+    fireEvent.click(getButton("Add"));
 
     // After create, the sub-form collapses and the provider is selected.
     await waitFor(() => {
-      expect(
-        document.body.textContent,
-      ).toContain(
+      expect(document.body.textContent).toContain(
         "New provider connection will show up in the Providers section.",
       );
     });
@@ -465,10 +990,10 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     renderCreate([], onSave);
 
     selectProvider("+ Create new provider");
-    fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
-      target: { value: "anthropic-personal" },
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-test-123" },
     });
-    fireEvent.click(getButton("Create"));
+    fireEvent.click(getButton("Add"));
 
     await waitFor(() => {
       expect(document.body.textContent).toContain(
@@ -478,6 +1003,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     // Pick a model + key, then save immediately (no connections refetch).
     selectModel("Claude Opus 4.8");
+    fireEvent.click(getButton("Advanced"));
     fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
       target: { value: "my-profile" },
     });
@@ -565,6 +1091,31 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     });
     expect(toastSuccessCalls).toEqual([]);
   });
+
+  test('saving Fireworks DeepSeek V4 Flash with effort "none" persists the explicit opt-out', async () => {
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    const onSave = (name: string, entry: unknown) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown> });
+      return Promise.resolve();
+    };
+
+    renderCreate([makeConnection("fireworks-managed", "fireworks")], onSave);
+
+    selectProvider("Fireworks");
+    selectModel("DeepSeek V4 Flash");
+    fireEvent.click(getButton("Advanced"));
+    fireEvent.click(getButton("none"));
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.effort).toBe("none");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -572,7 +1123,10 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
-  function renderEdit(initialValues: Record<string, unknown>, connection: ProviderConnection) {
+  function renderEdit(
+    initialValues: Record<string, unknown>,
+    connection: ProviderConnection,
+  ) {
     return render(
       <Wrapper>
         <ProfileEditorModal
@@ -621,6 +1175,28 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
     expect(getSaveBtn().disabled).toBe(false);
   });
 
+  test("treats the vellum connection as available for a managed-routable provider (no stale-clear)", () => {
+    // A managed profile keeps its real provider (fireworks) but binds to the
+    // provider-agnostic `vellum` connection, whose own provider is the `vellum`
+    // sentinel. The editor must recognize that binding for managed-routable
+    // providers instead of flagging it "not found" and auto-clearing it on save.
+    renderEdit(
+      {
+        name: "balanced",
+        label: "Balanced",
+        provider: "fireworks",
+        model: "accounts/fireworks/models/kimi-k2p5",
+        provider_connection: "vellum",
+        status: "active",
+      },
+      makeConnection("vellum", "vellum"),
+    );
+
+    // The binding resolves — the stale "(not found)" marker is absent.
+    expect(document.body.textContent).not.toContain("vellum (not found)");
+    expect(getSaveBtn().disabled).toBe(false);
+  });
+
   test("offers the bound model as a selectable option in the Model dropdown", () => {
     renderEdit(
       {
@@ -640,7 +1216,7 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });
@@ -690,12 +1266,118 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       const labels = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
-      ).map((o) => o.textContent?.trim());
+      ).map((o) => optionLabel(o));
       fireEvent.click(trigger);
       return labels;
     });
     expect(optionLabels).toContain("GPT-5.5");
     expect(optionLabels).not.toContain("GPT-5.5 Pro");
+  });
+
+  test("lets the user enter a custom model ID the catalog omits and saves it verbatim", async () => {
+    // The static OpenRouter catalog can't track every routable model, so the
+    // Model field offers a free-text escape hatch. Picking it and typing an id
+    // the build doesn't list must produce a saveable profile bound to that id.
+
+    // GIVEN an OpenRouter profile open in the editor, bound to a catalog model
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+    render(
+      <Wrapper>
+        <ProfileEditorModal
+          isOpen
+          mode="edit"
+          profileName="fusion"
+          initialValues={
+            {
+              name: "fusion",
+              label: "Fusion",
+              provider: "openrouter",
+              model: "anthropic/claude-opus-4.8",
+              provider_connection: "openrouter",
+              status: "active",
+            } as unknown as never
+          }
+          existingNames={["fusion"]}
+          connections={[makeConnection("openrouter", "openrouter")]}
+          assistantId={ASSISTANT_ID}
+          onSave={(name, entry) => {
+            saveCalls.push({ name, entry: entry as Record<string, unknown> });
+            return Promise.resolve();
+          }}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    // WHEN the user picks the free-text option (the Model dropdown is the only
+    // one offering it) and types an id absent from the catalog, then saves
+    let pickedCustom = false;
+    for (const trigger of dropdownTriggers()) {
+      fireEvent.click(trigger);
+      const customOption = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((o) => o.textContent?.trim() === "Enter a custom model ID…");
+      if (customOption) {
+        fireEvent.click(customOption);
+        pickedCustom = true;
+        break;
+      }
+      fireEvent.click(trigger);
+    }
+    expect(pickedCustom).toBe(true);
+
+    const modelInput = getInputByPlaceholder("provider/model-id");
+    fireEvent.change(modelInput, { target: { value: "tencent/hy3" } });
+
+    await waitFor(() => {
+      expect(getSaveBtn().disabled).toBe(false);
+    });
+    fireEvent.click(getSaveBtn());
+
+    // THEN the typed id is persisted exactly as entered
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.model).toBe("tencent/hy3");
+  });
+
+  test("withholds the custom-model option from a subscription-restricted connection", () => {
+    // A ChatGPT-subscription OpenAI connection only accepts the Codex model
+    // set, so the free-text escape hatch must not appear — a typed id the
+    // endpoint rejects would otherwise be saveable.
+    const subscriptionConnection = {
+      name: "openai-chatgpt",
+      label: null,
+      provider: "openai",
+      auth: {
+        type: "oauth_subscription",
+        credential: "credential/openai/oauth_subscription",
+      },
+      models: null,
+    } as unknown as ProviderConnection;
+
+    renderEdit(
+      {
+        name: "codex",
+        label: "Codex",
+        provider: "openai",
+        model: "gpt-5.5",
+        provider_connection: "openai-chatgpt",
+        status: "active",
+      },
+      subscriptionConnection,
+    );
+
+    const optionLabels = dropdownTriggers().flatMap((trigger) => {
+      fireEvent.click(trigger);
+      const labels = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).map((o) => optionLabel(o));
+      fireEvent.click(trigger);
+      return labels;
+    });
+    expect(optionLabels).toContain("GPT-5.5");
+    expect(optionLabels).not.toContain("Enter a custom model ID…");
   });
 });
 
@@ -759,72 +1441,148 @@ describe("ProfileEditorModal — Top P wiring", () => {
     });
     expect(saveCalls[0].entry.topP).toBeNull();
   });
+});
 
-  describe("managed profile in view mode", () => {
-    // A managed (platform-seeded) Balanced profile. Anthropic opus →
-    // visibility.topP is true, so the Top P control renders even in view mode.
-    const managedProfile = {
-      name: "balanced",
-      label: "Balanced",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      source: "managed",
+// ---------------------------------------------------------------------------
+// Invariant (managed) profiles — server-stamped `invariant: true`
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal — invariant managed profiles in view mode", () => {
+  // A server-stamped managed profile. Anthropic opus → visibility.topP is
+  // true, so the Top P control renders and we can assert it is locked.
+  const invariantProfile = {
+    name: "default-a",
+    label: "Default A",
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    source: "managed",
+    invariant: true,
+    topP: 0.9,
+  };
+
+  test("an active invariant profile is fully read-only: no status toggle, disabled label and Top P, Save never armed", () => {
+    renderView(invariantProfile);
+
+    // No disable affordance: the Active toggle is not rendered at all.
+    expect(findSwitchByLabel("Active")).toBeNull();
+
+    // Label and Top P are locked.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(topPSwitch().disabled).toBe(true);
+
+    // Save opens disabled and clicking the locked Top P toggle can't arm it.
+    expect(getSaveBtn().disabled).toBe(true);
+    fireEvent.click(topPSwitch());
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("a disabled invariant profile keeps an enable-only toggle; saving PATCHes exactly {status:'active'} as a merge", async () => {
+    const saveCalls: {
+      name: string;
+      entry: Record<string, unknown>;
+      options?: { mode?: "merge" | "replace" };
+    }[] = [];
+    const onSave = (
+      name: string,
+      entry: unknown,
+      options?: { mode?: "merge" | "replace" },
+    ) => {
+      saveCalls.push({
+        name,
+        entry: entry as Record<string, unknown>,
+        options,
+      });
+      return Promise.resolve();
     };
 
-    test("the Top P control is editable even though the modal is read-only", () => {
-      renderView(managedProfile);
+    renderView({ ...invariantProfile, status: "disabled" }, onSave);
 
-      // The Top P toggle stays interactive while the rest of the editor is
-      // locked (provider/model dropdowns are disabled in view mode).
-      expect((topPSwitch() as HTMLButtonElement).disabled).toBe(false);
+    // The re-enable affordance is present and Save starts disarmed.
+    const activeSwitch = findSwitchByLabel("Active");
+    expect(activeSwitch).not.toBeNull();
+    expect(getSaveBtn().disabled).toBe(true);
+
+    // Flip to active: Save arms, and the toggle disappears (the flip is
+    // one-directional — an active invariant profile can't be disabled).
+    fireEvent.click(activeSwitch!);
+    expect(getSaveBtn().disabled).toBe(false);
+    expect(findSwitchByLabel("Active")).toBeNull();
+
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
     });
+    // The body is exactly {status:"active"} — no label, no topP.
+    expect(saveCalls[0].entry).toEqual({ status: "active" });
+    expect(saveCalls[0].options?.mode).toBe("merge");
+  });
 
-    test("enabling Top P arms the otherwise close-only Save button", () => {
-      renderView(managedProfile);
+  test("an invariant profile opened in edit mode keeps the lock (defense-in-depth)", () => {
+    // The lock keys off the server-stamped wire flag alone, so even if a
+    // parent opens an invariant profile in edit mode the lock must hold:
+    // locked label and Top P, no delete/recreate save path.
+    renderEdit(invariantProfile);
 
-      // View mode opens with Save disabled (no policy fields touched yet).
-      expect(getSaveBtn().disabled).toBe(true);
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(topPSwitch().disabled).toBe(true);
 
-      // Turning Top P on is a tracked view-mode change → Save unlocks.
-      fireEvent.click(topPSwitch());
-      expect(getSaveBtn().disabled).toBe(false);
-    });
+    // The footer is the safe read-only footer: Save As New is offered and
+    // Save stays disarmed (no status change to flip on an active profile).
+    expect(getButton("Save As New")).not.toBeNull();
+    expect(getSaveBtn().disabled).toBe(true);
+  });
 
-    test("saving sends topP in a merge entry without seed-owned fields", async () => {
-      const saveCalls: {
-        name: string;
-        entry: Record<string, unknown>;
-        options?: { mode?: "merge" | "replace" };
-      }[] = [];
-      const onSave = (
-        name: string,
-        entry: unknown,
-        options?: { mode?: "merge" | "replace" },
-      ) => {
-        saveCalls.push({
-          name,
-          entry: entry as Record<string, unknown>,
-          options,
-        });
-        return Promise.resolve();
-      };
-
-      renderView(managedProfile, onSave);
-
-      // Enable Top P, then save.
-      fireEvent.click(topPSwitch());
-      fireEvent.click(getSaveBtn());
-
-      await waitFor(() => {
-        expect(saveCalls.length).toBe(1);
+  test("an invariant profile in edit mode saves an enable flip as a {status:'active'} merge, never delete/recreate", async () => {
+    const saveCalls: {
+      name: string;
+      entry: Record<string, unknown>;
+      options?: { mode?: "merge" | "replace" };
+    }[] = [];
+    const onSave = (
+      name: string,
+      entry: unknown,
+      options?: { mode?: "merge" | "replace" },
+    ) => {
+      saveCalls.push({
+        name,
+        entry: entry as Record<string, unknown>,
+        options,
       });
-      // The merge entry carries the new topP number...
-      expect(saveCalls[0].entry.topP).toBe(0.95);
-      expect(typeof saveCalls[0].entry.topP).toBe("number");
-      // ...as a deep-merge so seed-owned fields are never sent.
-      expect(saveCalls[0].options?.mode).toBe("merge");
-      expect(saveCalls[0].entry.provider).toBeUndefined();
-      expect(saveCalls[0].entry.model).toBeUndefined();
+      return Promise.resolve();
+    };
+
+    renderEdit({ ...invariantProfile, status: "disabled" }, onSave);
+
+    const activeSwitch = findSwitchByLabel("Active");
+    expect(activeSwitch).not.toBeNull();
+    fireEvent.click(activeSwitch!);
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
     });
+    // The body is exactly {status:"active"} as a merge — the replace path
+    // (delete/recreate) is never taken for invariant profiles.
+    expect(saveCalls[0].entry).toEqual({ status: "active" });
+    expect(saveCalls[0].options?.mode).toBe("merge");
+  });
+
+  test("Save As New from an invariant profile yields a fully editable create form", () => {
+    renderView(invariantProfile);
+
+    fireEvent.click(getButton("Save As New"));
+
+    // Clearing the generated key does not surface a validation error before
+    // the user interacts with the collapsed identity fields.
+    expect(getButton("Advanced").getAttribute("aria-expanded")).toBe("false");
+    expect(document.body.textContent).not.toContain("Key is required");
+    fireEvent.click(getButton("Advanced"));
+
+    // The duplicate drops the invariant lock: name and key are editable and
+    // the Active toggle is back.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
+    expect(getInputByPlaceholder("e.g. fast-cheap").disabled).toBe(false);
+    expect(findSwitchByLabel("Active")).not.toBeNull();
   });
 });

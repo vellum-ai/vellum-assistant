@@ -1,40 +1,15 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mocks — must come before any imports that depend on them
-// ---------------------------------------------------------------------------
+import { beforeEach, describe, expect, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const workspaceDir = testDir;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
-// ---------------------------------------------------------------------------
-// Imports — after mocks
-// ---------------------------------------------------------------------------
-
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations, messages } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 import { recoverConversationsFromDiskViewMigration } from "../workspace/migrations/028-recover-conversations-from-disk-view.js";
 
 await initializeDb();
@@ -252,7 +227,6 @@ describe("028-recover-conversations-from-disk-view migration", () => {
         updatedAt: createdAtMs,
         conversationType: "standard",
         source: "user",
-        memoryScopeId: "default",
       })
       .run();
 

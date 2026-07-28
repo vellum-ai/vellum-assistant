@@ -1,8 +1,6 @@
-import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
-import type { SkillLoadedEventRecord } from "../memory/skill-loaded-events-store.js";
 import { RiskLevel } from "../permissions/types.js";
 import type {
   Message,
@@ -11,6 +9,7 @@ import type {
   ToolUseContent,
 } from "../providers/types.js";
 import type { SkillInstallMeta } from "../skills/install-meta.js";
+import type { SkillLoadedEventRecord } from "../telemetry/skill-loaded-events-store.js";
 import type { Tool } from "../tools/types.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import { buildSkillLoadHistory } from "./test-support/browser-skill-harness.js";
@@ -38,6 +37,8 @@ let recordedSkillLoadedEvents: SkillLoadedEventRecord[] = [];
 let mockRecordSkillLoadedFailure = false;
 /** Skill IDs for which registerSkillTools throws (simulates a different-owner tool name collision). */
 let mockRegisterFailures: Set<string> = new Set();
+/** `(skillDir, today)` pairs captured by the mocked touchSkillLastUsed. */
+let recordedLastUsedTouches: Array<{ skillDir: string; today: string }> = [];
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -45,6 +46,21 @@ let mockRegisterFailures: Set<string> = new Set();
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
+  // Faithful reimplementation of the real plugin-scope filter — the
+  // per-chat plugin scope suite below depends on its drop behavior.
+  filterSkillsByEnabledPlugins: (
+    skills: SkillSummary[],
+    effectiveEnabledPluginSet: Set<string> | null,
+  ) =>
+    effectiveEnabledPluginSet === null
+      ? skills
+      : skills.filter((skill) => {
+          const owner = skill.owner;
+          if (owner?.kind !== "plugin") {
+            return true;
+          }
+          return effectiveEnabledPluginSet.has(owner.id);
+        }),
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -67,10 +83,16 @@ mock.module("../skills/active-skill-tools.js", () => {
     const entries: Array<{ id: string; version?: string }> = [];
     for (const msg of messages) {
       for (const block of msg.content) {
-        if (block.type !== "tool_result") continue;
-        if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+        if (block.type !== "tool_result") {
+          continue;
+        }
+        if (!skillLoadUseIds.has(block.tool_use_id)) {
+          continue;
+        }
         const text = block.content;
-        if (!text) continue;
+        if (!text) {
+          continue;
+        }
         for (const match of text.matchAll(re)) {
           if (!seen.has(match[1])) {
             seen.add(match[1]);
@@ -155,7 +177,22 @@ mock.module("../tools/registry.js", () => ({
     let found: Tool | undefined;
     for (const tools of mockRegisteredTools.values()) {
       for (const tool of tools) {
-        if (tool.name === name) found = tool;
+        if (tool.name === name) {
+          found = tool;
+        }
+      }
+    }
+    return found;
+  },
+  // Sync peek mirrors getTool — the skill-tool projection path reads via
+  // resolveTool synchronously.
+  resolveTool: (name: string): Tool | undefined => {
+    let found: Tool | undefined;
+    for (const tools of mockRegisteredTools.values()) {
+      for (const tool of tools) {
+        if (tool.name === name) {
+          found = tool;
+        }
       }
     }
     return found;
@@ -169,7 +206,9 @@ mock.module("../tools/registry.js", () => ({
     let ownerSkillId: string | undefined;
     for (const [skillId, tools] of mockRegisteredTools.entries()) {
       for (const tool of tools) {
-        if (tool.name === name) ownerSkillId = skillId;
+        if (tool.name === name) {
+          ownerSkillId = skillId;
+        }
       }
     }
     return ownerSkillId === undefined
@@ -187,18 +226,25 @@ mock.module("../tools/registry.js", () => ({
   },
 }));
 
-// Stub existsSync so TOOLS.json existence checks pass for skills that have manifests
-mock.module("node:fs", () => ({
-  ...realFs,
-  existsSync: (p: string) => {
-    if (typeof p === "string" && p.endsWith("TOOLS.json")) {
-      const parts = p.split("/");
-      const skillId = parts[parts.length - 2];
-      return skillId in mockManifests;
-    }
-    return realFs.existsSync(p);
-  },
-}));
+// Stub existsSync so TOOLS.json existence checks pass for skills that have
+// manifests. `require("fs")` inside the factory captures the real
+// implementation eagerly; a top-level `import * as realFs` spread would
+// live-bind back into this mock and deadlock the real config loader.
+mock.module("node:fs", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const realFs = require("fs");
+  return {
+    ...realFs,
+    existsSync: (p: string) => {
+      if (typeof p === "string" && p.endsWith("TOOLS.json")) {
+        const parts = p.split("/");
+        const skillId = parts[parts.length - 2];
+        return skillId in mockManifests;
+      }
+      return realFs.existsSync(p);
+    },
+  };
+});
 
 mock.module("../skills/version-hash.js", () => ({
   computeSkillVersionHash: (skillDir: string) => {
@@ -212,25 +258,6 @@ mock.module("../skills/version-hash.js", () => ({
     }
     return `v1:default-hash-${skillId}`;
   },
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  loadConfig: () => ({
-    skills: { entries: {}, allowBundled: null },
-  }),
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../config/assistant-feature-flags.js", () => ({
@@ -249,13 +276,17 @@ mock.module("../skills/install-meta.js", () => ({
     const skillId = parts[parts.length - 1];
     return mockInstallMetas[skillId] ?? null;
   },
+  touchSkillLastUsed: (skillDir: string, today: string) => {
+    recordedLastUsedTouches.push({ skillDir, today });
+    return true;
+  },
 }));
 
 mock.module("../skills/catalog-cache.js", () => ({
   getCachedCatalogSync: () => mockCachedCatalog,
 }));
 
-mock.module("../memory/skill-loaded-events-store.js", () => ({
+mock.module("../telemetry/skill-loaded-events-store.js", () => ({
   recordSkillLoadedEvent: (record: SkillLoadedEventRecord) => {
     if (mockRecordSkillLoadedFailure) {
       throw new Error("Mock: skill_loaded store failure");
@@ -1171,6 +1202,153 @@ describe("skill_loaded telemetry recording", () => {
 
     expect(recordedSkillLoadedEvents).toHaveLength(0);
     expect(result.allowedToolNames.has("notes_add")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// lastUsedAt stamping on managed-skill load
+// ---------------------------------------------------------------------------
+
+describe("lastUsedAt stamping on managed-skill load", () => {
+  let sessionState: Map<string, string>;
+
+  // The projection layer computes `today` from the local clock; mirror that
+  // expression so the assertion stays correct regardless of the run date.
+  const expectedToday = new Date().toLocaleDateString("en-CA");
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    mockInstallMetas = {};
+    recordedSkillLoadedEvents = [];
+    recordedLastUsedTouches = [];
+    sessionState = new Map<string, string>();
+  });
+
+  test("managed skill load stamps lastUsedAt with today's date and its directory", () => {
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toEqual([
+      { skillDir: "/skills/homemade", today: expectedToday },
+    ]);
+  });
+
+  test("stamps managed skills even when telemetry is off (ungated)", () => {
+    // origin: "custom" is suppressed for telemetry but must still be stamped.
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    // No telemetry option passed.
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+    expect(recordedLastUsedTouches).toHaveLength(1);
+    expect(recordedLastUsedTouches[0].skillDir).toBe("/skills/homemade");
+  });
+
+  test("instruction-only managed skill (no TOOLS.json) is stamped", () => {
+    mockCatalog = [makeSkill("catalog-skill")];
+    // No manifest — instruction-only managed skill.
+    mockInstallMetas = {
+      "catalog-skill": {
+        origin: "vellum",
+        installedAt: "2026-01-01T00:00:00Z",
+      },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="catalog-skill" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toEqual([
+      { skillDir: "/skills/catalog-skill", today: expectedToday },
+    ]);
+  });
+
+  test("bundled skills are NOT stamped", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: { conversationId: "conv-xyz", attribution: null },
+    });
+
+    // Telemetry still fires for the bundled skill, but no usage stamp.
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedLastUsedTouches).toHaveLength(0);
+  });
+
+  test("workspace skills are NOT stamped", () => {
+    mockCatalog = [makeSkill("local-helper", undefined, "workspace")];
+    mockManifests = { "local-helper": makeManifest(["lh_run"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="local-helper" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toHaveLength(0);
+  });
+
+  test("a still-active skill on a later turn does not re-stamp", () => {
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    // Stamping rides the same load events as telemetry — once per activation.
+    expect(recordedLastUsedTouches).toHaveLength(1);
+  });
+
+  test("version-hash change re-registers and re-stamps the managed skill", () => {
+    mockCatalog = [makeSkill("homemade")];
+    mockManifests = { homemade: makeManifest(["hm_run"]) };
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+    mockVersionHashes = { homemade: "v1:hash-aaa" };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    mockVersionHashes = { homemade: "v1:hash-bbb" };
+    projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
+
+    expect(recordedLastUsedTouches).toHaveLength(2);
   });
 });
 
@@ -2851,6 +3029,66 @@ describe("includes metadata does not auto-activate child skill tools", () => {
     expect(result.allowedToolNames.has("gp_action")).toBe(true);
     expect(result.allowedToolNames.has("parent_action")).toBe(false);
     expect(result.allowedToolNames.has("child_action")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-chat plugin scope — effectiveEnabledPluginSet drops plugin skills
+// ---------------------------------------------------------------------------
+
+describe("projectSkillTools per-chat plugin scope", () => {
+  function makePluginSkill(id: string, pluginId: string): SkillSummary {
+    return {
+      ...makeSkill(id, `/skills/${id}`, "plugin"),
+      owner: { kind: "plugin", id: pluginId },
+    };
+  }
+
+  beforeEach(() => {
+    mockCatalog = [makeSkill("deploy"), makePluginSkill("plug_skill", "b")];
+    mockManifests = {
+      deploy: makeManifest(["deploy_run"]),
+      plug_skill: makeManifest(["plug_action"]),
+    };
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    mockRegisterFailures = new Set();
+  });
+
+  test("set excluding the owning plugin drops that plugin's skill tools", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: new Set(["a"]),
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(false);
+  });
+
+  test("null set leaves plugin skill resolution unchanged", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: null,
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(true);
+  });
+
+  test("set including the owning plugin keeps that plugin's skill tools", () => {
+    const result = projectSkillTools([], {
+      preactivatedSkillIds: ["deploy", "plug_skill"],
+      previouslyActiveSkillIds: new Map<string, string>(),
+      effectiveEnabledPluginSet: new Set(["b"]),
+    });
+
+    expect(result.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(result.allowedToolNames.has("plug_action")).toBe(true);
   });
 });
 

@@ -1,5 +1,5 @@
 
-import { Loader2, Mic, StopCircle } from "lucide-react";
+import { Loader2, Mic, Square } from "lucide-react";
 import {
     forwardRef,
     useCallback,
@@ -1021,10 +1021,18 @@ export const VoiceInputButton = forwardRef<
         processing ? (
           <Loader2 className="animate-spin" strokeWidth={2} />
         ) : recording ? (
-          <StopCircle strokeWidth={2} />
+          // Filled rounded-square "stop" glyph (matches the detail-panel stop
+          // button + the design in Figma 6764:6744). Sized to 20px via
+          // `iconOnlyGlyphClassName` below.
+          <Square fill="currentColor" strokeWidth={2} />
         ) : (
           <Mic strokeWidth={2} />
         )
+      }
+      // The recording "stop" glyph reads at 20px per the design; the mic /
+      // loader keep the Button's default icon-only sizing.
+      iconOnlyGlyphClassName={
+        recording ? "[&_svg]:size-5 touch-mobile:[&_svg]:size-5" : undefined
       }
       onClick={() => {
         if (processing) return;
@@ -1040,7 +1048,11 @@ export const VoiceInputButton = forwardRef<
       aria-busy={processing}
       title={label}
       className={cn(
-        "[--vbtn-fg:var(--content-secondary)]",
+        // Tertiary resting tone, matching the composer action row's icons
+        // (Figma: New-App 7471-25234). The touch-mobile override beats the
+        // ghost icon-only variant's default-tone mobile chrome so mobile
+        // matches desktop.
+        "[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)]",
         isNative && recording && "h-12 w-12 max-md:h-12 max-md:w-12",
       )}
     />

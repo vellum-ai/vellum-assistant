@@ -6,38 +6,26 @@
  * UI history list while remaining visible to the LLM-side history loader.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// Keep the memory system off so addMessage skips indexing side effects.
+setConfig("memory", { enabled: false });
 
 import {
   _setPaginationScanCapForTesting,
   addMessage,
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
 import {
   MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
-} from "../memory/memory-retrospective-constants.js";
-import { messages } from "../memory/schema.js";
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 await initializeDb();

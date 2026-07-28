@@ -26,6 +26,10 @@ mock.module("@sentry/react", () => ({
 let mockReconnectCursor: number | null = null;
 mock.module("@/lib/streaming/reconnect-cursor", () => ({
   getReconnectCursor: () => mockReconnectCursor,
+  getAbandonedGenerationCeiling: () => null,
+  recordAbandonedGeneration: () => {},
+  getSeqGeneration: () => 0,
+  advanceSeqGeneration: () => {},
 }));
 
 import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";

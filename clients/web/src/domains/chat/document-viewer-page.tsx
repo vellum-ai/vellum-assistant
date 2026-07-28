@@ -10,8 +10,10 @@
 import { Typography } from "@vellumai/design-library";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
     documentsByIdConversationsPost,
@@ -36,7 +38,10 @@ import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 export function DocumentViewerPage() {
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isMobile = useIsMobile();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const swipeContainerRef = useRef<HTMLDivElement>(null);
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +57,7 @@ export function DocumentViewerPage() {
     }
     // Wait for the selection store to resolve before fetching — on cold nav
     // assistantId starts null and the lifecycle hook fills it asynchronously.
-    if (!assistantId) return;
+    if (!assistantId) {return;}
 
     let cancelled = false;
     void (async () => {
@@ -61,7 +66,7 @@ export function DocumentViewerPage() {
           path: { assistant_id: assistantId, id: surfaceId },
           throwOnError: true,
         });
-        if (cancelled) return;
+        if (cancelled) {return;}
         setDoc(result);
       } catch {
         if (!cancelled) {
@@ -102,8 +107,15 @@ export function DocumentViewerPage() {
     navigate(-1);
   }, [navigate]);
 
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: handleClose,
+    enabled: isMobile,
+    navKey: pathname,
+  });
+
   const handleSubmitFeedback = useCallback(async () => {
-    if (!doc || !assistantId || !surfaceId) return;
+    if (!doc || !assistantId || !surfaceId) {return;}
 
     // Prefer the document's original conversation — the document is already
     // linked there, so the injector will surface the comments automatically.
@@ -142,13 +154,13 @@ export function DocumentViewerPage() {
   }, [doc, assistantId, surfaceId, navigate]);
 
   const handleExport = useCallback(async () => {
-    if (!doc || !assistantId) return;
+    if (!doc || !assistantId) {return;}
     const { data: blob, response: pdfResponse } = await documentsByIdPdfGet({
       path: { assistant_id: assistantId, id: doc.surfaceId },
       throwOnError: false,
       parseAs: "blob",
     });
-    if (!pdfResponse?.ok || !blob) return;
+    if (!pdfResponse?.ok || !blob) {return;}
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), {
       href: url,
@@ -188,16 +200,18 @@ export function DocumentViewerPage() {
   }
 
   return (
-    <DocumentViewerContainer
-      surfaceId={doc.surfaceId}
-      assistantId={assistantId}
-      conversationId={doc.conversationId}
-      documentName={doc.title}
-      content={doc.content}
-      onClose={handleClose}
-      onExport={handleExport}
-      onSubmitFeedback={handleSubmitFeedback}
-      handleRef={viewerRef}
-    />
+    <div ref={swipeContainerRef} className="flex min-h-0 flex-1 flex-col">
+      <DocumentViewerContainer
+        surfaceId={doc.surfaceId}
+        assistantId={assistantId}
+        conversationId={doc.conversationId}
+        documentName={doc.title}
+        content={doc.content}
+        onClose={handleClose}
+        onExport={handleExport}
+        onSubmitFeedback={handleSubmitFeedback}
+        handleRef={viewerRef}
+      />
+    </div>
   );
 }

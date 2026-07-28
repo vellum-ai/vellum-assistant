@@ -2,16 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../memory/qdrant-client.js", () => ({
+mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
     upsertPoints: async () => {},
@@ -21,28 +12,9 @@ mock.module("../memory/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
-const TEST_CONFIG = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    extraction: {
-      ...DEFAULT_CONFIG.memory.extraction,
-      useLLM: false,
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => TEST_CONFIG,
-  getConfig: () => TEST_CONFIG,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
-
-import { getDb, getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { getDb, getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import {
   conversations,
   cronJobs,
@@ -50,13 +22,11 @@ import {
   memoryGraphNodes,
   memoryJobs,
   messages,
-  taskRuns,
-  tasks,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import {
   invalidateAssistantInferredItemsForConversation,
   isConversationFailed,
-} from "../memory/task-memory-cleanup.js";
+} from "../plugins/defaults/memory/task-memory-cleanup.js";
 
 const DEFAULT_EMOTIONAL_CHARGE =
   '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}';
@@ -66,20 +36,20 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   const convId = "conv-task-cleanup";
   const otherConvId = "conv-other";
 
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     const db = getDb();
-    db.run("DELETE FROM memory_graph_nodes");
-    // memory_jobs lives in the dedicated memory connection.
+    // memory_graph_nodes and memory_jobs live in the dedicated memory connection.
+    getMemoryDb()!.run("DELETE FROM memory_graph_nodes");
     getMemoryDb()!.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM messages");
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
-    db.run("DELETE FROM task_runs");
-    db.run("DELETE FROM tasks");
     db.run("DELETE FROM conversations");
   });
 
@@ -133,7 +103,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   }
 
   function seedMemoryGraphNodes() {
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.insert(memoryGraphNodes)
       .values([
         {
@@ -154,7 +124,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "inferred",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
         {
           id: "item-user-reported",
@@ -174,7 +143,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "direct",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
         {
           id: "item-other-conv",
@@ -194,7 +162,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "inferred",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
         {
           id: "item-already-gone",
@@ -214,7 +181,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
           sourceType: "inferred",
           narrativeRole: null,
           partOfStory: null,
-          scopeId: "default",
         },
       ])
       .run();
@@ -229,7 +195,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     expect(affected).toBe(1);
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const inferredItem = db
       .select()
       .from(memoryGraphNodes)
@@ -252,7 +218,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     invalidateAssistantInferredItemsForConversation(convId);
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const otherItem = db
       .select()
       .from(memoryGraphNodes)
@@ -266,7 +232,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     seedMessages();
 
     // Insert a node sourced from both conversations (corroboration).
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.insert(memoryGraphNodes)
       .values({
         id: "item-corroborated",
@@ -286,7 +252,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: "default",
       })
       .run();
 
@@ -310,7 +275,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
 
     invalidateAssistantInferredItemsForConversation(convId);
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const goneItem = db
       .select()
       .from(memoryGraphNodes)
@@ -336,115 +301,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     const affected =
       invalidateAssistantInferredItemsForConversation("conv-nonexistent");
     expect(affected).toBe(0);
-  });
-
-  test("invalidates items when corroborating conversation is also from a failed task run", () => {
-    const db = getDb();
-    const convA = "conv-failed-task-a";
-    const convB = "conv-failed-task-b";
-
-    // Create two conversations, each from a failed task run
-    for (const id of [convA, convB]) {
-      db.insert(conversations)
-        .values({
-          id,
-          title: null,
-          createdAt: now,
-          updatedAt: now,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalEstimatedCost: 0,
-          contextSummary: null,
-          contextCompactedMessageCount: 0,
-          contextCompactedAt: null,
-        })
-        .run();
-    }
-
-    db.insert(messages)
-      .values([
-        {
-          id: "msg-a",
-          conversationId: convA,
-          role: "assistant",
-          content: "[]",
-          createdAt: now + 10,
-        },
-        {
-          id: "msg-b",
-          conversationId: convB,
-          role: "assistant",
-          content: "[]",
-          createdAt: now + 20,
-        },
-      ])
-      .run();
-
-    // Both conversations are from failed task runs
-    db.insert(tasks)
-      .values({
-        id: "task-1",
-        title: "Test task",
-        template: "template",
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-
-    db.insert(taskRuns)
-      .values([
-        {
-          id: "run-a",
-          taskId: "task-1",
-          conversationId: convA,
-          status: "failed",
-          createdAt: now + 10,
-        },
-        {
-          id: "run-b",
-          taskId: "task-1",
-          conversationId: convB,
-          status: "failed",
-          createdAt: now + 20,
-        },
-      ])
-      .run();
-
-    // A memory node sourced from both failed conversations
-    db.insert(memoryGraphNodes)
-      .values({
-        id: "item-cross-sourced",
-        content: "cross-sourced claim\nClaim from two failed tasks.",
-        type: "semantic",
-        created: now + 10,
-        lastAccessed: now + 20,
-        lastConsolidated: now + 10,
-        emotionalCharge: DEFAULT_EMOTIONAL_CHARGE,
-        fidelity: "vivid",
-        confidence: 0.8,
-        significance: 0.7,
-        stability: 14,
-        reinforcementCount: 0,
-        lastReinforced: now + 10,
-        sourceConversations: JSON.stringify([convA, convB]),
-        sourceType: "inferred",
-        narrativeRole: null,
-        partOfStory: null,
-        scopeId: "default",
-      })
-      .run();
-
-    // Invalidating for convA should succeed because convB is also from a failed task
-    const affected = invalidateAssistantInferredItemsForConversation(convA);
-    expect(affected).toBe(1);
-
-    const item = db
-      .select()
-      .from(memoryGraphNodes)
-      .where(eq(memoryGraphNodes.id, "item-cross-sourced"))
-      .get();
-    expect(item?.fidelity).toBe("gone");
   });
 
   test("invalidates items when corroborating conversation is from a failed schedule run", () => {
@@ -523,7 +379,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    db.insert(memoryGraphNodes)
+    getMemoryDb()!
+      .insert(memoryGraphNodes)
       .values({
         id: "item-cross-sched",
         content:
@@ -543,14 +400,13 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: "default",
       })
       .run();
 
     const affected = invalidateAssistantInferredItemsForConversation(convA);
     expect(affected).toBe(1);
 
-    const item = db
+    const item = getMemoryDb()!
       .select()
       .from(memoryGraphNodes)
       .where(eq(memoryGraphNodes.id, "item-cross-sched"))
@@ -558,7 +414,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     expect(item?.fidelity).toBe("gone");
   });
 
-  test("preserves items when corroborating conversation is from a successful task run", () => {
+  test("preserves items when corroborating conversation is from a successful schedule run", () => {
     const db = getDb();
     const convFailed = "conv-failed-task";
     const convSuccess = "conv-success-task";
@@ -599,37 +455,42 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
       ])
       .run();
 
-    db.insert(tasks)
+    db.insert(cronJobs)
       .values({
-        id: "task-2",
-        title: "Test task 2",
-        template: "template",
-        status: "active",
+        id: "cron-2",
+        name: "Test schedule 2",
+        cronExpression: "0 9 * * *",
+        message: "test",
+        nextRunAt: now + 100_000,
+        createdBy: "agent",
         createdAt: now,
         updatedAt: now,
       })
       .run();
 
-    db.insert(taskRuns)
+    db.insert(cronRuns)
       .values([
         {
-          id: "run-failed",
-          taskId: "task-2",
+          id: "cron-run-failed",
+          jobId: "cron-2",
+          status: "error",
           conversationId: convFailed,
-          status: "failed",
+          startedAt: now + 10,
           createdAt: now + 10,
         },
         {
-          id: "run-success",
-          taskId: "task-2",
+          id: "cron-run-success",
+          jobId: "cron-2",
+          status: "ok",
           conversationId: convSuccess,
-          status: "completed",
+          startedAt: now + 20,
           createdAt: now + 20,
         },
       ])
       .run();
 
-    db.insert(memoryGraphNodes)
+    getMemoryDb()!
+      .insert(memoryGraphNodes)
       .values({
         id: "item-with-good-corroboration",
         content: "corroborated claim\nClaim corroborated by successful task.",
@@ -648,59 +509,20 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: "default",
       })
       .run();
 
-    // The successful task run corroborates the claim, so it should NOT be invalidated
+    // The successful schedule run corroborates the claim, so it should NOT be invalidated
     const affected =
       invalidateAssistantInferredItemsForConversation(convFailed);
     expect(affected).toBe(0);
 
-    const item = db
+    const item = getMemoryDb()!
       .select()
       .from(memoryGraphNodes)
       .where(eq(memoryGraphNodes.id, "item-with-good-corroboration"))
       .get();
     expect(item?.fidelity).toBe("vivid");
-  });
-
-  test("isConversationFailed derives state from durable task_runs/cron_runs", () => {
-    seedConversations();
-    seedMessages();
-
-    const db = getDb();
-
-    // No failure records yet — should be false
-    expect(isConversationFailed(convId)).toBe(false);
-    expect(isConversationFailed(otherConvId)).toBe(false);
-
-    // Insert a failed task run for convId
-    db.insert(tasks)
-      .values({
-        id: "task-durable",
-        title: "Durable test",
-        template: "template",
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-
-    db.insert(taskRuns)
-      .values({
-        id: "run-durable",
-        taskId: "task-durable",
-        conversationId: convId,
-        status: "failed",
-        createdAt: now + 50,
-      })
-      .run();
-
-    // Now convId should be detected as failed via the DB
-    expect(isConversationFailed(convId)).toBe(true);
-    // Other conversations remain unaffected
-    expect(isConversationFailed(otherConvId)).toBe(false);
   });
 
   test("isConversationFailed detects failed schedule runs", () => {
@@ -750,16 +572,13 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     // Enqueue graph_extract jobs for the target conversation
     enqueueMemoryJob("graph_extract", {
       conversationId: convId,
-      scopeId: "default",
     });
     enqueueMemoryJob("graph_extract", {
       conversationId: convId,
-      scopeId: "default",
     });
     // Enqueue a graph_extract job for a different conversation
     enqueueMemoryJob("graph_extract", {
       conversationId: otherConvId,
-      scopeId: "default",
     });
 
     // Verify all jobs are pending

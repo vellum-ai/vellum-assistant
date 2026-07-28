@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { PageShell } from "@/components/page-shell";
 import { LibraryView } from "@/domains/library/library-view";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
@@ -34,15 +33,14 @@ export function LibraryPage() {
     [navigate],
   );
 
+  // Page shell, heading, and back chrome come from IntelligenceLayout —
+  // this route mounts as one of its sections in routes.tsx.
   return (
-    <PageShell>
-      <LibraryView
-        assistantId={assistantId}
-        title="Library"
-        onNewConversation={handleNewConversation}
-        onOpenDocument={handleOpenDocument}
-        onOpenApp={handleOpenApp}
-      />
-    </PageShell>
+    <LibraryView
+      assistantId={assistantId}
+      onNewConversation={handleNewConversation}
+      onOpenDocument={handleOpenDocument}
+      onOpenApp={handleOpenApp}
+    />
   );
 }

@@ -4,16 +4,12 @@ process.title = "vellum-daemon";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import * as Sentry from "@sentry/node";
-
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { runDaemon } from "./lifecycle.js";
 import { emitDaemonError } from "./startup-error.js";
 
-runDaemon().catch(async (err) => {
-  Sentry.captureException(err);
-  await Sentry.flush(2000);
+runDaemon().catch((err) => {
   // Try structured log first; fall back to console.error because
   // startDaemon() captures the child process's stderr to surface error
   // details to the parent process.

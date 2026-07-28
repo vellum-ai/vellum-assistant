@@ -29,15 +29,14 @@ mock.module("./platform-client.js", () => ({
   clearBackgroundWakeIntent: mockClearBackgroundWakeIntent,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
+// Replace `publishSchedulesChanged` while keeping the rest of the module REAL
+// — a partial mock that drops the other exports breaks any transitively loaded
+// module that imports them (the conversation write paths reach this module
+// through the hook pipeline).
+const actualSyncEvents =
+  await import("../runtime/sync/resource-sync-events.js");
 mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  ...actualSyncEvents,
   publishSchedulesChanged: () => {},
 }));
 
@@ -54,6 +53,8 @@ mock.module("../util/platform.js", () => ({
   getDataDir: () => workspacePath("data"),
   getConfigQuarantineNoticePath: () =>
     workspacePath("data", "config-quarantine-notice.json"),
+  getConfigValidationResetNoticePath: () =>
+    workspacePath("data", "config-validation-reset-notice.json"),
   getDbPath: () => workspacePath("data", "db", "assistant.db"),
   ensureDataDir: () => {
     mkdirSync(workspacePath("data", "db"), { recursive: true });
@@ -88,8 +89,6 @@ mock.module("../util/platform.js", () => ({
   getProfilerRunsDir: () => workspacePath("data", "profiler", "runs"),
   getProfilerRunDir: (runId: string) =>
     workspacePath("data", "profiler", "runs", runId),
-  getSkillRuntimePath: () => undefined,
-  getBundledBunPath: () => undefined,
 }));
 
 const {
@@ -97,8 +96,8 @@ const {
   refreshBackgroundWakeIntent,
   resetBackgroundWakeIntentPublisherForTest,
 } = await import("./publisher.js");
-const { initializeDb } = await import("../memory/db-init.js");
-const { getDb } = await import("../memory/db-connection.js");
+const { initializeDb } = await import("../persistence/db-init.js");
+const { getDb } = await import("../persistence/db-connection.js");
 const { createSchedule, deleteSchedule, updateSchedule } =
   await import("../schedule/schedule-store.js");
 
@@ -188,7 +187,7 @@ describe("background wake intent publisher hooks", () => {
   });
 
   test("schedule create, update, and delete mutations refresh the wake intent", async () => {
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Wake hook",
       cronExpression: "* * * * *",
       message: "wake",
@@ -197,11 +196,11 @@ describe("background wake intent publisher hooks", () => {
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(1);
 
-    updateSchedule(job.id, { name: "Wake hook updated" });
+    await updateSchedule(job.id, { name: "Wake hook updated" });
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(2);
 
-    expect(deleteSchedule(job.id)).toBe(true);
+    expect(await deleteSchedule(job.id)).toBe(true);
     await flushQueuedWakeRefresh();
     expect(mockPublishBackgroundWakeIntent).toHaveBeenCalledTimes(3);
   });
@@ -229,19 +228,25 @@ describe("background wake intent publisher hooks", () => {
     );
   });
 
-  test("daemon lifecycle publishes once after heartbeat and scheduler startup", () => {
+  test("scheduler startup publishes the daemon-startup wake intent", () => {
+    const schedulerSource = readFileSync(
+      new URL("../schedule/scheduler.ts", import.meta.url),
+      "utf-8",
+    );
     const lifecycleSource = readFileSync(
       new URL("../daemon/lifecycle.ts", import.meta.url),
       "utf-8",
     );
 
-    expect(lifecycleSource).toContain(
-      [
-        "heartbeat.start();",
-        "registerBackgroundWakeRuntime({ scheduler, heartbeat });",
-        'refreshBackgroundWakeIntent("daemon-startup");',
-      ].join("\n    "),
+    // The daemon-startup intent is published from the end of startScheduler(),
+    // so it lands once the scheduler is live and its schedules are visible to
+    // computeNextBackgroundWakeIntent. Heartbeat startup republishes with the
+    // live heartbeat timing via its own "heartbeat-*" refreshes.
+    expect(schedulerSource).toContain(
+      'refreshBackgroundWakeIntent("daemon-startup")',
     );
+    // Lifecycle no longer publishes the intent directly.
+    expect(lifecycleSource).not.toContain("refreshBackgroundWakeIntent");
   });
 
   test("shutdown paths do not clear background wake intents", () => {

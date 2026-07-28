@@ -9,37 +9,58 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
-// Silence logger output during tests.
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-const testConfig = {
-  skills: { load: { extraDirs: [] as string[] } },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-  loadConfig: () => testConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // Mock feature flags to return false by default.
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => false,
 }));
 
-// Mock skill resolution — return null by default (no skill found).
+// `buildPolicyContext` (used by the integration tests below) precomputes the
+// proc-to-skills gate via `isV3TierActive`. Drive it through this slot so a
+// test can put the production threading path in the active / inactive state.
+let mockV3TierActive = true;
+mock.module("../config/memory-v3-gate.js", () => ({
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
+  isV3TierActive: () => mockV3TierActive,
+  isMemoryV3Live: () => mockV3TierActive,
+  usesConceptPageMemory: (memory?: {
+    enabled?: boolean;
+    v2?: { enabled?: boolean };
+    v3?: { live?: boolean };
+  }) =>
+    memory?.enabled !== false &&
+    (memory?.v3?.live === true || memory?.v2?.enabled === true),
+}));
+
+// Mock skill resolution — return null by default (no skill found). The
+// `skill_load` predicate tests drive both slots to model a locally installed
+// skill with or without inline command expansions.
+type MockSkill = {
+  id: string;
+  directoryPath: string;
+  inlineCommandExpansions?: string[];
+  includes?: string[];
+};
+let mockSkillCatalog: MockSkill[] = [];
+let mockResolvedSkill: MockSkill | null = null;
+// Set to make the corresponding skills-module call throw, modelling an
+// unreadable catalog or a selector resolution that hits the filesystem and
+// fails.
+let mockCatalogError: Error | null = null;
+let mockSelectorError: Error | null = null;
 mock.module("../config/skills.js", () => ({
-  loadSkillCatalog: () => [],
-  resolveSkillSelector: () => ({ skill: null }),
+  loadSkillCatalog: () => {
+    if (mockCatalogError) {
+      throw mockCatalogError;
+    }
+    return mockSkillCatalog;
+  },
+  resolveSkillSelector: () => {
+    if (mockSelectorError) {
+      throw mockSelectorError;
+    }
+    return { skill: mockResolvedSkill };
+  },
 }));
 
 // Mock skills helpers used for file context building.
@@ -48,9 +69,9 @@ mock.module("../skills/path-classifier.js", () => ({
   getSkillRoots: () => ["/mock/skills/managed/", "/mock/skills/bundled/"],
 }));
 
-mock.module("../skills/include-graph.js", () => ({
-  indexCatalogById: () => new Map(),
-}));
+// `../skills/include-graph.js` is intentionally left unmocked: it is a pure,
+// side-effect-free traversal, and the `skill_load` predicate tests below need
+// the production include walk to run over `mockSkillCatalog`.
 
 mock.module("../skills/transitive-version-hash.js", () => ({
   computeTransitiveSkillVersionHash: () => "mock-transitive-hash",
@@ -66,13 +87,22 @@ mock.module("../config/env-registry.js", () => ({
   getIsContainerized: () => mockIsContainerized,
 }));
 
-// Mock platform utilities.
+// Mock platform utilities. Spread the real module so the config loader's own
+// path helpers keep resolving to the real per-test workspace: `getConfig()`
+// runs for real here (via `buildPolicyContext`/`buildFileContext`), and
+// pinning `getWorkspaceConfigPath` to the temp workspace with `ensureDataDir`
+// as a no-op stops the loader from touching the `/mock` classification paths.
+const realPlatform = await import("../util/platform.js");
 const mockWorkspaceDir = "/mock/workspace";
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => mockWorkspaceDir,
   getProtectedDir: () => "/mock/protected",
   getWorkspaceHooksDir: () => "/mock/workspace/hooks",
   getDeprecatedDir: () => "/mock/workspace/deprecated",
+  getWorkspaceConfigPath: () =>
+    join(process.env.VELLUM_WORKSPACE_DIR!, "config.json"),
+  ensureDataDir: () => {},
 }));
 
 // Mock gateway threshold reader — return "low" by default (conversation context default).
@@ -80,9 +110,29 @@ mock.module("../util/platform.js", () => ({
 // before a prompt is surfaced; `null` means "refresh failed, keep decision".
 let mockCachedThreshold = "low";
 let mockRefreshedThreshold: string | null = null;
+// Records the cell query check() derives from the PolicyContext, so tests can
+// assert the matrix coordinates that reach the threshold cascade.
+const thresholdCallLog: Array<{
+  fn: "get" | "refresh";
+  cellQuery: Record<string, unknown> | undefined;
+}> = [];
 mock.module("./gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => mockCachedThreshold,
-  refreshAutoApproveThreshold: async () => mockRefreshedThreshold,
+  getAutoApproveThreshold: async (
+    _conversationId?: string,
+    _executionContext?: string,
+    cellQuery?: Record<string, unknown>,
+  ) => {
+    thresholdCallLog.push({ fn: "get", cellQuery });
+    return mockCachedThreshold;
+  },
+  refreshAutoApproveThreshold: async (
+    _conversationId?: string,
+    _executionContext?: string,
+    cellQuery?: Record<string, unknown>,
+  ) => {
+    thresholdCallLog.push({ fn: "refresh", cellQuery });
+    return mockRefreshedThreshold;
+  },
   _clearGlobalCacheForTesting: () => {},
 }));
 
@@ -92,15 +142,24 @@ mock.module("./trust-store.js", () => ({
   onRulesChanged: () => {},
 }));
 
-// Mock workspace policy.
+// Mock workspace policy. Spread the real module so pure path helpers
+// (resolveSandboxBase) keep their real behavior for param building.
+const realWorkspacePolicy = await import("./workspace-policy.js");
+let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
+  ...realWorkspacePolicy,
   isWorkspaceScopedInvocation: () => false,
-  isPathWithinWorkspaceRoot: () => false,
+  isOutOfWorkspaceFileInvocation: () => false,
+  isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
-// Mock tool registry — no tools by default.
+// Mock tool registry — no tools by default. `getToolOwner` backs
+// `buildPolicyContext` (used by the integration test below); core tools have no
+// owner, so it returns undefined.
 mock.module("../tools/registry.js", () => ({
   getTool: () => undefined,
+  resolveTool: async () => undefined,
+  getToolOwner: () => undefined,
 }));
 
 // Mock URL safety helpers.
@@ -115,9 +174,13 @@ mock.module("../tools/network/url-safety.js", () => ({
 import type { ClassificationResult } from "./ipc-risk-types.js";
 
 let mockIpcClassifyRiskResult: ClassificationResult | undefined;
+let lastClassifyRiskParams: Record<string, unknown> | undefined;
 
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcClassifyRisk: async () => mockIpcClassifyRiskResult,
+  ipcClassifyRisk: async (params: Record<string, unknown>) => {
+    lastClassifyRiskParams = params;
+    return mockIpcClassifyRiskResult;
+  },
   ipcCall: async () => undefined,
   ipcCallPersistent: async () => undefined,
   resetPersistentClient: () => {},
@@ -127,6 +190,7 @@ mock.module("../ipc/gateway-client.js", () => ({
 
 import {
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -135,12 +199,15 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { buildPolicyContext } from "../tools/policy-context.js";
+import type { Tool, ToolContext } from "../tools/types.js";
 import {
   check,
   classifyRisk,
   generateAllowlistOptions,
   generateScopeOptions,
   getCachedAssessment,
+  isInstalledStaticSkillLoad,
 } from "./checker.js";
 import { RiskLevel } from "./types.js";
 
@@ -148,11 +215,17 @@ import { RiskLevel } from "./types.js";
 
 describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
-    testConfig.skills = { load: { extraDirs: [] } };
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;
+    lastClassifyRiskParams = undefined;
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
+    mockV3TierActive = true;
+    thresholdCallLog.length = 0;
+    mockSkillCatalog = [];
+    mockResolvedSkill = null;
+    mockCatalogError = null;
+    mockSelectorError = null;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -213,6 +286,70 @@ describe("Permission Checker (gateway IPC)", () => {
       await expect(classifyRisk("bash", { command: "ls" })).rejects.toThrow(
         /Gateway IPC classify_risk failed/,
       );
+    });
+
+    test("sends canonicalized boundary params for sandbox file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = mkdtempSync(join(tmpdir(), "checker-boundary-"));
+      try {
+        await classifyRisk(
+          "file_write",
+          { path: "/tmp/checker-boundary-outside.txt" },
+          workingDir,
+        );
+        expect(lastClassifyRiskParams?.isContainerized).toBe(false);
+        // The boundary is canonicalized so the gateway compares canonical
+        // against canonical (macOS tmpdir lives behind a /var symlink).
+        expect(lastClassifyRiskParams?.resolvedWorkingDir).toBe(
+          realpathSync(workingDir),
+        );
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+      }
+    });
+
+    test("classifies a dangling symlink by its destination", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "File write outside the workspace",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const workingDir = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-")),
+      );
+      const outside = realpathSync(
+        mkdtempSync(join(tmpdir(), "checker-dangling-out-")),
+      );
+      try {
+        const destination = join(outside, "not-yet.txt");
+        symlinkSync(destination, join(workingDir, "dangle"));
+        await classifyRisk("file_write", { path: "dangle" }, workingDir);
+        // The destination does not exist, but a write through the link
+        // creates it — classification must see the destination.
+        expect(lastClassifyRiskParams?.resolvedPath).toBe(destination);
+      } finally {
+        rmSync(workingDir, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    test("omits the canonicalized boundary for host file tools", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "Host file write (default)",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      await classifyRisk("host_file_write", {
+        path: "/tmp/checker-boundary-host.txt",
+      });
+      expect(lastClassifyRiskParams?.resolvedWorkingDir).toBeUndefined();
     });
 
     test("caches results for identical inputs", async () => {
@@ -309,6 +446,98 @@ describe("Permission Checker (gateway IPC)", () => {
       // Use unique command to avoid cache hits
       const result = await classifyRisk("bash", { command: "pwd" });
       expect((result as any).sandboxAutoApprove).toBe(true);
+    });
+
+    test("overrides sandboxAutoApprove when symlink escape detected", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/escape/passwd"],
+      };
+      const result = await classifyRisk("bash", {
+        command: "cat /workspace/escape/passwd",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("preserves sandboxAutoApprove when path args resolve within workspace", async () => {
+      mockIsPathWithinWorkspaceRoot = true;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/file.txt"],
+      };
+      const result = await classifyRisk("bash", {
+        command: "cat /workspace/file.txt",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(true);
+    });
+
+    test("overrides sandboxAutoApprove when any path arg escapes", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/safe.txt", "/workspace/escape/passwd"],
+      };
+      const result = await classifyRisk("bash", {
+        command: "cat /workspace/safe.txt && cat /workspace/escape/passwd",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("no sandboxPathArgs means no symlink check (backward compat)", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "ls (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        // No sandboxPathArgs — e.g. older gateway that doesn't send them
+      };
+      const result = await classifyRisk("bash", { command: "ls" });
+      expect((result as any).sandboxAutoApprove).toBe(true);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("cache hit re-runs symlink escape check after symlink retargeted", async () => {
+      // First call: path args within workspace → sandboxAutoApprove true.
+      mockIsPathWithinWorkspaceRoot = true;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/escape/secret42.bin"],
+      };
+      const first = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((first as any).sandboxAutoApprove).toBe(true);
+
+      // Second call with the same command: cache hit, but symlink now
+      // resolves outside workspace. The cache hit must re-run the check
+      // and override sandboxAutoApprove to false.
+      mockIsPathWithinWorkspaceRoot = false;
+      const second = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((second as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
     });
 
     test("preserves allowlistOptions from gateway response", async () => {
@@ -606,6 +835,384 @@ describe("Permission Checker (gateway IPC)", () => {
       );
       expect(result.decision).toBe("prompt");
     });
+
+    // ── Channel-permission matrix cell query ────────────────────────────────
+    // check() derives the matrix coordinates (adapter × conversation type ×
+    // channel ID × contact-type) from the PolicyContext and threads them into
+    // both threshold reads, so the cell tier of the cascade governs every
+    // policy rule without any rule changes.
+
+    const HIGH_RISK_RESULT = {
+      risk: "high",
+      reason: "Recursive force delete",
+      matchType: "registry",
+      scopeOptions: [],
+    } as const;
+
+    test("threads the full cell query into the threshold read and the pre-prompt refresh", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        conversationId: "conv-1",
+        trustClass: "trusted_contact",
+        sourceChannel: "slack",
+        channelExternalId: "C123",
+        channelConversationType: "dm",
+      });
+
+      const expectedQuery = {
+        adapter: "slack",
+        channelType: "dm",
+        channelExternalId: "C123",
+        contactType: "trusted_contact",
+      };
+      expect(thresholdCallLog).toEqual([
+        { fn: "get", cellQuery: expectedQuery },
+        // The high-risk prompt triggers the refresh with the same coordinates.
+        { fn: "refresh", cellQuery: expectedQuery },
+      ]);
+    });
+
+    test("omits unknown conversation type and missing channel ID from the cell query", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        // Slack non-DMs arrive without a public/private distinction, so the
+        // conversation type is unset — the channel-type tier must not match.
+        channelConversationType: undefined,
+      });
+
+      expect(thresholdCallLog[0]).toEqual({
+        fn: "get",
+        cellQuery: {
+          adapter: "slack",
+          channelType: undefined,
+          channelExternalId: undefined,
+          contactType: "unknown",
+        },
+      });
+    });
+
+    test("builds no cell query without a source channel", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "guardian",
+      });
+      expect(thresholdCallLog[0]).toEqual({ fn: "get", cellQuery: undefined });
+    });
+
+    test("builds no cell query for an unrecognized trust class", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "non_guardian",
+        sourceChannel: "slack",
+        channelExternalId: "C123",
+      });
+      expect(thresholdCallLog[0]).toEqual({ fn: "get", cellQuery: undefined });
+    });
+
+    // ── Memory-retrospective skill-authoring auto-grant ─────────────────────
+    // The background retrospective guardian session (sourceChannel "vellum",
+    // trustClass "guardian", origin "memory_retrospective") cannot answer
+    // interactive prompts, so `scaffold_managed_skill`, `find_similar_skills`,
+    // and `skill_load skill-management` resolve to allow without prompting. The
+    // grant is scoped to that origin + those tools, and ONLY fires when the
+    // feature is active (`procToSkillsActive: true`).
+
+    const retrospectiveContext = {
+      requestOrigin: "memory_retrospective",
+      trustClass: "guardian",
+      sourceChannel: "vellum",
+      executionContext: "background" as const,
+      procToSkillsActive: true,
+    };
+
+    test("allows scaffold_managed_skill for the retrospective origin without prompting", async () => {
+      // High risk would normally force a prompt — the grant short-circuits
+      // before classification, so no IPC result is needed.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("allows find_similar_skills for the retrospective origin without prompting", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill discovery",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "find_similar_skills",
+        { goal: "deploy a preview" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("allows skill_load skill-management for the retrospective origin without prompting", async () => {
+      const result = await check(
+        "skill_load",
+        { skill: "skill-management" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("does not grant skill_load for a non skill-management skill", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Dynamic skill load",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "skill_load",
+        { skill: "some-other-skill" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant for tools outside the scaffold/find/skill_load set", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Managed skill delete",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "delete_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold for an interactive (non-background) session", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // A normal interactive turn carries no retrospective origin signals.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        { executionContext: "conversation" },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("only the memory_retrospective origin grants skill authoring", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // Same guardian/vellum background trust and active feature: the
+      // consolidation origin does not authorize skill authoring; only the
+      // retrospective origin holds this grant.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "memory_consolidation",
+          trustClass: "guardian",
+          sourceChannel: "vellum",
+          executionContext: "background",
+          procToSkillsActive: true,
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold for a different background origin", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // Same guardian/vellum background trust, but a different origin (e.g.
+      // the memory sweep job) must not inherit the retrospective grant.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "schedule",
+          trustClass: "guardian",
+          sourceChannel: "vellum",
+          executionContext: "background",
+          procToSkillsActive: true,
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold when trust is not guardian", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        {
+          requestOrigin: "memory_retrospective",
+          trustClass: "unknown",
+          sourceChannel: "vellum",
+          executionContext: "background",
+          procToSkillsActive: true,
+        },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("does not grant scaffold when proc-to-skills is inactive (flag off / v3 not live)", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // The exact retrospective origin/trust/channel, but the feature is
+      // inactive — `procToSkillsActive` is not true — so the grant must NOT
+      // fire and the high-risk tool prompts.
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        { ...retrospectiveContext, procToSkillsActive: false },
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    // ── Integration: production `buildPolicyContext` → `check` path ──────────
+    // The hand-built-PolicyContext tests above prove the grant LOGIC. These
+    // exercise the WIRING: a `ToolContext` (the shape the agent loop actually
+    // builds — see conversation-tool-setup.ts) is run through the real
+    // `buildPolicyContext`, and only then handed to `check`. Without the
+    // origin/trust/channel threading, `buildPolicyContext` would drop those
+    // fields and the grant would be dead code.
+
+    /** A bare core tool — `buildPolicyContext` reads only `tool.name`/owner. */
+    const scaffoldTool = {
+      name: "scaffold_managed_skill",
+    } as unknown as Tool;
+
+    /** The ToolContext a memory-retrospective pass produces. */
+    const retrospectiveToolContext: ToolContext = {
+      conversationId: "conv-retro",
+      workingDir: "/home/user/project",
+      trustClass: "guardian",
+      executionChannel: "vellum",
+      requestOrigin: "memory_retrospective",
+      isInteractive: false,
+    };
+
+    test("grant fires through the real buildPolicyContext path for the retrospective turn", async () => {
+      // High risk would normally force a prompt; the grant short-circuits it.
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        retrospectiveToolContext,
+      );
+      // Prove the threading: buildPolicyContext copied the ToolContext signals
+      // and stamped the active proc-to-skills gate.
+      expect(policyContext.requestOrigin).toBe("memory_retrospective");
+      expect(policyContext.trustClass).toBe("guardian");
+      expect(policyContext.sourceChannel).toBe("vellum");
+      expect(policyContext.procToSkillsActive).toBe(true);
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
+    test("grant does NOT fire for a normal interactive tool call via buildPolicyContext", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      // A normal interactive turn: a guardian on the desktop, no retrospective
+      // origin. buildPolicyContext leaves `requestOrigin` unset, so the grant
+      // must not fire and the high-risk tool prompts.
+      const interactiveContext: ToolContext = {
+        conversationId: "conv-chat",
+        workingDir: "/home/user/project",
+        trustClass: "guardian",
+        executionChannel: "vellum",
+        isInteractive: true,
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        interactiveContext,
+      );
+      expect(policyContext.requestOrigin).toBeUndefined();
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("grant does NOT fire when proc-to-skills is inactive, even for the retrospective turn", async () => {
+      // Same retrospective ToolContext, but the feature is inactive (flag off
+      // or v3 not live). buildPolicyContext stamps `procToSkillsActive: false`,
+      // so the grant is dead and the high-risk scaffold prompts.
+      mockV3TierActive = false;
+      mockIpcClassifyRiskResult = {
+        risk: "high",
+        reason: "Skill scaffold",
+        matchType: "registry",
+        scopeOptions: [],
+      };
+      const policyContext = buildPolicyContext(
+        scaffoldTool,
+        retrospectiveToolContext,
+      );
+      expect(policyContext.procToSkillsActive).toBe(false);
+      expect(policyContext.requestOrigin).toBe("memory_retrospective");
+
+      const result = await check(
+        "scaffold_managed_skill",
+        { skill_id: "deploy-preview" },
+        "/home/user/project",
+        policyContext,
+      );
+      expect(result.decision).toBe("prompt");
+    });
   });
 
   // ── generateAllowlistOptions ──────────────────────────────────────────────
@@ -759,6 +1366,183 @@ describe("Permission Checker (gateway IPC)", () => {
     test("returns empty for non-scope-aware tools", () => {
       const options = generateScopeOptions("/home/user/project", "web_fetch");
       expect(options).toEqual([]);
+    });
+  });
+
+  // ── isInstalledStaticSkillLoad ────────────────────────────────────────────
+
+  describe("isInstalledStaticSkillLoad", () => {
+    function installSkill(inlineCommandExpansions?: string[]): void {
+      const skill: MockSkill = {
+        id: "note-taker",
+        directoryPath: "/mock/skills/bundled/note-taker",
+        inlineCommandExpansions,
+      };
+      mockResolvedSkill = skill;
+      mockSkillCatalog = [skill];
+    }
+
+    /**
+     * Install a `note-taker` parent whose selector resolves, plus whichever
+     * children are given. Children the parent includes but that are absent
+     * from `children` model an include that is not installed locally.
+     */
+    function installGraph(
+      parentIncludes: string[],
+      children: MockSkill[],
+      parentInlineCommandExpansions?: string[],
+    ): void {
+      const parent: MockSkill = {
+        id: "note-taker",
+        directoryPath: "/mock/skills/bundled/note-taker",
+        inlineCommandExpansions: parentInlineCommandExpansions,
+        includes: parentIncludes,
+      };
+      mockResolvedSkill = parent;
+      mockSkillCatalog = [parent, ...children];
+    }
+
+    function child(id: string, overrides: Partial<MockSkill> = {}): MockSkill {
+      return {
+        id,
+        directoryPath: `/mock/skills/bundled/${id}`,
+        ...overrides,
+      };
+    }
+
+    test("returns false for a tool other than skill_load", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("bash", { skill: "note-taker" })).toBe(
+        false,
+      );
+    });
+
+    test("returns false when the selector is missing", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("skill_load", {})).toBe(false);
+    });
+
+    test("returns false when the selector is blank", () => {
+      installSkill();
+      expect(isInstalledStaticSkillLoad("skill_load", { skill: "   " })).toBe(
+        false,
+      );
+    });
+
+    test("returns false when the skill is not installed locally", () => {
+      mockResolvedSkill = null;
+      mockSkillCatalog = [];
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when the resolved skill has inline expansions", () => {
+      installSkill(["git status"]);
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns true for an installed skill with no inline expansions", () => {
+      installSkill();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(true);
+    });
+
+    // ── Transitive include graph ────────────────────────────────────────────
+    // Loading a parent auto-installs its missing includes and renders inline
+    // commands in included children, so the predicate must clear the whole
+    // graph, not just the target.
+
+    test("returns false when an included skill is missing locally", () => {
+      installGraph(["formatting"], []);
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when an included skill has inline expansions", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { inlineCommandExpansions: ["git status"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when a grandchild include is missing locally", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { includes: ["typography"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when a grandchild include has inline expansions", () => {
+      installGraph(
+        ["formatting"],
+        [
+          child("formatting", { includes: ["typography"] }),
+          child("typography", { inlineCommandExpansions: ["date"] }),
+        ],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false for a cyclic include graph", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { includes: ["note-taker"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns true when every transitive include is installed and static", () => {
+      installGraph(
+        ["formatting"],
+        [
+          child("formatting", { includes: ["typography"] }),
+          child("typography"),
+        ],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(true);
+    });
+
+    // ── Fail-closed ─────────────────────────────────────────────────────────
+    // The live-voice contention gate calls this from a synchronous event
+    // callback, so a throw would abort the rest of the frame's dispatch.
+
+    test("returns false when the catalog cannot be read", () => {
+      installSkill();
+      mockCatalogError = new Error("catalog unreadable");
+      expect(() =>
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).not.toThrow();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when selector resolution throws", () => {
+      installSkill();
+      mockSelectorError = new Error("skill directory unreadable");
+      expect(() =>
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).not.toThrow();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
     });
   });
 });

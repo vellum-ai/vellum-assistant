@@ -7,6 +7,7 @@
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { getMcpServerManager } from "../mcp/manager.js";
+import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -54,6 +55,15 @@ export function reloadMcpServers(): Promise<McpReloadResult> {
 async function doReload(): Promise<McpReloadResult> {
   try {
     const manager = getMcpServerManager();
+
+    // 0. Migrate any legacy plaintext headers from config.json into
+    //    the credential store before loading config for server startup.
+    //    No-ops when no legacy headers remain; errors are logged, not thrown.
+    try {
+      await migrateLegacyMcpHeaders();
+    } catch (err) {
+      log.warn({ err }, "Legacy MCP header migration failed — continuing");
+    }
 
     // 1. Validate new config before tearing down existing servers.
     //    If the config is broken we abort early, preserving the current

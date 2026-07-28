@@ -2,7 +2,6 @@
  * Wire contract for the conversation history / messages endpoints.
  *
  *   - `GET /v1/assistants/:id/messages` → `{ messages: ConversationMessage[] }`
- *   - `POST /v1/messages` send acks echo an `assistantMessage: ConversationMessage`
  *
  * Holds the canonical history-row shape produced by the daemon's
  * `renderHistoryContent` + conversation-routes serializer and consumed by
@@ -149,12 +148,39 @@ export const ConversationMessageToolCallSchema = z.object({
   input: z.record(z.string(), z.unknown()),
   result: z.string().optional(),
   isError: z.boolean().optional(),
+  /**
+   * Stable, machine-readable classification for an error result (only set when
+   * `isError`), mirroring the live `tool_result` event's `errorCode`. Lets a
+   * surface branch on a known failure (e.g. `acp_claude_oauth_missing`, which
+   * renders an inline "Connect Claude Code" affordance) rather than parsing the
+   * human `result` string. Currently threaded on the live event only; absent on
+   * reopened history rows until the daemon persists it.
+   */
+  errorCode: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks. @deprecated Use imageDataList. */
   imageData: z.string().optional(),
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot, image generation). */
   imageDataList: z.array(z.string()).optional(),
-  /** Unix ms when the tool started executing. */
+  /**
+   * Workspace attachment ids for tool-result images persisted as workspace
+   * references. When present, clients fetch the image bytes by id on render
+   * (lazy) rather than embedding base64 in the history wire. Positionally
+   * aligned with the tool's rendered images; a row emits either these ids
+   * (referenced media) or `imageDataList` (legacy inline base64), not both for
+   * the same image.
+   */
+  imageAttachmentIds: z.array(z.string()).optional(),
+  /** Unix ms when the tool started executing (the `tool_use_start` time). */
   startedAt: z.number().optional(),
+  /**
+   * Unix ms when the tool call was first recognized in the model stream (the
+   * `tool_use_preview_start` time), before its input finished streaming. The
+   * user-perceived latency anchors here so a snapshot fetched mid-tool (refresh
+   * / reconnect) restores the first-byte elapsed counter; the tool's own
+   * execution latency stays `completedAt - startedAt`. Absent for tool calls
+   * that produced no preview (e.g. native server tools) or older history rows.
+   */
+  previewStartedAt: z.number().optional(),
   /** Unix ms when the tool completed. */
   completedAt: z.number().optional(),
   /**
@@ -275,12 +301,55 @@ export type ConversationSubagentNotification = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// ACP run notification
+// ---------------------------------------------------------------------------
+
+/** Daemon-injected ACP-run lifecycle notification attached to a history row. */
+export const ConversationAcpNotificationSchema = z.object({
+  acpSessionId: z.string(),
+  agent: z.string().optional(),
+});
+export type ConversationAcpNotification = z.infer<
+  typeof ConversationAcpNotificationSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Background-tool completion
+// ---------------------------------------------------------------------------
+
+/** Structured terminal record of a backgrounded bash/host_bash run, carrying
+ *  everything a web `BackgroundTaskEntry` needs to rebuild a completed inline
+ *  card from history. Mirrors the `background_tool_completed` SSE event plus
+ *  the registry fields (`toolName`, `command`, `startedAt`). */
+export const BackgroundToolCompletionSchema = z.object({
+  id: z.string(),
+  toolName: z.string(),
+  conversationId: z.string(),
+  command: z.string(),
+  startedAt: z.number(),
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  completedAt: z.number(),
+});
+export type BackgroundToolCompletion = z.infer<
+  typeof BackgroundToolCompletionSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Slack message envelope
 // ---------------------------------------------------------------------------
 
 const SlackMessageLinkSchema = z.object({
   appUrl: z.string().optional(),
   webUrl: z.string().optional(),
+});
+
+const SlackReactionSchema = z.object({
+  emoji: z.string(),
+  op: z.enum(["added", "removed"]),
+  actorDisplayName: z.string().optional(),
+  targetChannelTs: z.string(),
 });
 
 /** Slack provenance for a history row that originated from a Slack channel. */
@@ -297,6 +366,8 @@ export const ConversationSlackMessageSchema = z.object({
     .optional(),
   messageLink: SlackMessageLinkSchema.optional(),
   threadLink: SlackMessageLinkSchema.optional(),
+  eventKind: z.enum(["message", "reaction"]).optional(),
+  reaction: SlackReactionSchema.optional(),
 });
 export type ConversationSlackMessage = z.infer<
   typeof ConversationSlackMessageSchema
@@ -417,20 +488,6 @@ export const ConversationMessageSchema = z.object({
    * scaffolding, never a displayed turn.
    */
   role: z.enum(["user", "assistant"]),
-  /**
-   * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
-   * text segments). Redundant with `textSegments`/`contentOrder` for clients
-   * that render from the positional arrays (web, CLI). The serializer always
-   * emits it — do not remove without auditing clients that read it directly.
-   */
-  content: z
-    .string()
-    .meta({
-      deprecated: true,
-      description:
-        "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments).",
-    })
-    .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
   /**
@@ -512,6 +569,36 @@ export const ConversationMessageSchema = z.object({
    */
   contentBlocks: z.array(ConversationContentBlockSchema).optional(),
   subagentNotification: ConversationSubagentNotificationSchema.optional(),
+  acpNotification: ConversationAcpNotificationSchema.optional(),
+  /** Set on any persisted `<background_event source="...">` wake trigger row.
+   *  Like the subagent/ACP notifications, the row stays in state (the LLM reads
+   *  it) but is filtered from the rendered transcript — the user-facing wake
+   *  card carries the status. */
+  backgroundEventNotification: z.boolean().optional(),
+  /** Structured completion of a backgrounded bash/host_bash run, stamped on the
+   *  same persisted background-event wake row as `backgroundEventNotification`.
+   *  Lets the web reconstruct a terminal inline card after a daemon restart
+   *  (the in-memory completed ring does not survive restarts). `id` equals the
+   *  spawning tool call's `{backgrounded,id}` id. */
+  backgroundToolCompletion: BackgroundToolCompletionSchema.optional(),
+  /** Set on daemon-authored status cards (the /compact, /clean, and
+   *  summarize-up-to results). Clients render these rows as standalone
+   *  system notices — no avatar, no persona bubble — and never group them
+   *  with adjacent assistant turns. */
+  systemCard: z.boolean().optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
+  /**
+   * Queue state for a user message that is still waiting in the daemon's
+   * in-memory queue (enqueued while the agent was mid-turn, not yet drained or
+   * persisted to the database). Derived at render time from the live
+   * conversation's queue, so it is present only while the message is genuinely
+   * pending and lets a cold reload restore the queued rows the live
+   * `message_queued` SSE events would otherwise be the only source of. Absent
+   * on already-persisted rows. Mirrors the client `DisplayMessage` fields so
+   * the wire and display shapes converge.
+   */
+  queueStatus: z.enum(["queued", "processing"]).optional(),
+  /** 1-based position in the queue, mirroring the `message_queued` SSE event. */
+  queuePosition: z.number().optional(),
 });
 export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;

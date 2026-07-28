@@ -2,18 +2,16 @@
  * Regression: the SSE subscribe path must resolve the actor principal from the
  * SAME guardian source as the send/result routes.
  *
- * The send/result routes resolve the actor principal via the async,
- * gateway-first `findLocalGuardianPrincipalId`. The SSE eager-subscribe path
- * cannot await and uses the sync `findLocalGuardianPrincipalIdFromStore`. When
- * the gateway binding is canonical but the local contact row is stale/missing
- * (after a guardian reset or gateway-owned binding update), the sync path must
- * still land on the gateway principal — otherwise the event hub registers the
- * SSE client under a DIFFERENT principal than the turn/result paths use, and
- * targeted result submissions 403.
+ * The send/result routes resolve the actor principal via the async
+ * `findLocalGuardianPrincipalId`. The SSE eager-subscribe path cannot await and
+ * uses the sync `findLocalGuardianPrincipalIdFromStore`. Both read the
+ * gateway-owned guardian binding — async via the cached IPC read, sync via the
+ * IO-free cache snapshot — so the event hub registers the SSE client under the
+ * SAME principal the turn/result paths use; otherwise targeted result
+ * submissions 403.
  *
- * These tests pin the invariant by priming the gateway-delivery cache with a
- * principal that differs from the stale local store and asserting both
- * resolvers agree; and that a cold cache falls back to the local store.
+ * These tests pin the invariant by priming the gateway-delivery cache and
+ * asserting both resolvers agree; and that a cold cache yields no principal.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -28,17 +26,6 @@ mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: async () => ({ guardians: ipcGuardians }),
   ipcCallPersistent: async () => undefined,
   resetPersistentClient: () => {},
-}));
-
-// ── Local store mock (the stale fallback source) ─────────────────────────────
-
-let storePrincipalId: string | undefined;
-
-mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (channelType: string) =>
-    storePrincipalId && channelType === "vellum"
-      ? { contact: { principalId: storePrincipalId }, channel: {} }
-      : null,
 }));
 
 import {
@@ -62,31 +49,21 @@ describe("SSE actor principal resolves from the same guardian source as send/res
   beforeEach(() => {
     __resetGuardianDeliveryCacheForTest();
     ipcGuardians = [];
-    storePrincipalId = undefined;
   });
 
-  test("warm gateway cache: sync (SSE) and async (send/result) resolve the SAME principal despite a stale local store", async () => {
-    // Gateway binding is canonical; local store row is stale (different id).
+  test("warm gateway cache: sync (SSE) and async (send/result) resolve the SAME principal", async () => {
     ipcGuardians = [gatewayVellumGuardian];
-    storePrincipalId = "guardian-stale-local";
 
     // Prime the cache the way the async hot paths do.
     const asyncPrincipalId = await findLocalGuardianPrincipalId();
     expect(asyncPrincipalId).toBe("guardian-from-gateway");
 
-    // SSE's sync resolver reads the same cached gateway snapshot, NOT the
-    // stale store — so the principals match and host-proxy targeting works.
+    // SSE's sync resolver reads the same cached gateway snapshot — so the
+    // principals match and host-proxy targeting works.
     expect(findLocalGuardianPrincipalIdFromStore()).toBe(asyncPrincipalId);
   });
 
-  test("cold cache: sync resolver falls back to the local store as before", () => {
-    // Nothing primed the cache; only the local store has a binding.
-    storePrincipalId = "guardian-stale-local";
-
-    expect(findLocalGuardianPrincipalIdFromStore()).toBe("guardian-stale-local");
-  });
-
-  test("cold cache with no store binding: sync resolver returns undefined", () => {
+  test("cold cache: sync resolver returns undefined", () => {
     expect(findLocalGuardianPrincipalIdFromStore()).toBeUndefined();
   });
 

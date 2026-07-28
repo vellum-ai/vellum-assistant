@@ -1,24 +1,17 @@
 import { v4 as uuid } from "uuid";
 
+import type { SecretRequestEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-
-type SecretRequestMessage = Extract<ServerMessage, { type: "secret_request" }>;
+import type {
+  SecretDelivery,
+  SecretPromptResult,
+} from "./secret-prompt-types.js";
 
 const log = getLogger("secret-prompter");
-
-export type SecretDelivery = "store" | "transient_send";
-
-export interface SecretPromptResult {
-  value: string | null;
-  delivery: SecretDelivery;
-  /** When set, the prompt could not be delivered and the value is null due to a delivery failure (not user cancellation). */
-  error?: "unsupported_channel";
-}
 
 export interface SecretPrompterChannelContext {
   /** The channel the conversation was initiated from (e.g. "slack", "macos"). */
@@ -64,6 +57,17 @@ export class SecretPrompter {
     allowedTools?: string[],
     allowedDomains?: string[],
   ): Promise<SecretPromptResult> {
+    // Channels without dynamic UI (e.g. slack, telegram) have no surface that
+    // renders the secure prompt dialog — fail fast with unsupported_channel
+    // instead of broadcasting a request that can only time out.
+    if (this.channelContext?.supportsDynamicUi === false) {
+      log.warn(
+        { service, field, channel: this.channelContext.channel },
+        "Secret prompt suppressed: channel does not support secure input",
+      );
+      return { value: null, delivery: "store", error: "unsupported_channel" };
+    }
+
     const requestId = uuid();
     const effectiveConversationId = conversationId ?? "unknown";
 
@@ -74,7 +78,7 @@ export class SecretPrompter {
         pendingInteractions.resolve(requestId, "cancelled");
         this.ownedIds.delete(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
-        resolve({ value: null, delivery: "store" });
+        resolve({ value: null, delivery: "store", reason: "timed_out" });
       }, timeoutMs);
 
       const config = getConfig();
@@ -103,7 +107,7 @@ export class SecretPrompter {
       });
       this.ownedIds.add(requestId);
 
-      const msg: SecretRequestMessage = {
+      const msg: SecretRequestEvent = {
         type: "secret_request",
         requestId,
         service,
@@ -149,8 +153,12 @@ export class SecretPrompter {
       value === undefined ? "cancelled" : "answered",
     );
     this.ownedIds.delete(requestId);
-    (interaction?.rpcResolve as ((v: SecretPromptResult) => void) | undefined)?.(
-      { value: value ?? null, delivery: delivery ?? "store" },
+    (
+      interaction?.rpcResolve as ((v: SecretPromptResult) => void) | undefined
+    )?.(
+      value === undefined
+        ? { value: null, delivery: delivery ?? "store", reason: "cancelled" }
+        : { value, delivery: delivery ?? "store" },
     );
   }
 

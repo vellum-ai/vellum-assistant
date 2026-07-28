@@ -8,6 +8,8 @@ import { describe, expect, test } from "bun:test";
 import { SourceMetadataSchema } from "../inbound-contract.js";
 import {
   makeResolutionFailedVerdict,
+  makeUnauthenticatedSenderVerdict,
+  ResolveInboundTrustResponseSchema,
   TrustVerdictSchema,
   type TrustVerdict,
 } from "../trust-verdict-contract.js";
@@ -27,7 +29,7 @@ const fullVerdict: TrustVerdict = {
   status: "active",
   policy: "allow",
   verifiedAt: 1699999999,
-  verifiedVia: "voice",
+  interactionCount: 12,
   memberDisplayName: "Member Name",
 };
 
@@ -74,6 +76,40 @@ describe("TrustVerdictSchema", () => {
     });
   });
 
+  test("makeUnauthenticatedSenderVerdict builds a plain stranger (not resolutionFailed)", () => {
+    // Distinct from makeResolutionFailedVerdict: an unauthenticated sender is
+    // a real stranger and must flow through the normal admission/verification
+    // lane, so it carries no resolutionFailed flag and no guardian/member keys.
+    const verdict = makeUnauthenticatedSenderVerdict("+15555550100");
+    expect(verdict).toEqual({
+      trustClass: "unknown",
+      canonicalSenderId: "+15555550100",
+    });
+    expect(verdict.resolutionFailed).toBeUndefined();
+    expect(TrustVerdictSchema.parse(verdict)).toEqual(verdict);
+    expect(makeUnauthenticatedSenderVerdict(null)).toEqual({
+      trustClass: "unknown",
+      canonicalSenderId: null,
+    });
+  });
+
+  test("carries interaction telemetry", () => {
+    const parsed = TrustVerdictSchema.parse({
+      trustClass: "trusted_contact",
+      canonicalSenderId: "+15555550100",
+      interactionCount: 0,
+    });
+    expect(parsed.interactionCount).toBe(0);
+  });
+
+  test("leaves interaction telemetry undefined when absent", () => {
+    const parsed = TrustVerdictSchema.parse({
+      trustClass: "unknown",
+      canonicalSenderId: null,
+    });
+    expect(parsed.interactionCount).toBeUndefined();
+  });
+
   test("rejects an invalid trustClass", () => {
     expect(() =>
       TrustVerdictSchema.parse({
@@ -92,5 +128,43 @@ describe("SourceMetadataSchema trustVerdict back-compat", () => {
   test("round-trips a payload carrying trustVerdict", () => {
     const parsed = SourceMetadataSchema.parse({ trustVerdict: fullVerdict });
     expect(parsed.trustVerdict).toEqual(fullVerdict);
+  });
+});
+
+describe("ResolveInboundTrustResponseSchema", () => {
+  test("round-trips a verdict with an admission policy", () => {
+    const parsed = ResolveInboundTrustResponseSchema.parse({
+      verdict: fullVerdict,
+      admissionPolicy: "guardian_only",
+    });
+    expect(parsed).toEqual({
+      verdict: fullVerdict,
+      admissionPolicy: "guardian_only",
+    });
+  });
+
+  test("accepts an explicit null admission policy (no enforcement)", () => {
+    const parsed = ResolveInboundTrustResponseSchema.parse({
+      verdict: fullVerdict,
+      admissionPolicy: null,
+    });
+    expect(parsed.admissionPolicy).toBeNull();
+  });
+
+  test("tolerates an absent admission policy field (pre-envelope gateway)", () => {
+    const parsed = ResolveInboundTrustResponseSchema.parse({
+      verdict: fullVerdict,
+    });
+    expect(parsed.verdict).toEqual(fullVerdict);
+    expect(parsed.admissionPolicy).toBeUndefined();
+  });
+
+  test("rejects an out-of-vocabulary admission policy", () => {
+    expect(() =>
+      ResolveInboundTrustResponseSchema.parse({
+        verdict: fullVerdict,
+        admissionPolicy: "everyone",
+      }),
+    ).toThrow();
   });
 });

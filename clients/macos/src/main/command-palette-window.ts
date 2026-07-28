@@ -53,7 +53,6 @@ const payloadlessCommandKindSchema = z.enum([
   "actualSize",
   "createAssistant",
   "replayOnboarding",
-  "previewPrechat",
   "openComponentGallery",
 ]);
 

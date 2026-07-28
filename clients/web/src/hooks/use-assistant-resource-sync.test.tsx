@@ -4,11 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
+import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import {
   appsGetQueryKey,
   configGetQueryKey,
   homeFeedGetQueryKey,
   homeStateGetQueryKey,
+  pluginsGetQueryKey,
+  pluginsSearchGetQueryKey,
   schedulesGetQueryKey,
   soundsConfigGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -150,6 +154,61 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
+  // Memory availability is derived from config, so the config tag has to reach
+  // the two memory reads as well. They use hand-rolled query keys, so the
+  // generated config invalidation never touches them on its own.
+  test("invalidates memory graph / stats queries on the config sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[][] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push([arg]);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit((syncEvent([SYNC_TAGS.assistantConfig]) as unknown) as AssistantEvent);
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          memoryGraphOptions("asst-1").queryKey,
+          memoryStatsOptions("asst-1").queryKey,
+        ]) as never
+      );
+    });
+  });
+
+  // The reconnect catch-up exists because `sync_changed` events are missed
+  // while the transport is down. A resource covered by a tag but not by the
+  // reconnect sweep silently keeps serving pre-gap data for its whole
+  // staleTime, which for the memory reads is five minutes.
+  test("reconciles memory graph / stats queries on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          memoryGraphOptions("asst-1").queryKey,
+          memoryStatsOptions("asst-1").queryKey,
+        ]) as never
+      );
+    });
+  });
+
   test("invalidates app list queries on apps:list sync tag", async () => {
     const queryClient = freshQueryClient();
     let predicate:
@@ -176,6 +235,74 @@ describe("useAssistantResourceSync", () => {
       })
     ).toBe(true);
     expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
+  });
+
+  test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit((syncEvent([SYNC_TAGS.pluginsList]) as unknown) as AssistantEvent);
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+      );
+      const pathOpts = { path: { assistant_id: "asst-1" } };
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          pluginsGetQueryKey(pathOpts),
+          pluginsSearchGetQueryKey(pathOpts),
+          // The broad sync carries no name, so every open plugin detail + drift
+          // inspect is invalidated via partial key (see invalidatePluginQueries).
+          [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
+          [{ _id: "pluginsByNameInspectGet", path: { assistant_id: "asst-1" } }],
+        ]) as never
+      );
+    });
+  });
+
+  test("reconciles plugin queries on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey
+      );
+      const pathOpts = { path: { assistant_id: "asst-1" } };
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          pluginsGetQueryKey(pathOpts),
+          pluginsSearchGetQueryKey(pathOpts),
+          // Reconnect reconcile is name-agnostic too — open details invalidate.
+          [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
+          [{ _id: "pluginsByNameInspectGet", path: { assistant_id: "asst-1" } }],
+        ]) as never
+      );
+    });
+  });
+
+  test("does not reconcile on fresh sse.opened", () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "fresh" });
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test("invalidates home-feed query on home_feed_updated", async () => {

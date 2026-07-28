@@ -8,9 +8,8 @@ import { isNativePlatform } from "@/runtime/native-auth";
 /**
  * A thin seam over the Sentry SDK so consent gating in `sentry-control.ts`
  * can dispatch through a single interface instead of importing a concrete
- * SDK directly. Each surface (browser via `@sentry/react`, iOS via
- * `@sentry/capacitor`) provides its own implementation; `selectSentryFlavor()`
- * picks the right one at runtime.
+ * SDK directly. Browser and native Capacitor surfaces provide their own
+ * implementations; `selectSentryFlavor()` picks the right one at runtime.
  */
 export interface SentryFlavor {
   /** Initialize the SDK with the given options (enabling the client). */
@@ -30,6 +29,8 @@ export interface SentryFlavor {
  * resolve against.
  */
 export function selectSentryFlavor(): SentryFlavor {
-  if (isNativePlatform() && !isElectron()) return capacitorFlavor;
+  if (isNativePlatform() && !isElectron()) {
+    return capacitorFlavor;
+  }
   return reactFlavor;
 }

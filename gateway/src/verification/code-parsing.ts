@@ -7,8 +7,6 @@
  * pasted with bold/italic/code formatting are still recognized.
  */
 
-import { createHash } from "node:crypto";
-
 // ---------------------------------------------------------------------------
 // Email reply stripping
 // ---------------------------------------------------------------------------
@@ -26,7 +24,8 @@ export function extractEmailReplyBody(body: string): string {
     if (/^On .+ wrote:\s*$/.test(line)) break;
     if (/^-{2,}\s*(Original Message|Forwarded message)/i.test(line)) break;
     if (line === "-- " || line === "--") break;
-    if (/^(From|Sent|To|Subject):\s/i.test(line) && freshLines.length > 0) break;
+    if (/^(From|Sent|To|Subject):\s/i.test(line) && freshLines.length > 0)
+      break;
 
     freshLines.push(line);
   }
@@ -61,9 +60,5 @@ export function parseVerificationCode(content: string): string | undefined {
 // Hashing
 // ---------------------------------------------------------------------------
 
-/**
- * Hash a verification secret using SHA-256 (matches the assistant's scheme).
- */
-export function hashVerificationSecret(secret: string): string {
-  return createHash("sha256").update(secret).digest("hex");
-}
+// Single-sourced from the shared contract; re-exported for existing callers.
+export { hashVerificationSecret } from "@vellumai/gateway-client";

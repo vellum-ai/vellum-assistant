@@ -7,35 +7,7 @@ import type {
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import type { Tool, ToolExecutionResult } from "../tools/types.js";
-
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-    questionResponseTimeoutSec: 1800,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: false,
-  },
-  permissions: {},
-};
+import { createAbortReason } from "../util/abort-reasons.js";
 
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 
@@ -87,25 +59,8 @@ let cachedAssessmentOverride:
     }
   | undefined;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../permissions/checker.js", () => ({
+  isDynamicSkillLoadInvocation: () => false,
   classifyRisk: async () => ({ level: "low" }),
   check: async (
     toolName: string,
@@ -114,9 +69,12 @@ mock.module("../permissions/checker.js", () => ({
     policyContext?: PolicyContext,
   ) => {
     lastCheckArgs = { toolName, input, workingDir, policyContext };
-    if (checkFnOverride)
+    if (checkFnOverride) {
       return checkFnOverride(toolName, input, workingDir, policyContext);
-    if (checkResultOverride) return checkResultOverride;
+    }
+    if (checkResultOverride) {
+      return checkResultOverride;
+    }
     return { decision: "allow", reason: "allowed" };
   },
   generateAllowlistOptions: () => [
@@ -128,26 +86,33 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 // Mock every export so downstream test files that dynamically import modules
-// with a static `from "../memory/tool-usage-store.js"` still see all symbols.
-mock.module("../memory/tool-usage-store.js", () => ({
+// with a static `from "../telemetry/tool-usage-store.js"` still see all symbols.
+mock.module("../telemetry/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
   rotateToolInvocations: async () => 0,
 }));
 
+const mockToolLookup = (name: string) => {
+  if (getToolOverride) {
+    return getToolOverride(name);
+  }
+  if (name === "unknown_tool") {
+    return undefined;
+  }
+  return {
+    name,
+    description: "test tool",
+    category: "test",
+    defaultRiskLevel: "low",
+    input_schema: {},
+    execute: async () => fakeToolResult,
+  };
+};
+
 mock.module("../tools/registry.js", () => ({
-  getTool: (name: string) => {
-    if (getToolOverride) return getToolOverride(name);
-    if (name === "unknown_tool") return undefined;
-    return {
-      name,
-      description: "test tool",
-      category: "test",
-      defaultRiskLevel: "low",
-      input_schema: {},
-      execute: async () => fakeToolResult,
-    };
-  },
+  getTool: mockToolLookup,
+  resolveTool: mockToolLookup,
   getAllTools: () => (getAllToolsOverride ? getAllToolsOverride() : []),
   // Ownership lives on the registry post-refactor; production reads it via
   // getToolOwner(name) rather than a field on the Tool object. Mirror that by
@@ -163,9 +128,11 @@ mock.module("../tools/registry.js", () => ({
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   sandboxPolicy: () => ({ ok: false }),
+  sandboxPolicyWithHostFallback: () => ({ ok: false }),
   hostPolicy: () => ({ ok: false }),
 }));
 
+import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import {
   computePerToolTimeoutMs,
@@ -303,10 +270,10 @@ describe("ToolExecutor allowedToolNames gating", () => {
       makeContext({ allowedToolNames: allowed }),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("not currently active");
+    expect(result.content).toContain("not available in this context");
   });
 
-  test("error message includes the blocked tool name", async () => {
+  test("error message includes the blocked tool name and the active set", async () => {
     const executor = new ToolExecutor(makePrompter());
     const allowed = new Set(["bash"]);
     const result = await executor.execute(
@@ -316,7 +283,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toBe(
-      'Tool "file_edit" is not currently active. Load the skill that provides this tool first.',
+      'Tool "file_edit" is not available in this context. Available tools: bash',
     );
   });
 
@@ -330,7 +297,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("file_read");
-    expect(result.content).toContain("not currently active");
+    expect(result.content).toContain("No tools are active this turn");
   });
 
   test("unknown tool suggestion list is scoped to allowedToolNames", async () => {
@@ -384,7 +351,9 @@ describe("ToolExecutor allowedToolNames gating", () => {
   test("inactive skill tool names the owning skill in the load hint", async () => {
     const executor = new ToolExecutor(makePrompter());
     getToolOverride = (name: string) => {
-      if (name !== "skill_tool_x") return undefined;
+      if (name !== "skill_tool_x") {
+        return undefined;
+      }
       return {
         name,
         description: "tool from a skill",
@@ -421,7 +390,9 @@ describe("ToolExecutor policy context plumbing", () => {
 
   test("passes PolicyContext with executionTarget for skill-origin tools", async () => {
     getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
+      if (name === "unknown_tool") {
+        return undefined;
+      }
       return {
         name,
         description: "skill tool",
@@ -447,6 +418,16 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "sandbox",
+      // Origin-scoping signal: buildPolicyContext now copies the turn's trust
+      // class onto the PolicyContext so the checker can scope narrow
+      // non-interactive auto-grants. requestOrigin/sourceChannel are unset for
+      // this interactive turn (omitted — toEqual ignores undefined-valued keys).
+      trustClass: "guardian",
+      // buildPolicyContext also precomputes the proc-to-skills gate (flag on AND
+      // v3 live) so the leaf permission checker can read it without touching
+      // config. This test does not mock memory-v3-gate.js, so the real gate runs
+      // against the default config and resolves inactive → false.
+      procToSkillsActive: false,
     });
   });
 
@@ -466,12 +447,18 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
   test('passes undefined policyContext for tools with origin "core"', async () => {
     getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
+      if (name === "unknown_tool") {
+        return undefined;
+      }
       return {
         name,
         description: "core tool",
@@ -495,12 +482,18 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
   test('includes executionTarget "host" from skill tool metadata', async () => {
     getToolOverride = (name: string) => {
-      if (name === "unknown_tool") return undefined;
+      if (name === "unknown_tool") {
+        return undefined;
+      }
       return {
         name,
         description: "host skill tool",
@@ -526,6 +519,10 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "host",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 });
@@ -1310,7 +1307,7 @@ describe("computePerToolTimeoutMs ask_question budget", () => {
   // or if the executor budget and the prompter timeout drift onto different
   // config knobs.
   test("execution-timeout budget exceeds the prompt's own questionResponseTimeoutSec", () => {
-    const { questionResponseTimeoutSec } = mockConfig.timeouts;
+    const { questionResponseTimeoutSec } = getConfig().timeouts;
     const askQuestionBudgetMs = computePerToolTimeoutMs("ask_question", {});
 
     expect(askQuestionBudgetMs).toBeGreaterThan(
@@ -1320,12 +1317,199 @@ describe("computePerToolTimeoutMs ask_question budget", () => {
   });
 
   test("the generic budget that would otherwise apply is shorter than the prompt timeout", () => {
-    const { questionResponseTimeoutSec } = mockConfig.timeouts;
+    const { questionResponseTimeoutSec } = getConfig().timeouts;
     const genericBudgetMs = computePerToolTimeoutMs("some_other_tool", {});
 
     // This is the collision the ask_question special case fixes: the generic
     // execution-timeout budget is shorter than the prompter's own wait, so
     // without the special case the wrapper trips first.
     expect(genericBudgetMs).toBeLessThan(questionResponseTimeoutSec * 1000);
+  });
+});
+
+describe("ToolExecutor thrown-value rendering", () => {
+  beforeEach(() => {
+    fakeToolResult = { content: "ok", isError: false };
+    getToolOverride = undefined;
+    getAllToolsOverride = undefined;
+    checkResultOverride = undefined;
+    checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
+  });
+
+  function throwingTool(name: string, thrown: unknown): void {
+    getToolOverride = (n: string) =>
+      n === name
+        ? ({
+            name,
+            description: "throwing tool",
+            category: "test",
+            defaultRiskLevel: RiskLevel.Low,
+            executionTarget: "sandbox" as const,
+            input_schema: { type: "object" as const, properties: {} },
+            execute: async () => {
+              throw thrown;
+            },
+          } as Tool)
+        : undefined;
+  }
+
+  test("a tagged AbortReason renders as a cancellation, not [object Object]", async () => {
+    throwingTool("web_search", createAbortReason("user_cancel", "test"));
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("Tool execution was cancelled (user_cancel).");
+    expect(result.content).not.toContain("[object Object]");
+  });
+
+  test("an AbortError carrying a tagged reason names the cancellation kind", async () => {
+    const err = Object.assign(new Error("The operation was aborted"), {
+      name: "AbortError",
+      reason: createAbortReason("preempted_by_new_message", "test"),
+    });
+    throwingTool("web_search", err);
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(
+      "Tool execution was cancelled (preempted_by_new_message).",
+    );
+  });
+
+  test("a thrown plain object renders as JSON, not [object Object]", async () => {
+    throwingTool("web_search", { status: 429, error: "rate_limited" });
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('{"status":429,"error":"rate_limited"}');
+    expect(result.content).not.toContain("[object Object]");
+  });
+
+  test("a thrown string passes through unchanged", async () => {
+    throwingTool("web_search", "boom");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("unexpected error: boom");
+  });
+});
+
+describe("ToolExecutor input-schema validation gate", () => {
+  beforeEach(() => {
+    fakeToolResult = { content: "ok", isError: false };
+    getToolOverride = undefined;
+    getAllToolsOverride = undefined;
+    checkResultOverride = undefined;
+    checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
+  });
+
+  /**
+   * Registry-shaped tool with an explicit owner and an execute that records
+   * the input it actually received (undefined until the tool runs).
+   */
+  function ownedTool(
+    name: string,
+    ownerKind: string,
+  ): { seenInput: () => Record<string, unknown> | undefined } {
+    let seen: Record<string, unknown> | undefined;
+    getToolOverride = (n: string) =>
+      n === name
+        ? ({
+            name,
+            description: "owned tool",
+            category: "test",
+            defaultRiskLevel: RiskLevel.Low,
+            executionTarget: "sandbox" as const,
+            input_schema: { type: "object" as const, properties: {} },
+            execute: async (input: Record<string, unknown>) => {
+              seen = input;
+              return fakeToolResult;
+            },
+            owner: { kind: ownerKind, id: ownerKind },
+          } as unknown as Tool)
+        : undefined;
+    return { seenInput: () => seen };
+  }
+
+  test("malformed input for a built-in tool returns a clean error without executing", async () => {
+    const probe = ownedTool("file_write", "default");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_write",
+      { path: 42, content: "hello" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "file_write"');
+    expect(result.content).toContain("path:");
+    expect(probe.seenInput()).toBeUndefined();
+  });
+
+  test("valid input executes with catch-recovered data, unknown keys intact", async () => {
+    const probe = ownedTool("file_read", "default");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "a.txt", offset: "not-a-number", activity: "Reading a file" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(probe.seenInput()).toEqual({
+      path: "a.txt",
+      activity: "Reading a file",
+    });
+  });
+
+  test("a non-default owner shadowing a registered name skips registry validation", async () => {
+    const probe = ownedTool("file_write", "workspace");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_write",
+      { path: 42 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(probe.seenInput()).toEqual({ path: 42 });
+  });
+
+  test("a built-in tool with no registered schema executes unchanged", async () => {
+    const probe = ownedTool("web_search", "default");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "web_search",
+      { query: 42 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(probe.seenInput()).toEqual({ query: 42 });
+  });
+
+  test("malformed input for a sensitive tool fails validation before any grant flow", async () => {
+    // An unknown actor invoking a sensitive built-in normally routes into the
+    // scoped-grant machinery inside checkPreExecutionGates. Malformed input
+    // must short-circuit BEFORE that point — the validation error proves the
+    // call never reached grant consumption or guardian escalation.
+    const probe = ownedTool("file_write", "default");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_write",
+      { path: 42 },
+      makeContext({ trustClass: "unknown" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "file_write"');
+    expect(result.content).not.toContain("guardian");
+    expect(probe.seenInput()).toBeUndefined();
   });
 });

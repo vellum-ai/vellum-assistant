@@ -1,4 +1,4 @@
-import type { ExecutionTarget } from "./types.js";
+import type { ExecutionTarget } from "./tool-types.js";
 
 export interface ManifestOverride {
   risk: "low" | "medium" | "high";

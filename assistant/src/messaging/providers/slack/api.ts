@@ -6,6 +6,9 @@
  * classification, and payload shapes follow Slack Web API conventions.
  */
 
+import type { KnownBlock } from "@slack/types";
+import type { SlackStreamTask } from "@vellumai/gateway-client";
+
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { getLogger } from "../../../util/logger.js";
@@ -265,6 +268,134 @@ async function callSlackApiGet(
   throw new Error(
     `Slack ${method} failed after retries: ${lastError ?? "unknown"}`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Streaming (chat.startStream / chat.appendStream / chat.stopStream)
+// ---------------------------------------------------------------------------
+
+/** Slack caps `markdown_text` at 12,000 characters per stream call. */
+export const SLACK_STREAM_MARKDOWN_LIMIT = 12_000;
+
+/** Slack caps `task_update` / `plan_update` chunk string fields at 256 characters. */
+const SLACK_STREAM_CHUNK_FIELD_LIMIT = 256;
+
+function capChunkField(value: string): string {
+  return value.slice(0, SLACK_STREAM_CHUNK_FIELD_LIMIT);
+}
+
+/**
+ * Build the `chunks` array for a streaming call: an optional `plan_update`
+ * titling the plan block, followed by one `task_update` per task card
+ * (identical in shape to the Slack task card block).
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.appendStream/
+ */
+function toStreamChunks(params: {
+  tasks?: readonly SlackStreamTask[];
+  planTitle?: string;
+}): Record<string, unknown>[] | undefined {
+  const chunks: Record<string, unknown>[] = [];
+  if (params.planTitle) {
+    chunks.push({
+      type: "plan_update",
+      title: capChunkField(params.planTitle),
+    });
+  }
+  for (const task of params.tasks ?? []) {
+    chunks.push({
+      type: "task_update",
+      id: task.id,
+      title: capChunkField(task.title),
+      status: task.status,
+      ...(task.details ? { details: capChunkField(task.details) } : {}),
+      ...(task.output ? { output: capChunkField(task.output) } : {}),
+    });
+  }
+  return chunks.length > 0 ? chunks : undefined;
+}
+
+/**
+ * Open a streamed reply on a thread, returning its `ts` for subsequent
+ * appends. `task_display_mode: "plan"` renders task chunks as a native plan.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.startStream/
+ */
+export async function startSlackStream(params: {
+  channel: string;
+  threadTs: string;
+  markdownText?: string;
+  taskDisplayMode?: "plan";
+  planTitle?: string;
+  tasks?: readonly SlackStreamTask[];
+  recipientUserId?: string;
+  recipientTeamId?: string;
+}): Promise<string | undefined> {
+  const body: Record<string, unknown> = {
+    channel: params.channel,
+    thread_ts: params.threadTs,
+  };
+  if (params.markdownText) body.markdown_text = params.markdownText;
+  if (params.taskDisplayMode) body.task_display_mode = params.taskDisplayMode;
+  // Channel streams must name the reader; DMs infer it and omit both fields.
+  if (params.recipientUserId) body.recipient_user_id = params.recipientUserId;
+  if (params.recipientTeamId) body.recipient_team_id = params.recipientTeamId;
+  const chunks = toStreamChunks(params);
+  if (chunks) body.chunks = chunks;
+
+  const data = await callSlackApi("chat.startStream", body);
+  return data.ts;
+}
+
+/**
+ * Append markdown and/or task chunks to an open stream. Slack accepts an append
+ * carrying either `markdown_text` or `chunks`, so a task-only append advances
+ * the plan block without new body text.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.appendStream/
+ */
+export async function appendSlackStream(params: {
+  channel: string;
+  streamTs: string;
+  markdownText?: string;
+  planTitle?: string;
+  tasks?: readonly SlackStreamTask[];
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    channel: params.channel,
+    ts: params.streamTs,
+  };
+  if (params.markdownText) body.markdown_text = params.markdownText;
+  const chunks = toStreamChunks(params);
+  if (chunks) body.chunks = chunks;
+
+  await callSlackApi("chat.appendStream", body);
+}
+
+/**
+ * Finalize a stream, optionally rendering rich Block Kit blocks at the bottom
+ * of the message. Blocks are accepted only here, not on append.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.stopStream/
+ */
+export async function stopSlackStream(params: {
+  channel: string;
+  streamTs: string;
+  markdownText?: string;
+  blocks?: readonly KnownBlock[];
+  planTitle?: string;
+  tasks?: readonly SlackStreamTask[];
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    channel: params.channel,
+    ts: params.streamTs,
+  };
+  if (params.markdownText) body.markdown_text = params.markdownText;
+  if (params.blocks && params.blocks.length > 0) body.blocks = params.blocks;
+  const chunks = toStreamChunks(params);
+  if (chunks) body.chunks = chunks;
+
+  await callSlackApi("chat.stopStream", body);
 }
 
 function normalizeSlackString(value: unknown): string | undefined {

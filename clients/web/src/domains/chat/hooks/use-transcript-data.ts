@@ -25,8 +25,15 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 // ---------------------------------------------------------------------------
 
 export interface UseTranscriptDataParams {
+  /** The rendered transcript — cached history ⊕ the in-flight turn, from
+   *  `useTranscriptMessages`. The caller owns the union so it is computed once. */
+  messages: DisplayMessage[];
   /** Whether the thinking indicator is active (from `useChatUIState`). */
   showThinking: boolean;
+  /** Whether the assistant is busy on an in-flight turn (from
+   *  `useChatUIState.isAssistantBusy`). Keeps the thinking slot mounted across
+   *  the whole turn so the indicator fades instead of reflowing the list. */
+  turnActive: boolean;
   /** Status label for the thinking indicator (from `useChatUIState`). */
   thinkingLabel: string | null;
   /** Whether the onboarding choice card should appear in the transcript. */
@@ -43,12 +50,13 @@ export interface TranscriptData {
 // ---------------------------------------------------------------------------
 
 export function useTranscriptData({
+  messages,
   showThinking,
+  turnActive,
   thinkingLabel,
   showOnboardingChoice,
 }: UseTranscriptDataParams): TranscriptData {
   // --- Store reads --------------------------------------------------------
-  const messages = useChatSessionStore.use.messages();
   const ephemeralMetaResults = useChatSessionStore.use.ephemeralMetaResults();
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
@@ -99,6 +107,7 @@ export function useTranscriptData({
             }
           : null,
         isThinking: showThinking,
+        turnActive,
         thinkingLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
@@ -110,6 +119,7 @@ export function useTranscriptData({
       pendingConfirmationAttachedToToolCall,
       pendingContactRequest,
       showThinking,
+      turnActive,
       thinkingLabel,
       ephemeralMetaResults,
       showOnboardingChoice,

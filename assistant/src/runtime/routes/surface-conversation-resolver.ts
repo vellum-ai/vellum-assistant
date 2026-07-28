@@ -14,13 +14,21 @@
  * as the existence check so `getOrCreateConversation` can't be tricked
  * into materializing a phantom conversation for any caller-supplied id.
  */
+import { coerceSurfaceDataRecord } from "../../api/surfaces.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
   findConversation,
   findConversationBySurfaceId,
 } from "../../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { rawGet } from "../../memory/raw-query.js";
+import {
+  parseActivationMomentTag,
+  parseStoredActions,
+  type StoredSurfaceAction,
+} from "../../daemon/conversation-surface-state.js";
+import { isRowVisibleToUntrustedActor } from "../../daemon/message-provenance.js";
+import { rawAll, rawGet } from "../../persistence/raw-query.js";
+import type { ActivationMomentParam } from "../../telemetry/activation-funnel.js";
 
 /**
  * Resolve the {@link Conversation} that owns the given surface.
@@ -47,20 +55,153 @@ export async function resolveSurfaceConversation(
   const found = conversationId
     ? findConversation(conversationId)
     : findConversationBySurfaceId(surfaceId);
-  if (found) return found;
+  if (found) {
+    return found;
+  }
 
   // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
   // unrelated rows.
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
   const row = rawGet<{ conversation_id: string }>(
+    "surfaceResolver:resolveConversation",
     `SELECT conversation_id FROM messages
      WHERE content LIKE ? ESCAPE '\\'
      ORDER BY created_at DESC
      LIMIT 1`,
     `%"surfaceId":"${escaped}"%`,
   );
-  if (!row) return undefined;
-  if (conversationId && conversationId !== row.conversation_id)
+  if (!row) {
     return undefined;
+  }
+  if (conversationId && conversationId !== row.conversation_id) {
+    return undefined;
+  }
   return await getOrCreateConversation(row.conversation_id);
+}
+
+/**
+ * A `ui_surface` block extracted from persisted history for a read-only
+ * content response. `surfaceType` and `data` are preserved VERBATIM — this
+ * endpoint serves what was persisted so the client renders it, and the
+ * client applies the canonical per-type schema itself. It deliberately does
+ * NOT reuse the live `SurfaceStateEntry` restore (`restoreSurfaceStateEntry`),
+ * whose canonical parse strips keys the daemon does not model and coerces
+ * types it does not know (e.g. `skill_card`, `call_summary`) — which would
+ * drop renderable content on the way to the client.
+ */
+export interface PersistedSurfaceState {
+  surfaceType: string;
+  data: Record<string, unknown>;
+  title?: string;
+  actions?: StoredSurfaceAction[];
+  activationMoment?: ActivationMomentParam;
+}
+
+/**
+ * Find the `ui_surface` block for `surfaceId` in the conversation's
+ * PERSISTED message history and map it to the `surfaceState` entry shape.
+ *
+ * Why this exists: `surfaceState` is only rebuilt from history when a
+ * Conversation is constructed (`restoreSurfaceStateFromHistory`). A surface
+ * appended out-of-band — `addMessage` against an already-loaded
+ * conversation, as the memory retrospective's skill card does — lands in
+ * the messages table without ever touching the live object's map, so an
+ * in-memory registry hit resolves a conversation whose `surfaceState`
+ * predates the insert and the content lookup 404s. (An evicted
+ * conversation works: rehydration rescans history.)
+ *
+ * The newest matching message wins, mirroring
+ * `restoreSurfaceStateFromHistory`'s forward scan where a later write to
+ * the same `surfaceId` overwrites an earlier one. The LIKE pre-filter is an
+ * index-friendly candidate probe only — the parsed block is what confirms
+ * the exact `surfaceId` (a message merely quoting the id in text parses to
+ * no matching block and the scan moves on).
+ *
+ * `liveHistoryStartRow` preserves the compaction boundary: the live history
+ * is `getMessages(...).slice(contextCompactedMessageCount)` (`loadFromDb`),
+ * and `restoreSurfaceStateFromHistory` deliberately never sees the
+ * compacted-away prefix — stale surface ids are not globally unique, so
+ * resurrecting one here would let later surface-action routing operate on
+ * state the compaction dropped. The scan skips that same prefix (rows are
+ * numbered in the store's `created_at ASC` order).
+ *
+ * `requesterCanAccessMemory` preserves actor provenance for the CALLER:
+ * untrusted-actor views are built from `filterMessagesForUntrustedActor(...)`
+ * (`loadFromDb`), so guardian-authored and provenance-less rows are
+ * deliberately hidden from non-guardian actors. The scan applies the
+ * identical per-row predicate before parsing or serving — otherwise a
+ * non-guardian requester naming a hidden surface id would be handed the
+ * payload the trust filter dropped. This is the trust of the REQUESTER
+ * (resolved from the verified actor principal), not of whatever view the
+ * cached conversation happens to be loaded under.
+ */
+export function findPersistedSurfaceState(
+  conversationId: string,
+  surfaceId: string,
+  opts: {
+    liveHistoryStartRow: number;
+    requesterCanAccessMemory: boolean;
+  },
+): PersistedSurfaceState | undefined {
+  // Escape LIKE wildcards so a `surfaceId` like "%" or "_" can't match
+  // unrelated rows.
+  const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
+  // No fixed row cap: rows that merely QUOTE the surfaceId (tool results,
+  // log echoes) are skipped by the parse-confirm loop below, and a cap
+  // would let enough of them starve out the real block entirely. The
+  // second LIKE clause keeps the candidate set to rows that can plausibly
+  // hold a ui_surface block at all, so the unbounded scan stays tiny.
+  const rows = rawAll<{ content: string; metadata: string | null }>(
+    "surfaceResolver:findPersistedSurface",
+    `SELECT content, metadata FROM (
+       SELECT content, metadata,
+              ROW_NUMBER() OVER (ORDER BY created_at ASC) AS rn
+       FROM messages
+       WHERE conversation_id = ?
+     )
+     WHERE rn > ?
+       AND content LIKE ? ESCAPE '\\'
+       AND content LIKE '%"type":"ui_surface"%'
+     ORDER BY rn DESC`,
+    conversationId,
+    Math.max(0, Math.floor(opts.liveHistoryStartRow)),
+    `%"surfaceId":"${escaped}"%`,
+  );
+  for (const row of rows) {
+    if (
+      !opts.requesterCanAccessMemory &&
+      !isRowVisibleToUntrustedActor(row.metadata)
+    ) {
+      continue;
+    }
+    let blocks: unknown;
+    try {
+      blocks = JSON.parse(row.content);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(blocks)) {
+      continue;
+    }
+    for (const block of blocks) {
+      const b = block as Record<string, unknown>;
+      if (b.type !== "ui_surface" || b.surfaceId !== surfaceId) {
+        continue;
+      }
+      // Serve verbatim: preserve the persisted `surfaceType` string and
+      // `data` object as-is (the client parses them), applying only the same
+      // light shared parsing for `actions` and the daemon-only
+      // `activationMoment` tag that the live restore uses.
+      const activationMoment = parseActivationMomentTag(b.activationMoment);
+      return {
+        surfaceType:
+          typeof b.surfaceType === "string" ? b.surfaceType : "dynamic_page",
+        data: coerceSurfaceDataRecord(b.data),
+        title: typeof b.title === "string" ? b.title : undefined,
+        actions: parseStoredActions(b.actions),
+        ...(activationMoment ? { activationMoment } : {}),
+      };
+    }
+  }
+  return undefined;
 }

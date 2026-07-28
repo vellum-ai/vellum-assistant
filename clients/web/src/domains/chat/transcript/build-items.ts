@@ -26,6 +26,16 @@ export interface BuildTranscriptItemsInput {
     role?: string;
   } | null;
   isThinking: boolean;
+  /**
+   * Whether the assistant is busy on an in-flight turn at all (from
+   * `isAssistantBusy`). While true, the thinking item is kept in the list even
+   * when `isThinking` is false — rendered as an invisible fixed-height slot —
+   * so the shimmering indicator fades in/out in place across the turn's
+   * signal-ownership handoffs instead of inserting/removing a row (which read
+   * as the transcript jumping). Omitted/false preserves the legacy behavior:
+   * the item exists only while `isThinking`.
+   */
+  turnActive?: boolean;
   /** Daemon-provided activity label for the thinking indicator. */
   thinkingLabel?: string | null;
   /** Ephemeral local meta-command results (e.g. /clean, /status), rendered at
@@ -93,12 +103,17 @@ export function buildTranscriptItems(
   const items: TranscriptItem[] = [];
 
   for (const message of messages) {
-    // Daemon-injected subagent lifecycle notifications (user-role messages
-    // carrying subagentNotification metadata) stay in `messages` state so the
-    // LLM transcript and subagent-store rehydration (history.ts) still see
-    // them, but they are internal scaffolding and are never rendered in the
-    // transcript — subagent activity surfaces through the inline progress card.
-    if (message.isSubagentNotification) {
+    // Daemon-injected run lifecycle notifications (subagent + ACP + any wake
+    // trigger, i.e. user-role messages carrying subagentNotification /
+    // acpNotification / backgroundEventNotification metadata) stay in `messages`
+    // state so the LLM transcript and store rehydration still see them, but they
+    // are internal scaffolding and are never rendered in the transcript — the run
+    // surfaces through its inline card instead.
+    if (
+      message.isSubagentNotification ||
+      message.isAcpNotification ||
+      message.isBackgroundEventNotification
+    ) {
       continue;
     }
 
@@ -121,10 +136,11 @@ export function buildTranscriptItems(
     });
   }
 
-  if (isThinking) {
+  if (isThinking || input.turnActive) {
     items.push({
       kind: "thinking",
       key: "thinking",
+      active: isThinking,
       ...(input.thinkingLabel ? { label: input.thinkingLabel } : {}),
     });
   }

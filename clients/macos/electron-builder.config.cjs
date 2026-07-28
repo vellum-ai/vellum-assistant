@@ -14,6 +14,18 @@ const appId =
     ? "com.vellum.vellum-assistant-electron"
     : `com.vellum.vellum-assistant-electron-${env}`;
 
+// Mirror build-mac-helper.sh's env→helper-bundle-name mapping so the packaged
+// app's `bin/` directory has the same folder name as the helper the build
+// script wrote to `resources/`. The runtime sidecar
+// `.vellum-mac-helper.bundle-name` carries the same string, so the runtime
+// resolves the .app folder from the sidecar rather than this mapping — but the
+// sidecar only reaches the packaged app if electron-builder copies it into
+// `bin/` alongside the bundle.
+const helperBundleName =
+  env === "production"
+    ? "Vellum Helper"
+    : `Vellum Helper ${env.charAt(0).toUpperCase() + env.slice(1)}`;
+
 const schemes =
   env === "production"
     ? ["vellum", "vellum-assistant"]
@@ -33,8 +45,16 @@ module.exports = {
   extraResources: [
     { from: "resources/bun", to: "bun" },
     {
-      from: "resources/vellum-mac-helper.app",
-      to: "bin/vellum-mac-helper.app",
+      from: `resources/${helperBundleName}.app`,
+      to: `bin/${helperBundleName}.app`,
+    },
+    // Sidecar written by build-mac-helper.sh. The runtime reads this to
+    // discover the .app folder name without duplicating the env→name
+    // mapping in TS. Must stay alongside the bundle in `bin/` so a
+    // packaged app can resolve it via process.resourcesPath.
+    {
+      from: "resources/.vellum-mac-helper.bundle-name",
+      to: "bin/.vellum-mac-helper.bundle-name",
     },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-lockfile", to: "cli-lockfile" },

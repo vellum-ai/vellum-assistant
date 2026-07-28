@@ -5,6 +5,28 @@ type ToolCallStateFields = Pick<
   "isError" | "result" | "completedAt"
 >;
 
+type ToolCallTimingFields = Pick<
+  ConversationMessageToolCall,
+  "previewStartedAt" | "startedAt"
+>;
+
+/**
+ * The user-perceived start of a tool call: when its first byte was recognized
+ * (`previewStartedAt`), falling back to its execution start (`startedAt`) for
+ * tool calls that produced no preview (e.g. native server tools) or for
+ * snapshots from older daemons that pre-date the preview timestamp.
+ *
+ * This is the anchor for the headline "time they feel" elapsed counter — the
+ * span from first byte through to completion, which includes the
+ * input-streaming gap before execution. The tool's own execution latency is
+ * measured separately as `completedAt - startedAt`.
+ */
+export function perceivedStartedAt(
+  tc: ToolCallTimingFields,
+): number | undefined {
+  return tc.previewStartedAt ?? tc.startedAt ?? undefined;
+}
+
 /**
  * A tool call is still running until it carries a terminal signal.
  *

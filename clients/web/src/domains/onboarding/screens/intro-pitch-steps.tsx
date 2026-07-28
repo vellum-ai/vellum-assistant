@@ -11,9 +11,9 @@
  *
  *   1. the eyes rise, wiping line 1 in bottom→top, then drop back, wiping
  *      line 2 in top→bottom;
- *   2. line 1 carousels vertically to "The more I help" as a helper peeks from
- *      the top-left, then retracts;
- *   3. line 2 carousels vertically to "The less you do" as a small team peeks
+ *   2. lines 1 + 2 carousel vertically together to "The more I help" / "The
+ *      better I get" as a helper peeks from the top-left, then retracts;
+ *   3. a third line, "The less you do", grows + wipes in as a small team peeks
  *      from the top-right, then retracts;
  *   4. a Continue button appears.
  */
@@ -27,6 +27,7 @@ import {
   useReducedMotion,
 } from "motion/react";
 
+import { Button } from "@vellumai/design-library/components/button";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import {
   MotionEyes,
@@ -39,11 +40,13 @@ import { ONBOARDING_STEP_CONTENT } from "@/domains/onboarding/onboarding-step-la
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
-// Line 1 (darker tone) and line 2 (full-strength) each carousel between these.
-const SETUP_LINE = "You’ve used AI that just answers questions";
-const HELP_LINE = "The more I help";
-const PUNCH_LINE = "I’m different";
-const LESS_LINE = "The less you do";
+// Lines 1 + 2 carousel together from the setup framing to the first two payoff
+// lines; line 3 ("The less you do") is then added in last.
+const SETUP_LINE = "You’ve used AI that just answers questions.";
+const HELP_LINE = "The more I help,";
+const PUNCH_LINE = "I’m different.";
+const BETTER_LINE = "the better I get,";
+const LESS_LINE = "and the less you have to do.";
 
 // The little team that peeks in from the top-right on the second line, then
 // retracts. (Kept in sync with TOP_TEAM in onboarding-toned-backdrop.tsx.)
@@ -139,6 +142,15 @@ export function PitchStep({
   const selectedIndex = useOnboardingAvatarPoolStore.use.selectedIndex();
   const chosen = characters.length > 0 ? characters[selectedIndex] : undefined;
 
+  // Push the text/Continue block up so it doesn't crowd the eyes peeking from
+  // the bottom — more so on short viewports, where the three lines + button and
+  // the eyes are otherwise tight. The eye-wipe "above" target tracks this. The
+  // short-screen offset stays modest so the Continue button sits close to the
+  // text rather than stranded high above the eyes.
+  const shortScreen = h > 0 && h <= 800;
+  const contentTopFrac = shortScreen ? 0.17 : 0.22;
+  const topClass = shortScreen ? "top-[17%]" : "top-[22%]";
+
   // The assistant's eyes rise to wipe the first lines in, then settle at rest.
   const eyeCy = useMotionValue(0);
   const eyeScale = useMotionValue(1);
@@ -174,6 +186,8 @@ export function PitchStep({
   const [reveal2, setReveal2] = useState(!!reduce);
   const [carousel1, setCarousel1] = useState(false);
   const [carousel2, setCarousel2] = useState(false);
+  // The third line ("The less you do") is added in last.
+  const [reveal3, setReveal3] = useState(false);
   const [ready, setReady] = useState(false);
   const [landed, setLanded] = useState(!!reduce);
 
@@ -184,15 +198,18 @@ export function PitchStep({
   const m1bRef = useRef<HTMLSpanElement>(null);
   const m2aRef = useRef<HTMLSpanElement>(null);
   const m2bRef = useRef<HTMLSpanElement>(null);
+  const m3Ref = useRef<HTMLSpanElement>(null);
   const [firstH1, setFirstH1] = useState(0);
   const [secondH1, setSecondH1] = useState(0);
   const [firstH2, setFirstH2] = useState(0);
   const [secondH2, setSecondH2] = useState(0);
+  const [thirdH, setThirdH] = useState(0);
   useLayoutEffect(() => {
     if (m1aRef.current?.offsetHeight) setFirstH1(m1aRef.current.offsetHeight);
     if (m1bRef.current?.offsetHeight) setSecondH1(m1bRef.current.offsetHeight);
     if (m2aRef.current?.offsetHeight) setFirstH2(m2aRef.current.offsetHeight);
     if (m2bRef.current?.offsetHeight) setSecondH2(m2bRef.current.offsetHeight);
+    if (m3Ref.current?.offsetHeight) setThirdH(m3Ref.current.offsetHeight);
   }, [blockW]);
 
   // Park the eyes at rest until the journey starts.
@@ -208,6 +225,7 @@ export function PitchStep({
     const t = setTimeout(() => {
       setCarousel1(true);
       setCarousel2(true);
+      setReveal3(true);
     }, 1400);
     return () => clearTimeout(t);
   }, [reduce]);
@@ -225,7 +243,7 @@ export function PitchStep({
     setCarousel2(false);
 
     const smallScale = 0.55; // up above the words
-    const aboveCy = Math.max(eyesH * 0.5, h * 0.3 - 36); // clear above the title
+    const aboveCy = Math.max(eyesH * 0.5, h * contentTopFrac - 36); // clear above the title
 
     const controls: ReturnType<typeof animate>[] = [];
     const timeouts: ReturnType<typeof setTimeout>[] = [];
@@ -261,26 +279,28 @@ export function PitchStep({
       await wait(900);
       if (cancelled) return;
 
-      // Carousel line 1 → "The more I help" as a helper peeks from the top-left.
+      // Carousel lines 1 + 2 together → "The more I help" / "The better I get"
+      // as a helper peeks from the top-left.
       setCarousel1(true);
+      setCarousel2(true);
       await track(
         animate(helperY, [helperHidden, helperPeek, helperPeek, helperHidden], {
           duration: 1.5,
           times: [0, 0.28, 0.62, 1],
-          ease: "easeInOut",
+          ease: ["easeOut", "easeInOut", "easeInOut"],
         }),
       );
       if (cancelled) return;
       await wait(150);
       if (cancelled) return;
 
-      // Carousel line 2 → "The less you do" as a team peeks from the top-right.
-      setCarousel2(true);
+      // Add line 3 → "The less you do" as a team peeks from the top-right.
+      setReveal3(true);
       const teamPeekAnim = track(
         animate(teamY, [teamHidden, teamPeek, teamPeek, teamHidden], {
           duration: 1.5,
           times: [0, 0.28, 0.62, 1],
-          ease: "easeInOut",
+          ease: ["easeOut", "easeInOut", "easeInOut"],
         }),
       );
       await wait(700);
@@ -300,6 +320,7 @@ export function PitchStep({
     reduce,
     art,
     h,
+    contentTopFrac,
     eyesH,
     restCy,
     eyeCy,
@@ -325,7 +346,8 @@ export function PitchStep({
         <span ref={m1aRef} className="block">{SETUP_LINE}</span>
         <span ref={m1bRef} className="block">{HELP_LINE}</span>
         <span ref={m2aRef} className="block">{PUNCH_LINE}</span>
-        <span ref={m2bRef} className="block">{LESS_LINE}</span>
+        <span ref={m2bRef} className="block">{BETTER_LINE}</span>
+        <span ref={m3Ref} className="block">{LESS_LINE}</span>
       </div>
 
       {/* The assistant's eyes — behind the text, lifting the words into view as
@@ -396,7 +418,7 @@ export function PitchStep({
         </motion.div>
       )}
 
-      <div className={`${ONBOARDING_STEP_CONTENT} max-w-3xl`}>
+      <div className={`${ONBOARDING_STEP_CONTENT.replace("top-[30%]", topClass)} max-w-3xl max-md:top-[34%]`}>
         <div
           className="flex w-full flex-col gap-3 text-[clamp(2.25rem,5.5vw,4.5rem)] leading-[1.15]"
           style={{ fontFamily: "var(--font-serif)" }}
@@ -420,27 +442,60 @@ export function PitchStep({
             secondH={secondH2}
             color={tone.fg}
             firstText={PUNCH_LINE}
-            secondText={LESS_LINE}
+            secondText={BETTER_LINE}
             revealed={reveal2}
             carouseled={carousel2}
             revealFrom="top"
             revealDuration={0.45}
             reduce={!!reduce}
           />
+          {/* Line 3 — added in last: grows in (height 0→full) and wipes in. */}
+          <motion.div
+            className="relative w-full overflow-hidden"
+            style={{ color: tone.fg }}
+            initial={false}
+            animate={{ height: reveal3 ? thirdH : 0 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+          >
+            {thirdH > 0 && (
+              <div
+                className="flex items-center justify-center"
+                style={{ height: thirdH }}
+              >
+                <motion.span
+                  className="block"
+                  initial={false}
+                  animate={{
+                    clipPath: reveal3 ? "inset(0% 0 0% 0)" : "inset(100% 0 0 0)",
+                  }}
+                  transition={
+                    reduce ? { duration: 0 } : { duration: 0.5, ease: "easeOut" }
+                  }
+                >
+                  {LESS_LINE}
+                </motion.span>
+              </div>
+            )}
+          </motion.div>
         </div>
 
         {landed && (
-          <motion.button
-            type="button"
-            onClick={onContinue}
-            className="flex h-11 w-[234px] items-center justify-center gap-2 rounded-[10px] bg-black text-body-medium-default text-white transition-transform duration-150 active:scale-[0.97]"
+          <motion.div
             initial={reduce ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={reduce ? { duration: 0 } : { duration: 0.4 }}
           >
-            Continue
-            <ArrowRight className="h-4 w-4" />
-          </motion.button>
+            <Button
+              type="button"
+              variant="primary"
+              size="regular"
+              rightIcon={<ArrowRight size={16} />}
+              onClick={onContinue}
+              className="h-11 w-[234px] text-base"
+            >
+              Continue
+            </Button>
+          </motion.div>
         )}
       </div>
     </div>

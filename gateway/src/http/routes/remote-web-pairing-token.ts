@@ -1,7 +1,13 @@
+import type {
+  RemoteWebPairingTokenApprovedResponse,
+  RemoteWebPairingTokenPendingResponse,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 import {
   ensureVellumGuardianBinding,
   getExternalAssistantId,
   mintAndRecordBrowserTokenPair,
+  VellumGuardianMintRefusedError,
 } from "../../auth/guardian-bootstrap.js";
 import {
   claimRemoteWebPairingChallengeExchange,
@@ -18,7 +24,10 @@ const MAX_TOKEN_BODY_BYTES = 512;
 const REMOTE_WEB_PLATFORM = "web";
 
 function jsonError(code: string, message: string, status: number): Response {
-  return Response.json({ error: { code, message } }, { status });
+  return Response.json(
+    { error: { code, message } },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 function invalidDeviceCodeResponse(): Response {
@@ -64,14 +73,15 @@ export async function handleRemoteWebPairingToken(
 
   const challenge = claimRemoteWebPairingChallengeExchange(deviceCode);
   if (challenge.status === "pending") {
-    return Response.json(
-      {
-        status: "pending",
-        expiresAt: challenge.expiresAt,
-        intervalSeconds: challenge.intervalSeconds,
-      },
-      { status: 202, headers: { "Cache-Control": "no-store" } },
-    );
+    const pending: RemoteWebPairingTokenPendingResponse = {
+      status: "pending",
+      expiresAt: challenge.expiresAt,
+      intervalSeconds: challenge.intervalSeconds,
+    };
+    return Response.json(pending, {
+      status: 202,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
   if (
     challenge.status === "invalid" ||
@@ -94,7 +104,22 @@ export async function handleRemoteWebPairingToken(
       browserRefreshCookiePath: refreshCookiePath,
     });
   } catch (err) {
+    // Release so the approved code stays exchangeable after the failure is
+    // repaired (mint refusal) or retried (transient DB error).
     releaseRemoteWebPairingChallengeExchange(deviceCode);
+    if (err instanceof VellumGuardianMintRefusedError) {
+      // Guardian rows lost but the DB shows prior onboarding: minting here
+      // would diverge from prior clients' tokens. Fail closed with an
+      // explicit repair-required response instead of an unhandled 500.
+      // Stays 503 (unlike /auth/token's repairable 401): 401 here means
+      // invalid/expired device code, and the released code stays
+      // exchangeable after guardian repair.
+      return jsonError(
+        "GUARDIAN_REPAIR_REQUIRED",
+        "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
+        503,
+      );
+    }
     throw err;
   }
   completeRemoteWebPairingChallengeExchange(deviceCode);
@@ -108,15 +133,13 @@ export async function handleRemoteWebPairingToken(
     headers.append("Set-Cookie", cookie);
   }
 
-  return Response.json(
-    {
-      status: "approved",
-      accessToken: pair.accessToken,
-      accessTokenExpiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
-      refreshAfter: new Date(pair.refreshAfter).toISOString(),
-      guardianId: guardianPrincipalId,
-      assistantId: getExternalAssistantId(),
-    },
-    { headers },
-  );
+  const approved: RemoteWebPairingTokenApprovedResponse = {
+    status: "approved",
+    accessToken: pair.accessToken,
+    accessTokenExpiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
+    refreshAfter: new Date(pair.refreshAfter).toISOString(),
+    guardianId: guardianPrincipalId,
+    assistantId: getExternalAssistantId(),
+  };
+  return Response.json(approved, { headers });
 }

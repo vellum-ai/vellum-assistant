@@ -17,9 +17,9 @@ import {
   createConversation as createConversationCrud,
   deleteConversation as deleteConversationCrud,
   getConversation as getConversationRow,
-} from "../../../memory/conversation-crud.js";
-import { listConversationsByTitlePrefix as listByPrefix } from "../../../memory/conversation-queries.js";
-import { enqueueMemoryJob } from "../../../memory/jobs-store.js";
+} from "../../../persistence/conversation-crud.js";
+import { listConversationsByTitlePrefix as listByPrefix } from "../../../persistence/conversation-queries.js";
+import { enqueueMemoryJob } from "../../../persistence/jobs-store.js";
 
 /**
  * Resolve a conversation by ID for conv-scoped playground routes.

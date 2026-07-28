@@ -29,7 +29,6 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
   getRuntimeHttpPort: () => 3000,
   getRuntimeHttpHost: () => "0.0.0.0",
-  getSentryDsn: () => "",
   getQdrantUrlEnv: () => undefined,
   getQdrantHttpPortEnv: () => undefined,
   getQdrantReadyzTimeoutMs: () => undefined,

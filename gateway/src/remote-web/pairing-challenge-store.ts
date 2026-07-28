@@ -1,5 +1,11 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 
+import type {
+  RemoteWebPairingChallengeResponse,
+  RemoteWebPairingTokenPendingResponse,
+  RemoteWebPairingVerificationResponse,
+} from "@vellumai/service-contracts/remote-web-pairing";
+
 const CODE_TTL_MS = 10 * 60 * 1000;
 const MAX_ACTIVE_CHALLENGES = 200;
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -19,25 +25,12 @@ export interface PendingRemoteWebPairingChallenge {
   consumedAtMs?: number;
 }
 
-export interface CreatedRemoteWebPairingChallenge {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  expiresAt: string;
-  expiresInSeconds: number;
-  intervalSeconds: number;
-}
-
 export interface RemoteWebPairingChallengeCapacityLimit {
   retryAfterSeconds: number;
 }
 
 export type ApproveRemoteWebPairingChallengeResult =
-  | {
-      status: "approved";
-      verificationUri: string;
-      expiresAt: string;
-    }
+  | RemoteWebPairingVerificationResponse
   | { status: "expired" }
   | { status: "invalid" };
 
@@ -48,11 +41,7 @@ export type ClaimRemoteWebPairingChallengeExchangeResult =
       verificationUri: string;
       expiresAt: string;
     }
-  | {
-      status: "pending";
-      expiresAt: string;
-      intervalSeconds: number;
-    }
+  | RemoteWebPairingTokenPendingResponse
   | { status: "expired" }
   | { status: "consumed" }
   | { status: "invalid" };
@@ -117,7 +106,7 @@ export function checkRemoteWebPairingChallengeCapacity(): RemoteWebPairingChalle
 
 export function createRemoteWebPairingChallenge(
   publicBaseUrl: string,
-): CreatedRemoteWebPairingChallenge {
+): RemoteWebPairingChallengeResponse {
   cleanupExpiredChallenges();
 
   const deviceCode = randomBytes(DEVICE_CODE_BYTES).toString("base64url");

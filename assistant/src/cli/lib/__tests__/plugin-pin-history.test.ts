@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { FetchLike } from "../install-from-github.js";
+import type { FetchLike } from "../fetch-like.js";
 import {
   listPinHistory,
   resolvePinToMarketplaceCommit,

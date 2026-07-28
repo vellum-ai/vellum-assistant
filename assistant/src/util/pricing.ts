@@ -1,4 +1,5 @@
 import type { ModelPricingOverride } from "../config/schema.js";
+import { isAnthropicDelegatingGateway } from "../providers/anthropic-gateway-shared.js";
 import type {
   CatalogModel,
   CatalogModelPricing,
@@ -11,6 +12,7 @@ interface ModelPricing {
   inputPer1M: number; // USD per 1M input tokens
   outputPer1M: number; // USD per 1M output tokens
   cacheReadPer1M?: number; // USD per 1M cache-read input tokens
+  cacheWritePer1M?: number; // USD per 1M cache-write input tokens
   tiers?: ModelPricingTier[];
 }
 
@@ -19,6 +21,7 @@ interface ModelPricingTier {
   inputPer1M: number;
   outputPer1M: number;
   cacheReadPer1M?: number;
+  cacheWritePer1M?: number;
 }
 
 const ANTHROPIC_PROMPT_CACHE_MULTIPLIERS = {
@@ -68,6 +71,7 @@ function catalogPricingToInternal(p: CatalogModelPricing): ModelPricing {
     inputPer1M: p.inputPer1mTokens,
     outputPer1M: p.outputPer1mTokens,
     cacheReadPer1M: p.cacheReadPer1mTokens,
+    cacheWritePer1M: p.cacheWritePer1mTokens,
     tiers: p.tiers?.map(catalogTierToInternal),
   };
 }
@@ -80,6 +84,7 @@ function catalogTierToInternal(
     inputPer1M: tier.inputPer1mTokens,
     outputPer1M: tier.outputPer1mTokens,
     cacheReadPer1M: tier.cacheReadPer1mTokens,
+    cacheWritePer1M: tier.cacheWritePer1mTokens,
   };
 }
 
@@ -141,17 +146,19 @@ function normalizeAnthropicModelId(model: string): string {
 /**
  * Whether Anthropic's pricing rules (cache-read/write multipliers, fast-mode
  * surcharge) apply for the given provider/model. True for direct Anthropic
- * calls and for Anthropic models routed through OpenRouter — OpenRouter
- * proxies to Anthropic's Messages API, so the usage response carries the
- * same cache and speed fields and is charged at Anthropic's rates.
+ * calls and for Anthropic models routed through OpenRouter or the Vercel AI
+ * Gateway — both gateways proxy `anthropic/*` to Anthropic's Messages API, so
+ * the usage response carries the same cache and speed fields and is charged
+ * at Anthropic's rates.
  */
 export function usesAnthropicPricingRules(
   provider: string,
   model: string,
 ): boolean {
-  if (provider === "anthropic") return true;
-  if (provider === "openrouter" && isAnthropicModelId(model)) return true;
-  return false;
+  if (provider === "anthropic") {
+    return true;
+  }
+  return isAnthropicDelegatingGateway(provider) && isAnthropicModelId(model);
 }
 
 /**
@@ -257,6 +264,7 @@ function selectPricingTier(
     inputPer1M: selectedTier.inputPer1M,
     outputPer1M: selectedTier.outputPer1M,
     cacheReadPer1M: selectedTier.cacheReadPer1M ?? pricing.cacheReadPer1M,
+    cacheWritePer1M: selectedTier.cacheWritePer1M ?? pricing.cacheWritePer1M,
   };
 }
 
@@ -315,6 +323,10 @@ function calculateUsageCost(
       tieredPricing.cacheReadPer1M == null
         ? undefined
         : tieredPricing.cacheReadPer1M * speedMultiplier,
+    cacheWritePer1M:
+      tieredPricing.cacheWritePer1M == null
+        ? undefined
+        : tieredPricing.cacheWritePer1M * speedMultiplier,
   };
 
   const directInputCost = calculateTokenCost(
@@ -331,7 +343,7 @@ function calculateUsageCost(
       directInputCost +
       outputCost +
       calculateTokenCost(
-        effectivePricing.inputPer1M,
+        effectivePricing.cacheWritePer1M ?? effectivePricing.inputPer1M,
         usage.cacheCreationInputTokens,
       ) +
       calculateTokenCost(
@@ -384,11 +396,11 @@ export function resolvePricingForUsage(
   model: string,
   usage: PricingUsage,
 ): PricingResult {
-  // Anthropic models routed through OpenRouter: look up against the Anthropic
-  // catalog using the normalized bare slug. OpenRouter bills these calls at
-  // Anthropic's rates and the underlying Messages API response includes
-  // Anthropic's cache- and speed-metadata fields.
-  if (provider === "openrouter" && isAnthropicModelId(model)) {
+  // Anthropic models routed through OpenRouter or the Vercel AI Gateway: look
+  // up against the Anthropic catalog using the normalized bare slug. Both
+  // gateways bill these calls at Anthropic's rates and the underlying Messages
+  // API response includes Anthropic's cache- and speed-metadata fields.
+  if (isAnthropicDelegatingGateway(provider) && isAnthropicModelId(model)) {
     const pricing = findPricing("anthropic", normalizeAnthropicModelId(model));
     if (pricing) {
       return {

@@ -4,11 +4,11 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
 
 ## Conventions
 
-- Each subdirectory is its own self-contained Bun package with its own
-  `bun.lock`, `package.json`, `tsconfig.json`, and lint config.
-- No workspaces, no Turborepo. Per-package `bun install`. Exact version
-  pinning is enforced repo-wide; see root `AGENTS.md` for the dependency,
-  license, and tool-version rules.
+- JavaScript client packages are members of the root Bun workspace and use the
+  root `bun.lock`. Native shell directories such as `ios/` and `android/`
+  consume Capacitor dependencies from `web/` and do not need package manifests.
+- Exact version pinning is enforced repo-wide; see root `AGENTS.md` for the
+  dependency, license, and tool-version rules.
 - All current client apps use bundlers (`clients/web/` via Vite,
   `clients/macos/` via electron-vite) and therefore use
   `moduleResolution: "Bundler"` with `module: "ESNext"`. Bundler-mode apps

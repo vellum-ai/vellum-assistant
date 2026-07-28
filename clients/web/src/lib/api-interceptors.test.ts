@@ -53,14 +53,43 @@ mock.module("@/lib/local-mode", () => ({
   syncPlatformAssistantsToLockfile: async () => {},
 }));
 
+// Auth store — mocked so the interceptor's `useAuthStore.getState()` reads a
+// controllable `sessionStatus` + `refreshSession` without pulling in the real
+// store's heavy dependency graph. `subscribe` is a no-op the (unrelated)
+// organization-store binds but never calls in these tests.
+type MockSessionStatus = "initializing" | "authenticated" | "unauthenticated";
+
+const mockAuthState: {
+  sessionStatus: MockSessionStatus;
+  refreshSession: () => Promise<boolean>;
+} = {
+  sessionStatus: "authenticated",
+  refreshSession: async () => true,
+};
+
+mock.module("@/stores/auth-store", () => ({
+  useAuthStore: {
+    getState: () => mockAuthState,
+    subscribe: () => () => {},
+  },
+}));
+
+const hardNavigateMock = mock((_url: string) => {});
+mock.module("@/lib/auth/hard-navigate", () => ({
+  hardNavigate: hardNavigateMock,
+}));
+
 import {
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
   localGatewayAuthRecoveryInterceptor,
+  platformAuthRecoveryInterceptor,
   platformFeaturesGate,
   requestInterceptor,
   resetGw401RecoveryFlag,
+  resetPlatformAuthRecoveryFlag,
+  rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -98,20 +127,20 @@ describe("api-interceptors / requestInterceptor", () => {
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on GET", async () => {
     const headers = await intercept("GET");
     expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on POST", async () => {
     const headers = await intercept("POST");
     expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("attaches client + interface headers on PUT, PATCH, DELETE", async () => {
     for (const method of ["PUT", "PATCH", "DELETE"]) {
       const headers = await intercept(method);
       expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-      expect(headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+      expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
     }
   });
 
@@ -293,16 +322,15 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("rewrites daemon/gateway-owned segments reached via the platform client", async () => {
-    // config / permissions / trust-rules are daemon- or gateway-owned and
-    // are called through the platform client via raw `client.*` requests
-    // (e.g. the background `TimezoneSync` PATCH to `config`). In local /
-    // self-hosted mode they must route to the gateway like conversations
-    // rather than fall through to the dead platform proxy and flood the
-    // console with 502s. (contacts / contact-channels / artifacts are NOT
-    // listed — their assistant-scoped routes aren't served by the gateway
-    // or daemon, so forwarding them would only 404.)
+    // config is daemon-owned and still called through the platform client
+    // via raw `client.*` requests (the background `TimezoneSync` PATCH).
+    // In local / self-hosted mode it must route to the gateway like
+    // conversations rather than fall through to the dead platform proxy
+    // and flood the console with 502s. (artifacts is NOT listed — its
+    // assistant-scoped routes aren't served by the gateway or daemon, so
+    // forwarding it would only 404.)
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const segment of ["config", "permissions", "trust-rules"]) {
+    for (const segment of ["config"]) {
       const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
       const input = new Request(`https://platform.test${path}`, {
         method: "POST",
@@ -364,7 +392,7 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
     const output = await requestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("web");
   });
 
   test("rewrites assistant event routes to the self-hosted gateway", async () => {
@@ -429,13 +457,9 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "oauth",
       // `/a2a/invites/redeem` is a platform broker (Django) route.
       "a2a",
-      // contacts / contact-channels / artifacts are daemon/gateway-owned but
-      // their assistant-scoped routes aren't served (the contacts control
-      // plane is registered at flat `/v1/contacts...` paths; there is no
-      // artifacts route), so they must NOT be rewritten — forwarding would
-      // 404 rather than reach a handler.
-      "contacts",
-      "contact-channels",
+      // artifacts is daemon/gateway-owned but no gateway or daemon route
+      // serves it, so it must NOT be rewritten — forwarding would 404
+      // rather than reach a handler.
       "artifacts",
     ]) {
       const input = new Request(
@@ -542,7 +566,154 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const input = new Request(`https://platform.test${DAEMON_SKILLS_PATH}`);
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
-    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("web");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-hosted contact-family flattening
+// ---------------------------------------------------------------------------
+//
+// Contact-family paths (`contacts`, `contact-channels`) are forwarded to
+// the ingress prefix-stripped — `/v1/assistants/{id}/<rest>` becomes
+// `/v1/<rest>` — matching what cloud's Django RuntimeProxyView delivers
+// to the gateway, which serves the family on its flat control-plane
+// routes. Both interceptor entry points (platform client and daemon
+// client) converge on the same flat path; every other segment keeps
+// today's verbatim scoped forwarding.
+
+const CONTACT_FLATTEN_CASES = [
+  { method: "POST", scoped: "contacts", flat: "/v1/contacts" },
+  {
+    method: "DELETE",
+    scoped: "contacts/contact-123",
+    flat: "/v1/contacts/contact-123",
+  },
+  {
+    method: "POST",
+    scoped: "contacts/prompt/submit",
+    flat: "/v1/contacts/prompt/submit",
+  },
+  { method: "POST", scoped: "contacts/merge", flat: "/v1/contacts/merge" },
+  {
+    method: "GET",
+    scoped: "contacts/invites",
+    flat: "/v1/contacts/invites",
+  },
+  {
+    method: "DELETE",
+    scoped: "contacts/invites/invite-456",
+    flat: "/v1/contacts/invites/invite-456",
+  },
+  {
+    method: "POST",
+    scoped: "contact-channels/channel-abc/verify",
+    flat: "/v1/contact-channels/channel-abc/verify",
+  },
+  {
+    method: "PATCH",
+    scoped: "contact-channels/channel-abc",
+    flat: "/v1/contact-channels/channel-abc",
+  },
+] as const;
+
+describe("api-interceptors / self-hosted contact-family flattening", () => {
+  beforeAll(() => {
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterAll(() => {
+    clearCsrfCookie();
+  });
+
+  afterEach(() => {
+    setSelfHostedConnection(null);
+  });
+
+  const ENTRY_POINTS = [
+    ["platform client", requestInterceptor],
+    ["daemon client", daemonRequestInterceptor],
+  ] as const;
+
+  for (const [label, interceptor] of ENTRY_POINTS) {
+    test(`${label}: strips the assistant prefix from contact-family paths`, async () => {
+      setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+      for (const { method, scoped, flat } of CONTACT_FLATTEN_CASES) {
+        const input = new Request(
+          `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${scoped}`,
+          { method },
+        );
+        const output = await interceptor(input);
+        const outUrl = new URL(output.url);
+        expect(outUrl.origin).toBe(INGRESS);
+        expect(outUrl.pathname).toBe(flat);
+        expect(output.headers.get("Authorization")).toBe(
+          `Bearer ${ACTOR_TOKEN}`,
+        );
+        expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+        expect(output.headers.get("X-CSRFToken")).toBeNull();
+      }
+    });
+
+    test(`${label}: preserves the query string on flattened list requests`, async () => {
+      setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+      const input = new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/contacts?query=x`,
+      );
+      const output = await interceptor(input);
+      const outUrl = new URL(output.url);
+      expect(outUrl.origin).toBe(INGRESS);
+      expect(outUrl.pathname).toBe("/v1/contacts");
+      expect(outUrl.search).toBe("?query=x");
+    });
+  }
+
+  test("prepends the ingress path prefix to flattened paths", async () => {
+    setSelfHostedConnection({
+      url: "http://localhost:3000/__gateway/20100",
+      token: ACTOR_TOKEN,
+    });
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/contacts`,
+      { method: "POST" },
+    );
+    const output = await daemonRequestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe("http://localhost:3000");
+    expect(outUrl.pathname).toBe("/__gateway/20100/v1/contacts");
+  });
+
+  test("non-contact segments keep the scoped path", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    for (const [interceptor, segment] of [
+      [requestInterceptor, "conversations"],
+      [requestInterceptor, "config"],
+      [daemonRequestInterceptor, "skills"],
+    ] as const) {
+      const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
+      const input = new Request(`https://platform.test${path}`);
+      const output = await interceptor(input);
+      const outUrl = new URL(output.url);
+      expect(outUrl.origin).toBe(INGRESS);
+      expect(outUrl.pathname).toBe(path);
+    }
+  });
+
+  test("no ingress registered — rewrite returns null and the request is untouched", async () => {
+    const scopedPath = `/v1/assistants/${SELF_HOSTED_ID}/contacts`;
+    const input = new Request(`https://platform.test${scopedPath}`, {
+      method: "POST",
+    });
+    expect(await rewriteForSelfHostedIngress(input)).toBeNull();
+    expect(
+      await rewriteForSelfHostedIngress(input, { skipSegmentAllowlist: true }),
+    ).toBeNull();
+
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+    expect(outUrl.origin).toBe("https://platform.test");
+    expect(outUrl.pathname).toBe(scopedPath);
   });
 });
 
@@ -1111,5 +1282,139 @@ describe("api-interceptors / local-mode body buffering", () => {
     } finally {
       blobSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform session mid-use expiry recovery interceptor
+// ---------------------------------------------------------------------------
+//
+// When a cookie-authenticated request comes back 401/403/410 while the app
+// still believes it is signed in, the interceptor re-verifies the session via
+// `refreshSession` and, when it is truly gone, hard-navigates to login.
+// Self-hosted / remote-gateway bearer 401s are left to
+// `localGatewayAuthRecoveryInterceptor`.
+
+describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
+  const PLATFORM_URL = "https://platform.test/v1/assistants/123/messages";
+  const LOGIN_PREFIX = "/account/login?returnTo=";
+
+  function makeResponse(status: number, url: string): Response {
+    const response = new Response(null, { status });
+    Object.defineProperty(response, "url", { value: url });
+    return response;
+  }
+
+  // The interceptor kicks off recovery fire-and-forget; flush the microtask
+  // queue so the async `refreshSession` + redirect settle before asserting.
+  const flush = (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    resetPlatformAuthRecoveryFlag();
+    setSelfHostedConnection(null);
+    mockAuthState.sessionStatus = "authenticated";
+    mockAuthState.refreshSession = mock(async () => true);
+    hardNavigateMock.mockClear();
+  });
+
+  afterEach(() => {
+    resetPlatformAuthRecoveryFlag();
+    setSelfHostedConnection(null);
+  });
+
+  test("401 while authenticated re-verifies; a dead session redirects to login", async () => {
+    const refreshSession = mock(async () => {
+      mockAuthState.sessionStatus = "unauthenticated";
+      return false;
+    });
+    mockAuthState.refreshSession = refreshSession;
+
+    const response = makeResponse(401, PLATFORM_URL);
+    expect(platformAuthRecoveryInterceptor(response)).toBe(response);
+    await flush();
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(hardNavigateMock).toHaveBeenCalledTimes(1);
+    expect(hardNavigateMock.mock.calls[0][0].startsWith(LOGIN_PREFIX)).toBe(
+      true,
+    );
+  });
+
+  test("403 that leaves the session live does not redirect and reopens the latch", async () => {
+    const refreshSession = mock(async () => true); // session stays authenticated
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+
+    // Latch reopened → a later genuine rejection triggers another re-probe.
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("non-rejection statuses (200, 502) are no-ops", async () => {
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    platformAuthRecoveryInterceptor(makeResponse(502, PLATFORM_URL));
+    await flush();
+
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+  });
+
+  test("does nothing when the app is not authenticated at entry", async () => {
+    const refreshSession = mock(async () => false);
+    mockAuthState.refreshSession = refreshSession;
+
+    for (const status of ["initializing", "unauthenticated"] as const) {
+      mockAuthState.sessionStatus = status;
+      platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+    }
+    await flush();
+
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+  });
+
+  test("ignores a self-hosted gateway 401 — deferred to the gateway handler", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const refreshSession = mock(async () => false);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(401, `${INGRESS}/v1/assistants/123/messages`),
+    );
+    await flush();
+
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+  });
+
+  test("a second rejection while recovery is in-flight is a no-op (one refreshSession)", async () => {
+    let resolveRefresh: (value: boolean) => void = () => {};
+    const refreshSession = mock(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+    platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+
+    // Latch set synchronously on the first hit → the second short-circuits.
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    resolveRefresh(true);
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 });

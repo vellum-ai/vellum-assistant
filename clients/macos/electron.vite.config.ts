@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
@@ -45,6 +46,22 @@ const resolveBuildSha = (): string => {
   }
 };
 
+// Bun version bundled with the app, read from the repo-root `.tool-versions`
+// (the same source fetch-bun.sh downloads from). Baked into the main bundle so
+// the CLI installer can stamp `packageManager: bun@<version>` on the install it
+// writes, marking that install bun-only.
+const resolveBunVersion = (): string => {
+  try {
+    const toolVersions = readFileSync(
+      path.resolve(__dirname, "../../.tool-versions"),
+      "utf8",
+    );
+    return toolVersions.match(/^bun\s+(\S+)/m)?.[1] ?? "";
+  } catch {
+    return "";
+  }
+};
+
 // Local builds drive the repo CLI source directly instead of installing the
 // published package; release builds bake an empty path and keep the pinned
 // npm install (see getLocalCliEntry in src/main/cli-installer.ts).
@@ -59,6 +76,7 @@ const BUILD_DEFINES = {
     process.env.VELLUM_ENVIRONMENT || "local",
   ),
   __VELLUM_LOCAL_CLI_ENTRY__: JSON.stringify(LOCAL_CLI_ENTRY),
+  __VELLUM_BUN_VERSION__: JSON.stringify(resolveBunVersion()),
   __VELLUM_ENABLE_CHROME_DEVTOOLS__: JSON.stringify(
     process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",

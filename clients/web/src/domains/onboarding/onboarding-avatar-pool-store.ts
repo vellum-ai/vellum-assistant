@@ -21,26 +21,29 @@ import { createSelectors } from "@/utils/create-selectors";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 
 /** How many characters to scatter / cycle through. */
-export const AVATAR_POOL_SIZE = 10;
+export const AVATAR_POOL_SIZE = 12;
 
 /**
- * The hand-picked cast, chosen to match the design. Body shapes are all
- * distinct (one of each of the 10), with colors + eye styles picked to resemble
- * the reference. Index 0 is the picker's initial centered avatar.
+ * The hand-picked cast, chosen to match the design. Spans all 9 body shapes and
+ * all 9 eye styles (a few unavoidably repeat across 12 characters) so the picker
+ * shows the full variety instead of leaning on the same faces. Index 0 is the
+ * picker's initial centered avatar.
  */
-// Index 0 is the center; indices 1–9 fill the picker's edge slots in order (see
+// Index 0 is the center; indices 1–11 fill the picker's edge slots in order (see
 // `edgeSlots` in onboarding-character-stage). Tuned to match the design.
 const HARDCODED_POOL: CharacterTraits[] = [
   { bodyShape: "urchin", eyeStyle: "goofy", color: "teal" }, // center: teal spiky
   { bodyShape: "blob", eyeStyle: "grumpy", color: "purple" }, // top-left: purple blob
-  { bodyShape: "star", eyeStyle: "goofy", color: "orange" }, // top L: orange star
-  { bodyShape: "blob", eyeStyle: "goofy", color: "pink" }, // top R: pink blob
+  { bodyShape: "star", eyeStyle: "surprised", color: "orange" }, // top L: orange star
+  { bodyShape: "blob", eyeStyle: "gentle", color: "pink" }, // top R: pink blob
   { bodyShape: "ninja", eyeStyle: "angry", color: "yellow" }, // top-right: yellow angular
   { bodyShape: "urchin", eyeStyle: "curious", color: "pink" }, // right lower: pink spiky
-  { bodyShape: "burst", eyeStyle: "angry", color: "orange" }, // bottom-right: orange burst
+  { bodyShape: "burst", eyeStyle: "quirky", color: "orange" }, // bottom-right: orange burst
   { bodyShape: "ghost", eyeStyle: "bashful", color: "green" }, // bottom-left: green sleepy
-  { bodyShape: "sprout", eyeStyle: "curious", color: "orange" }, // left mid: orange-red
-  { bodyShape: "star", eyeStyle: "dazed", color: "teal" }, // right upper: teal star
+  { bodyShape: "sprout", eyeStyle: "dazed", color: "orange" }, // left mid: orange-red
+  { bodyShape: "star", eyeStyle: "goofy", color: "teal" }, // right upper: teal star
+  { bodyShape: "flower", eyeStyle: "angry", color: "pink" }, // bottom L of center: pink flower
+  { bodyShape: "cloud", eyeStyle: "curious", color: "yellow" }, // bottom R of center: yellow cloud
 ];
 
 interface OnboardingAvatarPoolState {

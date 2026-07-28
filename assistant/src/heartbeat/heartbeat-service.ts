@@ -1,20 +1,23 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { HeartbeatAlertEvent } from "../api/events/heartbeat-alert.js";
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona,
 } from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { hasReceivedUserMessage } from "../runtime/pre-first-message-gate.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
@@ -27,6 +30,7 @@ import {
   countCompletedHeartbeatRuns,
   countCompletedRunsToday,
   countRecentConsecutiveRuns,
+  getLastHeartbeatRunAt,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
   markStaleRunsAsMissed,
@@ -80,10 +84,14 @@ function getReengagementTimestampPath(): string {
 
 function isReengagementCooldownElapsed(): boolean {
   const tsPath = getReengagementTimestampPath();
-  if (!existsSync(tsPath)) return true;
+  if (!existsSync(tsPath)) {
+    return true;
+  }
   try {
     const lastTs = parseInt(readFileSync(tsPath, "utf-8").trim(), 10);
-    if (isNaN(lastTs)) return true;
+    if (isNaN(lastTs)) {
+      return true;
+    }
     return Date.now() - lastTs >= REENGAGEMENT_COOLDOWN_MS;
   } catch {
     return true;
@@ -109,11 +117,6 @@ function refreshBackgroundWakeIntentSoon(reason: string): void {
 }
 
 export interface HeartbeatDeps {
-  alerter: (alert: HeartbeatAlert) => void;
-  onConversationCreated?: (info: {
-    conversationId: string;
-    title: string;
-  }) => void;
   /** Override for current hour (0-23), for testing. */
   getCurrentHour?: () => number;
 }
@@ -162,13 +165,28 @@ export class HeartbeatService {
   // after a guardian message can detect the reset and skip its increment.
   private _resetGeneration = 0;
 
-  constructor(deps: HeartbeatDeps) {
+  constructor(deps: HeartbeatDeps = {}) {
     this.deps = deps;
     HeartbeatService.instance = this;
   }
 
-  /** Epoch-ms timestamp of the last completed heartbeat run. */
+  /**
+   * Epoch-ms timestamp of the last completed heartbeat run. The in-memory
+   * field only covers runs completed in this process's lifetime, so when it
+   * is unset the value is rehydrated from run history — a daemon restart
+   * must not blank "last run" while completed runs exist in the database.
+   */
   get lastRunAt(): number | null {
+    if (this._lastRunAt == null) {
+      try {
+        this._lastRunAt = getLastHeartbeatRunAt();
+      } catch (err) {
+        // DB unavailable (e.g. migrations still settling) — report unknown
+        // and retry on the next read.
+        log.debug({ err }, "Failed to read last heartbeat run from history");
+        return null;
+      }
+    }
     return this._lastRunAt;
   }
 
@@ -180,7 +198,9 @@ export class HeartbeatService {
   /** Whether the consecutive-run cap has been reached. */
   get isConsecutiveRunCapReached(): boolean {
     const config = getConfig().heartbeat;
-    if (config.maxConsecutiveRuns == null) return false;
+    if (config.maxConsecutiveRuns == null) {
+      return false;
+    }
     return (
       countRecentConsecutiveRuns(config.maxConsecutiveRuns) >=
       config.maxConsecutiveRuns
@@ -190,7 +210,9 @@ export class HeartbeatService {
   /** Whether the daily run cap has been reached. */
   get isDailyCapReached(): boolean {
     const config = getConfig().heartbeat;
-    if (config.maxDailyRuns == null) return false;
+    if (config.maxDailyRuns == null) {
+      return false;
+    }
     return countCompletedRunsToday() >= config.maxDailyRuns;
   }
 
@@ -237,7 +259,9 @@ export class HeartbeatService {
       refreshBackgroundWakeIntentSoon("heartbeat-disabled");
       return;
     }
-    if (this.timer) return;
+    if (this.timer) {
+      return;
+    }
 
     if (!this._hasRunStartupRecovery) {
       this._hasRunStartupRecovery = true;
@@ -320,7 +344,9 @@ export class HeartbeatService {
   }
 
   private scheduleNextCronRun(config: HeartbeatConfig): void {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
     try {
       const nextRunAt = computeNextRunAt({
         syntax: "cron",
@@ -404,7 +430,9 @@ export class HeartbeatService {
       this._pendingRunId = null;
     }
     refreshBackgroundWakeIntentSoon("heartbeat-counter-reset");
-    if (!this.timer) return;
+    if (!this.timer) {
+      return;
+    }
     if (this.cronMode) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
       clearInterval(this.timer as ReturnType<typeof setInterval>);
@@ -468,8 +496,24 @@ export class HeartbeatService {
     }
 
     if (!force && !config.enabled) {
-      if (runId) skipHeartbeatRun(runId, "disabled");
+      if (runId) {
+        skipHeartbeatRun(runId, "disabled");
+      }
       refreshBackgroundWakeIntentSoon("heartbeat-disabled");
+      return false;
+    }
+
+    // Drain guard: while a quiesce lease is active (a client is waiting for
+    // background work to finish before stopping the assistant), do not start
+    // new beats. Recorded as a skipped run so run history explains the gap.
+    if (!force && isLifecycleQuiesced()) {
+      log.info("Heartbeat skipped — quiesce lease active");
+      if (runId) {
+        skipHeartbeatRun(runId, "quiesced");
+      }
+      if (!this.cronMode) {
+        this.scheduleNextRun(config.intervalMs);
+      }
       return false;
     }
 
@@ -488,7 +532,9 @@ export class HeartbeatService {
       log.info(
         "Heartbeat skipped — daemon has not received a first user message yet",
       );
-      if (runId) skipHeartbeatRun(runId, "pre_first_user_message");
+      if (runId) {
+        skipHeartbeatRun(runId, "pre_first_user_message");
+      }
       if (!this.cronMode) {
         this.scheduleNextRun(config.intervalMs);
       }
@@ -528,7 +574,9 @@ export class HeartbeatService {
           },
           "Outside active hours, skipping",
         );
-        if (runId) skipHeartbeatRun(runId, "outside_active_hours");
+        if (runId) {
+          skipHeartbeatRun(runId, "outside_active_hours");
+        }
         if (!this.cronMode) {
           this.scheduleNextRun(config.intervalMs);
         }
@@ -551,7 +599,9 @@ export class HeartbeatService {
         },
         "Max consecutive runs reached, skipping",
       );
-      if (runId) skipHeartbeatRun(runId, "max_consecutive_runs");
+      if (runId) {
+        skipHeartbeatRun(runId, "max_consecutive_runs");
+      }
       if (!this.cronMode) {
         this.scheduleNextRun(config.intervalMs);
       }
@@ -569,7 +619,9 @@ export class HeartbeatService {
         { maxDailyRuns: config.maxDailyRuns },
         "Daily run cap reached, skipping",
       );
-      if (runId) skipHeartbeatRun(runId, "max_daily_runs");
+      if (runId) {
+        skipHeartbeatRun(runId, "max_daily_runs");
+      }
       if (!this.cronMode) {
         this.scheduleNextRun(config.intervalMs);
       }
@@ -579,7 +631,9 @@ export class HeartbeatService {
     // Overlap prevention
     if (this.activeRun) {
       log.debug("Previous heartbeat run still active, skipping");
-      if (runId) skipHeartbeatRun(runId, "overlap");
+      if (runId) {
+        skipHeartbeatRun(runId, "overlap");
+      }
       return false;
     }
 
@@ -669,13 +723,13 @@ export class HeartbeatService {
     } catch (err) {
       log.error({ err }, "Credential health check failed");
       try {
-        this.deps.alerter({
+        broadcastMessage({
           type: "heartbeat_alert",
           title: "Credential Health Check Failed",
           body:
             "Could not verify OAuth credential health. " +
             (err instanceof Error ? err.message : String(err)),
-        });
+        } satisfies HeartbeatAlertEvent);
       } catch {
         // Last resort — alerter itself failed. Already logged above.
       }
@@ -761,6 +815,10 @@ export class HeartbeatService {
 
     const checklist = this.readChecklist();
     const completedRunCount = countCompletedHeartbeatRuns();
+    // Warm the vellum guardian-delivery cache so buildPrompt's sync guardian
+    // persona read (isShallowProfile → resolveGuardianPersona) hits a fresh key
+    // instead of falling back to default.md on a cold/TTL-expired cache.
+    await getGuardianDelivery({ channelTypes: ["vellum"] });
     const { prompt, includedReengagement } = this.buildPrompt(
       checklist,
       unhealthyProviders,
@@ -793,7 +851,8 @@ export class HeartbeatService {
       deferNotifications: true,
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
-        this.deps.onConversationCreated?.({
+        broadcastMessage({
+          type: "heartbeat_conversation_created",
           conversationId: newConversationId,
           title: "Heartbeat",
         });
@@ -855,11 +914,11 @@ export class HeartbeatService {
     // recovery sweep) already alerted for this run.
     if (transitioned) {
       try {
-        this.deps.alerter({
+        broadcastMessage({
           type: "heartbeat_alert",
           title: "Heartbeat Failed",
           body: result.error?.message ?? "Unknown error",
-        });
+        } satisfies HeartbeatAlertEvent);
       } catch (alertErr) {
         log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
@@ -914,9 +973,32 @@ This is one of your first heartbeats. Your user hasn't heard from you yet and ma
   }
 }
 
+/**
+ * Construct and start the heartbeat service singleton, returning it so callers
+ * can wire it into the background-wake runtime. start() self-gates on
+ * `heartbeat.enabled` and logs its own status.
+ */
+export function startHeartbeatService(): HeartbeatService {
+  const service = new HeartbeatService();
+  service.start();
+  return service;
+}
+
+/** Stop the heartbeat service singleton if one is running; no-op otherwise. */
+export async function stopHeartbeatService(): Promise<void> {
+  await HeartbeatService.getInstance()?.stop();
+}
+
+/** The running heartbeat service, or null if one was never started. */
+export function getHeartbeatService(): HeartbeatService | null {
+  return HeartbeatService.getInstance() ?? null;
+}
+
 function isDiskPressureBackgroundLocked(logKey: string): boolean {
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
-  if (diskPressureGate.action === "allow") return false;
+  if (diskPressureGate.action === "allow") {
+    return false;
+  }
   if (shouldLogDiskPressureBackgroundSkip(logKey)) {
     log.warn(
       {

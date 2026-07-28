@@ -1,9 +1,10 @@
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { isContactTrustClass } from "../runtime/trust-class.js";
 import type { DiskPressureStatus } from "./disk-pressure-guard.js";
 import type { ConversationType } from "./message-types/shared.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 export type DiskPressureCleanupReason = "local-owner" | "guardian";
 
@@ -79,7 +80,7 @@ export function classifyDiskPressureTurnPolicy(
     return { action: "allow-cleanup-mode", reason: "guardian" };
   }
 
-  if (trustClass === "trusted_contact" || trustClass === "unverified_contact") {
+  if (isContactTrustClass(trustClass)) {
     return { action: "block", reason: "trusted-contact" };
   }
 

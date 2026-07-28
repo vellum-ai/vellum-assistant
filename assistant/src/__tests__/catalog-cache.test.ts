@@ -13,14 +13,6 @@ import type { CatalogSkill } from "../skills/catalog-install.js";
 // Mocks — must be defined before importing the module under test
 // ---------------------------------------------------------------------------
 
-// Suppress logger output
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let mockRepoSkillsDir: string | undefined = undefined;
 let mockLocalCatalog: CatalogSkill[] = [];
 let mockFetchCatalogResult: CatalogSkill[] = [];

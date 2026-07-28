@@ -3,8 +3,8 @@
 // Source of truth: assistant/src/providers/model-catalog.ts, which
 // generates meta/llm-provider-catalog.json via
 //   cd assistant && bun run sync:llm-catalog
-// This file mirrors the subset the web UI needs (no ollama, no
-// pricing/vision/caching fields).
+// This file mirrors the subset the web UI needs (no pricing/vision/caching
+// fields).
 //
 // Parity is enforced by llm-model-catalog.test.ts: update the daemon
 // catalog first, run the sync, then mirror the change here.
@@ -33,6 +33,15 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
     {
+      id: "claude-opus-5",
+      displayName: "Claude Opus 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "claude-opus-4-8",
       displayName: "Claude Opus 4.8",
       contextWindowTokens: 1_000_000,
@@ -53,6 +62,15 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-4-6",
       displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -94,6 +112,33 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   openai: [
+    {
+      id: "gpt-5.6-sol",
+      displayName: "GPT-5.6 Sol",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "gpt-5.6-terra",
+      displayName: "GPT-5.6 Terra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "gpt-5.6-luna",
+      displayName: "GPT-5.6 Luna",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
     {
       id: "gpt-5.5",
       displayName: "GPT-5.5",
@@ -148,8 +193,24 @@ export const MODELS_BY_PROVIDER = {
   ],
   gemini: [
     {
+      id: "gemini-3.6-flash",
+      displayName: "Gemini 3.6 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+    },
+    {
       id: "gemini-3.5-flash",
       displayName: "Gemini 3.5 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+    },
+    {
+      id: "gemini-3.5-flash-lite",
+      displayName: "Gemini 3.5 Flash-Lite",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -222,7 +283,32 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
   ],
+  ollama: [
+    {
+      id: "llama3.2",
+      displayName: "Llama 3.2",
+      contextWindowTokens: 128_000,
+      defaultContextWindowTokens: 128_000,
+      maxOutputTokens: 4_096,
+    },
+    {
+      id: "mistral",
+      displayName: "Mistral",
+      contextWindowTokens: 32_768,
+      defaultContextWindowTokens: 32_768,
+      maxOutputTokens: 4_096,
+    },
+  ],
   fireworks: [
+    {
+      id: "accounts/fireworks/models/kimi-k3",
+      displayName: "Kimi K3",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+    },
     {
       id: "accounts/fireworks/models/kimi-k2p6",
       displayName: "Kimi K2.6",
@@ -307,6 +393,15 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
     {
+      id: "anthropic/claude-opus-5",
+      displayName: "Claude Opus 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "anthropic/claude-opus-4.8",
       displayName: "Claude Opus 4.8",
       contextWindowTokens: 1_000_000,
@@ -327,6 +422,15 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.6",
       displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -367,11 +471,65 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "x-ai/grok-4.20-beta",
-      displayName: "Grok 4.20 Beta",
-      contextWindowTokens: 256_000,
+      id: "openai/gpt-5.6-sol",
+      displayName: "GPT-5.6 Sol",
+      contextWindowTokens: 1_050_000,
       defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 16_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-5.6-sol-pro",
+      displayName: "GPT-5.6 Sol Pro",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-5.6-terra",
+      displayName: "GPT-5.6 Terra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-5.6-terra-pro",
+      displayName: "GPT-5.6 Terra Pro",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-5.6-luna",
+      displayName: "GPT-5.6 Luna",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-5.6-luna-pro",
+      displayName: "GPT-5.6 Luna Pro",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "x-ai/grok-4.5",
+      displayName: "Grok 4.5",
+      contextWindowTokens: 500_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 30_000,
       supportsThinking: true,
     },
     {
@@ -383,10 +541,10 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "x-ai/grok-4",
-      displayName: "Grok 4",
-      contextWindowTokens: 131_072,
-      defaultContextWindowTokens: 131_072,
+      id: "x-ai/grok-4.20",
+      displayName: "Grok 4.20",
+      contextWindowTokens: 2_000_000,
+      defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_000,
       supportsThinking: true,
     },
@@ -458,6 +616,15 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 131_072,
       defaultContextWindowTokens: 131_072,
       maxOutputTokens: 8_192,
+    },
+    {
+      id: "moonshotai/kimi-k3",
+      displayName: "Kimi K3",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
     },
     {
       id: "moonshotai/kimi-k2.6",
@@ -594,6 +761,113 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 262_144,
     },
   ],
+  "vercel-ai-gateway": [
+    {
+      id: "anthropic/claude-fable-5",
+      displayName: "Claude Fable 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      adaptiveThinkingOnly: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-opus-5",
+      displayName: "Claude Opus 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-opus-4.8",
+      displayName: "Claude Opus 4.8",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-opus-4.6",
+      displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-4.6",
+      displayName: "Claude Sonnet 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 64_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-haiku-4.5",
+      displayName: "Claude Haiku 4.5",
+      contextWindowTokens: 200_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 64_000,
+      supportsThinking: true,
+    },
+    {
+      id: "openai/gpt-5.5",
+      displayName: "GPT-5.5",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-5.5-pro",
+      displayName: "GPT-5.5 Pro",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "xai/grok-4.3",
+      displayName: "Grok 4.3",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 16_000,
+      supportsThinking: true,
+    },
+    {
+      id: "moonshotai/kimi-k2.6",
+      displayName: "Kimi K2.6",
+      contextWindowTokens: 262_144,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 32_768,
+      supportsThinking: true,
+    },
+    {
+      id: "deepseek/deepseek-v4-flash",
+      displayName: "DeepSeek V4 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 384_000,
+      supportsThinking: true,
+    },
+  ],
   minimax: [
     {
       id: "MiniMax-M3",
@@ -622,8 +896,36 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
-  "openai-compatible": [
+  litellm: [],
+  baseten: [
+    {
+      id: "thinkingmachines/inkling",
+      displayName: "Inkling",
+      contextWindowTokens: 262_144,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 32_768,
+      supportsThinking: true,
+    },
   ],
+  poolside: [
+    {
+      id: "poolside/laguna-s-2.1",
+      displayName: "Laguna S 2.1",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+    {
+      id: "poolside/laguna-xs-2.1",
+      displayName: "Laguna XS 2.1",
+      contextWindowTokens: 262_144,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 32_768,
+      supportsThinking: true,
+    },
+  ],
+  "openai-compatible": [],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
 
 export type LlmProviderId = keyof typeof MODELS_BY_PROVIDER;
@@ -632,21 +934,30 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   anthropic: "claude-opus-4-8",
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
+  ollama: "llama3.2",
   fireworks: "accounts/fireworks/models/kimi-k2p5",
   together: "MiniMaxAI/MiniMax-M3",
-  openrouter: "x-ai/grok-4.20-beta",
+  openrouter: "x-ai/grok-4.20",
+  "vercel-ai-gateway": "anthropic/claude-sonnet-4.6",
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
+  litellm: "",
+  baseten: "thinkingmachines/inkling",
+  poolside: "poolside/laguna-s-2.1",
   "openai-compatible": "",
 };
 
 /**
  * Provider id → human-readable label. Covers every provider in the
- * daemon catalog (including ones not in MODELS_BY_PROVIDER such as
- * ollama). Consumers should fall back to the raw id on miss:
+ * daemon catalog. Consumers should fall back to the raw id on miss:
  *   PROVIDER_DISPLAY_NAMES[id] ?? id
  */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  // Not catalog providers: the platform-managed routing sentinel and the
+  // subscription-auth pseudo-provider. Cards and pickers render both as
+  // providers, so they need display names.
+  vellum: "Vellum",
+  chatgpt: "ChatGPT Subscription",
   anthropic: "Anthropic",
   openai: "OpenAI",
   gemini: "Google Gemini",
@@ -654,9 +965,13 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   fireworks: "Fireworks",
   together: "Together AI",
   openrouter: "OpenRouter",
+  "vercel-ai-gateway": "Vercel AI Gateway",
   "openai-compatible": "OpenAI-compatible",
   minimax: "MiniMax",
   atlascloud: "Atlas Cloud",
+  litellm: "LiteLLM",
+  baseten: "Baseten",
+  poolside: "Poolside",
 };
 
 /**
@@ -674,16 +989,101 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   fireworks: true,
   together: true,
   openrouter: false,
+  "vercel-ai-gateway": false,
   "openai-compatible": false,
   minimax: false,
   atlascloud: false,
+  litellm: false,
+  baseten: false,
+  poolside: false,
 };
 
 export const MANAGED_MODELS = MODELS_BY_PROVIDER.anthropic;
 
+/**
+ * Providers the Vellum-managed entry can route to. Single source of truth for
+ * the web (the settings-domain MANAGED_ROUTABLE_PROVIDERS set derives from
+ * it); mirrors the daemon's managed-routable set in
+ * assistant/src/providers/platform-proxy/constants.ts.
+ */
+export const VELLUM_SERVED_PROVIDERS = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "fireworks",
+  "together",
+] as const;
+
+/**
+ * The Vellum entry's model list: the union of the managed-routable providers'
+ * catalogs, deduplicated by id in VELLUM_SERVED_PROVIDERS order. Users pick
+ * "Vellum" + a model; which upstream serves it is an implementation detail.
+ */
+const VELLUM_MODELS: readonly LlmCatalogModel[] = (() => {
+  const seenIds = new Set<string>();
+  const seenLabels = new Set<string>();
+  const union: LlmCatalogModel[] = [];
+  for (const provider of VELLUM_SERVED_PROVIDERS) {
+    for (const model of MODELS_BY_PROVIDER[provider]) {
+      // Dedupe by display label as well as id: two upstreams can host the
+      // same model under different ids (e.g. MiniMax M3 on Fireworks and
+      // Together), and the provider-agnostic picker renders labels only —
+      // duplicate labels would be indistinguishable options. First provider
+      // in VELLUM_SERVED_PROVIDERS order wins.
+      if (seenIds.has(model.id) || seenLabels.has(model.displayName)) {
+        continue;
+      }
+      seenIds.add(model.id);
+      seenLabels.add(model.displayName);
+      union.push(model);
+    }
+  }
+  return union;
+})();
+
+/**
+ * The managed upstream that serves a model picked under the Vellum entry —
+ * the first VELLUM_SERVED_PROVIDERS member whose catalog lists the id. Used
+ * at profile-save time to derive the wire-shape provider for
+ * provider_connection: "vellum" profiles.
+ */
+/**
+ * Decode a `<provider>/<model>` Vellum routing string (mirrors the daemon's
+ * parseVellumModel): the prefix names the upstream, the remainder is the
+ * upstream's native model id. Null for anything else.
+ */
+export function parseVellumRoutedModel(modelId: string): {
+  provider: (typeof VELLUM_SERVED_PROVIDERS)[number];
+  model: string;
+} | null {
+  const slash = modelId.indexOf("/");
+  if (slash <= 0) {
+    return null;
+  }
+  const prefix = modelId.slice(0, slash);
+  const provider = VELLUM_SERVED_PROVIDERS.find((p) => p === prefix);
+  const model = modelId.slice(slash + 1);
+  return provider && model ? { provider, model } : null;
+}
+
+export function getManagedUpstreamForModel(
+  modelId: string,
+): (typeof VELLUM_SERVED_PROVIDERS)[number] | undefined {
+  const routed = parseVellumRoutedModel(modelId);
+  if (routed) {
+    return routed.provider;
+  }
+  return VELLUM_SERVED_PROVIDERS.find((provider) =>
+    MODELS_BY_PROVIDER[provider].some((m) => m.id === modelId),
+  );
+}
+
 export function getModelsForProvider(
   provider: string,
 ): readonly LlmCatalogModel[] {
+  if (provider === "vellum") {
+    return VELLUM_MODELS;
+  }
   return MODELS_BY_PROVIDER[provider as LlmProviderId] ?? [];
 }
 

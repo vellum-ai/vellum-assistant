@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+
 // Silence the logger everywhere this graph reaches.
 const realLogger = await import("../../util/logger.js");
 mock.module("../../util/logger.js", () => ({
@@ -11,27 +13,8 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 // ── Mutable mock state ────────────────────────────────────────────────
-// `configThrows` simulates config not yet loaded (test-setup race). The
-// run-manager mock records the args of the last `start()` call for assertion.
-
-let configThrows = false;
-
-const realLoader = await import("../../config/loader.js");
-mock.module("../../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => {
-    if (configThrows) throw new Error("config not loaded");
-    return {} as ReturnType<typeof realLoader.getConfig>;
-  },
-  // manage_workflows `list_profiles` reads profiles via loadConfig().
-  loadConfig: () =>
-    ({
-      llm: {
-        profiles: { "cost-optimized": {}, balanced: {} },
-        activeProfile: "balanced",
-      },
-    }) as unknown as ReturnType<typeof realLoader.loadConfig>,
-}));
+// The run-manager mock records the args of the last `start()` call for
+// assertion.
 
 // No live conversation in tests — the tool falls back to a synthetic trust
 // context built from the tool context's trustClass.
@@ -44,7 +27,9 @@ mock.module("../../daemon/conversation-registry.js", () => ({
 let lastStartArgs: Record<string, unknown> | null = null;
 let startThrows: Error | null = null;
 const startMock = mock((opts: Record<string, unknown>) => {
-  if (startThrows) throw startThrows;
+  if (startThrows) {
+    throw startThrows;
+  }
   lastStartArgs = opts;
   return { runId: "run-123" };
 });
@@ -53,7 +38,9 @@ const abortMock = mock(() => {});
 const listMock = mock(() => [] as unknown[]);
 let resumeThrows: Error | null = null;
 const resumeMock = mock((runId: string) => {
-  if (resumeThrows) throw resumeThrows;
+  if (resumeThrows) {
+    throw resumeThrows;
+  }
   return { runId };
 });
 
@@ -83,7 +70,10 @@ function makeContext(): Parameters<typeof executeRunWorkflow>[1] {
 }
 
 beforeEach(() => {
-  configThrows = false;
+  // `manage_workflows list_profiles` reads the workspace active profile via
+  // loadConfig(); the effective profile names always include the code-catalog
+  // defaults, so only the active-profile selection needs seeding.
+  setConfig("llm", { activeProfile: "balanced" });
   startThrows = null;
   lastStartArgs = null;
   resumeThrows = null;
@@ -348,7 +338,12 @@ describe("manage_workflows", () => {
     );
     expect(res.isError).toBe(false);
     const parsed = JSON.parse(res.content);
-    expect(parsed.profiles).toEqual(["balanced", "cost-optimized"]);
+    // The effective view always includes the code-catalog defaults.
+    expect(parsed.profiles).toEqual([
+      "balanced",
+      "cost-optimized",
+      "quality-optimized",
+    ]);
     expect(parsed.activeProfile).toBe("balanced");
   });
 
@@ -428,5 +423,53 @@ describe("manage_workflows", () => {
       contactContext(),
     );
     expect(abortMock).toHaveBeenCalledWith("mine");
+  });
+});
+
+// ── model-input schema validation (LUM-2855) ────────────────────────
+
+describe("workflow tools — model-input schema validation", () => {
+  test("run_workflow rejects a non-string script", async () => {
+    const result = await executeRunWorkflow({ script: 42 }, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "run_workflow"');
+    expect(result.content).toContain("script");
+    expect(startMock).not.toHaveBeenCalled();
+  });
+
+  test("run_workflow treats explicit null script/name as omitted (bespoke exactly-one error)", async () => {
+    const result = await executeRunWorkflow(
+      { script: null, name: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("exactly one");
+  });
+
+  test("run_workflow passes args through unvalidated (workflow runtime accepts any JSON)", async () => {
+    const result = await executeRunWorkflow(
+      { script: "export const meta = {}", args: ["positional"] },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+    expect(lastStartArgs?.args).toEqual(["positional"]);
+  });
+
+  test("manage_workflows rejects a non-string run_id", async () => {
+    const result = await executeManageWorkflows(
+      { action: "status", run_id: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "manage_workflows"',
+    );
+    expect(result.content).toContain("run_id");
+  });
+
+  test("manage_workflows keeps the bespoke unknown-action error", async () => {
+    const result = await executeManageWorkflows({ action: 42 }, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Unknown action");
   });
 });

@@ -8,7 +8,6 @@
  */
 
 import {
-    queryOptions,
     useMutation,
     useQuery,
     useQueryClient,
@@ -54,6 +53,10 @@ import {
     workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
+import {
+  WORKSPACE_TREE_QUERY_KEY,
+  workspaceTreeQueryOptions,
+} from "@/lib/workspace-tree-query";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
@@ -82,31 +85,6 @@ type TreeDialog =
   | { type: "create"; kind: "file" | "folder"; parentPath: string }
   | { type: "rename"; path: string; name: string };
 
-function workspaceTreeRetrieveOptions(opts: {
-  path: { assistant_id: string };
-  query?: { path?: string; showHidden?: boolean; includeDirSizes?: boolean };
-}) {
-  return queryOptions<WorkspaceTreeGetResponse>({
-    queryFn: async () => {
-      const query: Record<string, string> = {};
-      if (opts.query?.path) query.path = opts.query.path;
-      if (opts.query?.showHidden) query.showHidden = "true";
-      if (opts.query?.includeDirSizes) query.includeDirSizes = "true";
-      const { data, error } = await workspaceTreeGet({
-        path: opts.path,
-        query,
-      });
-      if (error) {
-        throw error;
-      }
-      if (!data) {
-        throw new Error("Failed to load workspace tree");
-      }
-      return data;
-    },
-    queryKey: ["assistantsWorkspaceTreeRetrieve", opts],
-  });
-}
 
 /**
  * The daemon's write and rename endpoints overwrite existing entries
@@ -221,13 +199,11 @@ function TreeNode({
     isDirectory && (isExpanded || searchLower.length > 0);
 
   const { data } = useQuery({
-    ...workspaceTreeRetrieveOptions({
-      path: { assistant_id: assistantId },
-      query: {
-        path: entryPath,
-        showHidden,
-        includeDirSizes: sortMode === "size",
-      },
+    ...workspaceTreeQueryOptions({
+      assistantId,
+      path: entryPath,
+      showHidden,
+      includeDirSizes: sortMode === "size",
     }),
     enabled: isDirectory && effectivelyExpanded,
   });
@@ -533,9 +509,10 @@ export function WorkspaceTree({
   }, []);
 
   const { data, isLoading } = useQuery(
-    workspaceTreeRetrieveOptions({
-      path: { assistant_id: assistantId },
-      query: { showHidden, includeDirSizes: sortMode === "size" },
+    workspaceTreeQueryOptions({
+      assistantId,
+      showHidden,
+      includeDirSizes: sortMode === "size",
     }),
   );
 
@@ -549,7 +526,7 @@ export function WorkspaceTree({
   // contents from the viewer.
   const invalidateWorkspace = useCallback(() => {
     for (const key of [
-      "assistantsWorkspaceTreeRetrieve",
+      WORKSPACE_TREE_QUERY_KEY,
       "assistantsWorkspaceFileRetrieve",
       "assistantsWorkspaceFileContentRetrieve",
     ]) {

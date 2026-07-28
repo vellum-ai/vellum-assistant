@@ -14,6 +14,8 @@ import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleOpenUrl,
   handleNavigateSettings,
+  handleOpenPanel,
+  handleOpenConversation,
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
@@ -28,6 +30,7 @@ import {
 import {
   handleStreamError,
   handleConversationErrorEvent,
+  handleConversationNoticeEvent,
 } from "@/domains/chat/utils/stream-handlers/error-handlers";
 import {
   handleSecretRequest,
@@ -43,9 +46,9 @@ import {
   handleUISurfaceComplete,
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
+  handleToolUsePreviewStart,
   handleToolUseStart,
   handleToolResult,
-  handleToolOutputChunk,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
@@ -63,6 +66,17 @@ import {
   handleSubagentStatusChanged,
   handleSubagentEvent,
 } from "@/domains/chat/utils/stream-handlers/subagent-handlers";
+import {
+  handleAcpSessionSpawned,
+  handleAcpSessionUpdate,
+  handleAcpSessionUsage,
+  handleAcpSessionCompleted,
+  handleAcpSessionError,
+} from "@/domains/chat/utils/stream-handlers/acp-handlers";
+import {
+  handleBackgroundToolStarted,
+  handleBackgroundToolCompleted,
+} from "@/domains/chat/utils/stream-handlers/background-task-handlers";
 import {
   handleWorkflowStarted,
   handleWorkflowProgress,
@@ -133,15 +147,7 @@ export function useStreamEventHandler(
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
-  const toolCallIdCounterRef = useRef(0);
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
-  // Per-toolUseId buffer of pending tool_output_chunk text + the rAF handle
-  // that drains it, for coalesced (one-per-frame) flushes. See
-  // handleToolOutputChunk / flushToolOutput.
-  const toolOutputBufferRef = useRef<
-    Map<string, { conversationId?: string; messageId?: string; text: string }>
-  >(new Map());
-  const toolOutputFlushHandleRef = useRef<number | null>(null);
 
   // --- Main event handler ---
 
@@ -203,7 +209,10 @@ export function useStreamEventHandler(
       const isStreamingDelta =
         event.type === "assistant_text_delta" ||
         event.type === "assistant_thinking_delta";
-      if (!isStreamingDelta || !tailIsAssistant(store.messages)) {
+      if (
+        !isStreamingDelta ||
+        !tailIsAssistant(store.snapshot?.messages ?? [])
+      ) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
@@ -226,12 +235,12 @@ export function useStreamEventHandler(
         isNative,
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-        setMessages: store.setMessages,
-        messages: store.messages,
+        setOptimisticSends: store.setOptimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
         setError: store.setError,
+        setNotice: store.setNotice,
         cancelAndClearStream: useStreamStore.getState().cancelAndClearStream,
         cancelReconciliation,
         startReconciliationLoop,
@@ -248,10 +257,7 @@ export function useStreamEventHandler(
         popRequestIdMapping: store.popRequestIdMapping,
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
-        toolCallIdCounterRef,
         currentAssistantMessageIdRef,
-        toolOutputBufferRef,
-        toolOutputFlushHandleRef,
       };
 
       switch (event.type) {
@@ -260,6 +266,12 @@ export function useStreamEventHandler(
           break;
         case "navigate_settings":
           handleNavigateSettings(event, ctx);
+          break;
+        case "open_panel":
+          handleOpenPanel(event, ctx);
+          break;
+        case "open_conversation":
+          handleOpenConversation(event, ctx);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);
@@ -288,6 +300,9 @@ export function useStreamEventHandler(
         case "conversation_error":
           handleConversationErrorEvent(event, ctx);
           break;
+        case "conversation_notice":
+          handleConversationNoticeEvent(event, ctx);
+          break;
         case "generation_cancelled":
           handleGenerationCancelled(event, ctx);
           break;
@@ -315,21 +330,27 @@ export function useStreamEventHandler(
         case "ui_surface_complete":
           handleUISurfaceComplete(event, ctx);
           break;
+        // Surface undo result. The chat handler is a no-op — the undo is driven
+        // through the `surfaces/:id/undo` HTTP route and its response; the web
+        // does not render the broadcast result.
+        case "ui_surface_undo_result":
+          break;
         case "tool_use_start":
           handleToolUseStart(event, ctx);
           break;
         case "tool_result":
           handleToolResult(event, ctx);
           break;
-        // The optimistic pre-input affordance has no transcript treatment.
+        // Optimistic pre-input affordance: seed a running tool card the moment
+        // the call is recognized, so the user-perceived elapsed timer starts at
+        // first byte rather than after the input-streaming gap.
         case "tool_use_preview_start":
+          handleToolUsePreviewStart(event, ctx);
           break;
-        // Incremental tool output (e.g. foreground bash stdout/stderr) is
-        // buffered onto the matching tool call's live `streamedOutput` tail
-        // (coalesced per animation frame) and surfaced in the tool-detail
-        // drawer while the call runs.
+        // Incremental tool output (e.g. foreground bash stdout/stderr) folds
+        // onto the matching tool call's live `streamedOutput` tail directly in
+        // the rolling-snapshot reducer (`use-event-stream`); no handler work.
         case "tool_output_chunk":
-          handleToolOutputChunk(event, ctx);
           break;
         case "usage_update":
           handleUsageUpdate(event, ctx);
@@ -383,6 +404,29 @@ export function useStreamEventHandler(
           handleSubagentEvent(event, ctx);
           break;
 
+        case "acp_session_spawned":
+          handleAcpSessionSpawned(event);
+          break;
+        case "acp_session_update":
+          handleAcpSessionUpdate(event);
+          break;
+        case "acp_session_usage":
+          handleAcpSessionUsage(event);
+          break;
+        case "acp_session_completed":
+          handleAcpSessionCompleted(event);
+          break;
+        case "acp_session_error":
+          handleAcpSessionError(event);
+          break;
+
+        case "background_tool_started":
+          handleBackgroundToolStarted(event);
+          break;
+        case "background_tool_completed":
+          handleBackgroundToolCompleted(event);
+          break;
+
         case "workflow_started":
           handleWorkflowStarted(event, ctx);
           break;
@@ -400,9 +444,11 @@ export function useStreamEventHandler(
           break;
         // Cross-domain events handled by bus subscribers mounted in
         // RootLayout (useAssistantResourceSync, useConversationSync,
-        // useNotificationIntentSync, useDocumentEditorSync) or
-        // ChatPage-scoped hooks (useDiskPressureMonitor). The chat
+        // useNotificationIntentSync, useDocumentEditorSync, useBookmarksSync)
+        // or ChatPage-scoped hooks (useDiskPressureMonitor). The chat
         // handler is intentionally a no-op for these.
+        case "bookmark.created":
+        case "bookmark.deleted":
         case "sync_changed":
         case "home_feed_updated":
         case "relationship_state_updated":
@@ -410,6 +456,7 @@ export function useStreamEventHandler(
         case "avatar_updated":
         case "disk_pressure_status_changed":
         case "notification_intent":
+        case "document_editor_show":
         case "document_editor_update":
         case "conversation_title_updated":
         case "document_comment_created":
@@ -422,12 +469,93 @@ export function useStreamEventHandler(
         // and defers the active one here, so retire any matching confirmation
         // card before the user can tap a prompt the server has discarded.
         case "interaction_resolved":
-          handleInteractionResolved(event, ctx);
+          handleInteractionResolved(event);
           break;
-        // Diagnostic timeline events. The logs domain fetches these from
-        // the daemon's trace-events endpoint on demand; the chat stream
-        // handler ignores them.
-        case "trace_event":
+        // Transient, best-effort progress signals from lifecycle hooks
+        // (e.g. user-prompt-submit). No web UI renders them yet.
+        case "hook_event":
+          break;
+        // Conversation-scoped signals the web chat view does not render:
+        // streaming tool-input deltas, steer acks, authoritative confirmation
+        // state transitions, and inference-profile override changes.
+        case "tool_input_delta":
+        case "message_steered":
+        case "confirmation_state_changed":
+        case "conversation_inference_profile_updated":
+          break;
+        // Daemon status / model-catalog / compaction / schedule- and
+        // heartbeat-created signals. The web chat handler is a no-op — these are
+        // surfaced elsewhere or not rendered by the web today.
+        case "assistant_status":
+        case "model_info":
+        case "context_compacted":
+        case "schedule_conversation_created":
+        case "heartbeat_alert":
+        case "heartbeat_conversation_created":
+          break;
+        // Host-proxy instructions targeting the desktop client / chrome
+        // extension. The web chat handler is a no-op — host-proxy frames are
+        // delivered to their capability holder by the hub, not through the
+        // conversation stream.
+        case "host_bash_request":
+        case "host_bash_cancel":
+        case "host_cu_request":
+        case "host_cu_cancel":
+        case "host_ui_snapshot_request":
+        case "host_ui_snapshot_cancel":
+        case "host_app_control_request":
+        case "host_app_control_cancel":
+        case "host_browser_request":
+        case "host_browser_cancel":
+        case "host_file_request":
+        case "host_file_cancel":
+        case "host_transfer_request":
+        case "host_transfer_cancel":
+          break;
+        // Service-group upgrade lifecycle broadcasts announcing a daemon
+        // restart. The chat handler is a no-op; no web UI renders them yet.
+        case "service_group_update_starting":
+        case "service_group_update_progress":
+        case "service_group_update_complete":
+          break;
+        // Memory recall/status telemetry gauges. The chat handler is a no-op;
+        // no web UI renders them yet.
+        case "memory_recalled":
+        case "memory_status":
+          break;
+        // Contacts-table invalidation broadcast. The chat handler is a no-op;
+        // the contacts page refetches through its own query invalidation.
+        case "contacts_changed":
+          break;
+        // Skill state-change broadcast. The chat handler is a no-op; the skills
+        // surfaces refetch through their own query invalidation.
+        case "skills_state_changed":
+          break;
+        // App source-file change broadcast. The chat handler is a no-op; app
+        // surfaces re-read the app through their own refresh path.
+        case "app_files_changed":
+          break;
+        // Settings/config broadcasts. The chat handler is a no-op — these target
+        // the desktop client or are handled by config-sync consumers.
+        case "client_settings_update":
+        case "config_changed":
+        case "sounds_config_updated":
+          break;
+        // Integration/platform lifecycle broadcasts. The web chat handler is a
+        // no-op — OAuth-connect completion and platform login/disconnect signals
+        // are consumed by the settings surfaces, not the conversation stream.
+        case "oauth_connect_result":
+        case "show_platform_login":
+        case "platform_disconnected":
+          break;
+        // Notification-created broadcasts and recording lifecycle
+        // instructions. The web chat handler is a no-op for these — they target
+        // the CLI/desktop clients or are handled elsewhere.
+        case "notification_conversation_created":
+        case "recording_start":
+        case "recording_stop":
+        case "recording_pause":
+        case "recording_resume":
           break;
         case "unknown":
           break;

@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
@@ -126,6 +132,13 @@ describe("enablePlugin", () => {
     );
   });
 
+  it("throws PluginDirectoryNotFoundError for non-default plugin with no directory", () => {
+    // A missing user plugin must 404, not surface as an already-enabled no-op.
+    expect(() => enablePlugin("nonexistent-plugin")).toThrow(
+      PluginDirectoryNotFoundError,
+    );
+  });
+
   it("throws InvalidPluginNameError for path traversal attempts", () => {
     expect(() => enablePlugin("../state")).toThrow(InvalidPluginNameError);
     expect(() => enablePlugin("foo/bar")).toThrow(InvalidPluginNameError);
@@ -134,12 +147,12 @@ describe("enablePlugin", () => {
 
 describe("disable then enable round-trip", () => {
   it("default plugin: disable creates stub, enable removes it", () => {
-    const pluginDir = join(TMP_PLUGINS_DIR, "default-memory-retrieval");
+    const pluginDir = join(TMP_PLUGINS_DIR, "default-memory");
 
-    disablePlugin("default-memory-retrieval");
+    disablePlugin("default-memory");
     expect(existsSync(join(pluginDir, ".disabled"))).toBe(true);
 
-    enablePlugin("default-memory-retrieval");
+    enablePlugin("default-memory");
     expect(existsSync(pluginDir)).toBe(false);
   });
 

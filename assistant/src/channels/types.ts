@@ -1,26 +1,16 @@
-export const CHANNEL_IDS = [
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-] as const;
+import {
+  CHANNEL_IDS,
+  type ChannelId,
+  isChannelId,
+} from "@vellumai/service-contracts/channels";
 
-export type ChannelId = (typeof CHANNEL_IDS)[number];
-
-export function isChannelId(value: unknown): value is ChannelId {
-  return (
-    typeof value === "string" &&
-    (CHANNEL_IDS as readonly string[]).includes(value)
-  );
-}
+// The assistant understands the full canonical channel set, so it adopts the
+// shared vocabulary wholesale. `parseChannelId` stays local — it is only used
+// daemon-side and is a thin convenience over the shared guard.
+export { CHANNEL_IDS, type ChannelId, isChannelId };
 
 export function parseChannelId(value: unknown): ChannelId | null {
-  if (isChannelId(value)) return value;
-  return null;
+  return isChannelId(value) ? value : null;
 }
 
 export interface TurnChannelContext {
@@ -160,6 +150,11 @@ export const INTERFACE_IDS = [
   "email",
   "chrome-extension",
   "a2a",
+  "discord",
+  // Turns injected by workspace custom routes (webhook receivers, cron jobs,
+  // device/service callbacks). Non-interactive — permission prompts route
+  // through the guardian system, not an interactive client — and non-host-proxy.
+  "route",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
@@ -197,6 +192,29 @@ export function parseInterfaceId(value: unknown): InterfaceId | null {
 }
 
 /**
+ * Client OS surfaces — the value set for the message-body `clientOs` field.
+ *
+ * This is deliberately SEPARATE from {@link INTERFACE_IDS}: `clientOs`
+ * describes which OS the user's device runs, not which transport the turn
+ * arrived on. `"android"` (and `"ios"` for a mobile browser) are real OS
+ * surfaces but not transports — they must never answer transport questions
+ * (`supportsHostProxy`, `isInteractiveInterface`), so they live here rather
+ * than polluting the interface vocabulary. Drives only the per-turn
+ * `client_os` context line (e.g. app-builder mobile-first for `ios`/`android`).
+ */
+export const CLIENT_OS_VALUES = ["web", "ios", "macos", "android"] as const;
+
+export type ClientOs = (typeof CLIENT_OS_VALUES)[number];
+
+/** Parse/validate a reported `clientOs`. Returns `null` for unknown values. */
+export function parseClientOs(value: unknown): ClientOs | null {
+  if (typeof value !== "string") return null;
+  return (CLIENT_OS_VALUES as readonly string[]).includes(value)
+    ? (value as ClientOs)
+    : null;
+}
+
+/**
  * Interfaces that have an SSE client capable of displaying interactive
  * permission prompts. Channel interfaces (telegram, slack, etc.) route
  * approvals through the guardian system and have no interactive prompter UI.
@@ -214,19 +232,23 @@ export function isInteractiveInterface(id: InterfaceId): boolean {
 
 /**
  * Host proxy capabilities that an interface can support. The macOS client
- * supports all five; the chrome-extension interface only supports
+ * supports all of them; the chrome-extension interface only supports
  * host_browser (via the Chrome DevTools Protocol proxy).
  */
-export type HostProxyCapability =
-  | "host_bash"
-  | "host_file"
-  | "host_cu"
-  | "host_browser"
-  | "host_app_control";
+export const HOST_PROXY_CAPABILITIES = [
+  "host_bash",
+  "host_file",
+  "host_cu",
+  "host_browser",
+  "host_app_control",
+  "host_ui_snapshot",
+] as const;
+
+export type HostProxyCapability = (typeof HOST_PROXY_CAPABILITIES)[number];
 
 /**
- * Interfaces that support the full desktop host-proxy set (all five
- * `HostProxyCapability` values). This is the capability-level identity used
+ * Interfaces that support the full desktop host-proxy set (every
+ * `HostProxyCapability` value). This is the capability-level identity used
  * by the discriminated transport metadata union and by the
  * `supportsHostProxy(id)` type predicate.
  *
@@ -259,7 +281,7 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
-  // macOS supports all five host proxy capabilities including host_browser
+  // macOS supports every host proxy capability including host_browser
   // and host_app_control. The host_browser proxy is provisioned via the
   // assistant event hub. When no extension is connected, browser tools fall
   // through to cdp-inspect/local via the CDP factory's candidate chain.

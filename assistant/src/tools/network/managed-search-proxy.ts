@@ -48,6 +48,18 @@ interface ManagedSearchProxyEnvelope {
   };
 }
 
+/**
+ * Whether the managed search proxy can be dialed at all: a platform client
+ * exists and carries an assistant id. Mirrors `managedSpeechAvailable()`.
+ * Callers use this to decide between the proxy and the BYOK chain *before*
+ * attempting a call — the same two conditions `callManagedSearchProxy`
+ * reports as `kind: "unavailable"`.
+ */
+export async function managedSearchAvailable(): Promise<boolean> {
+  const client = await VellumPlatformClient.create();
+  return client !== null && Boolean(client.platformAssistantId);
+}
+
 export async function callManagedSearchProxy(
   provider: ManagedSearchProxyProvider,
   request: ManagedSearchProxyRequest,

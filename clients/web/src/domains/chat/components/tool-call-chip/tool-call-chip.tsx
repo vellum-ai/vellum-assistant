@@ -1,4 +1,3 @@
-
 import { BusyIndicator } from "@/domains/chat/components/busy-indicator";
 import {
   Camera,
@@ -18,16 +17,38 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+
+import { Button } from "@vellumai/design-library";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
-import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisplay } from "@/domains/chat/utils/risk";
-import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
+import {
+  getRiskBadgeStyle,
+  getProvenanceText,
+  wasExpected,
+  getEffectiveRiskDisplay,
+} from "@/domains/chat/utils/risk";
+import {
+  formatStartTime,
+  useElapsedTime,
+} from "@/domains/chat/hooks/use-elapsed-time";
 
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  ScopeOption,
+} from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { perceivedStartedAt } from "@/domains/chat/utils/tool-call-status";
 import {
   extractInputSummary,
   friendlyRunningLabel,
@@ -51,7 +72,9 @@ export interface ToolCallChipProps {
     decision: ConfirmationDecision,
     toolCall: ChatMessageToolCall,
   ) => void | Promise<void>;
-  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
+  onAllowAndCreateRule?: (
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   /** When true, skip the outer header row ("Running 1 step") and render
    *  the sub-item row + details directly. Used inside MultiActivityGroup
    *  to avoid double-nesting. */
@@ -75,7 +98,13 @@ function getIcon(toolName: string, inputSummary: string = ""): ReactNode {
   return ICON_MAP[iconKey] ?? <Wrench className="h-3.5 w-3.5" />;
 }
 
-function StatusIcon({ isRunning, isError }: { isRunning: boolean; isError: boolean }) {
+function StatusIcon({
+  isRunning,
+  isError,
+}: {
+  isRunning: boolean;
+  isError: boolean;
+}) {
   if (isRunning) {
     // Wrap in a fixed-size slot so the layout doesn't shift when the icon
     // transitions from the 16px circle icons to the 6px pulsing dot.
@@ -86,17 +115,30 @@ function StatusIcon({ isRunning, isError }: { isRunning: boolean; isError: boole
     );
   }
   if (isError) {
-    return <XCircle className="h-4 w-4 text-[var(--system-negative-strong)] shrink-0" />;
+    return (
+      <XCircle className="h-4 w-4 text-[var(--system-negative-strong)] shrink-0" />
+    );
   }
-  return <CheckCircle2 className="h-4 w-4 text-[var(--system-positive-strong)] shrink-0" />;
+  return (
+    <CheckCircle2 className="h-4 w-4 text-[var(--system-positive-strong)] shrink-0" />
+  );
 }
 
 /**
  * Inline confirmation card rendered inside the expanded tool call panel
- * when `toolCall.pendingConfirmation` is set. Matches the macOS
- * `PermissionPromptView` layout.
+ * when `toolCall.pendingConfirmation` is set.
+ *
+ * Layout mirrors the Figma spec (New App / node 6648:95696):
+ *   - meta line: "Confirmation required · <activity>" (small, secondary)
+ *   - the human-readable ask (`description`, falling back to `riskReason`)
+ *     as the prominent body
+ *   - left-aligned Allow (split when allowlist options exist) + Deny
+ *   - a divider, then a small tertiary "Show Details" disclosure
+ *
+ * The risk badge is intentionally absent — the risk assessment lives in the
+ * rule editor / detail surfaces, and the ask itself carries the severity.
  */
-function InlineConfirmationCard({
+export function InlineConfirmationCard({
   toolCall,
   isSubmitting,
   onSubmit,
@@ -115,7 +157,10 @@ function InlineConfirmationCard({
   useEffect(() => {
     if (!showSplitMenu) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (splitMenuRef.current && !splitMenuRef.current.contains(e.target as Node)) {
+      if (
+        splitMenuRef.current &&
+        !splitMenuRef.current.contains(e.target as Node)
+      ) {
         setShowSplitMenu(false);
       }
     };
@@ -126,67 +171,86 @@ function InlineConfirmationCard({
   const confirmation = toolCall.pendingConfirmation;
   if (!confirmation) return null;
 
-  const riskBadge = confirmation.riskLevel
-    ? getRiskBadgeStyle(confirmation.riskLevel)
-    : null;
   const hasDetails = !!confirmation.input;
-  const hasAllowlistOptions =
-    (confirmation.allowlistOptions?.length ?? 0) > 0;
+  const hasAllowlistOptions = (confirmation.allowlistOptions?.length ?? 0) > 0;
+
+  // Meta-line context: what the agent was doing when it hit the gate. The
+  // live activity label wins; a custom confirmation title and the friendly
+  // tool label are fallbacks.
+  const activity = toolCall.input?.activity ?? toolCall.input?.reason;
+  const contextLabel =
+    (typeof activity === "string" && activity.trim()) ||
+    confirmation.title ||
+    friendlyToolLabel(
+      toolCall.name,
+      extractInputSummary(toolCall.name, toolCall.input),
+    );
+
+  // The prominent body is the human-readable ask; older daemons only send
+  // the risk reason, which reads well enough in the same slot.
+  const body = confirmation.description || confirmation.riskReason || null;
 
   return (
-    <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
-      {/* Row 1: title + risk badge */}
-      <div className="flex items-center gap-2">
-        {/* typography: off-scale — semibold to match macOS bodyMediumEmphasised */}
-        { }
-        <span className="text-body-medium-default font-semibold text-[var(--content-default)]">
-          {confirmation.title ?? "Confirmation required"}
-        </span>
-        {riskBadge && (
-          <span
-            // typography: off-scale — compact risk badge pill
-             
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${riskBadge.bg} ${riskBadge.text}`}
-          >
-            {riskBadge.label}
+    <div
+      data-testid="inline-confirmation-card"
+      className="flex w-full flex-col gap-4 rounded-xl bg-[var(--surface-overlay)] p-3"
+    >
+      {/* Meta line + ask */}
+      <div className="flex w-full flex-col gap-2">
+        {/* typography: off-scale — 12px meta line per the Figma spec */}
+        <div className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium text-[var(--content-secondary)]">
+          <span className="shrink-0 whitespace-nowrap">
+            Confirmation required
           </span>
+          {contextLabel ? (
+            <>
+              <span
+                aria-hidden
+                className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
+              />
+              <span className="min-w-0 truncate">{contextLabel}</span>
+            </>
+          ) : null}
+        </div>
+        {body && (
+          <p className="w-full text-body-medium-default text-[var(--content-default)]">
+            {body}
+          </p>
         )}
       </div>
 
-      {/* Row 2: risk reason */}
-      {confirmation.riskReason && (
-        <p className="mt-1 text-label-medium-default text-[var(--content-tertiary)]">
-          {confirmation.riskReason}
-        </p>
-      )}
-
-      {/* Row 3: action buttons (right-aligned) */}
-      <div className="mt-3 flex justify-end gap-2">
-        {/* Allow button — split when allowlistOptions present */}
+      {/* Actions — left-aligned. Allow splits into Allow | ⌄ when allowlist
+          options exist; the chevron opens the "Allow & Create Rule" menu. */}
+      <div className="flex items-start gap-2">
         {hasAllowlistOptions && onAllowAndCreateRule ? (
           <div ref={splitMenuRef} className="relative flex">
-            <button
-              type="button"
+            <Button
+              variant="primary"
               disabled={isSubmitting}
               onClick={() => onSubmit?.("allow")}
-              className="flex items-center gap-1.5 rounded-l-md bg-[var(--primary-base)] px-3 py-1.5 text-body-small-default text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
+              className="rounded-r-none"
             >
               {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Allow
-            </button>
-            <button
-              type="button"
+            </Button>
+            {/* Internal divider between the two halves of the split pill. */}
+            <span
+              aria-hidden
+              className="h-5 w-px self-center bg-[var(--content-inset)] opacity-20"
+            />
+            <Button
+              variant="primary"
               disabled={isSubmitting}
               onClick={() => setShowSplitMenu((v) => !v)}
-              className="flex items-center rounded-r-md border-l border-[var(--content-inset)]/30 bg-[var(--primary-base)] px-1.5 py-1.5 text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
+              className="rounded-l-none px-1.5"
               aria-label="More allow options"
               aria-haspopup="menu"
               aria-expanded={showSplitMenu}
             >
               <ChevronDown className="h-3.5 w-3.5" />
-            </button>
+            </Button>
             {showSplitMenu && (
-              <div className="absolute right-0 top-full z-10 mt-1 min-w-[180px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 shadow-lg">
+              <div className="absolute left-0 top-full z-10 mt-1 min-w-[180px] rounded-md border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 shadow-lg">
                 <button
                   type="button"
                   onClick={() => {
@@ -201,44 +265,44 @@ function InlineConfirmationCard({
             )}
           </div>
         ) : (
-          <button
-            type="button"
+          <Button
+            variant="primary"
             disabled={isSubmitting}
             onClick={() => onSubmit?.("allow")}
-            className="flex items-center gap-1.5 rounded-md bg-[var(--primary-base)] px-3 py-1.5 text-body-small-default text-[var(--content-inset)] transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Allow
-          </button>
+          </Button>
         )}
 
-        <button
-          type="button"
+        <Button
+          variant="danger"
           disabled={isSubmitting}
           onClick={() => onSubmit?.("deny")}
-          className="flex items-center gap-1.5 rounded-md bg-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-white transition-colors hover:opacity-90 disabled:opacity-50"
         >
           Deny
-        </button>
+        </Button>
       </div>
 
-      {/* Row 4: Show/Hide details toggle */}
+      {/* Divider + Show Details disclosure */}
       {hasDetails && (
-        <div className="mt-3">
+        <div className="flex w-full flex-col gap-3">
+          <div className="h-px w-full bg-[var(--border-base)]" />
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
-            className="flex items-center gap-1 text-label-medium-default text-[var(--content-default)]"
+            // typography: off-scale — 11px tertiary disclosure per the Figma spec
+            className="flex items-center gap-1 self-start text-[11px] font-medium text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
           >
-            <ChevronRight
-              className={`h-3 w-3 transition-transform ${showDetails ? "rotate-90" : ""}`}
+            {showDetails ? "Hide Details" : "Show Details"}
+            <ChevronDown
+              className={`size-2.5 transition-transform ${showDetails ? "rotate-180" : ""}`}
             />
-            {showDetails ? "Hide details" : "Show details"}
           </button>
 
-          {/* Row 5: details content — single formatted input block matching macOS codePreviewBlock */}
+          {/* Details content — single formatted input block matching macOS codePreviewBlock */}
           {showDetails && confirmation.input && (
-            <div className="mt-2 max-h-[220px] overflow-y-auto rounded bg-[var(--surface-overlay)] p-2">
+            <div className="max-h-[220px] overflow-y-auto rounded bg-[var(--surface-base)] p-2">
               <pre className="whitespace-pre-wrap break-words font-mono text-body-small-default text-[var(--content-secondary)]">
                 {JSON.stringify(confirmation.input, null, 2)}
               </pre>
@@ -257,8 +321,8 @@ export function ToolCallChip({
   onAllowAndCreateRule,
   embedded = false,
 }: ToolCallChipProps) {
-  const expanded = useChatSessionStore(
-    (s) => s.expandedToolCallIds.has(toolCall.id),
+  const expanded = useChatSessionStore((s) =>
+    s.expandedToolCallIds.has(toolCall.id),
   );
   const toggleExpanded = useCallback(
     (next: boolean) => {
@@ -279,20 +343,39 @@ export function ToolCallChip({
   const isRunning =
     !isError && toolCall.result === undefined && toolCall.completedAt == null;
   const hasPendingConfirmation = !!toolCall.pendingConfirmation;
-  const duration = useElapsedTime(toolCall.startedAt, !isRunning, toolCall.completedAt);
-  const startTimeLabel = formatStartTime(toolCall.startedAt);
+  // Headline duration is the user-perceived "time they feel": it anchors on the
+  // first-byte `previewStartedAt` (falling back to execution start) so the
+  // counter captures the input-streaming gap before the tool actually runs.
+  const perceivedStart = perceivedStartedAt(toolCall);
+  const duration = useElapsedTime(
+    perceivedStart,
+    !isRunning,
+    toolCall.completedAt,
+  );
+  const startTimeLabel = formatStartTime(perceivedStart);
+  // The tool's own execution latency (`startedAt` → `completedAt`), surfaced as
+  // a separate field on expand. Distinct from the perceived `duration` above.
+  const executionDuration = useElapsedTime(
+    toolCall.startedAt,
+    !isRunning,
+    toolCall.completedAt,
+  );
 
   const inputSummary = extractInputSummary(toolCall.name, toolCall.input);
   const activity = toolCall.input?.activity ?? toolCall.input?.reason;
-  const activityLabel = typeof activity === "string" && activity.trim() ? activity.trim() : null;
-  const label = activityLabel
-    ?? (isRunning
+  const activityLabel =
+    typeof activity === "string" && activity.trim() ? activity.trim() : null;
+  const label =
+    activityLabel ??
+    (isRunning
       ? friendlyRunningLabel(toolCall.name, inputSummary)
       : friendlyToolLabel(toolCall.name, inputSummary));
 
   const canExpand =
     hasPendingConfirmation ||
-    (!isRunning && (toolCall.result !== undefined || Object.keys(toolCall.input).length > 0));
+    (!isRunning &&
+      (toolCall.result !== undefined ||
+        Object.keys(toolCall.input).length > 0));
 
   // Auto-expand on the false→true transition of pendingConfirmation so the
   // inline approve/deny card is immediately visible. Initialized to `false`
@@ -333,7 +416,10 @@ export function ToolCallChip({
 
   const handleCopyOutput = useCallback(() => {
     if (toolCall.result !== undefined) {
-      void navigator.clipboard.writeText(toolCall.result);
+      copyToClipboard(toolCall.result, {
+        successMessage: "Output copied to clipboard.",
+        errorMessage: "Couldn't copy the output.",
+      });
     }
   }, [toolCall.result]);
 
@@ -344,54 +430,79 @@ export function ToolCallChip({
       : "Completed 1 step";
 
   const subItemRow = (
-    <div className={`flex min-w-0 items-center gap-2 py-2 ${embedded ? "pl-6 pr-3 text-body-small-default" : ""}`}>
+    <div
+      className={`flex min-w-0 items-center gap-2 py-2 ${embedded ? "pl-6 pr-3 text-body-small-default" : ""}`}
+    >
       <StatusIcon isRunning={isRunning} isError={isError} />
       {!embedded && getIcon(toolCall.name, inputSummary)}
-      <span className="min-w-0 truncate text-[var(--content-secondary)]">{label}</span>
-      {toolCall.riskLevel && !isRunning && !hasPendingConfirmation && (() => {
-        const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(toolCall.approvalReason, toolCall.riskLevel);
-        const badge = getRiskBadgeStyle(displayLevel);
-        const isWorkspace = displayLevel === "workspace";
+      <span className="min-w-0 truncate text-[var(--content-secondary)]">
+        {label}
+      </span>
+      {toolCall.riskLevel &&
+        !isRunning &&
+        !hasPendingConfirmation &&
+        (() => {
+          const { displayLevel, inherentRisk } = getEffectiveRiskDisplay(
+            toolCall.approvalReason,
+            toolCall.riskLevel,
+          );
+          const badge = getRiskBadgeStyle(displayLevel);
+          const isWorkspace = displayLevel === "workspace";
 
-        // For workspace chips, skip provenance — the chip itself is the provenance indicator.
-        // For normal badges, check wasExpected against the original riskLevel.
-        const unexpected = !isWorkspace && !wasExpected(toolCall.approvalMode, toolCall.riskLevel, toolCall.riskThreshold);
-        const provenance = unexpected ? getProvenanceText(toolCall.approvalReason) : null;
+          // For workspace chips, skip provenance — the chip itself is the provenance indicator.
+          // For normal badges, check wasExpected against the original riskLevel.
+          const unexpected =
+            !isWorkspace &&
+            !wasExpected(
+              toolCall.approvalMode,
+              toolCall.riskLevel,
+              toolCall.riskThreshold,
+            );
+          const provenance = unexpected
+            ? getProvenanceText(toolCall.approvalReason)
+            : null;
 
-        let displayLabel: string;
-        if (isWorkspace) {
-          const capitalizedRisk = inherentRisk ? inherentRisk.charAt(0).toUpperCase() + inherentRisk.slice(1) : "Unknown";
-          displayLabel = `Workspace · Inherent risk: ${capitalizedRisk}`;
-        } else {
-          displayLabel = provenance ? `${badge.label} ${provenance}` : badge.label;
-        }
+          let displayLabel: string;
+          if (isWorkspace) {
+            const capitalizedRisk = inherentRisk
+              ? inherentRisk.charAt(0).toUpperCase() + inherentRisk.slice(1)
+              : "Unknown";
+            displayLabel = `Workspace · Inherent risk: ${capitalizedRisk}`;
+          } else {
+            displayLabel = provenance
+              ? `${badge.label} ${provenance}`
+              : badge.label;
+          }
 
-        return (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenRuleEditor?.({
-                toolName: toolCall.name,
-                riskLevel: toolCall.riskLevel,
-                riskReason: toolCall.riskReason,
-                input: toolCall.input,
-                allowlistOptions: toolCall.riskAllowlistOptions ?? [],
-                scopeOptions: toolCall.scopeOptions ?? [],
-                directoryScopeOptions: toolCall.riskDirectoryScopeOptions ?? [],
-                matchedTrustRuleId: toolCall.matchedTrustRuleId,
-              });
-            }}
-            // typography: off-scale — compact risk badge pill
+          return (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenRuleEditor?.({
+                  toolName: toolCall.name,
+                  riskLevel: toolCall.riskLevel,
+                  riskReason: toolCall.riskReason,
+                  input: toolCall.input,
+                  allowlistOptions: toolCall.riskAllowlistOptions ?? [],
+                  scopeOptions: toolCall.scopeOptions ?? [],
+                  directoryScopeOptions:
+                    toolCall.riskDirectoryScopeOptions ?? [],
+                  matchedTrustRuleId: toolCall.matchedTrustRuleId,
+                });
+              }}
+              // typography: off-scale — compact risk badge pill
 
-            className={`${embedded ? "" : "ml-auto "}max-w-[45%] shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${badge.bg} ${badge.text} ${badge.border ?? ""} ${onOpenRuleEditor ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
-            title={displayLabel}
-          >
-            <span className="sm:hidden">{badge.label}</span>
-            <span className="hidden sm:inline">{isWorkspace ? badge.label : displayLabel}</span>
-          </button>
-        );
-      })()}
+              className={`${embedded ? "" : "ml-auto "}max-w-[45%] shrink-0 truncate rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${badge.bg} ${badge.text} ${badge.border ?? ""} ${onOpenRuleEditor ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
+              title={displayLabel}
+            >
+              <span className="sm:hidden">{badge.label}</span>
+              <span className="hidden sm:inline">
+                {isWorkspace ? badge.label : displayLabel}
+              </span>
+            </button>
+          );
+        })()}
       {embedded && (
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
           {duration && (
@@ -399,7 +510,12 @@ export function ToolCallChip({
               {duration}
             </span>
           )}
-          {canExpand && (expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />)}
+          {canExpand &&
+            (expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            ))}
         </span>
       )}
     </div>
@@ -428,10 +544,24 @@ export function ToolCallChip({
             </div>
             <div className="text-[var(--content-secondary)]">Tool Name</div>
             <div className="text-[var(--content-secondary)]">
-              {toolCall.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              {toolCall.name
+                .replace(/_/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase())}
             </div>
             {startTimeLabel && (
-              <div className="mt-0.5 text-[var(--content-tertiary)]">{startTimeLabel}</div>
+              <div className="mt-0.5 text-[var(--content-tertiary)]">
+                {startTimeLabel}
+              </div>
+            )}
+            {executionDuration && (
+              <div className="mt-0.5">
+                <span className="text-label-medium-default text-[var(--content-default)]">
+                  Tool latency:
+                </span>{" "}
+                <span className="text-[var(--content-tertiary)]">
+                  {executionDuration}
+                </span>
+              </div>
             )}
             {Object.entries(toolCall.input).map(([key, value]) => (
               <div key={key} className="mt-0.5">
@@ -455,16 +585,20 @@ export function ToolCallChip({
               <div className="mb-1.5 text-label-small-default uppercase tracking-wider text-[var(--content-tertiary)]">
                 Output
               </div>
-              <div className={`relative rounded-md border p-3 ${
-                isError
-                  ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)]"
-                  : "border-[var(--border-element)] bg-[var(--surface-base)]"
-              }`}>
-                <pre className={`whitespace-pre-wrap break-words text-body-small-default max-h-60 overflow-y-auto pr-8 ${
+              <div
+                className={`relative rounded-md border p-3 ${
                   isError
-                    ? "text-[var(--system-negative-strong)]"
-                    : "text-[var(--content-default)]"
-                }`}>
+                    ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)]"
+                    : "border-[var(--border-element)] bg-[var(--surface-base)]"
+                }`}
+              >
+                <pre
+                  className={`whitespace-pre-wrap break-words text-body-small-default max-h-60 overflow-y-auto pr-8 ${
+                    isError
+                      ? "text-[var(--system-negative-strong)]"
+                      : "text-[var(--content-default)]"
+                  }`}
+                >
                   {toolCall.result.length > 2000
                     ? toolCall.result.slice(0, 2000) + "..."
                     : toolCall.result}
@@ -507,8 +641,9 @@ export function ToolCallChip({
         >
           {subItemRow}
         </div>
-        {expanded && canExpand && (
-          hasPendingConfirmation ? (
+        {expanded &&
+          canExpand &&
+          (hasPendingConfirmation ? (
             // Confirmation card gets full-width (px-3) to match macOS PermissionPromptView
             <div className="px-3 pt-1 pb-2">
               <InlineConfirmationCard
@@ -520,9 +655,10 @@ export function ToolCallChip({
             </div>
           ) : (
             // Technical details stay indented under the tool label
-            <div className="pl-6 pr-3 pb-2 text-label-medium-default">{detailsPanel}</div>
-          )
-        )}
+            <div className="pl-6 pr-3 pb-2 text-label-medium-default">
+              {detailsPanel}
+            </div>
+          ))}
       </div>
     );
   }
@@ -544,7 +680,13 @@ export function ToolCallChip({
         }`}
       >
         <StatusIcon isRunning={isRunning} isError={isError} />
-        <span className={isError ? "text-[var(--system-negative-strong)]" : "text-[var(--content-default)]"}>
+        <span
+          className={
+            isError
+              ? "text-[var(--system-negative-strong)]"
+              : "text-[var(--content-default)]"
+          }
+        >
           {statusLabel}
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-[var(--content-tertiary)]">
@@ -556,17 +698,24 @@ export function ToolCallChip({
               {duration}
             </span>
           )}
-          {canExpand && (expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />)}
+          {canExpand &&
+            (expanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            ))}
         </span>
       </button>
 
       {/* Expanded details panel */}
       {expanded && canExpand && (
-        <div className={`rounded-b-lg border-t px-3 pb-3 text-label-medium-default ${
-          isError
-            ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)]"
-            : "border-[var(--border-element)] bg-[var(--surface-base)]"
-        }`}>
+        <div
+          className={`rounded-b-lg border-t px-3 pb-3 text-label-medium-default ${
+            isError
+              ? "border-[var(--system-negative-weak)] bg-[var(--system-negative-weak)]"
+              : "border-[var(--border-element)] bg-[var(--surface-base)]"
+          }`}
+        >
           {subItemRow}
           {detailsPanel}
         </div>

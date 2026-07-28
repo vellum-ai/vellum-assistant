@@ -23,6 +23,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (v: string) => v,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
+  getCurrentLogFilePath: () => "/tmp/test-assistant.log",
 }));
 
 let writeRelationshipStateCalled = false;

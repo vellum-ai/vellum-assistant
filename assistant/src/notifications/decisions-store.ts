@@ -9,8 +9,8 @@
 
 import { desc, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { notificationDecisions } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { notificationDecisions } from "../persistence/schema/index.js";
 
 export interface NotificationDecisionRow {
   id: string;

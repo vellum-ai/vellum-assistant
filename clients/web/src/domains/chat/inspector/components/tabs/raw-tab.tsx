@@ -1,6 +1,7 @@
-import { AlertCircle, Copy, Download, RefreshCw } from "lucide-react";
+import { AlertCircle, Download, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
+import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
@@ -38,7 +39,10 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
     return <ErrorState message={msg} onRetry={() => void refetch()} />;
   }
 
-  const rawValue = pane === "request" ? data?.requestPayload : data?.responsePayload;
+  const rawValue =
+    pane === "request"
+      ? data?.requestPayload
+      : selectResponsePayload(data?.responsePayload);
   const displayText = formatPayload(rawValue);
   const downloadFilename = buildRawPayloadFilename(entry.id, pane);
 
@@ -54,7 +58,9 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
             style={{
               background: pane === p ? "var(--surface-overlay)" : "transparent",
               color:
-                pane === p ? "var(--content-default)" : "var(--content-secondary)",
+                pane === p
+                  ? "var(--content-default)"
+                  : "var(--content-secondary)",
               border: "1px solid var(--border-base)",
             }}
           >
@@ -75,20 +81,15 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
             <Button
               variant="ghost"
               size="compact"
-              iconOnly
-              leftIcon={<Download size={14} aria-hidden />}
+              iconOnly={<Download aria-hidden />}
               aria-label={`Download ${pane} payload`}
               onClick={() =>
                 void downloadRawPayload(displayText, downloadFilename)
               }
             />
-            <Button
-              variant="ghost"
-              size="compact"
-              iconOnly
-              leftIcon={<Copy size={14} aria-hidden />}
-              aria-label={`Copy ${pane} payload`}
-              onClick={() => void navigator.clipboard.writeText(displayText)}
+            <CopyButton
+              text={displayText}
+              ariaLabel={`Copy ${pane} payload`}
             />
           </div>
         </div>
@@ -106,6 +107,25 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
       </Card>
     </div>
   );
+}
+
+/**
+ * For provider-rejected calls the persisted responsePayload is a synthetic
+ * `{ error, rawResponse }` envelope (the error card reads `.error`). Honor the
+ * Raw-tab principle — always show the actual provider JSON — by surfacing the
+ * captured upstream body (`rawResponse`) when present. Successful calls store
+ * the provider payload directly and pass through unchanged.
+ */
+export function selectResponsePayload(responsePayload: unknown): unknown {
+  if (
+    responsePayload !== null &&
+    typeof responsePayload === "object" &&
+    "error" in responsePayload &&
+    "rawResponse" in responsePayload
+  ) {
+    return (responsePayload as { rawResponse: unknown }).rawResponse;
+  }
+  return responsePayload;
 }
 
 export function formatPayload(value: unknown): string {

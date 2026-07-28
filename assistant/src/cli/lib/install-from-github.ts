@@ -26,6 +26,7 @@
 import { execFile } from "node:child_process";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -35,11 +36,18 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import type { FetchLike } from "./fetch-like.js";
+import {
+  type DependencyInstaller,
+  installPluginDependencies,
+} from "./install-plugin-dependencies.js";
 import {
   computeContentHash,
   computeFingerprint,
@@ -58,8 +66,16 @@ const execFileAsync = promisify(execFile);
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
 const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
-/** Default git ref to fetch from when callers don't override. */
-export const DEFAULT_PLUGIN_REF = "main";
+import { DEFAULT_DIRECT_REF } from "./parse-github-plugin-spec.js";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
+
+/** Full Git commit SHA — 40 hex chars (SHA-1) or 64 (SHA-256). */
+const FULL_COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+/** True when `ref` is a full, immutable commit SHA (not a branch/tag/HEAD). */
+export function isFullCommitSha(ref: string): boolean {
+  return FULL_COMMIT_SHA_RE.test(ref);
+}
 
 /** Entry shape returned by the GitHub Contents API for a directory listing. */
 interface GitHubContentEntry {
@@ -69,18 +85,6 @@ interface GitHubContentEntry {
   readonly size: number;
   readonly download_url: string | null;
 }
-
-/**
- * Minimal `fetch` shape used by this module.
- *
- * Narrower than `typeof fetch` because Bun's `fetch` carries a `preconnect`
- * static that this module does not need — pinning to the wider type would
- * force every caller to construct a fully-featured Bun fetch.
- */
-export type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) => Promise<Response>;
 
 /**
  * Runs a `git` subcommand in `cwd` and resolves its stdout. Injected so tests
@@ -122,6 +126,32 @@ export interface InstallPluginOptions {
    * Unset for normal installs, which take the reviewed pin from the manifest.
    */
   readonly commitOverride?: string;
+  /**
+   * Install directly from these GitHub coordinates, bypassing the curated
+   * `plugins/marketplace.json` whitelist. The tree is materialized verbatim —
+   * no curated adapter stub is overlaid — and the source is *untrusted*, so the
+   * caller is responsible for surfacing a warning. Used to install a plugin not
+   * yet in the marketplace (typically one still under development). When set,
+   * {@link InstallPluginOptions.ref}, {@link InstallPluginOptions.commitOverride},
+   * and marketplace resolution are all skipped; `directSource.ref` selects the
+   * commit to clone (a branch, tag, `HEAD`, or full SHA).
+   */
+  readonly directSource?: PluginFetchSource;
+  /**
+   * Install from these PRE-RESOLVED, TRUSTED GitHub coordinates while STILL
+   * overlaying the curated `plugins/<name>` adapter stub. This is the offline
+   * analogue of a marketplace install: the pin came from the reviewed bundled
+   * catalog instead of a live marketplace fetch, so — unlike
+   * {@link InstallPluginOptions.directSource} — the source is trusted and the
+   * adapter stub is kept. `trustedSource` names the EXTERNAL plugin repo, so
+   * `trustedSource.ref` (its immutable content commit) cannot address the stub,
+   * which lives in this repo; the stub is fetched from the canonical repo at
+   * {@link InstallPluginOptions.ref} (default {@link DEFAULT_PLUGIN_REF}) — the
+   * bundled catalog records no canonical-repo pin. When set, marketplace
+   * resolution and {@link InstallPluginOptions.commitOverride} are skipped;
+   * `trustedSource.ref` selects the commit to clone (the reviewed pin).
+   */
+  readonly trustedSource?: PluginFetchSource;
 }
 
 /** Dependencies injected by the caller. */
@@ -134,6 +164,10 @@ export interface InstallPluginDeps {
   readonly runGit?: GitRunner;
   /** Override the runner used to execute a plugin's postinstall adapter. Falls back to {@link defaultPostinstallRunner}. */
   readonly runPostinstall?: PostinstallRunner;
+  /** Override the runner used to install a plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
+  readonly runInstallDeps?: DependencyInstaller;
+  /** Forwarded to {@link finalizeStagedInstall}; see {@link FinalizeStagedInstallParams.beforeSwap}. */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /** Successful install result. */
@@ -225,7 +259,9 @@ export class PluginSourceUnavailableError extends Error {
  * a 403 without it is a genuine authorization failure and stays hard.
  */
 function isTransientUpstreamStatus(res: Response): boolean {
-  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 429 || res.status >= 500) {
+    return true;
+  }
   if (res.status === 403) {
     return res.headers.get("x-ratelimit-remaining") === "0";
   }
@@ -281,7 +317,9 @@ async function resolvePluginSource(
     throw err;
   }
 
-  if (!resolved) return null;
+  if (!resolved) {
+    return null;
+  }
 
   return {
     owner: resolved.owner,
@@ -292,13 +330,17 @@ async function resolvePluginSource(
 }
 
 /**
- * Prefix reserved for first-party default plugins that ship in the assistant
- * source tree. User-installable plugins must not use it — the `.disabled`
- * sentinel and the plugin registry both key on manifest names, and a
- * user plugin with a `default-` name would shadow or collide with the
- * built-in.
+ * Prefixes reserved for first-party plugins that ship from the Vellum team.
+ * User-installable plugins must not use them — the `.disabled` sentinel and
+ * the plugin registry both key on manifest names, and a user plugin with a
+ * reserved name would shadow or collide with a first-party one.
+ *
+ * - `default-`: built-in default plugins that ship in the assistant source
+ *   tree.
+ * - `vellum-`: first-class plugins shipped from the Vellum team (e.g. curated
+ *   marketplace entries).
  */
-export const RESERVED_PLUGIN_PREFIX = "default-";
+export const RESERVED_PLUGIN_PREFIXES = ["default-", "vellum-"] as const;
 
 /**
  * Reject plugin names that could escape the canonical source path or the
@@ -306,8 +348,9 @@ export const RESERVED_PLUGIN_PREFIX = "default-";
  * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
  *
- * Names prefixed with {@link RESERVED_PLUGIN_PREFIX} (`default-`) are also
- * rejected — that prefix is reserved for first-party default plugins.
+ * Names carrying one of the {@link RESERVED_PLUGIN_PREFIXES} (`default-`,
+ * `vellum-`) are also rejected — those prefixes are reserved for first-party
+ * plugins.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
  * before invoking {@link installPlugin}.
@@ -317,10 +360,13 @@ export function sanitizePluginName(name: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
     throw new InvalidPluginNameError(name);
   }
-  if (trimmed.startsWith(RESERVED_PLUGIN_PREFIX)) {
+  const reservedPrefix = RESERVED_PLUGIN_PREFIXES.find((prefix) =>
+    trimmed.startsWith(prefix),
+  );
+  if (reservedPrefix) {
     throw new InvalidPluginNameError(
       name,
-      `The "${RESERVED_PLUGIN_PREFIX}" prefix is reserved for first-party default plugins.`,
+      `The "${reservedPrefix}" prefix is reserved for first-party plugins.`,
     );
   }
   return trimmed;
@@ -367,20 +413,43 @@ export async function installPlugin(
   const marketplaceRef = opts.ref ?? DEFAULT_PLUGIN_REF;
   const force = opts.force ?? false;
 
-  const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
-  if (!source) {
-    throw new PluginNotFoundError(
-      name,
-      marketplaceRef,
-      "plugins/marketplace.json",
-    );
+  // A direct install bypasses the marketplace whitelist entirely: the source is
+  // supplied by the caller and the tree is materialized verbatim (no curated
+  // adapter stub). A trusted pre-resolved source (offline bundled-catalog
+  // install) supplies its coordinates too but keeps the curated overlay.
+  // Otherwise the name is resolved against the reviewed manifest.
+  let effectiveSource: PluginFetchSource;
+  // Ref the curated adapter stub is fetched at, or `null` to skip the overlay.
+  let stubRef: string | null;
+  if (opts.directSource) {
+    effectiveSource = opts.directSource;
+    stubRef = null;
+  } else if (opts.trustedSource) {
+    // Offline bundled-catalog install: clone the external content verbatim but
+    // keep the curated adapter overlay (like the marketplace-git trusted path).
+    // The stub lives in this repo, not in `trustedSource` (the external plugin),
+    // so `trustedSource.ref` can't address it; with no canonical-repo pin
+    // recorded offline, the stub is fetched at `marketplaceRef` (its default,
+    // DEFAULT_PLUGIN_REF).
+    effectiveSource = opts.trustedSource;
+    stubRef = marketplaceRef;
+  } else {
+    const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
+    if (!source) {
+      throw new PluginNotFoundError(
+        name,
+        marketplaceRef,
+        "plugins/marketplace.json",
+      );
+    }
+    // A commit override installs a specific plugin revision while still taking
+    // owner/repo/path (and the adapter stub, via `marketplaceRef`) from the
+    // manifest; otherwise the reviewed pin from the manifest is materialized.
+    effectiveSource = opts.commitOverride
+      ? { ...source, ref: opts.commitOverride }
+      : source;
+    stubRef = marketplaceRef;
   }
-  // A commit override installs a specific plugin revision while still taking
-  // owner/repo/path (and the adapter stub, via `marketplaceRef`) from the
-  // manifest; otherwise the reviewed pin from the manifest is materialized.
-  const effectiveSource: PluginFetchSource = opts.commitOverride
-    ? { ...source, ref: opts.commitOverride }
-    : source;
   const ref = effectiveSource.ref;
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
@@ -416,7 +485,7 @@ export async function installPlugin(
       {
         source: effectiveSource,
         name,
-        stubRef: marketplaceRef,
+        stubRef,
         destDir: stagingDir,
       },
       deps,
@@ -434,13 +503,15 @@ export async function installPlugin(
     throw new PluginNotFoundError(name, ref, sourceLabel(effectiveSource));
   }
 
-  finalizeStagedInstall(stagingDir, {
+  await finalizeStagedInstall(stagingDir, {
     name,
     source: effectiveSource,
     ref,
     commit,
     committedAt,
     pluginsDir,
+    installDependencies: deps.runInstallDeps,
+    beforeSwap: deps.beforeSwap,
   });
 
   return { name, target, fileCount, ref, commit, committedAt };
@@ -456,20 +527,37 @@ export interface FinalizeStagedInstallParams {
   readonly commit: string | null;
   /** ISO-8601 committer timestamp of {@link FinalizeStagedInstallParams.commit} (UTC); null when unknown. */
   readonly committedAt: string | null;
+  /** Artifact integrity digest (`sha256:<hex>`) recorded for platform-endpoint installs; omitted for git installs. */
+  readonly etag?: string;
   /** Served plugins directory; the staging dir is swapped into `<pluginsDir>/<name>`. */
   readonly pluginsDir: string;
+  /** Override the runner used to install the plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
+  readonly installDependencies?: DependencyInstaller;
+  /**
+   * Invoked after the staged tree is fully populated (dependencies installed,
+   * fingerprint recorded) and immediately before it is swapped over the live
+   * install. The upgrade path uses this to run the outgoing version's
+   * `shutdown` while its files are still on disk — mirroring
+   * `uninstallPlugin`, which runs `shutdown` before `rmSync`. Best-effort: a
+   * rejection is swallowed so a failing teardown can never block the swap.
+   */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /**
- * Fingerprint a fully-populated `stagingDir`, write its provenance sidecar, and
- * atomically swap it into `<pluginsDir>/<name>`. Returns the final install path
- * and the fingerprint that was recorded.
+ * Install the plugin's declared dependencies, fingerprint the fully-populated
+ * `stagingDir`, write its provenance sidecar, and atomically swap it into
+ * `<pluginsDir>/<name>`. Returns the final install path and the fingerprint that
+ * was recorded.
  *
- * Shared by {@link installPlugin} (fresh materialization) and the merge-based
- * `plugins upgrade --strategy` path so both record identical provenance and use
- * the same atomic rm+rename swap.
+ * Shared by {@link installPlugin} (fresh materialization), the platform-endpoint
+ * install, and the merge-based `plugins upgrade --strategy` path so all record
+ * identical provenance, install dependencies the same way, and use the same
+ * atomic rm+rename swap. Dependencies land in `<stagingDir>/node_modules/` — a
+ * derived directory every plugin-tree walk excludes — so it does not pollute the
+ * fingerprint computed just below and rides the swap into place atomically.
  */
-export function finalizeStagedInstall(
+export async function finalizeStagedInstall(
   stagingDir: string,
   {
     name,
@@ -477,15 +565,30 @@ export function finalizeStagedInstall(
     ref,
     commit,
     committedAt,
+    etag,
     pluginsDir,
+    installDependencies,
+    beforeSwap,
   }: FinalizeStagedInstallParams,
-): { target: string; fingerprint: Fingerprint } {
+): Promise<{ target: string; fingerprint: Fingerprint }> {
+  // Install the plugin's own runtime dependencies into the staged tree before
+  // it is fingerprinted and swapped, so its hooks/tools can resolve their bare
+  // imports. A no-op for a plugin that declares none. A hard failure here (e.g.
+  // the manifest could not be restored to its materialized bytes) must not leave
+  // the half-finalized staging dir behind, so drop it before propagating.
+  try {
+    await installPluginDependencies(stagingDir, installDependencies);
+  } catch (err) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw err;
+  }
+
   // Hash the materialized tree before the sidecar is written (so the sidecar
   // never hashes itself) — the baseline `plugins inspect` uses to detect later
   // local edits. The per-file fingerprint answers "which files changed"; the
   // whole-tree content hash is a compact integrity signal mirroring skills.
-  const fingerprint = computeFingerprint(stagingDir, [INSTALL_META_FILENAME]);
-  const contentHash = computeContentHash(stagingDir, [INSTALL_META_FILENAME]);
+  const fingerprint = computeFingerprint(stagingDir, PRESERVED_ENTRIES);
+  const contentHash = computeContentHash(stagingDir, PRESERVED_ENTRIES);
 
   // Record install provenance (source coordinates + resolved commit + content
   // digests) as a sidecar before the swap so it lands atomically with the
@@ -497,6 +600,7 @@ export function finalizeStagedInstall(
     ref,
     commit,
     committedAt,
+    etag,
     fingerprint,
     contentHash,
   });
@@ -508,7 +612,41 @@ export function finalizeStagedInstall(
   // it, so the target's parent is no longer created as a side effect.
   const target = join(pluginsDir, name);
   mkdirSync(pluginsDir, { recursive: true });
+
+  // Give the outgoing version its shutdown before anything below reads or
+  // replaces the live install: everything fallible (fetch, merge, dependency
+  // install) has already succeeded, so a staging failure never tears a
+  // running plugin down, and the preserved-entries copy below still captures
+  // any final state the shutdown hook writes into data/.
+  if (beforeSwap) {
+    try {
+      await beforeSwap();
+    } catch {
+      // Best-effort teardown; the swap must proceed regardless.
+    }
+  }
+
+  // Copy preserved entries (config.json, data/, .disabled) from the existing
+  // install into the staging dir before the swap so user-owned state survives
+  // upgrades and reinstalls. Without this, the rm+rename below would destroy
+  // user config and runtime data.
   if (existsSync(target)) {
+    for (const entry of PRESERVED_ENTRIES) {
+      if (entry === INSTALL_META_FILENAME) {
+        continue;
+      } // sidecar is rewritten above
+      const src = join(target, entry);
+      if (!existsSync(src)) {
+        continue;
+      }
+      const dest = join(stagingDir, entry);
+      const stat = statSync(src);
+      if (stat.isDirectory()) {
+        cpSync(src, dest, { recursive: true });
+      } else {
+        copyFileSync(src, dest);
+      }
+    }
     rmSync(target, { recursive: true, force: true });
   }
   renameSync(stagingDir, target);
@@ -578,12 +716,26 @@ export interface InstallMeta {
    * {@link InstallMeta.fingerprint}.
    */
   readonly contentHash?: string;
+  /**
+   * Authorship provenance, mirroring the skills' `SkillInstallMeta.author`.
+   * GitHub installs are user-initiated, so they record `"user"`; this protects
+   * them from the usage-based prune that only targets `"assistant"` entries.
+   */
+  readonly author?: "assistant" | "user";
 
   /** Install name. Matches the plugins directory and `plugins install <name>`. */
   readonly name: string;
   readonly source: InstallMetaSource;
   /** Resolved commit SHA the source was cloned at; `null` when it could not be read at install time. */
   readonly commit: string | null;
+  /**
+   * Integrity digest of the downloaded artifact, when the install came through
+   * the platform install endpoint (`ETag: "sha256:<hex>"`). Recorded verbatim
+   * (including the `sha256:` prefix) as a stable id for caching / dedupe and to
+   * document what was verified. Absent for git-cloned installs, which have no
+   * single artifact to hash.
+   */
+  readonly etag?: string;
   /**
    * ISO-8601 committer timestamp of {@link InstallMeta.commit}, in UTC
    * (e.g. `2026-06-01T12:34:56.000Z`). This is a property of the commit
@@ -630,8 +782,13 @@ export async function materializePluginTree(
     readonly source: PluginFetchSource;
     /** Install name, used to locate the curated adapter stub. */
     readonly name: string;
-    /** Ref the curated adapter stub is fetched at (the canonical repo ref). */
-    readonly stubRef: string;
+    /**
+     * Ref the curated adapter stub is fetched at (the canonical repo ref), or
+     * `null` to skip the adapter overlay entirely. Direct (untrusted) installs
+     * pass `null`: they are materialized verbatim, never reshaped by a curated
+     * stub keyed on the install name.
+     */
+    readonly stubRef: string | null;
     /** Directory the tree is written into. */
     readonly destDir: string;
   },
@@ -645,9 +802,19 @@ export async function materializePluginTree(
   // An external clone is often a foreign-ecosystem plugin (e.g. a Claude Code
   // plugin) that the Vellum loader can't run as-is. When we curate an adapter
   // stub for it, overlay the stub and run its transform so the materialized
-  // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched.
-  if (cloned.fileCount > 0) {
+  // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched,
+  // except for a minimal package.json synthesis when the upstream repo shipped
+  // none — the Vellum loader hard-requires one and would silently skip the
+  // plugin without it. The synthesis is deterministic (name + fixed version +
+  // fixed peer-dep range), so it produces the same bytes on initial install
+  // and upgrade re-materialization; the fingerprint is computed after
+  // materialization, so the synthesized file is present in both baselines and
+  // the comparison stays clean.
+  if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
+  }
+  if (cloned.fileCount > 0 && !existsSync(join(opts.destDir, "package.json"))) {
+    synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;
 }
@@ -694,8 +861,9 @@ async function copyExternalViaGit(
       // A missing repo/ref (or a private one we can't reach) is a hard
       // not-found, surfaced as zero files. Anything else — network loss, a
       // transient GitHub outage — is retryable, so map it to a 503.
-      if (isGitRefNotFound(err))
+      if (isGitRefNotFound(err)) {
         return { fileCount: 0, commit: null, committedAt: null };
+      }
       throw new PluginSourceUnavailableError(
         `git clone failed for ${sourceLabel(source)} @ ${source.ref}: ${subprocessErrorText(err)}`,
         503,
@@ -732,11 +900,17 @@ async function copyExternalViaGit(
       }
     }
 
-    // Defense in depth: external marketplace refs are full commit SHAs (the
-    // manifest schema rejects mutable tags/branches), so the checked-out
-    // commit must equal the requested ref. If it ever diverges, refuse the
-    // install rather than materialize and `import()` unexpected code.
-    if (commit && commit.toLowerCase() !== source.ref.toLowerCase()) {
+    // Defense in depth: when the requested ref is a full commit SHA (every
+    // marketplace ref is — the manifest schema rejects mutable tags/branches),
+    // the checked-out commit must equal it. If it ever diverges, refuse the
+    // install rather than materialize and `import()` unexpected code. A direct
+    // install from a branch/tag/HEAD has no fixed SHA to compare against, so the
+    // check only applies to pinned refs.
+    if (
+      commit &&
+      isFullCommitSha(source.ref) &&
+      commit.toLowerCase() !== source.ref.toLowerCase()
+    ) {
       throw new PluginSourceUnavailableError(
         `git checkout of ${sourceLabel(source)} resolved to ${commit}, ` +
           `which does not match the pinned commit ${source.ref}`,
@@ -798,10 +972,14 @@ async function applyAdapterStub(
     stagingDir,
     deps.fetch,
   );
-  if (stubFileCount === 0) return false;
+  if (stubFileCount === 0) {
+    return false;
+  }
 
   const script = resolvePostinstallScript(name, stagingDir);
-  if (script === null) return false;
+  if (script === null) {
+    return false;
+  }
 
   const run = deps.runPostinstall ?? defaultPostinstallRunner;
   try {
@@ -824,7 +1002,9 @@ type PackageManifest = Record<string, unknown>;
 
 /** Parse the `package.json` at `path`, or null if it's absent or unparseable. */
 function readPackageJson(path: string): PackageManifest | null {
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    return null;
+  }
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     return typeof parsed === "object" &&
@@ -893,6 +1073,31 @@ function normalizeInstalledManifest(
 }
 
 /**
+ * Write a minimal Vellum-compatible `package.json` into a staged plugin that
+ * shipped no manifest of its own. The Vellum external plugin loader
+ * (`buildPluginFromDir`) hard-requires a `package.json` validated against
+ * `PluginPackageJsonSchema` and silently skips the plugin when it's missing.
+ *
+ * The synthesized manifest carries the install name and the default
+ * `@vellumai/plugin-api` peer dependency range. No foreign-ecosystem manifest
+ * data is read — the install name is the only identity we trust for an
+ * untrusted direct install.
+ */
+function synthesizeMinimalPackageJson(name: string, stagingDir: string): void {
+  const manifestPath = join(stagingDir, "package.json");
+
+  const manifest: PackageManifest = {
+    name,
+    version: "0.0.0",
+    peerDependencies: {
+      "@vellumai/plugin-api": PLUGIN_API_PEER_RANGE,
+    },
+  };
+
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+/**
  * Resolve the absolute path of the adapter script named by the (overlaid stub)
  * `package.json`'s `scripts.postinstall`, or `null` when there is no stub
  * package.json / postinstall script.
@@ -909,7 +1114,9 @@ function resolvePostinstallScript(
   stagingDir: string,
 ): string | null {
   const pkgPath = join(stagingDir, "package.json");
-  if (!existsSync(pkgPath)) return null;
+  if (!existsSync(pkgPath)) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -926,7 +1133,9 @@ function resolvePostinstallScript(
     typeof scripts === "object" && scripts !== null && "postinstall" in scripts
       ? (scripts as { postinstall?: unknown }).postinstall
       : undefined;
-  if (typeof command !== "string" || command.trim() === "") return null;
+  if (typeof command !== "string" || command.trim() === "") {
+    return null;
+  }
 
   const match = /^bun\s+(\S+)$/.exec(command.trim());
   if (!match) {
@@ -938,7 +1147,9 @@ function resolvePostinstallScript(
   }
 
   let rel = match[1]!;
-  if (rel.startsWith("./")) rel = rel.slice(2);
+  if (rel.startsWith("./")) {
+    rel = rel.slice(2);
+  }
   if (!/\.(?:ts|mts|cts|mjs|cjs|js)$/.test(rel)) {
     throw new PluginPostinstallError(
       name,
@@ -1007,7 +1218,9 @@ function pluginPostinstallEnv(bun: string): NodeJS.ProcessEnv {
       .filter(Boolean)
       .join(":"),
   };
-  if (process.env.HOME) env.HOME = process.env.HOME;
+  if (process.env.HOME) {
+    env.HOME = process.env.HOME;
+  }
   return env;
 }
 
@@ -1023,7 +1236,9 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
     for (const entry of readdirSync(absDir, { withFileTypes: true })) {
       // Drop git metadata and symlinks: the loader follows neither, and a
       // symlink could otherwise point outside the staging tree.
-      if (relDir === "" && entry.name === ".git") continue;
+      if (relDir === "" && entry.name === ".git") {
+        continue;
+      }
       // Drop a top-level `bunfig.toml`. The adapter postinstall runs `bun` with
       // its cwd at the staged root, and Bun auto-loads `$cwd/bunfig.toml` as
       // project config — including a `preload` list it executes before the
@@ -1034,15 +1249,21 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
       // consumes `bunfig.toml`. Match case-insensitively because the macOS
       // install target's filesystem is case-insensitive, where Bun would still
       // open a clone-supplied `BUNFIG.TOML`.
-      if (relDir === "" && entry.name.toLowerCase() === "bunfig.toml") continue;
-      if (entry.isSymbolicLink()) continue;
+      if (relDir === "" && entry.name.toLowerCase() === "bunfig.toml") {
+        continue;
+      }
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
 
       const rel = relDir ? join(relDir, entry.name) : entry.name;
       if (entry.isDirectory()) {
         walk(rel);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
 
       const dest = join(destDir, rel);
       mkdirSync(dirname(dest), { recursive: true });
@@ -1101,7 +1322,9 @@ export const defaultGitRunner: GitRunner = async (args, opts) => {
 function pluginGitEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !key.startsWith("GIT_")) env[key] = value;
+    if (value !== undefined && !key.startsWith("GIT_")) {
+      env[key] = value;
+    }
   }
   env.GIT_TERMINAL_PROMPT = "0";
   const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin"];
@@ -1113,6 +1336,145 @@ function pluginGitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * Resolve the commit SHA a plugin source's recorded ref points at *now*, using
+ * a single `git ls-remote` — no clone. `plugins upgrade` uses this to detect
+ * drift for a directly-installed plugin (one sourced from a GitHub URL rather
+ * than the curated marketplace), whose "latest" is whatever its recorded
+ * branch / tag / `HEAD` currently resolves to.
+ *
+ * A full-SHA ref is immutable, so it resolves to itself with no network call
+ * (ls-remote lists refs, never arbitrary commits). For an annotated tag the
+ * peeled commit (`<ref>^{}`) is preferred — the commit a checkout lands on.
+ * Returns `null` when the ref no longer exists on the remote (a deleted branch /
+ * tag) or the repo is unreachable as a hard failure; throws
+ * {@link PluginSourceUnavailableError} on a transient git / network failure so
+ * the caller can surface a retryable 503.
+ */
+export async function resolveRefCommit(
+  source: PluginFetchSource,
+  runGit: GitRunner = defaultGitRunner,
+): Promise<string | null> {
+  if (isFullCommitSha(source.ref)) {
+    return source.ref;
+  }
+  const repoUrl = `https://github.com/${source.owner}/${source.repo}.git`;
+
+  let stdout: string;
+  try {
+    // ls-remote takes the URL explicitly and never reads a local working tree,
+    // so the OS temp dir is a safe, always-present cwd.
+    ({ stdout } = await runGit(["ls-remote", repoUrl, source.ref], {
+      cwd: tmpdir(),
+    }));
+  } catch (err) {
+    // A missing repo / ref (or a private one we can't reach) is a hard failure
+    // the caller maps to not-found; anything else — network loss, a transient
+    // GitHub outage — is retryable, so surface a 503.
+    if (isGitRefNotFound(err)) {
+      return null;
+    }
+    throw new PluginSourceUnavailableError(
+      `git ls-remote failed for ${source.owner}/${source.repo} @ ${source.ref}: ${subprocessErrorText(err)}`,
+      503,
+    );
+  }
+
+  // Each line is `<sha>\t<refname>`. Prefer the peeled commit of an annotated
+  // tag (`<ref>^{}`) — the commit a checkout resolves to — over the tag object.
+  let peeled: string | null = null;
+  let direct: string | null = null;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      continue;
+    }
+    const [sha, refname] = trimmed.split(/\s+/);
+    if (sha === undefined || refname === undefined || !isFullCommitSha(sha)) {
+      continue;
+    }
+    if (refname.endsWith("^{}")) {
+      peeled = sha;
+    } else {
+      direct ??= sha;
+    }
+  }
+  return peeled ?? direct;
+}
+
+/**
+ * List the branch and tag short-names a remote publishes, via a single
+ * `git ls-remote --heads --tags`. Best-effort: any failure (unreachable repo,
+ * a private one we can't authenticate to, network loss) yields an empty set so
+ * the caller falls back to its offline guess rather than aborting — a genuinely
+ * missing ref still surfaces later when the clone itself fails.
+ */
+async function listRemoteRefNames(
+  owner: string,
+  repo: string,
+  runGit: GitRunner,
+): Promise<Set<string>> {
+  const repoUrl = `https://github.com/${owner}/${repo}.git`;
+  let stdout: string;
+  try {
+    ({ stdout } = await runGit(["ls-remote", "--heads", "--tags", repoUrl], {
+      cwd: tmpdir(),
+    }));
+  } catch {
+    return new Set();
+  }
+  const names = new Set<string>();
+  for (const line of stdout.split("\n")) {
+    // Each line is `<sha>\t<refname>`; keep the branch/tag short-name, dropping
+    // the `refs/heads/` | `refs/tags/` prefix and an annotated tag's `^{}` peel.
+    const refname = line.trim().split(/\s+/)[1];
+    if (!refname) continue;
+    const name = refname
+      .replace(/^refs\/(?:heads|tags)\//, "")
+      .replace(/\^\{\}$/, "");
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+/**
+ * Split a `/tree/<segments>` GitHub URL's tail into the ref and sub-path it
+ * actually denotes — the ambiguity github.com resolves by consulting the
+ * repository's refs, since a branch name can itself contain slashes
+ * (`feature/x`) and the URL can't mark where it ends. Picks the LONGEST leading
+ * prefix of `segments` that names a real branch or tag; the remainder is the
+ * sub-path.
+ *
+ * Falls back to treating the first segment as the ref (the offline heuristic)
+ * when the remote can't be listed or no prefix matches — including a full commit
+ * SHA, which `ls-remote` never enumerates but a clone can still fetch.
+ */
+export async function resolveTreeRefPath(
+  owner: string,
+  repo: string,
+  segments: readonly string[],
+  runGit: GitRunner = defaultGitRunner,
+): Promise<{ ref: string; path: string }> {
+  if (segments.length === 0) {
+    return { ref: DEFAULT_DIRECT_REF, path: "" };
+  }
+  const firstSegmentGuess = {
+    ref: segments[0]!,
+    path: segments.slice(1).join("/"),
+  };
+  if (isFullCommitSha(segments[0]!)) {
+    return firstSegmentGuess;
+  }
+  const refNames = await listRemoteRefNames(owner, repo, runGit);
+  for (let k = segments.length; k >= 1; k--) {
+    const candidate = segments.slice(0, k).join("/");
+    if (refNames.has(candidate)) {
+      return { ref: candidate, path: segments.slice(k).join("/") };
+    }
+  }
+  return firstSegmentGuess;
+}
+
 /** Inputs for {@link writeInstallMeta}, resolved during a fresh install. */
 interface WriteInstallMetaParams {
   readonly name: string;
@@ -1121,6 +1483,8 @@ interface WriteInstallMetaParams {
   readonly commit: string | null;
   /** ISO-8601 committer timestamp of {@link WriteInstallMetaParams.commit} (UTC); null when unknown. */
   readonly committedAt: string | null;
+  /** Artifact integrity digest (`sha256:<hex>`) recorded for platform-endpoint installs; omitted for git installs. */
+  readonly etag?: string;
   readonly fingerprint: Fingerprint;
   readonly contentHash: string;
 }
@@ -1132,12 +1496,16 @@ interface WriteInstallMetaParams {
  */
 function readStagedPackageVersion(stagingDir: string): string | undefined {
   const pkgPath = join(stagingDir, "package.json");
-  if (!existsSync(pkgPath)) return undefined;
+  if (!existsSync(pkgPath)) {
+    return undefined;
+  }
   try {
     const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
     if (typeof parsed === "object" && parsed !== null) {
       const version = (parsed as Record<string, unknown>).version;
-      if (typeof version === "string" && version.length > 0) return version;
+      if (typeof version === "string" && version.length > 0) {
+        return version;
+      }
     }
   } catch {
     // fall through to undefined
@@ -1159,6 +1527,7 @@ function writeInstallMeta(
     ref,
     commit,
     committedAt,
+    etag,
     fingerprint,
     contentHash,
   }: WriteInstallMetaParams,
@@ -1169,6 +1538,7 @@ function writeInstallMeta(
     version: readStagedPackageVersion(stagingDir),
     sourceRepo: `${source.owner}/${source.repo}`,
     contentHash,
+    author: "user",
     name,
     source: {
       kind: "github",
@@ -1179,6 +1549,7 @@ function writeInstallMeta(
     },
     commit,
     committedAt,
+    ...(etag ? { etag } : {}),
     fingerprint,
   };
   writeFileSync(
@@ -1199,7 +1570,9 @@ function writeInstallMeta(
  */
 export function readInstallMeta(pluginDir: string): InstallMeta | null {
   const metaPath = join(pluginDir, INSTALL_META_FILENAME);
-  if (!existsSync(metaPath)) return null;
+  if (!existsSync(metaPath)) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -1238,6 +1611,10 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
     slug: optionalString(obj.slug),
     sourceRepo: optionalString(obj.sourceRepo),
     contentHash: optionalString(obj.contentHash),
+    author:
+      obj.author === "assistant" || obj.author === "user"
+        ? obj.author
+        : undefined,
     name: obj.name,
     source: {
       kind: typeof source.kind === "string" ? source.kind : "github",
@@ -1247,6 +1624,7 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
       ref: source.ref,
     },
     commit: typeof obj.commit === "string" ? obj.commit : null,
+    ...(typeof obj.etag === "string" ? { etag: obj.etag } : {}),
     committedAt: typeof obj.committedAt === "string" ? obj.committedAt : null,
     fingerprint: parseFingerprint(obj.fingerprint),
   };
@@ -1271,12 +1649,16 @@ async function copyDir(
   fetchFn: FetchLike,
 ): Promise<number> {
   const entries = await listDir(owner, repo, apiPath, ref, fetchFn);
-  if (entries === null) return 0;
+  if (entries === null) {
+    return 0;
+  }
 
   let count = 0;
   for (const entry of entries) {
     // The daemon loader follows neither symlinks nor submodules; skip them.
-    if (entry.type === "symlink" || entry.type === "submodule") continue;
+    if (entry.type === "symlink" || entry.type === "submodule") {
+      continue;
+    }
     assertSafeFilename("entry name", entry.name);
 
     if (entry.type === "dir") {
@@ -1330,7 +1712,9 @@ async function listDir(
     `/contents/${encodeURIComponent(apiPath).replaceAll("%2F", "/")}?ref=${encodeURIComponent(ref)}`;
 
   const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
-  if (res.status === 404) return null;
+  if (res.status === 404) {
+    return null;
+  }
   if (!res.ok) {
     const label = `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`;
     if (isTransientUpstreamStatus(res)) {

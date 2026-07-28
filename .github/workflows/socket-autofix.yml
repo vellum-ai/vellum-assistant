@@ -36,9 +36,6 @@ jobs:
           - packages/ces-contracts
           - packages/credential-storage
           - packages/egress-proxy
-          - skills/meet-join
-          - skills/meet-join/bot
-          - skills/meet-join/meet-controller-ext
     defaults:
       run:
         working-directory: ${{ matrix.workspace }}

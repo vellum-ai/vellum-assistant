@@ -2,6 +2,12 @@ import {
   estimateGeminiAudioTokens,
   normalizeGeminiAudioMime,
 } from "../providers/gemini/inline-media.js";
+import { mediaSourceByteLength } from "../providers/media-resolve.js";
+import { modelSupportsAudioInput } from "../providers/model-catalog.js";
+import {
+  estimateOpenAICompatAudioTokens,
+  isOpenAICompatInlineAudio,
+} from "../providers/openai/input-audio.js";
 import type {
   ContentBlock,
   Message,
@@ -89,6 +95,12 @@ const TOOL_DEFINITION_OVERHEAD_TOKENS = 28;
 
 export interface TokenEstimatorOptions {
   providerName?: string;
+  /**
+   * Model id the estimated request dispatches to, for model-keyed rules
+   * (e.g. audio-capable OpenAI-compatible models). Callers pass the
+   * provider's `defaultModel` when available.
+   */
+  model?: string;
   /** Pre-computed tool token budget. When provided, added to the prompt total. */
   toolTokenBudget?: number;
 }
@@ -98,8 +110,7 @@ export function estimateTextTokens(text: string | undefined): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-function estimateAnthropicPdfTokens(base64Data: string): number {
-  const rawBytes = Math.ceil((base64Data.length * 3) / 4);
+function estimateAnthropicPdfTokens(rawBytes: number): number {
   return Math.max(
     ANTHROPIC_PDF_MIN_TOKENS,
     Math.ceil(rawBytes * ANTHROPIC_PDF_TOKENS_PER_BYTE),
@@ -111,13 +122,16 @@ function estimateFileDataTokens(
   options?: TokenEstimatorOptions,
 ): number {
   const providerName = options?.providerName;
+  // Size the payload from the source hint, resolving neither base64 nor a
+  // reference back to bytes — this runs on the per-turn hot path.
+  const byteLength = mediaSourceByteLength(block.source);
 
   // Anthropic sends PDFs as native document blocks and renders each page as an image
   if (
     providerName === "anthropic" &&
     block.source.media_type === "application/pdf"
   ) {
-    return estimateAnthropicPdfTokens(block.source.data);
+    return estimateAnthropicPdfTokens(byteLength);
   }
 
   // Gemini hears audio natively (inline base64) but bills it at ~32 tokens/sec.
@@ -127,15 +141,26 @@ function estimateFileDataTokens(
     providerName === "gemini" &&
     normalizeGeminiAudioMime(block.source.media_type) !== null
   ) {
-    return estimateGeminiAudioTokens(block.source.data);
+    return estimateGeminiAudioTokens(byteLength);
   }
 
-  // Gemini sends certain file types inline as base64
+  // Gemini sends certain file types inline as base64; cost the encoded payload
+  // (~4 base64 chars per 3 bytes) as text.
   if (
     providerName === "gemini" &&
     GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type)
   ) {
-    return estimateTextTokens(block.source.data);
+    return Math.ceil((Math.ceil(byteLength / 3) * 4) / CHARS_PER_TOKEN);
+  }
+
+  // Audio-native OpenAI-compatible models (catalog `supportsAudioInput`)
+  // receive eligible audio inline as `input_audio` parts, billed by duration.
+  if (
+    options?.model !== undefined &&
+    modelSupportsAudioInput(options.model) &&
+    isOpenAICompatInlineAudio(block.source.media_type, byteLength)
+  ) {
+    return estimateOpenAICompatAudioTokens(byteLength);
   }
 
   return 0;
@@ -185,7 +210,7 @@ function estimateImageTokens(
   block: Extract<ContentBlock, { type: "image" }>,
   options?: TokenEstimatorOptions,
 ): number {
-  const dims = parseImageDimensions(block.source.data, block.source.media_type);
+  const dims = parseImageDimensions(block.source);
   if (dims) {
     if (options?.providerName === "gemini") {
       return estimateGeminiImageTokens(dims.width, dims.height);

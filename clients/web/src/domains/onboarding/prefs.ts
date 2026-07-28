@@ -1,17 +1,17 @@
 /**
  * Onboarding preference public API.
  *
- * Boolean preferences (`shareAnalytics`, `shareDiagnostics`, `tosAccepted`,
- * `privacyConsent`) are owned by `useOnboardingStore` — a
- * Zustand store with a custom per-key `persist` adapter that maps each
- * field to its existing localStorage key. This file exposes the hook +
+ * Consent preferences are owned by `useOnboardingStore` — the share toggles
+ * (`shareAnalytics`, `shareDiagnostics`) are tri-state (`null` = never
+ * asked), the legal flags (`tosAccepted`, `privacyConsent`) are booleans.
+ * The store persists each share toggle to its existing localStorage key. This file exposes the hook +
  * non-React shim around the store, plus the non-store helpers for the
  * onboarding-only keys that don't fit the boolean store shape
  * (`onboarding.selectedVersion`, `onboarding.lastUserId`).
  *
- * Storage keys are documented in `onboarding-store.ts`. The privacy
- * settings page and the Sentry consent gate read `device:share_*`
- * directly — that contract is preserved by the per-key adapter.
+ * Storage keys are documented in `onboarding-store.ts`. The Sentry consent
+ * gate reads `device:share_*` directly — that contract is preserved by the
+ * per-key adapter.
  */
 import { useCallback } from "react";
 
@@ -20,7 +20,7 @@ import {
   removeLocalSetting,
   setLocalSetting,
 } from "@/utils/local-settings";
-import { getDeviceBool } from "@/utils/device-settings";
+import { readAnalyticsConsent } from "@/lib/telemetry/consent";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
@@ -40,11 +40,12 @@ const KEY_SELECTED_VERSION = "vellum:onboarding:selectedVersion";
 // ---------------------------------------------------------------------------
 
 /**
- * Share anonymous product analytics. Defaults to `true`.
- * Backed by the SAME localStorage key as `/settings/privacy` so onboarding
- * and settings are a single source of truth.
+ * Share anonymous product analytics. Tri-state: `null` = never asked
+ * (analytics is opt-out, so never-asked behaves as enabled), a boolean is an
+ * explicit choice. Backed by the SAME localStorage key as `/settings/privacy`
+ * so onboarding and settings are a single source of truth.
  */
-export function useShareAnalytics(): [boolean, (next: boolean) => void] {
+export function useShareAnalytics(): [boolean | null, (next: boolean) => void] {
   const value = useOnboardingStore.use.shareAnalytics();
   const setter = useCallback((next: boolean) => {
     useOnboardingStore.getState().setShareAnalytics(next);
@@ -53,10 +54,14 @@ export function useShareAnalytics(): [boolean, (next: boolean) => void] {
 }
 
 /**
- * Share crash reports and diagnostics. Defaults to `true`.
- * Backed by the SAME localStorage key as `/settings/privacy`.
+ * Share crash reports and diagnostics. Tri-state: `null` = never asked
+ * (diagnostics is opt-out), a boolean is an explicit choice. Backed by the
+ * SAME localStorage key as `/settings/privacy`.
  */
-export function useShareDiagnostics(): [boolean, (next: boolean) => void] {
+export function useShareDiagnostics(): [
+  boolean | null,
+  (next: boolean) => void,
+] {
   const value = useOnboardingStore.use.shareDiagnostics();
   const setter = useCallback((next: boolean) => {
     useOnboardingStore.getState().setShareDiagnostics(next);
@@ -92,7 +97,10 @@ export function usePrivacyConsent(): [boolean, (next: boolean) => void] {
  * version. Set on session sync by the auth store. A stale value means the user
  * must re-review the terms.
  */
-export function useAnalyticsConsentCurrent(): [boolean, (next: boolean) => void] {
+export function useAnalyticsConsentCurrent(): [
+  boolean,
+  (next: boolean) => void,
+] {
   const value = useOnboardingStore.use.analyticsConsentCurrent();
   const setter = useCallback((next: boolean) => {
     useOnboardingStore.getState().setAnalyticsConsentCurrent(next);
@@ -105,12 +113,28 @@ export function useAnalyticsConsentCurrent(): [boolean, (next: boolean) => void]
  * version. Set on session sync by the auth store. A stale value means the user
  * must re-review the terms.
  */
-export function useDiagnosticsConsentCurrent(): [boolean, (next: boolean) => void] {
+export function useDiagnosticsConsentCurrent(): [
+  boolean,
+  (next: boolean) => void,
+] {
   const value = useOnboardingStore.use.diagnosticsConsentCurrent();
   const setter = useCallback((next: boolean) => {
     useOnboardingStore.getState().setDiagnosticsConsentCurrent(next);
   }, []);
   return [value, setter];
+}
+
+/**
+ * Whether the platform has any consent record for this user, set on session
+ * sync by the auth store (device acks count as evidence).
+ *
+ * Consent surfaces must key first-time framing off THIS flag, not off
+ * `useTosAccepted()`/`usePrivacyConsent()`: those two carry version currency,
+ * so both read `false` for a never-consented user AND for an established user
+ * whose acceptances went stale when both required versions were bumped.
+ */
+export function useHasConsentRecord(): boolean {
+  return useOnboardingStore.use.hasConsentRecord();
 }
 
 // ---------------------------------------------------------------------------
@@ -157,19 +181,26 @@ export function readDiagnosticsConsentCurrent(): boolean {
 }
 
 /**
- * SSR-safe, non-hook read for telemetry emitters.
- *
- * Unlike the onboarding UI, this treats an absent preference as no consent:
- * direct analytics uploads should only run after the privacy screen or
- * settings page has persisted an explicit opt-in. The in-memory store must
- * also agree so a failed opt-out write cannot leave an older stored opt-in
- * authorizing a new event.
+ * SSR-safe, non-hook read of whether the consent flags reflect a completed
+ * session sync (or an explicit user acceptance). Used by the navigation guard
+ * to defer consent-based redirects until the flags are trustworthy — the
+ * flags boot `false` and only reflect reality once hydration lands.
  */
-export function readShareAnalytics(): boolean {
-  return (
-    useOnboardingStore.getState().shareAnalytics &&
-    getDeviceBool("shareAnalytics", false)
-  );
+export function readConsentHydrated(): boolean {
+  return useOnboardingStore.getState().consentHydrated;
+}
+
+/**
+ * SSR-safe, non-hook gate for telemetry emitters.
+ *
+ * Thin wrapper over the shared `readAnalyticsConsent()` so the onboarding
+ * funnel and the intelligence domain's Memory telemetry gate on the exact
+ * same decision: a local explicit opt-out wins (its server write may be in
+ * flight); otherwise the server-computed effective verdict decides, with the
+ * opt-out default applying before the first sync.
+ */
+export function isAnalyticsEnabled(): boolean {
+  return readAnalyticsConsent();
 }
 
 /**
@@ -203,5 +234,3 @@ export function writeSelectedVersion(version: string): void {
     // the right default.
   }
 }
-
-

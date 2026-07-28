@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { MessageRow } from "../../memory/conversation-crud.js";
+import type { MessageRow } from "../../persistence/conversation-crud.js";
+import { resolveMessageContentBlocks } from "../../persistence/message-content-file.js";
 import {
   findDisplayTurnEndIndex,
   isToolResultOnlyUserMessage,
@@ -17,7 +18,7 @@ function makeMsg(
     id: `msg-${Math.random().toString(36).slice(2, 10)}`,
     conversationId: "conv-1",
     role,
-    content,
+    content: resolveMessageContentBlocks(content),
     createdAt: Date.now(),
     displayOrder: 0,
     seen: 1,
@@ -121,9 +122,9 @@ describe("isToolResultOnlyUserMessage", () => {
   });
 
   test("returns false for malformed JSON content", () => {
-    expect(
-      isToolResultOnlyUserMessage(makeMsg("user", "{not json")),
-    ).toBe(false);
+    expect(isToolResultOnlyUserMessage(makeMsg("user", "{not json"))).toBe(
+      false,
+    );
   });
 
   test("returns false when array contains a non-object block", () => {
@@ -147,18 +148,12 @@ describe("findDisplayTurnEndIndex", () => {
   });
 
   test("returns startIdx unchanged for non-assistant rows", () => {
-    const messages = [
-      makeMsg("user", "hi"),
-      makeMsg("assistant", "back"),
-    ];
+    const messages = [makeMsg("user", "hi"), makeMsg("assistant", "back")];
     expect(findDisplayTurnEndIndex(messages, 0)).toBe(0);
   });
 
   test("returns startIdx for a lone assistant row at end of array", () => {
-    const messages = [
-      makeMsg("user", "hi"),
-      makeMsg("assistant", "back"),
-    ];
+    const messages = [makeMsg("user", "hi"), makeMsg("assistant", "back")];
     expect(findDisplayTurnEndIndex(messages, 1)).toBe(1);
   });
 
@@ -195,9 +190,7 @@ describe("findDisplayTurnEndIndex", () => {
       makeMsg("assistant", "tool call"),
       makeMsg(
         "user",
-        JSON.stringify([
-          { type: "tool_result", tool_use_id: "t1" },
-        ]),
+        JSON.stringify([{ type: "tool_result", tool_use_id: "t1" }]),
       ),
       makeMsg("assistant", "intermediate"),
       makeMsg("user", "real user follow-up"),
@@ -215,9 +208,7 @@ describe("findDisplayTurnEndIndex", () => {
       makeMsg("assistant", "tool call"),
       makeMsg(
         "user",
-        JSON.stringify([
-          { type: "tool_result", tool_use_id: "t1" },
-        ]),
+        JSON.stringify([{ type: "tool_result", tool_use_id: "t1" }]),
       ),
     ];
     expect(findDisplayTurnEndIndex(messages, 1)).toBe(2);
@@ -264,7 +255,7 @@ describe("mergeToolResultsIntoAssistantMessages", () => {
     const merged = mergeToolResultsIntoAssistantMessages(messages);
     expect(merged).toHaveLength(1);
     expect(merged[0].role).toBe("assistant");
-    const blocks = JSON.parse(merged[0].content) as Array<{ type: string }>;
+    const blocks = merged[0].content as Array<{ type: string }>;
     expect(blocks.map((b) => b.type)).toEqual(["tool_use", "tool_result"]);
   });
 
@@ -285,18 +276,15 @@ describe("mergeToolResultsIntoAssistantMessages", () => {
     const merged = mergeToolResultsIntoAssistantMessages(messages);
     expect(merged).toHaveLength(2);
     expect(merged[1].role).toBe("user");
-    const userBlocks = JSON.parse(merged[1].content) as Array<{ type: string }>;
+    const userBlocks = merged[1].content as Array<{ type: string }>;
     expect(userBlocks.map((b) => b.type)).toEqual(["text"]);
   });
 
   test("passes plain user text through unchanged", () => {
-    const messages = [
-      makeMsg("user", "hi"),
-      makeMsg("assistant", "hello"),
-    ];
+    const messages = [makeMsg("user", "hi"), makeMsg("assistant", "hello")];
     const merged = mergeToolResultsIntoAssistantMessages(messages);
     expect(merged).toHaveLength(2);
-    expect(merged[0].content).toBe("hi");
+    expect(merged[0].content).toEqual([{ type: "text", text: "hi" }]);
   });
 });
 
@@ -319,7 +307,7 @@ describe("mergeConsecutiveAssistantMessages", () => {
     ]);
     expect(messages).toHaveLength(2);
     expect(messages[1].id).toBe("anchor");
-    const blocks = JSON.parse(messages[1].content) as Array<{ text: string }>;
+    const blocks = messages[1].content as Array<{ text: string }>;
     expect(blocks.map((blk) => blk.text)).toEqual(["part 1", "part 2"]);
     expect(mergedIdMap.get("anchor")).toEqual(["tail"]);
   });
@@ -327,10 +315,7 @@ describe("mergeConsecutiveAssistantMessages", () => {
   test("leaves a single assistant row unchanged", () => {
     const messages = [
       makeMsg("user", "hi"),
-      makeMsg(
-        "assistant",
-        JSON.stringify([{ type: "text", text: "hello" }]),
-      ),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "hello" }])),
     ];
     const { messages: result, mergedIdMap } =
       mergeConsecutiveAssistantMessages(messages);
@@ -346,5 +331,53 @@ describe("mergeConsecutiveAssistantMessages", () => {
     ];
     const { messages: result } = mergeConsecutiveAssistantMessages(messages);
     expect(result).toHaveLength(3);
+  });
+});
+
+describe("system-card boundaries", () => {
+  const cardMeta = JSON.stringify({ messageKind: "system_card" });
+
+  test("a card never merges into the preceding assistant run", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+      makeMsg(
+        "assistant",
+        JSON.stringify([{ type: "text", text: "**Conversation summarized**" }]),
+        { metadata: cardMeta },
+      ),
+    ]);
+    expect(messages).toHaveLength(2);
+  });
+
+  test("an assistant row never merges into a preceding card", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      makeMsg(
+        "assistant",
+        JSON.stringify([{ type: "text", text: "**Context Cleaned**" }]),
+        { metadata: cardMeta },
+      ),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+    ]);
+    expect(messages).toHaveLength(2);
+  });
+
+  test("findDisplayTurnEndIndex treats a card as a single-row turn", () => {
+    const rows = [
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "card" }]), {
+        metadata: cardMeta,
+      }),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+    ];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
+  });
+
+  test("findDisplayTurnEndIndex stops an assistant run before a card", () => {
+    const rows = [
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "reply" }])),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "card" }]), {
+        metadata: cardMeta,
+      }),
+    ];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
   });
 });

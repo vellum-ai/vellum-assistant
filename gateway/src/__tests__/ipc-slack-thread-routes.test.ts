@@ -7,8 +7,7 @@ import {
   expect,
   test,
 } from "bun:test";
-import { randomBytes } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
+import { type Socket } from "node:net";
 
 import {
   getGatewayDb,
@@ -19,6 +18,7 @@ import { SlackStore } from "../db/slack-store.js";
 import { slackActiveThreads } from "../db/schema.js";
 import { GatewayIpcServer } from "../ipc/server.js";
 import { slackThreadRoutes } from "../ipc/slack-thread-handlers.js";
+import { connectClient, sendRequest } from "./helpers/ipc-newline-client.js";
 
 const CHANNEL_ID = "CFAKE00001";
 const OTHER_CHANNEL_ID = "COTHER0001";
@@ -36,42 +36,6 @@ beforeEach(() => {
 afterAll(() => {
   resetGatewayDb();
 });
-
-function connectClient(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const client = createConnection(path, () => resolve(client));
-    client.on("error", reject);
-  });
-}
-
-function sendRequest(
-  client: Socket,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<{ id: string; result?: unknown; error?: string }> {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(4).toString("hex");
-    let buffer = "";
-
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const newlineIdx = buffer.indexOf("\n");
-      if (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        client.off("data", onData);
-        try {
-          resolve(JSON.parse(line));
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
-
-    client.on("data", onData);
-    client.write(JSON.stringify({ id, method, params }) + "\n");
-  });
-}
 
 function activeThreadRows(): Array<{ threadTs: string; channelId: string }> {
   return new SlackStore(getGatewayDb()).listActiveThreadsWithChannel();

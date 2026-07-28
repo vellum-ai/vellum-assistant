@@ -19,9 +19,9 @@ Do not delete migration files. Migrations are append-only, even when their logic
 
 For DB migrations:
 
-1. Add a new file under `assistant/src/memory/migrations/`.
+1. Add a new file under `assistant/src/persistence/migrations/`.
 2. Make it idempotent and safe to retry after interruption.
-3. Register it in the migration index or registry used by DB init.
+3. Register it in the `migrationSteps` array in `assistant/src/persistence/steps.ts`.
 4. Update schema modules if the runtime schema changed.
 5. Add or update a focused `db-*migration*.test.ts` test.
 

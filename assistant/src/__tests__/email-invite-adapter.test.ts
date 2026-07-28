@@ -5,32 +5,11 @@
  * from workspace config and falls back to `undefined` when no address
  * is configured.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mock the config loader
-// ---------------------------------------------------------------------------
-
-let mockConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockConfig,
-  getNestedValue: (obj: Record<string, unknown>, path: string) => {
-    const keys = path.split(".");
-    let current: unknown = obj;
-    for (const key of keys) {
-      if (current == null || typeof current !== "object") return undefined;
-      current = (current as Record<string, unknown>)[key];
-    }
-    return current;
-  },
-  getConfig: () => ({}),
-  saveRawConfig: () => {},
-  setNestedValue: () => {},
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { resolveAdapterHandle } from "../runtime/channel-invite-transport.js";
 import { emailInviteAdapter } from "../runtime/channel-invite-transports/email.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -38,29 +17,25 @@ import { emailInviteAdapter } from "../runtime/channel-invite-transports/email.j
 
 describe("emailInviteAdapter", () => {
   beforeEach(() => {
-    mockConfig = {};
-  });
-
-  afterEach(() => {
-    mockConfig = {};
+    // The adapter reads the raw workspace config; reset the `email` key so
+    // each test starts without a configured address.
+    setConfig("email", {});
   });
 
   test("returns configured email address via resolveChannelHandleAsync", async () => {
-    mockConfig = { email: { address: "hello@vellum.me" } };
+    setConfig("email", { address: "user@example.com" });
 
     const handle = await resolveAdapterHandle(emailInviteAdapter);
-    expect(handle).toBe("hello@vellum.me");
+    expect(handle).toBe("user@example.com");
   });
 
   test("returns undefined when no address is configured", async () => {
-    mockConfig = {};
-
     const handle = await resolveAdapterHandle(emailInviteAdapter);
     expect(handle).toBeUndefined();
   });
 
   test("returns undefined when email.address is empty string", async () => {
-    mockConfig = { email: { address: "" } };
+    setConfig("email", { address: "" });
 
     const handle = await resolveAdapterHandle(emailInviteAdapter);
     expect(handle).toBeUndefined();

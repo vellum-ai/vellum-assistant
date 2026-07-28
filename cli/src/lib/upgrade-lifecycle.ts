@@ -13,12 +13,14 @@ import {
   DOCKER_READY_TIMEOUT_MS,
   dockerResourceNames,
   GATEWAY_INTERNAL_PORT,
+  ASSISTANT_INTERNAL_PORT,
   startContainers,
   stopContainers,
 } from "./docker.js";
 import { getStateDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loadGuardianToken } from "./guardian-token.js";
+import { classifyReadyzResponse } from "./http-client.js";
 import { fetchReleases, resolveImageRefs } from "./platform-releases.js";
 import {
   getBuilderManagedEnvKeys,
@@ -363,8 +365,16 @@ export async function fetchPreviousVersion(
 }
 
 /**
- * Poll the gateway `/readyz` endpoint until it returns 200 or the timeout
- * elapses. Returns whether the assistant became ready.
+ * Poll the gateway `/readyz` endpoint until the assistant reports migrations
+ * ready or the timeout elapses. Returns whether the assistant became ready.
+ *
+ * Readiness is classified from the response BODY, not the status code: the
+ * assistant's `/readyz` (forwarded through the gateway proxy) returns 200
+ * with `ready: false` while DB migrations run — the k8s keep-the-pod contract
+ * — so `resp.ok` alone would declare an upgrade successful before its
+ * migrations settle and make the caller's rollback path unreachable. A
+ * terminally failed migration returns immediately so rollback/restore can run
+ * without burning the timeout.
  */
 export async function waitForReady(runtimeUrl: string): Promise<boolean> {
   const readyUrl = `${runtimeUrl}/readyz`;
@@ -375,21 +385,25 @@ export async function waitForReady(runtimeUrl: string): Promise<boolean> {
       const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) {
+      const body = (await resp.json().catch(() => null)) as {
+        status?: string;
+        upstream?: number;
+      } | null;
+      const readiness = classifyReadyzResponse(resp.ok, body);
+      if (readiness === "ready") {
         const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
         console.log(`Assistant ready after ${elapsedSec}s`);
         return true;
       }
-      let detail = "";
-      try {
-        const body = await resp.text();
-        const json = JSON.parse(body);
-        const parts = [json.status];
-        if (json.upstream != null) parts.push(`upstream=${json.upstream}`);
-        detail = ` — ${parts.join(", ")}`;
-      } catch {
-        // ignore parse errors
+      if (readiness === "failed") {
+        console.log(
+          "Assistant database migrations FAILED — treating the assistant as not ready so recovery can run.",
+        );
+        return false;
       }
+      const parts = [body?.status].filter(Boolean);
+      if (body?.upstream != null) parts.push(`upstream=${body.upstream}`);
+      const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : "";
       console.log(`Readiness check: ${resp.status}${detail} (retrying...)`);
     } catch {
       // Connection refused / timeout — not up yet
@@ -490,17 +504,40 @@ export async function rollbackMigrations(
       body.targetWorkspaceMigrationId = targetWorkspaceMigrationId;
     if (rollbackToRegistryCeiling) body.rollbackToRegistryCeiling = true;
 
-    const resp = await loopbackSafeFetch(
-      `${gatewayUrl}/v1/admin/rollback-migrations`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(120_000),
-      },
-    );
-    if (!resp.ok) {
+    // The CLI can learn of a migration failure (via the forwarded /readyz
+    // body) up to a couple of seconds before the gateway's own assistant
+    // health poll opens its traffic gate — a POST landing in that window
+    // gets 503 {status:"starting"}. Retry through it rather than silently
+    // skipping the rollback.
+    const startingGateDeadline = Date.now() + 15_000;
+    let resp: Response;
+    for (;;) {
+      resp = await loopbackSafeFetch(
+        `${gatewayUrl}/v1/admin/rollback-migrations`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(120_000),
+        },
+      );
+      if (resp.ok) break;
       const text = await resp.text();
+      let gatewayStarting = false;
+      try {
+        // The daemon's running-migrations 503 also says "starting" but
+        // carries a `reason` field — don't retry against that one (the
+        // rollback stays blocked until migrations leave the running state).
+        const parsed = JSON.parse(text) as { status?: string; reason?: string };
+        gatewayStarting =
+          parsed.status === "starting" && parsed.reason === undefined;
+      } catch {
+        // Non-JSON error body — not the starting gate.
+      }
+      if (gatewayStarting && Date.now() < startingGateDeadline) {
+        await new Promise((r) => setTimeout(r, 1_000));
+        continue;
+      }
       console.warn(`⚠️  Migration rollback failed (${resp.status}): ${text}`);
       return false;
     }
@@ -520,6 +557,43 @@ export async function rollbackMigrations(
     console.warn(`⚠️  Migration rollback failed: ${msg}`);
     return false;
   }
+}
+
+/**
+ * Recovery step for a reverted stack that reports terminally failed
+ * migrations: import the backup (the failed-state migrations/import
+ * exemption admits it, and the import replaces the DB wholesale), then
+ * restart the containers — the failed readiness latch only clears on
+ * restart — and re-check readiness. Shared by the upgrade failure branch
+ * and performDockerRollback's auto-rollback.
+ */
+export async function attemptFailedStateRestore(opts: {
+  runtimeUrl: string;
+  assistantId: string;
+  backupPath: string;
+  /** Label for log lines, e.g. "pre-upgrade" or "pre-rollback". */
+  backupLabel: string;
+  res: Parameters<typeof stopContainers>[0];
+  containerOptions: Parameters<typeof startContainers>[0];
+}): Promise<{ restored: boolean; ready: boolean }> {
+  console.log(
+    `📦 Reverted stack not ready — attempting ${opts.backupLabel} backup restore...`,
+  );
+  console.log(`   Source: ${opts.backupPath}`);
+  const restored = await restoreBackup(
+    opts.runtimeUrl,
+    opts.assistantId,
+    opts.backupPath,
+  );
+  if (!restored) {
+    return { restored: false, ready: false };
+  }
+  console.log(
+    "   Backup imported — restarting containers to complete recovery...",
+  );
+  await stopContainers(opts.res);
+  await startContainers(opts.containerOptions, (msg) => console.log(msg));
+  return { restored: true, ready: await waitForReady(opts.runtimeUrl) };
 }
 
 // ---------------------------------------------------------------------------
@@ -685,6 +759,10 @@ export async function performDockerRollback(
     // use default
   }
 
+  // Recover the assistant host port from the entry, fall back to default.
+  const assistantPort =
+    entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+
   // Broadcast SSE "starting" event
   console.log("📢 Notifying connected clients...");
   await broadcastUpgradeEvent(
@@ -746,6 +824,7 @@ export async function performDockerRollback(
       extraAssistantEnv,
       extraGatewayEnv,
       gatewayPort,
+      assistantPort,
       imageTags: targetImageTags,
       instanceName,
       res,
@@ -785,6 +864,7 @@ export async function performDockerRollback(
         gatewayDigest: newDigests?.gateway,
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
@@ -867,6 +947,7 @@ export async function performDockerRollback(
             extraAssistantEnv,
             extraGatewayEnv,
             gatewayPort,
+            assistantPort,
             imageTags: currentImageRefs,
             instanceName,
             res,
@@ -874,10 +955,40 @@ export async function performDockerRollback(
           (msg) => console.log(msg),
         );
 
-        const revertReady = await waitForReady(entry.runtimeUrl);
+        let revertReady = await waitForReady(entry.runtimeUrl);
+        let restoredViaFailedState = false;
+        if (!revertReady && preRollbackBackupPath) {
+          const recovery = await attemptFailedStateRestore({
+            runtimeUrl: entry.runtimeUrl,
+            assistantId: entry.assistantId,
+            backupPath: preRollbackBackupPath,
+            backupLabel: "pre-rollback",
+            res,
+            containerOptions: {
+              signingKey,
+              bootstrapSecret,
+              cesServiceToken,
+              extraAssistantEnv,
+              extraGatewayEnv,
+              gatewayPort,
+              assistantPort,
+              imageTags: currentImageRefs,
+              instanceName,
+              res,
+            },
+          });
+          restoredViaFailedState = recovery.restored;
+          if (recovery.restored) {
+            revertReady = recovery.ready;
+          }
+        }
         if (revertReady) {
           // Restore from pre-rollback backup on failure
-          if (preRollbackBackupPath) {
+          if (restoredViaFailedState) {
+            console.log(
+              "   ✅ Data restored during failed-state recovery above\n",
+            );
+          } else if (preRollbackBackupPath) {
             await broadcastUpgradeEvent(
               entry.runtimeUrl,
               entry.assistantId,
@@ -919,6 +1030,7 @@ export async function performDockerRollback(
                 revertDigests?.["credential-executor"] ??
                 currentImageRefs["credential-executor"],
               networkName: res.network,
+              assistantPort,
             },
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,

@@ -10,8 +10,6 @@ import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
-let currentConfig: Record<string, unknown> = {};
-
 const DECLARED_SKILL_ID = "a2a-channel";
 const DECLARED_FLAG_KEY = "a2a-channel";
 
@@ -30,32 +28,7 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => currentConfig,
-  getConfigReadOnly: () => currentConfig,
-  loadConfig: () => currentConfig,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  API_KEY_PROVIDERS: [
-    "anthropic",
-    "openai",
-    "gemini",
-    "ollama",
-    "fireworks",
-    "openrouter",
-    "brave",
-    "perplexity",
-    "tavily",
-  ],
-}));
-
-await import("../tools/skills/load.js");
-const { getTool } = await import("../tools/registry.js");
+const { skillLoadTool } = await import("../tools/skills/load.js");
 
 function writeSkill(
   skillId: string,
@@ -74,8 +47,7 @@ function writeSkill(
 async function executeSkillLoad(
   input: Record<string, unknown>,
 ): Promise<{ content: string; isError: boolean }> {
-  const tool = getTool("skill_load");
-  if (!tool) throw new Error("skill_load tool was not registered");
+  const tool = skillLoadTool;
 
   const result = await tool.execute(input, {
     workingDir: "/tmp",
@@ -88,7 +60,6 @@ async function executeSkillLoad(
 describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-    currentConfig = {};
     setOverridesForTesting({});
   });
 

@@ -6,19 +6,27 @@
  * host_file_edit, host_file_transfer.
  *
  * Risk escalation paths:
- * - file_read: Low by default, High if targeting the actor token signing key.
- * - file_write / file_edit: Low by default, High if targeting skill source
- *   code, the workspace hooks directory, the user plugins directory, the
- *   workspace tools directory, or the workspace routes directory.
+ * - file_read: Low by default, Medium when the target resolves outside the
+ *   sandbox working directory on a non-containerized install, High if
+ *   targeting the actor token signing key or the monitoring data directory
+ *   (snapshot files may contain secrets).
+ * - file_write / file_edit: Low by default, Medium when the target resolves
+ *   outside the sandbox working directory on a non-containerized install,
+ *   High if targeting skill source code, the workspace hooks directory, the
+ *   user plugins directory, the workspace tools directory, the workspace
+ *   routes directory, the workspace workflows directory, or the monitoring
+ *   data directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
  *   skill source code, the workspace hooks directory, the user plugins
- *   directory, the workspace tools directory, or the workspace routes
+ *   directory, the workspace tools directory, the workspace routes
+ *   directory, the workspace workflows directory, or the monitoring data
  *   directory.
  * - host_file_transfer: Medium by default, High if the host-side path
  *   targets skill source code, the workspace hooks directory, the user
- *   plugins directory, the workspace tools directory, or the workspace
- *   routes directory.
+ *   plugins directory, the workspace tools directory, the workspace
+ *   routes directory, the workspace workflows directory, or the monitoring
+ *   data directory.
  *
  * The tools and routes directories are escalated for the same reason as
  * plugins: any file written under `<workspace>/tools/` is dynamic-imported
@@ -27,6 +35,11 @@
  * dynamic-imported and executed as an HTTP route handler. A write to either
  * is a code-injection sink, so it must clear the same High-risk approval gate
  * as hooks and plugins.
+ *
+ * The workflows directory is escalated for the same reason: any file under
+ * `<workspace>/workflows/` is a saved workflow whose source is executed (in the
+ * sandbox, and unattended when triggered by a schedule), so it must clear the
+ * same High-risk gate.
  *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
@@ -70,6 +83,16 @@ export interface FileClassificationContext {
   toolsDir: string;
   /** Absolute path to the workspace routes directory (dynamic-imported HTTP route handlers). */
   routesDir: string;
+  /** Absolute path to the workspace workflows directory (saved workflow scripts). */
+  workflowsDir: string;
+  /**
+   * Absolute path to the monitoring data directory
+   * (`<workspace>/data/monitoring`). The plugin source-versions sentinel
+   * lives here — a forged sentinel can trick the daemon into importing
+   * plugin code from arbitrary paths, so writes to this directory are
+   * code-injection risk and must clear the High-risk approval gate.
+   */
+  monitoringDir: string;
   /**
    * Absolute paths of all skill source root directories (managed, bundled,
    * and any extra dirs from config). The classifier checks whether a file
@@ -102,6 +125,21 @@ export interface FileClassifierInput {
    * lexical resolution.
    */
   resolvedPath?: string;
+  /**
+   * The sandbox working directory with symlinks resolved, canonicalized by the
+   * caller. Paired with {@link resolvedPath} for the workspace-boundary check
+   * so a symlinked workspace prefix (e.g. macOS /var → /private/var) does not
+   * read as an escape. When either canonical field is absent, the boundary
+   * check falls back to comparing lexical path against lexical workingDir.
+   */
+  resolvedWorkingDir?: string;
+  /**
+   * Whether the caller runs containerized. Suppresses the out-of-workspace
+   * escalation: containerized installs keep a hard workspace boundary at
+   * execution time, so an elevated classification would only prompt ahead of
+   * a guaranteed failure.
+   */
+  isContainerized?: boolean;
   /**
    * For `host_file_transfer` with `direction: "to_sandbox"`: the workspace-side
    * destination path (where the copied file lands). `filePath` carries the
@@ -161,6 +199,44 @@ function resolveSandboxPath(rawPath: string, workingDir: string): string {
     }
   }
   return resolve(workingDir, effectivePath);
+}
+
+/**
+ * Whether `filePath` resolves to `root` itself or a descendant of it.
+ * Lexical containment only — callers that need symlink awareness must pass
+ * pre-canonicalized paths. Shared with the IPC handler's bash
+ * sandbox-auto-approve path check.
+ */
+export function isPathWithinRoot(filePath: string, root: string): boolean {
+  if (!filePath || !root) return false;
+  const normalizedRoot = root.endsWith("/") ? root : root + "/";
+  const normalizedPath = resolve(filePath);
+  return (
+    normalizedPath === root.replace(/\/$/, "") ||
+    normalizedPath.startsWith(normalizedRoot)
+  );
+}
+
+/**
+ * Whether a sandbox file operation targets a path outside its working-dir
+ * boundary. Mirrors the execution-time predicate in the assistant's
+ * `sandboxPolicy`: the boundary check is on the real (symlink-resolved)
+ * target, so an in-workspace symlink pointing out escalates, while an
+ * outside path whose real target lands in the workspace does not.
+ * Containerized installs never escalate — execution keeps the hard
+ * workspace boundary there.
+ */
+function isOutsideSandboxBoundary(input: FileClassifierInput): boolean {
+  if (input.isContainerized || !input.filePath) {
+    return false;
+  }
+  if (input.resolvedPath && input.resolvedWorkingDir) {
+    return !isPathWithinRoot(input.resolvedPath, input.resolvedWorkingDir);
+  }
+  return !isPathWithinRoot(
+    resolveSandboxPath(input.filePath, input.workingDir),
+    input.workingDir,
+  );
 }
 
 /**
@@ -259,6 +335,44 @@ function isRoutesPath(
 }
 
 /**
+ * Check whether a resolved absolute path falls inside the workspace workflows
+ * directory (or IS the workflows directory itself). Mirrors {@link isToolsPath}:
+ * a file under `<workspace>/workflows/` is a saved workflow whose source is
+ * executed (unattended when triggered by a schedule), so a write here is
+ * code-injection risk.
+ */
+function isWorkflowsPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedWorkflowsDir = normalizeDirPath(context.workflowsDir);
+  const workflowsDirNoTrailingSlash = normalizedWorkflowsDir.slice(0, -1);
+  return (
+    resolvedPath === workflowsDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedWorkflowsDir)
+  );
+}
+
+/**
+ * Check whether a resolved absolute path falls inside the monitoring data
+ * directory (or IS the directory itself). The plugin source-versions
+ * sentinel lives under this directory; a forged sentinel can redirect the
+ * daemon's plugin loader to arbitrary paths, so writes here are treated as
+ * code-injection risk.
+ */
+function isMonitoringPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedMonitoringDir = normalizeDirPath(context.monitoringDir);
+  const monitoringDirNoTrailingSlash = normalizedMonitoringDir.slice(0, -1);
+  return (
+    resolvedPath === monitoringDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedMonitoringDir)
+  );
+}
+
+/**
  * Check whether a resolved absolute path falls under any skill source
  * directory.
  */
@@ -341,10 +455,10 @@ function buildFileAllowlistOptions(
 
 /**
  * Classify a resolved (absolute) path against the code-injection sink
- * directories: skill source, hooks, plugins, tools, and routes. A write to
- * any of these plants code the daemon will dynamic-import and execute, so it
- * must clear the High-risk approval gate. Returns a High assessment when the
- * path lands in a sink, or `null` when it doesn't.
+ * directories: skill source, hooks, plugins, tools, routes, and workflows. A
+ * write to any of these plants code the daemon later executes, so it must clear
+ * the High-risk approval gate. Returns a High assessment when the path lands in
+ * a sink, or `null` when it doesn't.
  *
  * `verb` distinguishes the user-facing reason: "Writes" for write/edit tools,
  * "Transfers" for host_file_transfer.
@@ -368,6 +482,10 @@ function classifyCodeInjectionSink(
   if (isPluginsPath(resolvedPath, context)) return high("plugins directory");
   if (isToolsPath(resolvedPath, context)) return high("tools directory");
   if (isRoutesPath(resolvedPath, context)) return high("routes directory");
+  if (isWorkflowsPath(resolvedPath, context))
+    return high("workflows directory");
+  if (isMonitoringPath(resolvedPath, context))
+    return high("monitoring directory");
   return null;
 }
 
@@ -403,8 +521,9 @@ function classifyCodeInjectionSinkEither(
 /**
  * File risk classifier implementation.
  *
- * Classifies all six file tool types by risk level, with escalation paths
- * for skill source code, workspace hooks, and the actor token signing key.
+ * Classifies all seven file tool types by risk level, with escalation paths
+ * for the code-injection sinks (skill source, hooks, plugins, tools, routes,
+ * and workflows) and the actor token signing key.
  *
  * Unlike the assistant version, this classifier accepts a
  * FileClassificationContext parameter on classify() instead of importing
@@ -459,6 +578,36 @@ export class FileRiskClassifier implements RiskClassifier<
             };
             break;
           }
+          // Monitor snapshots contain process command lines that may carry
+          // secrets (tokens, API keys, DB URLs). Escalate reads of the
+          // monitoring data directory to High so they require explicit
+          // approval, even though the redaction at the source (process-tree
+          // and process-memory) strips most sensitive data. This is
+          // defense-in-depth — other low-risk tools (bash cat) can also
+          // read these files, so redaction is the primary fix.
+          if (
+            isMonitoringPath(lexicalPath, context) ||
+            isMonitoringPath(realPath, context)
+          ) {
+            assessment = {
+              riskLevel: "high",
+              reason: "Reads monitoring directory (snapshot data)",
+              scopeOptions: [],
+              matchType: "registry",
+              allowlistOptions,
+            };
+            break;
+          }
+        }
+        if (isOutsideSandboxBoundary(input)) {
+          assessment = {
+            riskLevel: "medium",
+            reason: "File read outside the workspace",
+            scopeOptions: [],
+            matchType: "registry",
+            allowlistOptions,
+          };
+          break;
         }
         assessment = {
           riskLevel: "low",
@@ -486,6 +635,16 @@ export class FileRiskClassifier implements RiskClassifier<
             assessment = sink;
             break;
           }
+        }
+        if (isOutsideSandboxBoundary(input)) {
+          assessment = {
+            riskLevel: "medium",
+            reason: `File ${toolName === "file_write" ? "write" : "edit"} outside the workspace`,
+            scopeOptions: [],
+            matchType: "registry",
+            allowlistOptions,
+          };
+          break;
         }
         assessment = {
           riskLevel: "low",

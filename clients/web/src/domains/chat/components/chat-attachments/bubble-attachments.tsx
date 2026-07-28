@@ -1,5 +1,5 @@
 
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
@@ -30,7 +30,30 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   attachments,
   assistantId,
 }) => {
-  const { openPreview, previewModal } = useAttachmentPreview(assistantId);
+  // Ids whose previewUrl the browser failed to decode (e.g. a HEIC blob on a
+  // Chromium renderer). Those fall back to the chip instead of the browser's
+  // broken-image glyph.
+  const [failedImageIds, setFailedImageIds] = useState<ReadonlySet<string>>(new Set());
+  const markImageFailed = useCallback((id: string) => {
+    setFailedImageIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  // A failed inline decode leaves a dead previewUrl (e.g. an undecodable HEIC
+  // blob on Chromium). Nulling it by id across the whole array — which is also
+  // forwarded as the modal's `siblingAttachments` — makes the chip, the modal,
+  // and gallery navigation all refetch stored bytes instead of the broken blob.
+  const previewAttachments = useMemo(
+    () =>
+      attachments.map((att) =>
+        failedImageIds.has(att.id) ? { ...att, previewUrl: null } : att,
+      ),
+    [attachments, failedImageIds],
+  );
+
+  const { openPreview, previewModal } = useAttachmentPreview(
+    assistantId,
+    previewAttachments,
+  );
 
   const handleDownload = useCallback(
     (att: DisplayAttachment) => {
@@ -46,7 +69,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   return (
     <>
       <div className="flex flex-col gap-2">
-        {attachments.map((att) => {
+        {previewAttachments.map((att, index) => {
           const isInlineImage =
             classifyAttachment(att.mimeType, att.filename) === "image" &&
             att.previewUrl != null;
@@ -68,6 +91,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
                     openPreview(att);
                   }
                 }}
+                onError={() => markImageFailed(att.id)}
                 className="max-h-[320px] max-w-full cursor-pointer rounded-lg object-contain"
               />
             );
@@ -80,8 +104,12 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
               mimeType={att.mimeType}
               sizeBytes={att.sizeBytes}
               previewUrl={att.previewUrl}
+              thumbnailUrl={att.thumbnailUrl}
               onPreview={() => openPreview(att)}
-              onDownload={() => handleDownload(att)}
+              // Download falls back to previewUrl when the daemon content fetch
+              // is unavailable, so it takes the unsanitized attachment — a blob
+              // that can't be *rendered* is still valid bytes to save.
+              onDownload={() => handleDownload(attachments[index]!)}
             />
           );
         })}

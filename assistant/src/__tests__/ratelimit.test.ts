@@ -1,11 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { describe, expect, test } from "bun:test";
 
 import type { RateLimitConfig } from "../config/types.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";

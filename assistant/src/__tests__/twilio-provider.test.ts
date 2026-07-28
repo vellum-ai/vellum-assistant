@@ -1,5 +1,5 @@
 /**
- * Tests for TwilioConversationRelayProvider — signature validation,
+ * Tests for TwilioVoiceProvider — signature validation,
  * fail-closed auth token behavior, and caller ID eligibility checks.
  */
 import { createHmac } from "node:crypto";
@@ -7,22 +7,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Start with a configured auth token
 let mockAuthToken: string | undefined = "test-auth-token-secret";
 let mockAccountSid: string | undefined = "AC_test_account";
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    twilio: { accountSid: mockAccountSid },
-  }),
-}));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => {
@@ -32,7 +19,8 @@ mock.module("../security/secure-keys.js", () => ({
   },
 }));
 
-import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
+import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -51,10 +39,11 @@ function computeValidSignature(
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
-describe("TwilioConversationRelayProvider", () => {
+describe("TwilioVoiceProvider", () => {
   beforeEach(() => {
     mockAuthToken = "test-auth-token-secret";
     mockAccountSid = "AC_test_account";
+    setConfig("twilio", { accountSid: mockAccountSid });
   });
 
   describe("verifyWebhookSignature", () => {
@@ -64,7 +53,7 @@ describe("TwilioConversationRelayProvider", () => {
     test("returns true for a valid signature", () => {
       const authToken = "test-auth-token-secret";
       const sig = computeValidSignature(testUrl, testParams, authToken);
-      const result = TwilioConversationRelayProvider.verifyWebhookSignature(
+      const result = TwilioVoiceProvider.verifyWebhookSignature(
         testUrl,
         testParams,
         sig,
@@ -75,7 +64,7 @@ describe("TwilioConversationRelayProvider", () => {
 
     test("returns false for an invalid signature", () => {
       const authToken = "test-auth-token-secret";
-      const result = TwilioConversationRelayProvider.verifyWebhookSignature(
+      const result = TwilioVoiceProvider.verifyWebhookSignature(
         testUrl,
         testParams,
         "invalid-signature-base64",
@@ -91,7 +80,7 @@ describe("TwilioConversationRelayProvider", () => {
         testParams,
         "wrong-token",
       );
-      const result = TwilioConversationRelayProvider.verifyWebhookSignature(
+      const result = TwilioVoiceProvider.verifyWebhookSignature(
         testUrl,
         testParams,
         wrongTokenSig,
@@ -103,7 +92,7 @@ describe("TwilioConversationRelayProvider", () => {
     test("handles empty params", () => {
       const authToken = "test-auth-token-secret";
       const sig = computeValidSignature(testUrl, {}, authToken);
-      const result = TwilioConversationRelayProvider.verifyWebhookSignature(
+      const result = TwilioVoiceProvider.verifyWebhookSignature(
         testUrl,
         {},
         sig,
@@ -116,7 +105,7 @@ describe("TwilioConversationRelayProvider", () => {
       const authToken = "test-auth-token-secret";
       const params = { Zebra: "1", Alpha: "2", Middle: "3" };
       const sig = computeValidSignature(testUrl, params, authToken);
-      const result = TwilioConversationRelayProvider.verifyWebhookSignature(
+      const result = TwilioVoiceProvider.verifyWebhookSignature(
         testUrl,
         params,
         sig,
@@ -129,20 +118,20 @@ describe("TwilioConversationRelayProvider", () => {
   describe("getAuthToken", () => {
     test("returns the auth token when configured", async () => {
       mockAuthToken = "my-secret-token";
-      const token = await TwilioConversationRelayProvider.getAuthToken();
+      const token = await TwilioVoiceProvider.getAuthToken();
       expect(token).toBe("my-secret-token");
     });
 
     test("returns null when auth token is not configured", async () => {
       mockAuthToken = undefined;
-      const token = await TwilioConversationRelayProvider.getAuthToken();
+      const token = await TwilioVoiceProvider.getAuthToken();
       expect(token).toBeNull();
     });
   });
 
   describe("initiateCall", () => {
     test("sends repeated StatusCallbackEvent parameters", async () => {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
       const originalFetch = globalThis.fetch;
       let capturedBody = "";
 
@@ -191,7 +180,7 @@ describe("TwilioConversationRelayProvider", () => {
     });
 
     test("returns eligible when number is found in IncomingPhoneNumbers", async () => {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
 
       globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
         const urlStr = String(url);
@@ -217,7 +206,7 @@ describe("TwilioConversationRelayProvider", () => {
     });
 
     test("returns eligible when number is found in OutgoingCallerIds", async () => {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
 
       globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
         const urlStr = String(url);
@@ -245,7 +234,7 @@ describe("TwilioConversationRelayProvider", () => {
     });
 
     test("returns ineligible when number is not found in either endpoint", async () => {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
 
       globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
         const urlStr = String(url);
@@ -269,7 +258,7 @@ describe("TwilioConversationRelayProvider", () => {
     });
 
     test("throws when both API calls return non-ok responses", async () => {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
 
       globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
         const urlStr = String(url);
@@ -288,7 +277,7 @@ describe("TwilioConversationRelayProvider", () => {
     });
 
     test("throws when only one API call fails but the other succeeds with no match", async () => {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
 
       globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {
         const urlStr = String(url);
@@ -309,7 +298,7 @@ describe("TwilioConversationRelayProvider", () => {
     });
 
     test("passes correct phone number as query parameter", async () => {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
       const capturedUrls: string[] = [];
 
       globalThis.fetch = (async (url: RequestInfo | URL): Promise<Response> => {

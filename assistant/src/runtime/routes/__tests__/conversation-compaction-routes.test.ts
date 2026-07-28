@@ -11,34 +11,14 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    llmRequestLogs: { readSource: "local" as const },
-  }),
-}));
-
 // ---------------------------------------------------------------------
 // Source + conversation-crud module mocks
 // ---------------------------------------------------------------------
-
-import type { CompactionLogEvent } from "../../../memory/compaction-log-store-clickhouse.js";
+import type { CompactionLogEvent } from "../../../persistence/compaction-log-store-clickhouse.js";
 import type {
   CompactionAgentLogRow,
   LogMetaRow,
-} from "../../../memory/llm-request-log-store.js";
+} from "../../../persistence/llm-request-log-store.js";
 
 interface FakeSourceState {
   conversation: { id: string } | null;
@@ -80,7 +60,7 @@ const sourceCalls = {
   }>,
 };
 
-mock.module("../../../memory/compaction-log-store-clickhouse.js", () => ({
+mock.module("../../../persistence/compaction-log-store-clickhouse.js", () => ({
   getCompactionLogStore: () =>
     state.compactionStoreEvents === null && state.compactionStoreError === null
       ? null
@@ -101,7 +81,7 @@ mock.module("../../../memory/compaction-log-store-clickhouse.js", () => ({
         },
 }));
 
-mock.module("../../../memory/conversation-crud.js", () => ({
+mock.module("../../../persistence/conversation-crud.js", () => ({
   getConversation: (id: string) =>
     state.conversation && state.conversation.id === id
       ? state.conversation
@@ -109,7 +89,7 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../../../memory/llm-request-log-source.js", () => ({
+mock.module("../../../persistence/llm-request-log-source.js", () => ({
   getLlmRequestLogSource: async () => ({
     getRequestLogById: async () => null,
     getRequestLogMetaById: async (id: string) => {
@@ -144,12 +124,17 @@ mock.module("../../../memory/llm-request-log-source.js", () => ({
 }));
 
 // Imported AFTER the mocks so the handler picks up the fakes.
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import {
   projectCompactionLogEventToTrailEvent,
   projectLogRowToCompactionTrailEvent,
   ROUTES,
 } from "../conversation-compaction-routes.js";
-import { BadRequestError, NotFoundError } from "../errors.js";
+import {
+  BadRequestError,
+  LlmRequestLogsDisabledError,
+  NotFoundError,
+} from "../errors.js";
 
 const route = ROUTES.find(
   (r) => r.operationId === "conversations_compaction_trail_get",
@@ -218,6 +203,9 @@ function fakeCompactionLogEvent(
 }
 
 beforeEach(() => {
+  // The compaction-trail guard reads `llmRequestLogs.enabled` (the master
+  // switch); seed the default-on state and let a test flip it off.
+  setConfig("llmRequestLogs", { enabled: true });
   state.conversation = null;
   state.selectedCall = null;
   state.previousNonCompactionCallCreatedAt = null;
@@ -259,6 +247,25 @@ describe("handleGetCompactionTrail — request-shape errors", () => {
     await expect(
       handler({ pathParams: { id: "conv-1" }, queryParams: {} }),
     ).rejects.toThrow(BadRequestError);
+  });
+
+  test("throws LlmRequestLogsDisabledError when logging is disabled", async () => {
+    // Even with a valid conversation + call, the guard short-circuits before
+    // any log source read — the compaction trail is inspector-only LLM data.
+    setConfig("llmRequestLogs", { enabled: false });
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogMetaRow({
+      id: "call-1",
+      conversationId: "conv-1",
+    });
+    await expect(
+      handler({
+        pathParams: { id: "conv-1" },
+        queryParams: { callId: "call-1" },
+      }),
+    ).rejects.toThrow(LlmRequestLogsDisabledError);
+    // The guard runs first: no metadata lookup happened.
+    expect(sourceCalls.getRequestLogMetaByIdArgs).toEqual([]);
   });
 
   test("throws NotFoundError when the conversation does not exist", async () => {

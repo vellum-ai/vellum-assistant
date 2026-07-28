@@ -1,8 +1,15 @@
 import {
+  configLlmProfilesByNamePut,
+  configPatch,
   inferenceProviderconnectionsPost,
   secretsPost,
 } from "@/generated/daemon/sdk.gen";
-import type { OnboardingProviderId } from "@/domains/onboarding/provider-catalog";
+import {
+  defaultModelForOnboardingProvider,
+  onboardingProvider,
+  type OnboardingProviderId,
+} from "@/domains/onboarding/provider-catalog";
+import type { ProfileEntry } from "@/generated/daemon/types.gen";
 
 // Model-provider API key collected during onboarding. Held in sessionStorage
 // (consume-once) between the API-key step and the post-hatch application, then
@@ -10,11 +17,19 @@ import type { OnboardingProviderId } from "@/domains/onboarding/provider-catalog
 // holds the key in-memory and POSTs it to the daemon once the assistant is up.
 
 const PENDING_KEY_STORAGE = "onboarding.providerKey";
+const ONBOARDING_ACTIVE_PROFILE = "custom-balanced";
+const DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS = 200_000;
 
 export interface PendingProviderKey {
   provider: OnboardingProviderId;
   /** Empty for keyless providers (e.g. Ollama). */
   key: string;
+  /** Selected model for the initial local assistant profile. */
+  model?: string;
+  /** Base URL for openai-compatible providers. */
+  baseUrl?: string;
+  /** Comma-separated model identifiers for openai-compatible providers. */
+  customModels?: string;
 }
 
 export function setPendingProviderKey(value: PendingProviderKey | null): void {
@@ -36,7 +51,10 @@ function isPendingProviderKey(value: unknown): value is PendingProviderKey {
     "provider" in value &&
     typeof value.provider === "string" &&
     "key" in value &&
-    typeof value.key === "string"
+    typeof value.key === "string" &&
+    (!("model" in value) || typeof value.model === "string") &&
+    (!("baseUrl" in value) || typeof value.baseUrl === "string") &&
+    (!("customModels" in value) || typeof value.customModels === "string")
   );
 }
 
@@ -85,27 +103,108 @@ async function createProviderConnection(
   assistantId: string,
   provider: OnboardingProviderId,
   hasKey: boolean,
+  options?: { baseUrl?: string; customModels?: string },
 ): Promise<void> {
-  const auth = hasKey
+  const isOpenAICompatible = provider === "openai-compatible";
+  const useApiKeyAuth = hasKey || isOpenAICompatible;
+  const auth = useApiKeyAuth
     ? { type: "api_key" as const, credential: `credential/${provider}/api_key` }
     : { type: "none" as const };
+
+  const baseUrl = isOpenAICompatible && options?.baseUrl
+    ? options.baseUrl
+    : undefined;
+  const models = isOpenAICompatible && options?.customModels
+    ? options.customModels
+        .split(",")
+        .map((id) => ({ id: id.trim() }))
+        .filter((m) => m.id)
+    : undefined;
+
   const { response } = await inferenceProviderconnectionsPost({
     path: { assistant_id: assistantId },
-    body: { name: provider, provider, auth },
+    body: {
+      name: provider,
+      provider,
+      auth,
+      ...(baseUrl !== undefined ? { base_url: baseUrl } : {}),
+      ...(models !== undefined ? { models } : {}),
+    },
     throwOnError: false,
   });
-  if (!response?.ok) {
+  if (!response?.ok && response?.status !== 409) {
     throw Object.assign(new Error("Failed to create provider connection"), {
       status: response?.status,
     });
   }
 }
 
+function buildOnboardingProfile(
+  provider: OnboardingProviderId,
+  model: string,
+): ProfileEntry {
+  const providerEntry = onboardingProvider(provider);
+  const modelEntry = providerEntry?.models?.find((entry) => entry.id === model);
+  const profile: ProfileEntry = {
+    provider,
+    model,
+    provider_connection: provider,
+    source: "user",
+    label: "Balanced",
+    description: "Good balance of quality, cost, and speed",
+    maxTokens: modelEntry?.maxOutputTokens ?? 16_000,
+    contextWindow: {
+      maxInputTokens:
+        modelEntry?.contextWindowTokens ??
+        DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+    },
+  };
+
+  if (provider === "ollama") {
+    profile.effort = "none";
+    profile.thinking = { enabled: false, streamThinking: false };
+  } else {
+    profile.effort = "high";
+    profile.thinking = { enabled: true, streamThinking: true };
+  }
+
+  return profile;
+}
+
+async function replaceOnboardingProfile(
+  assistantId: string,
+  provider: OnboardingProviderId,
+  model: string,
+): Promise<void> {
+  const { response } = await configLlmProfilesByNamePut({
+    path: { assistant_id: assistantId, name: ONBOARDING_ACTIVE_PROFILE },
+    body: buildOnboardingProfile(provider, model),
+    throwOnError: false,
+  });
+  if (!response?.ok) {
+    throw Object.assign(new Error("Failed to set provider profile"), {
+      status: response?.status,
+    });
+  }
+}
+
+async function activateOnboardingProfile(assistantId: string): Promise<void> {
+  const { response } = await configPatch({
+    path: { assistant_id: assistantId },
+    body: { llm: { activeProfile: ONBOARDING_ACTIVE_PROFILE } },
+    throwOnError: false,
+  });
+  if (!response?.ok) {
+    throw Object.assign(new Error("Failed to activate provider profile"), {
+      status: response?.status,
+    });
+  }
+}
+
 /**
- * Apply the API key collected during onboarding to the freshly hatched local
- * assistant: store the secret (when a key was entered) and create the provider
- * connection so the daemon can use it. Consumes the pending key; no-op when
- * nothing was collected (e.g. Vellum Cloud, which skips the API-key step).
+ * Apply the model-provider selection collected during onboarding to the
+ * freshly hatched local assistant. Consumes the pending key; no-op when nothing
+ * was collected (e.g. Vellum Cloud, which skips the API-key step).
  */
 export async function applyPendingProviderKey(
   assistantId: string,
@@ -114,8 +213,23 @@ export async function applyPendingProviderKey(
   if (!pending) return;
   const trimmed = pending.key.trim();
   const hasKey = trimmed.length > 0;
-  if (hasKey) {
+  const isOpenAICompatible = pending.provider === "openai-compatible";
+  if (hasKey || isOpenAICompatible) {
     await writeApiKeySecret(assistantId, pending.provider, trimmed);
   }
-  await createProviderConnection(assistantId, pending.provider, hasKey);
+  await createProviderConnection(assistantId, pending.provider, hasKey, {
+    baseUrl: pending.baseUrl,
+    customModels: pending.customModels,
+  });
+  const selectedModel = pending.model?.trim();
+  const firstCustomModel = pending.customModels
+    ?.split(",")
+    .map((s) => s.trim())
+    .find((s) => s);
+  const model =
+    selectedModel || firstCustomModel || defaultModelForOnboardingProvider(pending.provider);
+  if (model) {
+    await replaceOnboardingProfile(assistantId, pending.provider, model);
+    await activateOnboardingProfile(assistantId);
+  }
 }

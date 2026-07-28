@@ -2,12 +2,10 @@
  * Speech-aware turn detector for segmenting inbound audio from a
  * Twilio Media Stream into discrete utterance "turns".
  *
- * The Twilio ConversationRelay protocol performs VAD (voice activity
- * detection) on Twilio's side and delivers fully segmented transcripts
- * via `prompt` messages. The raw media-stream path, however, delivers a
- * continuous stream of audio chunks with no built-in turn boundaries.
- * This module bridges that gap by detecting turns based on speech
- * activity signals derived from the audio content:
+ * A Twilio Media Stream delivers a continuous stream of audio chunks
+ * with no built-in turn boundaries. This module supplies those
+ * boundaries by detecting turns based on speech activity signals
+ * derived from the audio content:
  *
  * 1. **Speech-to-silence transition** — when a period of speech is
  *    followed by silence frames exceeding `silenceThresholdMs`, the
@@ -77,7 +75,7 @@ export interface TurnDetectorCallbacks {
 // ---------------------------------------------------------------------------
 
 export class MediaTurnDetector {
-  private readonly silenceThresholdMs: number;
+  private silenceThresholdMs: number;
   private readonly maxTurnDurationMs: number;
   private readonly callbacks: TurnDetectorCallbacks;
 
@@ -116,6 +114,16 @@ export class MediaTurnDetector {
    */
   get isActive(): boolean {
     return this.active;
+  }
+
+  /**
+   * Update the trailing-silence threshold mid-session (the "pause before
+   * reply" live-tuning path). Applies from the next silence-timer arm — a
+   * countdown already in flight keeps its current duration until it resets on
+   * the next speech chunk — so the change takes effect on the next utterance.
+   */
+  setSilenceThresholdMs(silenceThresholdMs: number): void {
+    this.silenceThresholdMs = silenceThresholdMs;
   }
 
   /**

@@ -1,8 +1,9 @@
 /**
  * Side-drawer body shown when a tool-call step pill is clicked. Mirrors the
- * macOS "TECHNICAL DETAILS / OUTPUT" detail view and the web
- * `SubagentDetailPanel` shell (outer container, header with leading icon /
- * title / risk badge / close, scrollable body with sections).
+ * web `SubagentDetailPanel` shell (outer container, header with leading icon /
+ * title / close, scrollable body with sections). The call's risk level lives
+ * in the body's "Risk Level" section (badge + tolerance hint), not the
+ * header.
  *
  * Driven by the `ToolDetailPayload` opened into `viewer-store`. Both variants
  * subscribe to the chat-session store so an open drawer streams live: the tool
@@ -23,15 +24,17 @@ import {
   Pen,
   Plug,
   Sparkles,
+  SquareTerminal,
   UserPlus,
-  X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { DetailShell } from "@/domains/chat/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
@@ -40,6 +43,7 @@ import {
     deriveStepLabelFromName,
     type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { getRiskToleranceHint } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -50,6 +54,7 @@ import type { ToolDetailPayload } from "@/stores/viewer-store";
  */
 const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
+  terminal: SquareTerminal,
   file: FileText,
   globe: Globe,
   pen: Pen,
@@ -73,15 +78,26 @@ function CopyButton({ text }: { text: string }) {
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
   }, []);
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy.",
+      onCopied: () => {
+        setCopied(true);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        timeoutRef.current = setTimeout(
+          () => setCopied(false),
+          COPIED_RESET_MS,
+        );
+      },
+    });
   };
 
   return (
@@ -110,71 +126,26 @@ export function CodeBlock({ text }: { text: string }) {
 }
 
 /** Uppercase section label in `--content-tertiary`. */
-function SectionLabel({ children }: { children: string }) {
+export function SectionLabel({
+  children,
+  className = "mb-1.5",
+}: {
+  children: string;
+  /** Margin override for rows that manage their own spacing. */
+  className?: string;
+}) {
   return (
     <Typography
       variant="label-small-default"
       as="div"
-      className="mb-1.5 uppercase tracking-wider text-[var(--content-tertiary)]"
+      className={`uppercase tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}
     </Typography>
   );
 }
 
-/**
- * Shared outer container + header shell for both the tool and thinking detail
- * variants: rounded lift surface, header row with a leading glyph, truncating
- * title, an optional trailing slot (risk badge for tools), and the close
- * button. The scrollable body is supplied by the caller as `children`.
- */
-function DetailShell({
-  Glyph,
-  title,
-  headerTrailing,
-  onClose,
-  children,
-}: {
-  Glyph: LucideIcon;
-  title: string;
-  headerTrailing?: ReactNode;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
-        <Glyph
-          className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-          aria-hidden
-        />
-        <Typography
-          variant="title-medium"
-          // `title-medium` ships a tight line-height; combined with `truncate`
-          // (overflow:hidden) it clips descenders (e.g. the "p" in "process").
-          // Bump leading + small vertical padding so glyphs get breathing room.
-          className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-        >
-          {title}
-        </Typography>
-        {headerTrailing}
-        <span className="flex-1" />
-        <Button
-          variant="ghost"
-          iconOnly={<X />}
-          onClick={onClose}
-          aria-label="Close tool details"
-          tooltip="Close"
-          className="shrink-0"
-        />
-      </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
-    </div>
-  );
-}
 
 /**
  * Thinking variant body. Reuses the shared shell but renders the reasoning
@@ -196,7 +167,7 @@ function ThinkingDetailBody({
     detail.thinkingItemIndex,
   );
   return (
-    <DetailShell Glyph={Brain} title={detail.title} onClose={onClose}>
+    <DetailShell Glyph={Brain} title={detail.title} closeLabel="Close tool details" onClose={onClose}>
       <ChatMarkdownMessage
         content={live ?? detail.thinkingText ?? ""}
         hardLineBreaks
@@ -206,30 +177,18 @@ function ThinkingDetailBody({
 }
 
 /**
- * Tool-variant detail sections — the risk-reason note, "Technical details"
- * (input `CodeBlock`), and "Output" — with no surrounding shell, header, or
- * close button. Composed by `ToolDetailPanel` inside its own `DetailShell`, and
- * reused by `SubagentDetailPanel` to show a nested tool call under the
- * subagent's own header.
+ * Tool-variant detail sections — the tool name, activity, input `CodeBlock`,
+ * and "Output" — with no surrounding shell, header, or close button. Composed
+ * by `ToolDetailPanel` inside its own `DetailShell`, and reused by
+ * `SubagentDetailPanel` to show a nested tool call under the subagent's own
+ * header.
  *
  * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
  * streams `tool_output_chunk` output while the call runs and flips to the final
  * `result` when it lands, falling back to the open-time snapshot on `detail`
  * when the call can't be resolved live (e.g. paged out).
  */
-export function ToolDetailBody({
-  detail,
-  showTechnicalDetailsLabel = true,
-}: {
-  detail: ToolDetailPayload;
-  /**
-   * Render the "Technical details" section label above the tool name + input.
-   * Defaults to true (main-chat `ToolDetailPanel`). `SubagentDetailPanel` passes
-   * false — its nested view already sits under the subagent header and a "Back
-   * to timeline" affordance, so the extra label reads as redundant there.
-   */
-  showTechnicalDetailsLabel?: boolean;
-}) {
+export function ToolDetailBody({ detail }: { detail: ToolDetailPayload }) {
   const liveTc = useLiveToolCall(detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
@@ -241,23 +200,36 @@ export function ToolDetailBody({
   const hasStreamedOutput = !!streamedOutput;
   const inputJson = JSON.stringify(detail.input, null, 2);
 
+  // Risk assessment can land after the drawer opens — prefer the live call.
+  // The raw `riskReason` rule-match string ("ls (default)") is internal
+  // classifier jargon and is deliberately NOT shown.
+  const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
+  const riskHint = getRiskToleranceHint(riskLevel);
+
   return (
     <>
-      {detail.riskReason && (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="mb-4 text-[var(--content-tertiary)]"
-        >
-          {detail.riskReason}
-        </Typography>
+      {/* Risk Level — the call's risk badge and tolerance hint in an
+          overlay card. */}
+      {riskLevel && (
+        <div className="mb-5">
+          <SectionLabel>Risk Level</SectionLabel>
+          <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+            <RiskBadge level={riskLevel} />
+            {riskHint && (
+              <Typography
+                variant="body-small-default"
+                as="p"
+                className="mt-1.5 text-[var(--content-secondary)]"
+              >
+                {riskHint}
+              </Typography>
+            )}
+          </div>
+        </div>
       )}
 
-      {/* Technical details section */}
+      {/* Tool name + activity + input */}
       <div>
-        {showTechnicalDetailsLabel && (
-          <SectionLabel>Technical details</SectionLabel>
-        )}
         <Typography
           variant="body-medium-default"
           as="div"
@@ -306,11 +278,9 @@ export function ToolDetailBody({
 export function ToolDetailPanel({
   detail,
   onClose,
-  onRiskBadgeClick,
 }: {
   detail: ToolDetailPayload;
   onClose: () => void;
-  onRiskBadgeClick?: () => void;
 }) {
   // Thinking variant — reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
@@ -327,10 +297,8 @@ export function ToolDetailPanel({
     <DetailShell
       Glyph={Glyph}
       title={title}
+      closeLabel="Close tool details"
       onClose={onClose}
-      headerTrailing={
-        <RiskBadge level={detail.riskLevel} onClick={onRiskBadgeClick} />
-      }
     >
       <ToolDetailBody detail={detail} />
     </DetailShell>

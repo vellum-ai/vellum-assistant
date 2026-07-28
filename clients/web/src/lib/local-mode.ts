@@ -9,6 +9,7 @@ import {
   getGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
+import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import {
@@ -57,14 +58,7 @@ const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
 
-export function getPlatformRuntimeUrl(): string {
-  const injected = (
-    window as unknown as {
-      __VELLUM_CONFIG__?: { platformUrl?: string };
-    }
-  ).__VELLUM_CONFIG__;
-  return injected?.platformUrl || window.location.origin;
-}
+export { getPlatformRuntimeUrl };
 
 function getInjectedConfig(): {
   disablePlatform?: boolean;
@@ -205,11 +199,51 @@ export async function saveLockfileAssistant(assistant: {
   runtimeUrl: string;
   hatchedAt: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
 }): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
     assistant.assistantId,
   );
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Record a managed (platform) assistant in the lockfile. The desktop build's
+ * assistant list and switcher are lockfile-driven, so every managed hatch —
+ * foreground hatching screen or headless background hatch — registers its
+ * assistant here, stamped with the org whose session hatched it.
+ *
+ * The org id is a parameter because the organization store imports back through
+ * the auth store into this module; reading it here would cycle.
+ */
+export async function saveManagedLockfileAssistant(
+  assistantId: string,
+  name: string | undefined,
+  organizationId: string | undefined,
+): Promise<void> {
+  await saveLockfileAssistant({
+    assistantId,
+    name,
+    cloud: "vellum",
+    runtimeUrl: getPlatformRuntimeUrl(),
+    hatchedAt: new Date().toISOString(),
+    organizationId,
+  });
+}
+
+/**
+ * Update an existing assistant entry without changing the lockfile's active
+ * assistant pointer.
+ */
+export async function updateLockfileAssistant(
+  assistant: LockfileAssistant,
+): Promise<void> {
+  const result = await saveLockfileAssistantHost({ ...assistant }, undefined);
   if (result.ok) {
     commitLockfile(result.lockfile);
   }
@@ -321,20 +355,40 @@ export function hasAssistants(): boolean {
 
 /**
  * A local-kind assistant, by origin: a plain on-machine assistant the web client
- * drives through its local flows (gateway connect, wake, local retire) — cloud
- * `"local"`. (Legacy entries that predate the `cloud` field are normalized to
- * `"local"` at the parse seam, so `cloud` is always set by the time it reaches
- * here.) Identity only — whether it currently has a reachable gateway is a
- * separate, connect-time question (see `getLocalGatewayUrl`).
+ * drives through its full set of local lifecycle flows (wake, local retire) —
+ * cloud `"local"`. (Legacy entries that predate the `cloud` field are normalized
+ * to `"local"` at the parse seam, so `cloud` is always set by the time it
+ * reaches here.) Identity only — whether it currently has a reachable gateway is
+ * a separate, connect-time question (see `getLocalGatewayUrl`).
  *
  * Deliberately excludes the externally-managed container runtimes (`docker`,
  * `apple-container`) and remote self-hosted clouds (`paired`/`gcp`/`aws`/
  * `custom`, reached at their own `runtimeUrl`), along with platform (`vellum`):
- * the web client manages none of those through its local flows. See the
- * `KNOWN_CLOUDS` taxonomy in `@vellumai/local-mode/contract`.
+ * the web client manages none of those through its lifecycle flows. Docker
+ * instances ARE still reachable over the local gateway proxy — that broader,
+ * connect-only set is {@link isLocalGatewayAssistant}. See the `KNOWN_CLOUDS`
+ * taxonomy in `@vellumai/local-mode/contract`.
  */
 export function isLocalAssistant(a: LockfileAssistant): boolean {
   return a.cloud === "local";
+}
+
+/**
+ * An assistant this runtime connects to over the local gateway proxy
+ * (`/assistant/__gateway/<port>`) with gateway auth: a plain on-machine
+ * assistant (`local`) or a local Docker instance (`docker`). Both run their
+ * gateway on a loopback port of this machine and lease guardian tokens under
+ * the CLI config dir, so the SPA can mint a gateway token for them without a
+ * platform session.
+ *
+ * Connect-only — a superset of {@link isLocalAssistant} that does NOT extend to
+ * the lifecycle flows (wake, local retire), which stay `cloud === "local"`.
+ * Excludes `apple-container` (its entries are managed by the macOS app and
+ * record no renderer-resolvable loopback gateway), the remote self-hosted
+ * clouds, and platform (`vellum`).
+ */
+export function isLocalGatewayAssistant(a: LockfileAssistant): boolean {
+  return a.cloud === "local" || a.cloud === "docker";
 }
 
 export function isPlatformAssistant(a: LockfileAssistant): boolean {
@@ -391,6 +445,13 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
   return getActiveAssistant();
 }
 
+/** The lockfile entry for a specific assistant id, if one exists. */
+export function getLockfileAssistant(
+  assistantId: string,
+): LockfileAssistant | undefined {
+  return getLockfile().assistants.find((a) => a.assistantId === assistantId);
+}
+
 /**
  * Reconcile the selection key against the lockfile registry: if the selected id
  * no longer names a lockfile entry, clear it so `getSelectedAssistant` falls
@@ -417,9 +478,9 @@ export function gatewayProxyUrl(port: number): string {
 
 /**
  * Whether this runtime should reach `assistant` over a local gateway: a
- * local-kind assistant, in local (non-remote-gateway) mode. Whether that gateway
- * is currently resolvable — a recorded port — is a separate question answered by
- * `getLocalGatewayUrl`.
+ * local-gateway assistant ({@link isLocalGatewayAssistant}), in local
+ * (non-remote-gateway) mode. Whether that gateway is currently resolvable — a
+ * recorded port — is a separate question answered by `getLocalGatewayUrl`.
  */
 function expectsLocalGateway(
   assistant: LockfileAssistant | undefined,
@@ -428,8 +489,37 @@ function expectsLocalGateway(
     !!assistant &&
     isLocalMode() &&
     !isRemoteGatewayMode() &&
-    isLocalAssistant(assistant)
+    isLocalGatewayAssistant(assistant)
   );
+}
+
+/**
+ * The loopback gateway port recorded for an assistant. Plain local entries
+ * record it as `resources.gatewayPort`; Docker entries record the published
+ * gateway address as a loopback `runtimeUrl` (`http://localhost:<port>`) with
+ * no `resources` block, so the port is recovered from that URL. A non-loopback
+ * `runtimeUrl` never yields a port — a remote address is not a local gateway.
+ */
+function getRecordedGatewayPort(
+  assistant: LockfileAssistant,
+): number | undefined {
+  const recorded = assistant.resources?.gatewayPort;
+  if (recorded != null) {
+    return recorded;
+  }
+  if (!assistant.runtimeUrl) {
+    return undefined;
+  }
+  try {
+    const url = new URL(assistant.runtimeUrl);
+    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+      return undefined;
+    }
+    const port = Number(url.port);
+    return Number.isInteger(port) && port > 0 ? port : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -441,9 +531,37 @@ export function getLocalGatewayUrl(
   assistant: LockfileAssistant | undefined = getSelectedAssistant(),
 ): string | undefined {
   if (!expectsLocalGateway(assistant)) return undefined;
-  const gatewayPort = assistant.resources?.gatewayPort;
+  const gatewayPort = getRecordedGatewayPort(assistant);
   if (gatewayPort == null) return undefined;
   return gatewayProxyUrl(gatewayPort);
+}
+
+/**
+ * One-shot probe of the local gateway's `/readyz` (which reports gateway AND
+ * upstream daemon readiness). True only when the gateway answers
+ * `{ status: "ok" }`; false when the gateway URL is unresolvable, the request
+ * fails, or the gateway is up but not yet ready.
+ */
+export async function probeLocalGatewayReady(): Promise<boolean> {
+  const gatewayUrl = getLocalGatewayUrl();
+  if (!gatewayUrl) {
+    return false;
+  }
+  try {
+    const res = await fetch(`${gatewayUrl}/readyz`);
+    if (!res.ok) {
+      return false;
+    }
+    const body: unknown = await res.json();
+    return (
+      body !== null &&
+      typeof body === "object" &&
+      "status" in body &&
+      body.status === "ok"
+    );
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

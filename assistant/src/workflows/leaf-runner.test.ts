@@ -19,31 +19,18 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
-import { makeMockLogger } from "../__tests__/helpers/mock-logger.js";
+import { setConfig } from "../__tests__/helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — defined before importing the module under test.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-const TEST_PROFILES = { balanced: {}, "cost-optimized": {} };
-
-// Mutable config the mocked `getConfig` returns. Tests reassign this to drive
-// the active-profile and memory-enabled branches.
-let testConfig: {
-  llm: { profiles: Record<string, unknown>; activeProfile?: string };
-  memory: { enabled: boolean };
-} = {
-  llm: { profiles: TEST_PROFILES },
-  memory: { enabled: false },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => testConfig,
-}));
+// The leaf runner reads `llm.activeProfile` (persona override resolution),
+// `llm.profiles` (profile validation), and `memory.enabled` (persona memory
+// pipeline) via the real config loader; tests seed those via `setConfig`. The
+// default inference profiles (`balanced`, `cost-optimized`) always resolve from
+// the code catalog, so only `activeProfile` needs seeding, and `memory.enabled`
+// defaults to true.
 
 // Persona path — identity system prompt. A sentinel marks the persona prompt
 // so tests can assert identity was assembled (vs. the anonymous task prompt).
@@ -80,9 +67,12 @@ class MockConversationGraphMemory {
     disposeCalls += 1;
   }
 }
-mock.module("../memory/graph/conversation-graph-memory.js", () => ({
-  ConversationGraphMemory: MockConversationGraphMemory,
-}));
+mock.module(
+  "../plugins/defaults/memory/graph/conversation-graph-memory.js",
+  () => ({
+    ConversationGraphMemory: MockConversationGraphMemory,
+  }),
+);
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
@@ -143,9 +133,9 @@ mock.module("../providers/provider-send-message.js", () => ({
 // Module under test (after mocks).
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { runLeaf, WorkflowUnknownProfileError } from "./leaf-runner.js";
@@ -171,10 +161,9 @@ beforeEach(() => {
   graphMemoryInstances = 0;
   prepareMemoryCalls = 0;
   disposeCalls = 0;
-  testConfig = {
-    llm: { profiles: TEST_PROFILES },
-    memory: { enabled: false },
-  };
+  // Reset to defaults each test (all tests share one workspace config.json):
+  // no active profile, memory enabled by default.
+  setConfig("llm", {});
 });
 
 describe("runLeaf — schema path", () => {
@@ -483,6 +472,105 @@ describe("runLeaf — tool path", () => {
     expect(countConversations()).toBe(before);
   });
 
+  test("rejects out-of-workspace paths for sandbox file tools", async () => {
+    // Leaf tool calls bypass the ToolExecutor permission lane, so the file
+    // tools' out-of-workspace host fallback must be unreachable from a leaf.
+    const calls: Array<Record<string, unknown>> = [];
+    const fileRead: Tool = {
+      name: "file_read",
+      description: "Tool file_read",
+      category: "filesystem",
+      defaultRiskLevel: "low" as never,
+      executionTarget: "sandbox",
+      input_schema: { type: "object", properties: {}, required: [] },
+      async execute(
+        input: Record<string, unknown>,
+      ): Promise<ToolExecutionResult> {
+        calls.push(input);
+        return { content: "read ok", isError: false };
+      },
+    };
+
+    responseQueue = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            name: "file_read",
+            id: "tu-1",
+            input: { path: "/etc/hosts" },
+          },
+        ],
+        model: "test",
+        usage: { inputTokens: 5, outputTokens: 2 },
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ type: "text", text: "done" }],
+        model: "test",
+        usage: { inputTokens: 2, outputTokens: 1 },
+        stopReason: "end_turn",
+      },
+    ];
+
+    const result = await runLeaf({
+      prompt: "read the file",
+      tools: [fileRead],
+      trustContext,
+    });
+    expect(result.output).toBe("done");
+    // The workspace-bound guard fired before execute — the tool never ran.
+    expect(calls).toEqual([]);
+  });
+
+  test("in-workspace file tool paths still execute from a leaf", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fileRead: Tool = {
+      name: "file_read",
+      description: "Tool file_read",
+      category: "filesystem",
+      defaultRiskLevel: "low" as never,
+      executionTarget: "sandbox",
+      input_schema: { type: "object", properties: {}, required: [] },
+      async execute(
+        input: Record<string, unknown>,
+      ): Promise<ToolExecutionResult> {
+        calls.push(input);
+        return { content: "read ok", isError: false };
+      },
+    };
+
+    responseQueue = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            name: "file_read",
+            id: "tu-1",
+            input: { path: "notes.txt" },
+          },
+        ],
+        model: "test",
+        usage: { inputTokens: 5, outputTokens: 2 },
+        stopReason: "tool_use",
+      },
+      {
+        content: [{ type: "text", text: "done" }],
+        model: "test",
+        usage: { inputTokens: 2, outputTokens: 1 },
+        stopReason: "end_turn",
+      },
+    ];
+
+    const result = await runLeaf({
+      prompt: "read the file",
+      tools: [fileRead],
+      trustContext,
+    });
+    expect(result.output).toBe("done");
+    expect(calls).toEqual([{ path: "notes.txt" }]);
+  });
+
   test("a leaf with no schema and an empty tool set runs the tool path (no throw)", async () => {
     // An empty resolved tool set with no schema must NOT fall through to the
     // schema path (where schemaToInputSchema(undefined) throws) — it runs the
@@ -595,10 +683,7 @@ describe("runLeaf — persona path", () => {
   };
 
   test("injects identity system prompt and runs the memory pipeline", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -629,10 +714,7 @@ describe("runLeaf — persona path", () => {
   });
 
   test("resolves the workspace active profile by default", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -642,10 +724,7 @@ describe("runLeaf — persona path", () => {
   });
 
   test("explicit profile beats the persona active-profile default", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -661,12 +740,8 @@ describe("runLeaf — persona path", () => {
   });
 
   test("missing active profile falls through (no override)", async () => {
-    // No `activeProfile` set → persona resolves no overrideProfile, deferring
-    // to the shipped call-site default.
-    testConfig = {
-      llm: { profiles: TEST_PROFILES },
-      memory: { enabled: true },
-    };
+    // No `activeProfile` set (beforeEach resets it) → persona resolves no
+    // overrideProfile, deferring to the shipped call-site default.
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -676,10 +751,7 @@ describe("runLeaf — persona path", () => {
   });
 
   test("anonymous leaf carries no identity and skips the memory pipeline", async () => {
-    testConfig = {
-      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-      memory: { enabled: true },
-    };
+    setConfig("llm", { activeProfile: "balanced" });
     const schema = z.object({ a: z.string() });
     responseQueue = [personaResponse];
 
@@ -705,10 +777,7 @@ describe("runLeaf — persona path", () => {
     const savedAuth = process.env.DISABLE_HTTP_AUTH;
     delete process.env.DISABLE_HTTP_AUTH;
     try {
-      testConfig = {
-        llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
-        memory: { enabled: true },
-      };
+      setConfig("llm", { activeProfile: "balanced" });
       const schema = z.object({ a: z.string() });
       responseQueue = [personaResponse];
 
@@ -732,8 +801,11 @@ describe("runLeaf — persona path", () => {
       }>;
       expect(messages[0]?.content[0]?.text).not.toBe(MEMORY_BLOCK_TEXT);
     } finally {
-      if (savedAuth === undefined) delete process.env.DISABLE_HTTP_AUTH;
-      else process.env.DISABLE_HTTP_AUTH = savedAuth;
+      if (savedAuth === undefined) {
+        delete process.env.DISABLE_HTTP_AUTH;
+      } else {
+        process.env.DISABLE_HTTP_AUTH = savedAuth;
+      }
     }
   });
 });

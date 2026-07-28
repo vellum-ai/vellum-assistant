@@ -1,7 +1,7 @@
 /**
  * `subagent_event` SSE event.
  *
- * Server → client envelope wrapping any inner `ServerMessage`
+ * Server → client envelope wrapping any inner `AssistantEvent`
  * emitted by a subagent's conversation. The daemon's subagent
  * manager rebroadcasts the subagent's own stream through the
  * parent conversation's `sendToClient`, tagged with the subagent's
@@ -9,7 +9,7 @@
  * to route inner events to the appropriate inline subagent surface.
  *
  * The inner `event` is opaque on the wire — it is itself a fully
- * structured `ServerMessage` (any member of the canonical event
+ * structured `AssistantEvent` (any member of the canonical event
  * union) and re-validating it here would duplicate work and
  * tightly couple subagent canonicalization to every other event
  * schema. Clients re-parse `event` through the same event parser

@@ -15,10 +15,8 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import type {
-  SkillFileEntry,
-  SkillInfo,
-} from "@/domains/intelligence/skills/types.js";
+import type { SkillInfo } from "@/domains/intelligence/skills/types.js";
+import type { SkillFileEntry } from "@/hooks/use-skill-detail-files.js";
 
 const FILE_ENTRIES: SkillFileEntry[] = [
   {
@@ -67,7 +65,7 @@ function setActiveFile(file: SkillFileEntry): void {
   hookState.fileContent = file.content ?? "";
 }
 
-mock.module("@/domains/intelligence/skills/use-skill-detail-files", () => ({
+mock.module("@/hooks/use-skill-detail-files", () => ({
   useSkillDetailFiles: () => ({
     fileEntries: FILE_ENTRIES,
     skillMd: FILE_ENTRIES[0],
@@ -76,9 +74,11 @@ mock.module("@/domains/intelligence/skills/use-skill-detail-files", () => ({
     activePath: hookState.activePath,
     activeFile: hookState.activeFile,
     isFilesLoading: false,
+    isFilesPending: false,
     fileContent: hookState.fileContent,
     isBinary: false,
     isContentLoading: false,
+    isContentPending: false,
   }),
 }));
 

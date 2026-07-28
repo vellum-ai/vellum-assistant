@@ -128,10 +128,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
   test("shifts text:N indices in the donor by survivor.textSegments.length", () => {
     const survivor = makeAssistant({
       id: "a-1",
-      textSegments: [
-        "A0 ",
-        "A1 ",
-      ],
+      textSegments: ["A0 ", "A1 "],
       contentOrder: [
         { type: "text", id: "0" },
         { type: "text", id: "1" },
@@ -143,11 +140,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
       contentOrder: [{ type: "text", id: "0" }],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
-    expect(result[0]!.textSegments).toEqual([
-      "A0 ",
-      "A1 ",
-      "B0",
-    ]);
+    expect(result[0]!.textSegments).toEqual(["A0 ", "A1 ", "B0"]);
     expect(result[0]!.contentOrder).toEqual([
       { type: "text", id: "0" },
       { type: "text", id: "1" },
@@ -159,15 +152,33 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       attachments: [
-        { id: "att-A0", filename: "a0.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
-        { id: "att-A1", filename: "a1.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
+        {
+          id: "att-A0",
+          filename: "a0.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+        {
+          id: "att-A1",
+          filename: "a1.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
       ],
       contentOrder: [{ type: "attachment", id: "0" }],
     });
     const donor = makeAssistant({
       id: "a-2",
       attachments: [
-        { id: "att-B0", filename: "b0.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
+        {
+          id: "att-B0",
+          filename: "b0.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
       ],
       contentOrder: [{ type: "attachment", id: "0" }],
     });
@@ -193,9 +204,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
   test("shifts tool:N positional ids in the donor by survivor.toolCalls.length (history shape)", () => {
     const survivor = makeAssistant({
       id: "a-1",
-      toolCalls: [
-        { id: "toolu_S0", name: "bash", input: {}, completedAt: 1 },
-      ],
+      toolCalls: [{ id: "toolu_S0", name: "bash", input: {}, completedAt: 1 }],
       contentOrder: [{ type: "tool", id: "0" }],
     });
     const donor = makeAssistant({
@@ -315,9 +324,7 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       textSegments: ["thinking..."],
-      toolCalls: [
-        { id: "toolu_S", name: "bash", input: {}, completedAt: 1 },
-      ],
+      toolCalls: [{ id: "toolu_S", name: "bash", input: {}, completedAt: 1 }],
       contentOrder: [
         { type: "text", id: "0" },
         { type: "tool", id: "0" },
@@ -325,13 +332,8 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     });
     const donor = makeAssistant({
       id: "a-2",
-      textSegments: [
-        "done with bash",
-        "now editing",
-      ],
-      toolCalls: [
-        { id: "toolu_D", name: "edit", input: {}, completedAt: 1 },
-      ],
+      textSegments: ["done with bash", "now editing"],
+      toolCalls: [{ id: "toolu_D", name: "edit", input: {}, completedAt: 1 }],
       contentOrder: [
         { type: "text", id: "0" },
         { type: "tool", id: "0" },
@@ -374,6 +376,28 @@ describe("mergeAdjacentAssistantMessages · skip predicates", () => {
     expect(result).toHaveLength(2);
   });
 
+  test("does NOT fold when either side is an acp notification", () => {
+    const real = makeAssistant({ id: "a-1", ...textBody("spawning acp run") });
+    const notification = makeAssistant({
+      id: "a-2",
+      ...textBody(""),
+      isAcpNotification: true,
+    });
+    const result = mergeAdjacentAssistantMessages([real, notification]);
+    expect(result).toHaveLength(2);
+  });
+
+  test("does NOT fold when either side is a background-tool notification", () => {
+    const real = makeAssistant({ id: "a-1", ...textBody("backgrounded build") });
+    const notification = makeAssistant({
+      id: "a-2",
+      ...textBody(""),
+      isBackgroundEventNotification: true,
+    });
+    const result = mergeAdjacentAssistantMessages([real, notification]);
+    expect(result).toHaveLength(2);
+  });
+
   test("only folds assistant role — adjacent user/assistant stays split", () => {
     const messages = [
       makeUser({ id: "u-1", ...textBody("ping"), timestamp: 1000 }),
@@ -396,27 +420,21 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       timestamp: 1000,
       mergedMessageIds: Array.from({ length: 14 }, (_, i) => `row-A-${i}`),
       ...textBody("[A] "),
-      toolCalls: [
-        { id: "tool-A-1", name: "bash", input: {}, completedAt: 1 },
-      ],
+      toolCalls: [{ id: "tool-A-1", name: "bash", input: {}, completedAt: 1 }],
     });
     const pageMiddle = makeAssistant({
       id: "page-middle-anchor",
       timestamp: 1010,
       mergedMessageIds: Array.from({ length: 24 }, (_, i) => `row-B-${i}`),
       ...textBody("[B] "),
-      toolCalls: [
-        { id: "tool-B-1", name: "edit", input: {}, completedAt: 1 },
-      ],
+      toolCalls: [{ id: "tool-B-1", name: "edit", input: {}, completedAt: 1 }],
     });
     const pageLatest = makeAssistant({
       id: "page-latest-anchor",
       timestamp: 1020,
       mergedMessageIds: Array.from({ length: 34 }, (_, i) => `row-C-${i}`),
       ...textBody("[C]"),
-      toolCalls: [
-        { id: "tool-C-1", name: "test", input: {}, completedAt: 1 },
-      ],
+      toolCalls: [{ id: "tool-C-1", name: "test", input: {}, completedAt: 1 }],
     });
 
     const result = mergeAdjacentAssistantMessages([

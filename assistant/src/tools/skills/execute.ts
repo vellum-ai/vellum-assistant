@@ -1,6 +1,5 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { isUnparseableToolArgs } from "../../providers/unparseable-tool-args.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -200,5 +199,3 @@ export const skillExecuteTool = {
     };
   },
 } satisfies ToolDefinition;
-
-registerTool(skillExecuteTool);

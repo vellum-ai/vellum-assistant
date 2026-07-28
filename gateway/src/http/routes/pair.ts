@@ -302,12 +302,15 @@ export async function handlePair(
       "Client paired successfully via loopback",
     );
 
-    return Response.json({
-      token,
-      expiresAt: expiresAtIso,
-      guardianId: guardianPrincipalId,
-      assistantId: getExternalAssistantId(),
-    });
+    return Response.json(
+      {
+        token,
+        expiresAt: expiresAtIso,
+        guardianId: guardianPrincipalId,
+        assistantId: getExternalAssistantId(),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
@@ -390,13 +393,16 @@ function mintDeviceBoundPairResponse(opts: {
     "Client paired successfully via loopback (device-bound)",
   );
 
-  return Response.json({
-    token: pair.accessToken,
-    expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
-    refreshToken: pair.refreshToken,
-    refreshTokenExpiresAt: new Date(pair.refreshTokenExpiresAt).toISOString(),
-    refreshAfter: new Date(pair.refreshAfter).toISOString(),
-    guardianId: opts.guardianPrincipalId,
-    assistantId: opts.assistantId,
-  });
+  return Response.json(
+    {
+      token: pair.accessToken,
+      expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
+      refreshToken: pair.refreshToken,
+      refreshTokenExpiresAt: new Date(pair.refreshTokenExpiresAt).toISOString(),
+      refreshAfter: new Date(pair.refreshAfter).toISOString(),
+      guardianId: opts.guardianPrincipalId,
+      assistantId: opts.assistantId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

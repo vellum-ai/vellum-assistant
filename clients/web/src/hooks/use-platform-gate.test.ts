@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 
 const isLocalModeMock = mock(() => false);
 const isPlatformDisabledMock = mock(() => false);
@@ -15,6 +15,7 @@ import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
+  usePlatformGateWithPending,
 } from "@/hooks/use-platform-gate";
 
 const initialAuthState = useAuthStore.getState();
@@ -62,6 +63,166 @@ describe("usePlatformGate — default (standard pattern)", () => {
     isPlatformDisabledMock.mockImplementation(() => true);
     const { result } = renderHook(() => usePlatformGate());
     expect(result.current).toBe("gated");
+  });
+});
+
+describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () => {
+  // Locks the default-branch outcome usePlatformGate returns for each of the
+  // five user states the platform gating contract documents (CONVENTIONS.md).
+
+  test('1. platform-hosted + logged in → "full"', () => {
+    isLocalModeMock.mockImplementation(() => false);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "present" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("full");
+  });
+
+  test('2. platform-hosted + NOT logged in → "disabled"', () => {
+    isLocalModeMock.mockImplementation(() => false);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "absent" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("disabled");
+  });
+
+  test('3. self-hosted + platform ON + logged in → "full"', () => {
+    isLocalModeMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "present" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("full");
+  });
+
+  test('4. self-hosted + platform ON + NOT logged in → "disabled"', () => {
+    isLocalModeMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "absent" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("disabled");
+  });
+
+  test('5. self-hosted + platform OFF (VELLUM_DISABLE_PLATFORM) → "gated"', () => {
+    isLocalModeMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    // Session value is irrelevant once platform features are off; assert both.
+    for (const platformSession of ["present", "absent"] as const) {
+      useAuthStore.setState({ platformSession });
+      const { result, unmount } = renderHook(() => usePlatformGate());
+      expect(result.current).toBe("gated");
+      unmount();
+    }
+  });
+
+  test('pre-settle "unknown" session gates the surface as "disabled"', () => {
+    // The optimistic tri-state: "unknown" is not a live session, so the
+    // default branch treats it like "absent" until the probe settles.
+    isLocalModeMock.mockImplementation(() => false);
+    isPlatformDisabledMock.mockImplementation(() => false);
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() => usePlatformGate());
+    expect(result.current).toBe("disabled");
+  });
+});
+
+describe("usePlatformGateWithPending", () => {
+  // A deadline short enough to elapse inside a test, exercising the same code
+  // path the shipped 5s default takes.
+  const SETTLE_TIMEOUT_MS = 25;
+
+  /** Let the deadline fire, with its state update inside `act`. */
+  const passDeadline = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, SETTLE_TIMEOUT_MS * 2);
+        }),
+    );
+
+  test('reports "pending" while the probe has not settled', () => {
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("pending");
+  });
+
+  test('reports "disabled" once the probe settles absent', () => {
+    useAuthStore.setState({ platformSession: "absent" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("disabled");
+  });
+
+  test('reports "full" once the probe settles present', () => {
+    useAuthStore.setState({ platformSession: "present" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("full");
+  });
+
+  test('an unsettled probe that lands present transitions "pending" → "full"', () => {
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("pending");
+
+    act(() => {
+      useAuthStore.setState({ platformSession: "present" });
+    });
+    expect(result.current).toBe("full");
+  });
+
+  test('a probe that never settles decides on "disabled" at the deadline', async () => {
+    // The termination guarantee: `getSession()` carries no timeout, so a
+    // request that never completes leaves `platformSession` at `"unknown"`
+    // forever. The bound turns that into the same settled-absent answer the
+    // route guard falls back to, instead of an unbounded hold.
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() =>
+      usePlatformGateWithPending({ settleTimeoutMs: SETTLE_TIMEOUT_MS }),
+    );
+    expect(result.current).toBe("pending");
+
+    await passDeadline();
+    expect(result.current).toBe("disabled");
+  });
+
+  test('the deadline never overrides a settled "present"', async () => {
+    // An expired deadline must not survive into the settled window: the
+    // decision belongs to the probe whenever the probe has one.
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() =>
+      usePlatformGateWithPending({ settleTimeoutMs: SETTLE_TIMEOUT_MS }),
+    );
+    await passDeadline();
+    expect(result.current).toBe("disabled");
+
+    act(() => {
+      useAuthStore.setState({ platformSession: "present" });
+    });
+    expect(result.current).toBe("full");
+  });
+
+  test('"gated" wins over the unsettled window in both branches', () => {
+    // Nothing the probe can answer changes a gated surface, so it must not
+    // report a wait no caller should honor.
+    isLocalModeMock.mockImplementation(() => true);
+    isPlatformDisabledMock.mockImplementation(() => true);
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result, unmount } = renderHook(() => usePlatformGateWithPending());
+    expect(result.current).toBe("gated");
+    unmount();
+
+    setLifecycle({ kind: "self_hosted" });
+    const hostedOnly = renderHook(() =>
+      usePlatformGateWithPending({ platformHostedOnly: true }),
+    );
+    expect(hostedOnly.result.current).toBe("gated");
+  });
+
+  test('{ platformHostedOnly: true } reports "pending" in the unsettled window', () => {
+    setLifecycle({ kind: "active", isLocal: false });
+    useAuthStore.setState({ platformSession: "unknown" });
+    const { result } = renderHook(() =>
+      usePlatformGateWithPending({ platformHostedOnly: true }),
+    );
+    expect(result.current).toBe("pending");
   });
 });
 

@@ -1,12 +1,12 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AppSummary } from "@/types/app-types";
 import {
   isAppPinned,
   loadPinnedApps,
   pinApp,
   savePinnedApps,
   unpinApp,
+  type PinnableApp,
 } from "@/utils/app-pin-storage";
 import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 
@@ -14,13 +14,9 @@ const STORAGE_KEY = "vellum:pinnedApps";
 
 const memoryStorage = installMemoryStorage({ beforeAll, afterAll, beforeEach, afterEach });
 
-function makeApp(overrides: Partial<AppSummary> & { id: string }): AppSummary {
+function makeApp(overrides: Partial<PinnableApp> & { id: string }): PinnableApp {
   return {
     name: `App ${overrides.id}`,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    version: "1.0.0",
-    contentId: `content_${overrides.id}`,
     ...overrides,
   };
 }

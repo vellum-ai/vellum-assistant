@@ -35,13 +35,6 @@ afterAll(() => {
   which.restore();
 });
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stub credential broker + metadata store so `prepareAgentEnv` can resolve
 // tokens without the real OS keyring. Driven via `vaultStore` per test in
 // beforeEach; the default seeds a vault token so existing tests (which assume
@@ -52,11 +45,13 @@ const metadataStore = new Map<
   { allowedTools: string[]; usageDescription?: string }
 >();
 
-mock.module("../../tools/credentials/metadata-store.js", () => ({
+mock.module("../credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return {
       credentialId: `cred-${key}`,
       service,
@@ -77,8 +72,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription:
-        policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -92,7 +86,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
   },
 }));
 
-mock.module("../../tools/credentials/broker.js", () => ({
+mock.module("../credentials/broker.js", () => ({
   credentialBroker: {
     serverUse: async <T>(request: {
       service: string;
@@ -130,6 +124,7 @@ const spawnMock = mock(
     _cwd: string,
     _parentConversationId: string,
     _sendToVellum: (msg: unknown) => void,
+    _parentToolUseId?: string,
   ) => ({
     acpSessionId: "acp-session-test",
     protocolSessionId: "proto-session-test",
@@ -148,9 +143,10 @@ mock.module("../../acp/index.js", () => ({
 }));
 
 const { executeAcpSpawn } = await import("./spawn.js");
-const { _resetAdapterInstallCacheForTests } = await import(
-  "../../acp/auto-install.js"
-);
+const { _resetAdapterInstallCacheForTests } =
+  await import("../../acp/auto-install.js");
+const { ACP_CLAUDE_OAUTH_MISSING_CODE } =
+  await import("../../acp/prepare-agent-env.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -203,6 +199,18 @@ describe("executeAcpSpawn - happy path", () => {
     // The real adapter binary is spawned (no `bun x` wrapper).
     const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
     expect(agentConfigArg.command).toBe("claude-agent-acp");
+  });
+
+  test("threads the executing tool-use id into manager.spawn as parentToolUseId", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      { ...makeContext(), toolUseId: "toolu_abc123" },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    // parentToolUseId is the 7th positional arg to spawn().
+    expect(spawnMock.mock.calls[0][6]).toBe("toolu_abc123");
   });
 
   test("default-profile fallback when user config is empty", async () => {
@@ -272,8 +280,12 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
     // successful global install that links the adapter bin onto PATH.
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {
@@ -320,8 +332,12 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
   test("the installer cwd is a temp dir (not the project cwd) with secrets stripped", async () => {
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {
@@ -514,5 +530,20 @@ describe("executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN injection", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("CLAUDE_CODE_OAUTH_TOKEN");
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("carries the acp_claude_oauth_missing errorCode on the missing-token result", async () => {
+    vaultStore.clear();
+    metadataStore.clear();
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    // Structured marker (not a substring of `content`) so the client can offer
+    // the inline Connect flow without parsing the human message.
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe(ACP_CLAUDE_OAUTH_MISSING_CODE);
   });
 });

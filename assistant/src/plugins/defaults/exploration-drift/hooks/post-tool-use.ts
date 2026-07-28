@@ -1,6 +1,6 @@
 /**
  * Default `post-tool-use` hook: when a turn's exploration tool calls (bash,
- * file_read, file_list) show drift — a long unbroken run with no text sent to
+ * code_search, file_read, file_list) show drift — a long unbroken run with no text sent to
  * the user, or the model re-issuing the exact same call — surface a notice
  * via `additionalContext` that coaches it to (a) give the user a brief
  * progress summary and (b) delegate the rest of the investigation to an
@@ -50,14 +50,15 @@
  *
  * Subagent conversations are exempt: an investigator is *supposed* to dig at
  * length, and subagents cannot nest (`SUBAGENT_LIMITS.maxDepth`), so the
- * delegation advice would be wrong there. The check is a lazy import on the
- * rare nudge path so the subagent manager's module graph stays out of the
- * per-tool-result hot path.
+ * delegation advice would be wrong there. Subagents run under the
+ * `subagentSpawn` call site, so the exemption is a cheap `ctx.callSite` read.
  */
 
-import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
-
-import type { Message } from "../../../../providers/types.js";
+import type {
+  HookFunction,
+  Message,
+  PostToolUseContext,
+} from "@vellumai/plugin-api";
 
 /**
  * Canonical long-dig notice. Module-level constant so tests and wrapping
@@ -105,6 +106,7 @@ const LOOP_PRONE_MODEL_PATTERN = /kimi-k2[p.]6|minimax-m3/i;
 /** Read-only exploration tools whose unbroken runs indicate inline drift. */
 const EXPLORATION_TOOL_NAMES: ReadonlySet<string> = new Set([
   "bash",
+  "code_search",
   "file_read",
   "file_list",
 ]);
@@ -232,7 +234,7 @@ function currentCallRepeatCount(
   return count;
 }
 
-const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
+const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   const usesById = toolUsesById(ctx.messages);
   const currentUse = usesById.get(ctx.toolResponse.tool_use_id);
   if (currentUse === undefined || !EXPLORATION_TOOL_NAMES.has(currentUse.name))
@@ -272,11 +274,9 @@ const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
 
   if (!longDigNudge && !loopNudge) return;
 
-  // Subagent conversations are exempt — see module doc.
-  const { getSubagentManager } = await import("../../../../subagent/index.js");
-  if (getSubagentManager().getParentInfo(ctx.conversationId) !== undefined) {
-    return;
-  }
+  // Subagent conversations are exempt — see module doc. Subagents run under
+  // the `subagentSpawn` call site.
+  if (ctx.callSite === "subagentSpawn") return;
 
   lastNudgedStreakByConversation.set(ctx.conversationId, streak);
   const nudgeText = loopNudge

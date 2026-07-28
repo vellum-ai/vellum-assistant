@@ -11,8 +11,10 @@ import { extname, resolve } from "node:path";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { sttHelp } from "./stt.help.js";
 
 // ---------------------------------------------------------------------------
 // Constants (client-side extension validation only)
@@ -45,57 +47,16 @@ const AUDIO_EXTENSIONS = new Set([
 
 export function registerSttCommand(program: Command): void {
   registerCommand(program, {
-    name: "stt",
+    name: sttHelp.name,
     transport: "ipc",
-    description: "Speech-to-text operations",
+    description: sttHelp.description,
     build: (sttCmd) => {
-      sttCmd.addHelpText(
-        "after",
-        `
-Speech-to-text commands use your configured STT provider to transcribe
-audio and video files. The provider is set via:
-
-  $ assistant config set services.stt.provider <provider>
-
-Supported providers: openai-whisper, deepgram, google-gemini, xai.
-
-Examples:
-  $ assistant stt transcribe --file /path/to/meeting.wav
-  $ assistant stt transcribe --file /path/to/video.mp4 --json`,
-      );
+      applyCommandHelp(sttCmd, sttHelp);
 
       // ── transcribe ──────────────────────────────────────────────────────
 
-      sttCmd
-        .command("transcribe")
-        .description("Transcribe an audio or video file to text")
-        .requiredOption(
-          "--file <path>",
-          "Absolute path to the audio/video file",
-        )
-        .option(
-          "--json",
-          "Output structured JSON instead of plain transcript text",
-        )
-        .addHelpText(
-          "after",
-          `
-Transcribes an audio or video file using the configured speech-to-text
-provider. Video files automatically have their audio extracted via ffmpeg.
-Large files (>25MB as WAV) are automatically split into chunks and
-transcribed sequentially.
-
-Supported audio formats: .mp3, .wav, .m4a, .aac, .ogg, .flac, .aiff, .wma
-Supported video formats: .mp4, .mov, .avi, .mkv, .webm, .m4v, .mpeg, .mpg
-
-Requires ffmpeg and ffprobe to be installed and on PATH.
-
-Examples:
-  $ assistant stt transcribe --file /path/to/recording.wav
-  $ assistant stt transcribe --file /path/to/meeting.mp4
-  $ assistant stt transcribe --file /path/to/podcast.mp3 --json`,
-        )
-        .action(async (opts: { file: string; json?: boolean }) => {
+      subcommand(sttCmd, "transcribe").action(
+        async (opts: { file: string; json?: boolean }) => {
           const filePath = resolve(opts.file);
           const jsonOutput = opts.json ?? false;
 
@@ -165,7 +126,8 @@ Examples:
           } else {
             process.stdout.write(transcript + "\n");
           }
-        });
+        },
+      );
     },
   });
 }

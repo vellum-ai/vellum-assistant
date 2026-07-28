@@ -7,7 +7,20 @@ import {
 } from "../../daemon/message-types/sync.js";
 import { getAvatarImagePath } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
+import { isStreamSeqStampingDisabled } from "../assistant-stream-state.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
+import { notifyDaemonConversationPersisted } from "./worker-daemon-notify.js";
+
+/**
+ * Derive the initiating client's id from request headers so a sync publish can
+ * carry it as `originClientId`, letting that client self-echo-suppress its own
+ * invalidation. Trimmed; blank/absent headers yield `undefined`.
+ */
+export function getOriginClientId(
+  headers: Record<string, string> | undefined,
+): string | undefined {
+  return headers?.["x-vellum-client-id"]?.trim() || undefined;
+}
 
 export function publishAvatarChanged(originClientId?: string): void {
   broadcastMessage({
@@ -46,8 +59,16 @@ export function publishSchedulesChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.assistantSchedules], originClientId);
 }
 
+export function publishWorkspaceThemeChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.assistantTheme], originClientId);
+}
+
 export function publishAppsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.appsList], originClientId);
+}
+
+export function publishPluginsChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.pluginsList], originClientId);
 }
 
 /**
@@ -102,6 +123,16 @@ export function publishConversationMessagesChanged(
   conversationId: string,
   originClientId?: string,
 ): void {
+  // In a sidecar worker (seq stamping disabled) the local hub has no SSE
+  // subscribers and the seq counter is inert, so a local publish reaches no
+  // client and records no honest anchor. Hand off to the daemon — the seq
+  // authority clients subscribe to — which records the anchor at its own seq
+  // and republishes the invalidation. A background worker turn has no
+  // originating client, so no `originClientId` is forwarded.
+  if (isStreamSeqStampingDisabled()) {
+    void notifyDaemonConversationPersisted(conversationId);
+    return;
+  }
   void publishSyncInvalidation(
     [conversationMessagesSyncTag(conversationId)],
     originClientId,
@@ -156,6 +187,16 @@ export function publishConversationTitleChanged(
   // for any sibling-tab consumer that missed the typed event.
   void publishSyncInvalidation(
     [conversationMetadataSyncTag(conversationId)],
+    originClientId,
+  );
+}
+
+export function publishConversationEnabledPluginsChanged(
+  conversationId: string,
+  originClientId?: string,
+): void {
+  void publishSyncInvalidation(
+    [SYNC_TAGS.conversationsList, conversationMetadataSyncTag(conversationId)],
     originClientId,
   );
 }

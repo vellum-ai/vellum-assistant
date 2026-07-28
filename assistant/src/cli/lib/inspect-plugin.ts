@@ -16,10 +16,9 @@
  * is a thin wrapper that supplies production deps and formats the result.
  */
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
-  DEFAULT_PLUGIN_REF,
-  type FetchLike,
-  INSTALL_META_FILENAME,
   type InstallMeta,
   readInstallMeta,
   sanitizePluginName,
@@ -28,6 +27,7 @@ import {
   type InstalledPluginInfo,
   readInstalledPlugin,
 } from "./list-installed-plugins.js";
+import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import {
   compareFingerprint,
   type FingerprintComparison,
@@ -183,9 +183,7 @@ function readLocal(
   // Compare the on-disk tree against the install-time baseline, applying the
   // same exclusion so the sidecar is never counted as a local addition.
   const localChanges = manifest?.fingerprint
-    ? compareFingerprint(entry.target, manifest.fingerprint, [
-        INSTALL_META_FILENAME,
-      ])
+    ? compareFingerprint(entry.target, manifest.fingerprint, PRESERVED_ENTRIES)
     : null;
   return {
     target: entry.target,
@@ -226,8 +224,12 @@ function readRemote(
  * Best-effort: any failure (network, rate-limit, unexpected shape) yields
  * `null` so inspection still reports the remote pin's SHA without its date,
  * mirroring how the local side degrades to `unknown` when no date was recorded.
+ *
+ * Exported for reuse by `plugins upgrade`, which resolves the same
+ * human-readable "to" timestamp when previewing a directly-installed plugin's
+ * upgrade (its target commit has no marketplace entry to read the date from).
  */
-async function fetchCommitDate(
+export async function fetchCommitDate(
   repo: string,
   sha: string,
   fetch: FetchLike,
@@ -240,15 +242,25 @@ async function fetchCommitDate(
         "User-Agent": "vellum-assistant-cli",
       },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const json: unknown = JSON.parse(await res.text());
-    if (typeof json !== "object" || json === null) return null;
+    if (typeof json !== "object" || json === null) {
+      return null;
+    }
     const commit = (json as Record<string, unknown>).commit;
-    if (typeof commit !== "object" || commit === null) return null;
+    if (typeof commit !== "object" || commit === null) {
+      return null;
+    }
     const committer = (commit as Record<string, unknown>).committer;
-    if (typeof committer !== "object" || committer === null) return null;
+    if (typeof committer !== "object" || committer === null) {
+      return null;
+    }
     const date = (committer as Record<string, unknown>).date;
-    if (typeof date !== "string") return null;
+    if (typeof date !== "string") {
+      return null;
+    }
     const ms = Date.parse(date);
     return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
   } catch {
@@ -314,10 +326,18 @@ function classify(
   remote: PluginRemoteInfo | null,
   remoteError: string | null,
 ): PluginUpdateStatus {
-  if (!installed) return "not-installed";
-  if (remoteError && !remote) return "remote-unavailable";
-  if (!remote) return "not-in-marketplace";
-  if (!local?.commit) return "unknown-provenance";
+  if (!installed) {
+    return "not-installed";
+  }
+  if (remoteError && !remote) {
+    return "remote-unavailable";
+  }
+  if (!remote) {
+    return "not-in-marketplace";
+  }
+  if (!local?.commit) {
+    return "unknown-provenance";
+  }
   return local.commit.toLowerCase() === remote.commit.toLowerCase()
     ? "up-to-date"
     : "update-available";

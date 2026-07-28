@@ -40,8 +40,7 @@ export function makeCtx(
     isNative: false,
     streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
     assistantId: "ast-1",
-    setMessages: mock(() => {}),
-    messages: [],
+    setOptimisticSends: mock(() => {}),
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),
@@ -50,6 +49,7 @@ export function makeCtx(
       onToolResult: mock(() => {}),
       onToolActivityMetadata: mock(() => {}),
       onActivityThinking: mock(() => {}),
+      recoverFromAwaitingUserInput: mock(() => {}),
       showSurface: mock(() => {}),
       updateSurface: mock(() => {}),
       dismissSurface: mock(() => {}),
@@ -66,6 +66,7 @@ export function makeCtx(
       onPollReconciled: mock(() => {}),
       onTurnTimeout: mock(() => {}),
       resetTurn: mock(() => {}),
+      clearStaleTurn: mock(() => {}),
       enqueueMessage: mock(() => {}),
       dequeueMessage: mock(() => {}),
       deleteQueuedMessage: mock(() => {}),
@@ -73,6 +74,7 @@ export function makeCtx(
     getTurnState: () => ({ ...INITIAL_TURN_STATE }) as TurnState,
     endTurn: mock(() => {}),
     setError: mock(() => {}),
+    setNotice: mock(() => {}),
     cancelAndClearStream: mock(() => {}),
     cancelReconciliation: mock(() => {}),
     startReconciliationLoop: mock(() => {}),
@@ -104,10 +106,7 @@ export function makeCtx(
       return true;
     }),
     lastActivityVersionRef: { current: new Map() },
-    toolCallIdCounterRef: { current: 0 },
     currentAssistantMessageIdRef: { current: undefined },
-    toolOutputBufferRef: { current: new Map() },
-    toolOutputFlushHandleRef: { current: null },
     ...restOverrides,
   };
 }

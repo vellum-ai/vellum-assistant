@@ -5,6 +5,7 @@ import type { AuthUser } from "@/stores/auth-store";
 
 function user(overrides: Partial<AuthUser>): AuthUser {
   return {
+    kind: "platform",
     id: "user-123",
     username: null,
     email: "user@example.com",

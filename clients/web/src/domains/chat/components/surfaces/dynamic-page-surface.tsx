@@ -41,6 +41,11 @@ interface DynamicPageSurfaceProps {
   /** Tool calls of the message this surface belongs to. The preview unlocks
    *  once the surface's originating tool call has completed. */
   toolCalls?: ChatMessageToolCall[];
+  /** Handler for `vellum://` file links clicked inside the sandboxed iframe.
+   *  The sandbox can't navigate or `window.open()` these, so the click is
+   *  forwarded here to resolve the linked attachment and download it — the
+   *  same behavior as chat's `onVellumLinkClick`. */
+  onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +64,9 @@ function StatusPill({ text }: { text: string }) {
     return () => clearTimeout(timer);
   }, [text]);
 
-  if (state.hidden) return null;
+  if (state.hidden) {
+    return null;
+  }
 
   return (
     <div className="absolute top-2 right-2 z-10 rounded-full bg-[var(--primary-base)]/80 px-3 py-1 text-body-small-default text-[var(--content-inset)] shadow-sm backdrop-blur-sm transition-opacity duration-300">
@@ -78,6 +85,7 @@ export function DynamicPageSurface({
   assistantId,
   onOpenApp,
   toolCalls,
+  onVellumLinkClick,
 }: DynamicPageSurfaceProps) {
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
@@ -128,6 +136,7 @@ export function DynamicPageSurface({
     assistantId: assistantId ?? "",
     enabled: enableFetch,
     onAction: handleSurfaceAction,
+    onOpenVellumLink: onVellumLinkClick,
   });
 
   const handleCollapse = useCallback(() => setExpanded(false), []);
@@ -168,14 +177,13 @@ export function DynamicPageSurface({
             id: appId,
             name: cardName,
             icon: data.preview?.icon,
-            createdAt: 0,
-            updatedAt: 0,
-            version: "",
-            contentId: "",
           })
       : undefined;
     return (
-      <div className="max-w-sm">
+      // `max-md:mt-2` adds breathing room between the activity status line
+      // and the app card on mobile; stacks on the transcript column's `gap-2`
+      // for 16px total.
+      <div className="max-w-sm max-md:mt-2">
         <AppCard
           name={cardName}
           description={data.preview.description}

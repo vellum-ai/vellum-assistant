@@ -5,9 +5,9 @@ import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
     isAvailableSkill,
-    isRemovableSkill,
     type SkillInfo,
 } from "@/domains/intelligence/skills/types";
+import { isRemovableSkill } from "@/utils/skills";
 import { Button, Card } from "@vellumai/design-library";
 
 interface SkillRowProps {

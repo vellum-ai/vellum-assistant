@@ -10,15 +10,36 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+// Guardian identity resolves via the gateway delivery cache, not the local
+// contacts DB. Seed it per-test via seedGatewayGuardian; persona resolution
+// joins the local contact (userFile) by the delivery's channelType + address.
+interface GatewayGuardian {
+  channelType: string;
+  address: string;
+  status: string;
+}
+let gatewayGuardians: GatewayGuardian[] = [];
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
+    if (!input?.channelTypes) return gatewayGuardians;
+    return gatewayGuardians.filter((g) =>
+      input.channelTypes!.includes(g.channelType),
+    );
+  },
+  guardianForChannel: (list: GatewayGuardian[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: GatewayGuardian[]) => list[0],
 }));
 
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+function seedGatewayGuardian(g: {
+  channelType: string;
+  address: string;
+}): void {
+  gatewayGuardians.push({ status: "active", ...g });
+}
+
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/settings-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
@@ -32,6 +53,7 @@ function resetContactTables(): void {
   const sqlite = getSqlite();
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
+  gatewayGuardians = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +98,7 @@ describe("GET /workspace-files", () => {
   });
 
   test("with a guardian: includes users/<slug>.md", async () => {
+    seedGatewayGuardian({ channelType: "telegram", address: "Alice" });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",
@@ -103,6 +126,7 @@ describe("GET /workspace-files", () => {
     };
     expect(result.files.map((f) => f.path)).not.toContain("users/alice.md");
 
+    seedGatewayGuardian({ channelType: "telegram", address: "Alice" });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",
@@ -130,6 +154,7 @@ describe("GET /workspace-files/read", () => {
   });
 
   test("reads a guardian users/<slug>.md file", async () => {
+    seedGatewayGuardian({ channelType: "telegram", address: "Alice" });
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",

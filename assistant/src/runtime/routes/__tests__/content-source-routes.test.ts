@@ -11,13 +11,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // Module mocks — must appear before any imports of the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const FAKE_WORKSPACE = "/tmp/content-source-routes-test-workspace";
 
 mock.module("../../../util/platform.js", () => ({

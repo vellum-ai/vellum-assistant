@@ -3,12 +3,14 @@ import {
   normalizeSlackAppMention,
   normalizeSlackChannelMessage,
   normalizeSlackDirectMessage,
-  normalizeSlackMessageEdit,
-  type SlackAppMentionEvent,
-  type SlackChannelMessageEvent,
-  type SlackDirectMessageEvent,
-  type SlackMessageChangedEvent,
-} from "../slack/normalize.js";
+} from "../slack/message-normalizer.js";
+import { normalizeSlackMessageEdit } from "../slack/message-change-normalizer.js";
+import type {
+  SlackAppMentionEvent,
+  SlackChannelMessageEvent,
+  SlackDirectMessageEvent,
+  SlackMessageChangedEvent,
+} from "../slack/message-schemas.js";
 import type { GatewayConfig } from "../config.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {

@@ -1,19 +1,5 @@
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
-const mockConfig = {
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
-
 const sentMessages: unknown[] = [];
 const sentMessageOptions: unknown[] = [];
 let mockHasClient = false;
@@ -137,8 +123,8 @@ describe("HostBashProxy", () => {
 
       const resultPromise = proxy.request(
         {
-          command: "echo locked",
-          env: { VELLUM_UNTRUSTED_SHELL: "1" },
+          command: "echo hi",
+          env: { __CONVERSATION_ID: "conv-1" },
         },
         "session-1",
       );
@@ -146,7 +132,7 @@ describe("HostBashProxy", () => {
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
       expect(sent.type).toBe("host_bash_request");
-      expect(sent.env).toEqual({ VELLUM_UNTRUSTED_SHELL: "1" });
+      expect(sent.env).toEqual({ __CONVERSATION_ID: "conv-1" });
 
       const requestId = sent.requestId as string;
       proxy.resolveResult(requestId, {
@@ -228,30 +214,28 @@ describe("HostBashProxy", () => {
   describe("timeout", () => {
     test("resolves with timeout error when proxy timeout fires", async () => {
       setup();
-      // Override config to use a very short timeout for testing
-      mockConfig.timeouts.shellMaxTimeoutSec = 0;
 
-      const resultPromise = proxy.request(
-        { command: "echo slow" },
-        "session-1",
-      );
+      jest.useFakeTimers();
+      try {
+        const resultPromise = proxy.request(
+          { command: "echo slow" },
+          "session-1",
+        );
 
-      const sent = sentMessages[0] as Record<string, unknown>;
-      const requestId = sent.requestId as string;
-      expect(pendingInteractions.get(requestId)).toBeDefined();
+        const sent = sentMessages[0] as Record<string, unknown>;
+        const requestId = sent.requestId as string;
+        expect(pendingInteractions.get(requestId)).toBeDefined();
 
-      // Resolve to avoid test hanging
-      proxy.resolveResult(requestId, {
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-        timedOut: false,
-      });
+        // The proxy timeout is shellMaxTimeoutSec (600s default) + 3s.
+        jest.advanceTimersByTime(604 * 1000);
 
-      await resultPromise;
-
-      // Restore
-      mockConfig.timeouts.shellMaxTimeoutSec = 600;
+        const result = await resultPromise;
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain("Host bash proxy timed out");
+        expect(pendingInteractions.get(requestId)).toBeUndefined();
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

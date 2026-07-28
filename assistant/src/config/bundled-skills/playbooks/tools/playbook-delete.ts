@@ -1,5 +1,8 @@
-import { getNode, updateNode } from "../../../../memory/graph/store.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
+import {
+  getNode,
+  updateNode,
+} from "../../../../plugins/defaults/memory/graph/store.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -17,13 +20,10 @@ export async function executePlaybookDelete(
     };
   }
 
-  const scopeId = "default";
-
   try {
     const existing = getNode(playbookId);
     if (
       !existing ||
-      existing.scopeId !== scopeId ||
       !existing.sourceConversations.some((s) => s.startsWith("playbook:")) ||
       existing.fidelity === "gone"
     ) {

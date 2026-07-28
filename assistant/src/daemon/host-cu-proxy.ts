@@ -16,8 +16,8 @@
 
 import { v4 as uuid } from "uuid";
 
-import { escapeAxTreeContent } from "../agent/loop.js";
 import { loadConfig } from "../config/loader.js";
+import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
 import type { ContentBlock } from "../providers/types.js";
 import {
   assistantEventHub,

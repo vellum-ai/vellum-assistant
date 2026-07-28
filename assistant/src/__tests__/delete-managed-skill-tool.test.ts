@@ -11,13 +11,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const mockRefreshSkillCapabilityMemories = mock(() => {});
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../daemon/skill-memory-refresh.js", () => ({
   refreshSkillCapabilityMemories: mockRefreshSkillCapabilityMemories,
 }));

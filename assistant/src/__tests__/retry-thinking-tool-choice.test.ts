@@ -5,25 +5,13 @@
  * tool use."
  *
  * This is the root cause of repeated failures in memory graph operations
- * (extraction, narrative, pattern-scan, consolidation) when the user's default
- * LLM config has `thinking.enabled: true` and the call site uses forced
+ * (extraction, narrative, pattern-scan, consolidation) when the resolved LLM
+ * config has `thinking.enabled: true` and the call site uses forced
  * `tool_choice` without explicitly disabling thinking.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: mockLlmConfig }),
-}));
-
-import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
   Message,
@@ -31,13 +19,14 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
 beforeEach(() => {
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 function makePipeline(providerName: string): {
@@ -74,10 +63,12 @@ const userMessage: Message = {
 describe("retry normalization: thinking + forced tool_choice", () => {
   test("strips thinking when tool_choice forces a specific tool (type: 'tool')", async () => {
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        thinking: { enabled: true, streamThinking: true },
+      callSites: {
+        memoryExtraction: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          thinking: { enabled: true, streamThinking: true },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
@@ -98,10 +89,12 @@ describe("retry normalization: thinking + forced tool_choice", () => {
 
   test("strips thinking when tool_choice type is 'any'", async () => {
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        thinking: { enabled: true },
+      callSites: {
+        memoryExtraction: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          thinking: { enabled: true },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
@@ -116,10 +109,12 @@ describe("retry normalization: thinking + forced tool_choice", () => {
 
   test("preserves thinking when tool_choice type is 'auto'", async () => {
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        thinking: { enabled: true },
+      callSites: {
+        memoryExtraction: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          thinking: { enabled: true },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
@@ -134,10 +129,12 @@ describe("retry normalization: thinking + forced tool_choice", () => {
 
   test("preserves thinking when no tool_choice is set", async () => {
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        thinking: { enabled: true },
+      callSites: {
+        memoryExtraction: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          thinking: { enabled: true },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
@@ -178,10 +175,12 @@ describe("retry normalization: thinking + forced tool_choice", () => {
 
   test("preserves resolved thinking: disabled with forced tool_choice", async () => {
     setLlmConfig({
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        thinking: { enabled: false },
+      callSites: {
+        memoryExtraction: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          thinking: { enabled: false },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
@@ -196,10 +195,12 @@ describe("retry normalization: thinking + forced tool_choice", () => {
 
   test("strips thinking for openrouter with anthropic model and forced tool_choice", async () => {
     setLlmConfig({
-      default: {
-        provider: "openrouter",
-        model: "anthropic/claude-opus-4.7",
-        thinking: { enabled: true },
+      callSites: {
+        memoryExtraction: {
+          provider: "openrouter",
+          model: "anthropic/claude-opus-4.7",
+          thinking: { enabled: true },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
@@ -214,10 +215,12 @@ describe("retry normalization: thinking + forced tool_choice", () => {
 
   test("preserves thinking for openrouter with non-anthropic model and forced tool_choice", async () => {
     setLlmConfig({
-      default: {
-        provider: "openrouter",
-        model: "x-ai/grok-3-mini",
-        thinking: { enabled: true },
+      callSites: {
+        memoryExtraction: {
+          provider: "openrouter",
+          model: "x-ai/grok-3-mini",
+          thinking: { enabled: true },
+        },
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
@@ -229,6 +232,48 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     });
     // Non-Anthropic models on OpenRouter translate thinking into the
     // `reasoning` parameter via buildExtraCreateParams — should not be stripped
+    expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
+  });
+
+  test("strips thinking for vercel-ai-gateway with anthropic model and forced tool_choice", async () => {
+    setLlmConfig({
+      callSites: {
+        memoryExtraction: {
+          provider: "vercel-ai-gateway",
+          model: "anthropic/claude-opus-4.6",
+          thinking: { enabled: true },
+        },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("vercel-ai-gateway");
+    await provider.sendMessage([userMessage], {
+      config: {
+        callSite: "memoryExtraction",
+        tool_choice: { type: "tool", name: "extract_graph_diff" },
+      },
+    });
+    expect(lastConfig()?.thinking).toBeUndefined();
+  });
+
+  test("preserves thinking for vercel-ai-gateway with non-anthropic model and forced tool_choice", async () => {
+    setLlmConfig({
+      callSites: {
+        memoryExtraction: {
+          provider: "vercel-ai-gateway",
+          model: "xai/grok-4.3",
+          thinking: { enabled: true },
+        },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("vercel-ai-gateway");
+    await provider.sendMessage([userMessage], {
+      config: {
+        callSite: "memoryExtraction",
+        tool_choice: { type: "tool", name: "extract_graph_diff" },
+      },
+    });
+    // Non-Anthropic gateway models don't share Anthropic's wire constraint —
+    // the guard must not strip thinking for them
     expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
   });
 

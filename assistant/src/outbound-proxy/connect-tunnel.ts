@@ -81,4 +81,23 @@ export function handleConnect(
   clientSocket.on("error", () => {
     upstream.destroy();
   });
+
+  // `pipe()` only propagates a graceful FIN (end -> end), and the `'error'`
+  // handlers above only fire on a RST or a socket error. A socket torn down
+  // with a bare `.destroy()` (no error) — e.g. an aborted TLS/fetch stream, or
+  // the HTTP server closing a detached CONNECT socket — emits only `'close'`,
+  // which neither `pipe()` nor the error handlers propagate, so its partner is
+  // left open and its descriptor orphaned. This is the daemon's
+  // highest-frequency socket path (every proxied outbound HTTPS connection),
+  // so one orphaned descriptor per such teardown accumulates into a descriptor
+  // leak over the process lifetime. Destroying each socket when its partner
+  // closes guarantees neither half is ever left open. `destroy()` is
+  // idempotent, so the mutual handlers cannot loop.
+  clientSocket.on("close", () => {
+    upstream.destroy();
+  });
+
+  upstream.on("close", () => {
+    clientSocket.destroy();
+  });
 }

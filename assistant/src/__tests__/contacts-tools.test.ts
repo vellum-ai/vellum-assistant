@@ -11,20 +11,6 @@ import {
 // Track the gateway URL; updated once the test server starts.
 let testGatewayUrl = "http://127.0.0.1:0";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: {},
-  }),
-}));
-
 // The tool implementations now call the gateway over HTTP.
 // Mock the env/token modules and spin up a lightweight test server
 // that delegates to the real route handlers (backed by the test DB).
@@ -33,15 +19,24 @@ mock.module("../config/env.js", () => ({
   getGatewayPort: () => 0,
 }));
 
+// Per-test override for the search_contacts IPC result. When set, cliIpcCall
+// returns it verbatim instead of dispatching to the store — used to inject
+// gateway-shaped payloads (e.g. a null interactionCount telemetry fail-soft).
+let searchContactsOverride: unknown[] | null = null;
+
 // Skill tools call cliIpcCall instead of the gateway HTTP.
-// Mock the IPC client to dispatch contact reads/merge to the real store
-// (backed by the test DB) without needing a running IPC server.
+// Mock the IPC client to dispatch contact reads to the real store (backed by
+// the test DB) and serve `merge_contacts` as a fake gateway relay, without
+// needing a running IPC server.
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     const store = await import("../contacts/contact-store.js");
     const body = (params?.body ?? params ?? {}) as Record<string, unknown>;
     const pathParams = (params?.pathParams ?? {}) as Record<string, string>;
     if (method === "search_contacts") {
+      if (searchContactsOverride !== null) {
+        return { ok: true, result: searchContactsOverride };
+      }
       return { ok: true, result: store.searchContacts(body) };
     }
     if (method === "getContact") {
@@ -51,9 +46,25 @@ mock.module("../ipc/cli-client.js", () => ({
       return { ok: true, result: { ok: true, contact } };
     }
     if (method === "merge_contacts") {
+      // Fake gateway relay: the daemon route relays merges to the gateway
+      // merge core, which validates and mirrors back into the assistant DB.
+      // Emulate that against the fixture DB via the mirror write path.
       const { keepId, mergeId } = body as { keepId: string; mergeId: string };
-      const contact = store.mergeContacts(keepId, mergeId);
-      return { ok: true, result: { ok: true, contact } };
+      // The tool pre-validates both contacts via getContact, so the fake only
+      // needs the survivor row (for keepDisplayName).
+      const keep = store.getContact(keepId);
+      if (!keep) {
+        return { ok: false, error: `Contact "${keepId}" not found` };
+      }
+      store.mergeContactMirror({
+        keepContactId: keepId,
+        mergeContactId: mergeId,
+        keepDisplayName: keep.displayName,
+      });
+      return {
+        ok: true,
+        result: { ok: true, contact: store.getContact(keepId) },
+      };
     }
     return { ok: false, error: `Unknown IPC method: ${method}` };
   },
@@ -65,8 +76,8 @@ import { executeContactMerge } from "../config/bundled-skills/contacts/tools/con
 import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
 import { upsertContact } from "../contacts/contact-store.js";
 import type { ContactWithChannels } from "../contacts/types.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/contact-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import type { ToolContext } from "../tools/types.js";
@@ -86,14 +97,6 @@ beforeAll(() => {
       const path = url.pathname;
 
       try {
-        if (path === "/v1/contacts/merge" && req.method === "POST") {
-          const mergeRoute = ROUTES.find(
-            (r) => r.operationId === "merge_contacts",
-          )!;
-          const body = (await req.json()) as Record<string, unknown>;
-          const result = mergeRoute.handler({ body });
-          return Response.json(result);
-        }
         if (path === "/v1/contacts" && req.method === "GET") {
           const listRoute = ROUTES.find(
             (r) => r.operationId === "listContacts",
@@ -172,7 +175,40 @@ function upsertFixture(params: {
 // ── contact_search ──────────────────────────────────────────────────
 
 describe("contact_search tool", () => {
-  beforeEach(clearContacts);
+  beforeEach(() => {
+    searchContactsOverride = null;
+    clearContacts();
+  });
+
+  test("renders a null interactionCount without a false '>0' guard or a 'null' print", async () => {
+    // Defensive: the daemon-native path now defaults interactionCount to 0, but
+    // the ContactRead contract still permits null, so the tool must stay robust
+    // to a null — neither printing "Interactions: null" nor treating null as > 0
+    // (which would emit a bogus interactions line).
+    searchContactsOverride = [
+      {
+        id: "c-blank-telemetry",
+        displayName: "Telemetry Absent",
+        role: "contact",
+        notes: null,
+        contactType: "human",
+        lastInteraction: null,
+        interactionCount: null,
+        createdAt: 1699000000,
+        updatedAt: 1700000000,
+        channels: [],
+      },
+    ];
+
+    const result = await executeContactSearch({ query: "Telemetry" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Telemetry Absent");
+    // The interactions line is suppressed entirely (guard is false), so neither
+    // the label nor a stringified "null" leaks into the summary.
+    expect(result.content).not.toContain("Interactions");
+    expect(result.content).not.toContain("null");
+  });
 
   test("searches by display name", async () => {
     upsertFixture({ display_name: "Alice Smith" });

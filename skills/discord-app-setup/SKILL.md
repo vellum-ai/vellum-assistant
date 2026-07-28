@@ -78,7 +78,7 @@ Run the store script:
 bun skills/discord-app-setup/scripts/store-bot-token.ts
 ```
 
-The script opens the assistant's secure credential prompt, validates the entry, and stores it under `discord_channel:bot_token`. If the script exits non-zero, ask the user to reset the token again and re-run.
+The script opens the assistant's secure credential prompt, validates the entry, and stores it under `discord_channel:bot_token`. Exit code **130** means the user cancelled the prompt — nothing was stored. That's a valid choice, not an error: ask whether they'd like to try again rather than treating it as a failure. Any other non-zero exit is a real failure — ask the user to reset the token and re-run.
 
 ## Step 4: Validate the Bot Token
 

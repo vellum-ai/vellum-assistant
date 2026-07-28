@@ -21,14 +21,54 @@ import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
-import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
+import {
+  deleteMcpHeaders,
+  getMcpHeaders,
+  setMcpHeaders,
+} from "../../mcp/mcp-header-store.js";
+import {
+  deleteMcpOAuthCredentials,
+  hasMcpOAuthTokens,
+} from "../../mcp/mcp-oauth-provider.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("mcp-auth-routes");
+
+// ── Request schemas ─────────────────────────────────────────────────
+//
+// Each schema is declared once and referenced by both the route's
+// `requestBody` (the OpenAPI/wire contract) and the handler's `parseBody`
+// call, so the advertised shape and the validated shape can't drift.
+
+const McpServerIdParams = z.object({ serverId: z.string() });
+
+const McpUpdateParams = z.object({
+  name: z.string(),
+  enabled: z.boolean().optional(),
+  defaultRiskLevel: z.string().optional(),
+  maxTools: z.number().optional(),
+  allowedTools: z.array(z.string()).nullable().optional(),
+  blockedTools: z.array(z.string()).nullable().optional(),
+  headers: z.record(z.string(), z.string()).nullable().optional(),
+});
+
+const McpAddParams = z.object({
+  name: z.string(),
+  transportType: z.string(),
+  url: z.string().optional(),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  risk: z.string().optional(),
+  disabled: z.boolean().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
+const McpRemoveParams = z.object({ name: z.string() });
 
 async function handleMcpAuthStart({
   body,
@@ -39,7 +79,7 @@ async function handleMcpAuthStart({
   state: string;
   already_authenticated?: boolean;
 }> {
-  const { serverId } = body as { serverId: string };
+  const { serverId } = parseBody(McpServerIdParams, body);
 
   const raw = loadRawConfig();
   const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
@@ -170,11 +210,21 @@ async function checkMachineReadableHealth(
 interface McpServerEntry {
   id: string;
   status: string;
-  transport: McpServerConfig["transport"];
+  transport: Omit<McpServerConfig["transport"], "headers"> & { type: string };
   enabled: boolean;
   defaultRiskLevel: string;
+  hasOAuth: boolean;
+  hasStaticAuth: boolean;
+  authType: "none" | "bearer" | "api-key";
+  authHeaderName?: string;
   allowedTools?: string[];
   blockedTools?: string[];
+}
+
+function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
+  const authValue = headers["Authorization"] ?? headers["authorization"];
+  if (authValue?.startsWith("Bearer ")) return "bearer";
+  return "api-key";
 }
 
 async function handleMcpList(_args: {
@@ -196,12 +246,45 @@ async function handleMcpList(_args: {
         } else {
           status = await checkMachineReadableHealth(id, config);
         }
+        const hasOAuth =
+          config.transport.type !== "stdio"
+            ? await hasMcpOAuthTokens(id)
+            : false;
+
+        // Check credential store for stored static auth headers
+        const storedHeaders = await getMcpHeaders(id);
+        // Also check legacy config-level headers
+        const configHeaders =
+          config.transport.type !== "stdio"
+            ? config.transport.headers
+            : undefined;
+        const effectiveHeaders = storedHeaders ?? configHeaders;
+        const hasStaticAuth =
+          !!effectiveHeaders && Object.keys(effectiveHeaders).length > 0;
+        const authType: "none" | "bearer" | "api-key" = hasStaticAuth
+          ? detectAuthType(effectiveHeaders!)
+          : "none";
+        const authHeaderName =
+          authType === "api-key" && effectiveHeaders
+            ? Object.keys(effectiveHeaders).find(
+                (k) => k.toLowerCase() !== "authorization",
+              )
+            : undefined;
+
+        // Strip headers from transport — never return secrets
+        const { headers: _stripped, ...safeTransport } =
+          config.transport as Record<string, unknown>;
+
         return {
           id,
           status,
-          transport: config.transport,
+          transport: safeTransport as McpServerEntry["transport"],
           enabled,
           defaultRiskLevel: config.defaultRiskLevel ?? "high",
+          hasOAuth,
+          hasStaticAuth,
+          authType,
+          ...(authHeaderName && { authHeaderName }),
           ...(config.allowedTools && { allowedTools: config.allowedTools }),
           ...(config.blockedTools && { blockedTools: config.blockedTools }),
         };
@@ -282,15 +365,7 @@ async function handleMcpUpdate({
     allowedTools,
     blockedTools,
     headers,
-  } = body as {
-    name: string;
-    enabled?: boolean;
-    defaultRiskLevel?: string;
-    maxTools?: number;
-    allowedTools?: string[] | null;
-    blockedTools?: string[] | null;
-    headers?: Record<string, string> | null;
-  };
+  } = parseBody(McpUpdateParams, body);
 
   const raw = loadRawConfig();
   const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
@@ -334,10 +409,24 @@ async function handleMcpUpdate({
       transport &&
       (transport.type === "sse" || transport.type === "streamable-http")
     ) {
+      // Migrate any legacy config-level headers away
+      delete transport.headers;
+
+      // Store in credential store (or delete if clearing)
       if (headers === null || Object.keys(headers).length === 0) {
-        delete transport.headers;
+        const ok = await deleteMcpHeaders(name);
+        if (!ok) {
+          throw new InternalError(
+            "Failed to clear auth headers from credential store",
+          );
+        }
       } else {
-        transport.headers = headers;
+        const ok = await setMcpHeaders(name, headers);
+        if (!ok) {
+          throw new InternalError(
+            "Failed to persist auth headers to credential store",
+          );
+        }
       }
     }
   }
@@ -358,16 +447,7 @@ async function handleMcpAdd({
   body?: Record<string, unknown>;
 }): Promise<{ added: true }> {
   const { name, transportType, url, command, args, risk, disabled, headers } =
-    body as {
-      name: string;
-      transportType: string;
-      url?: string;
-      command?: string;
-      args?: string[];
-      risk?: string;
-      disabled?: boolean;
-      headers?: Record<string, string>;
-    };
+    parseBody(McpAddParams, body);
 
   const riskLevel = risk ?? "high";
   if (!["low", "medium", "high"].includes(riskLevel)) {
@@ -391,11 +471,7 @@ async function handleMcpAdd({
           `--url is required for ${transportType} transport`,
         );
       }
-      transport = {
-        type: transportType,
-        url,
-        ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
-      };
+      transport = { type: transportType, url };
       break;
     default:
       throw new BadRequestError(
@@ -421,10 +497,58 @@ async function handleMcpAdd({
     defaultRiskLevel: riskLevel,
   };
 
+  // Store auth headers in credential store, not config
+  if (headers && Object.keys(headers).length > 0) {
+    const ok = await setMcpHeaders(name, headers);
+    if (!ok) {
+      throw new InternalError(
+        "Failed to persist auth headers to credential store",
+      );
+    }
+  }
+
   saveRawConfig(raw);
   triggerReload("internal_mcp_add");
 
   return { added: true };
+}
+
+// ---------------------------------------------------------------------------
+// Revoke OAuth
+// ---------------------------------------------------------------------------
+
+async function handleMcpAuthRevoke({
+  body,
+}: {
+  body?: Record<string, unknown>;
+}): Promise<{ revoked: true }> {
+  const { serverId } = parseBody(McpServerIdParams, body);
+
+  const raw = loadRawConfig();
+  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+  const serverConfig = servers[serverId];
+
+  if (!serverConfig) {
+    throw new NotFoundError(`MCP server "${serverId}" not found`);
+  }
+
+  let result: { ok: boolean; failedKeys: string[] };
+  try {
+    result = await deleteMcpOAuthCredentials(serverId);
+  } catch (err) {
+    throw new InternalError(
+      `Failed to revoke OAuth credentials: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!result.ok) {
+    throw new InternalError(
+      `Failed to delete OAuth credentials for keys: ${result.failedKeys.join(", ")}`,
+    );
+  }
+
+  triggerReload("internal_mcp_auth_revoke");
+  return { revoked: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +560,7 @@ async function handleMcpRemove({
 }: {
   body?: Record<string, unknown>;
 }): Promise<{ removed: true }> {
-  const { name } = body as { name: string };
+  const { name } = parseBody(McpRemoveParams, body);
 
   const raw = loadRawConfig();
   const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
@@ -446,14 +570,17 @@ async function handleMcpRemove({
     throw new NotFoundError(`MCP server "${name}" not found.`);
   }
 
-  // Best-effort cleanup of any OAuth credentials stored for this server
+  // Best-effort cleanup of credentials stored for this server
   const serverConfig = serverMap[name] as Record<string, unknown>;
   const transport = serverConfig?.transport as
     | Record<string, unknown>
     | undefined;
   if (transport?.type === "sse" || transport?.type === "streamable-http") {
     try {
-      await deleteMcpOAuthCredentials(name);
+      await Promise.all([
+        deleteMcpOAuthCredentials(name),
+        deleteMcpHeaders(name),
+      ]);
     } catch {
       // Ignore — credentials may not exist
     }
@@ -483,7 +610,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Starts a daemon-owned MCP OAuth flow and returns the authorization URL for the CLI to open in the browser.",
     tags: ["internal"],
-    requestBody: z.object({ serverId: z.string() }),
+    requestBody: McpServerIdParams,
     handler: handleMcpAuthStart,
   },
   {
@@ -542,6 +669,7 @@ export const ROUTES: RouteDefinition[] = [
             .passthrough(),
           enabled: z.boolean(),
           defaultRiskLevel: z.string(),
+          hasOAuth: z.boolean(),
           allowedTools: z.array(z.string()).optional(),
           blockedTools: z.array(z.string()).optional(),
         }),
@@ -593,15 +721,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Updates fields on an existing MCP server config entry and triggers a reload.",
     tags: ["internal"],
-    requestBody: z.object({
-      name: z.string(),
-      enabled: z.boolean().optional(),
-      defaultRiskLevel: z.string().optional(),
-      maxTools: z.number().optional(),
-      allowedTools: z.array(z.string()).nullable().optional(),
-      blockedTools: z.array(z.string()).nullable().optional(),
-      headers: z.record(z.string(), z.string()).nullable().optional(),
-    }),
+    requestBody: McpUpdateParams,
     handler: handleMcpUpdate,
   },
   {
@@ -616,17 +736,24 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Writes a new MCP server entry to config.json and triggers a reload.",
     tags: ["internal"],
-    requestBody: z.object({
-      name: z.string(),
-      transportType: z.string(),
-      url: z.string().optional(),
-      command: z.string().optional(),
-      args: z.array(z.string()).optional(),
-      risk: z.string().optional(),
-      disabled: z.boolean().optional(),
-      headers: z.record(z.string(), z.string()).optional(),
-    }),
+    requestBody: McpAddParams,
     handler: handleMcpAdd,
+  },
+  {
+    operationId: "internal_mcp_auth_revoke",
+    endpoint: "internal/mcp/auth/revoke",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Revoke MCP OAuth credentials",
+    description:
+      "Deletes stored OAuth tokens for an MCP server and triggers a reload.",
+    tags: ["internal"],
+    requestBody: McpServerIdParams,
+    responseBody: z.object({ revoked: z.boolean() }),
+    handler: handleMcpAuthRevoke,
   },
   {
     operationId: "internal_mcp_remove",
@@ -640,7 +767,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Removes an MCP server from config.json, cleans up OAuth credentials, and triggers a reload.",
     tags: ["internal"],
-    requestBody: z.object({ name: z.string() }),
+    requestBody: McpRemoveParams,
     handler: handleMcpRemove,
   },
 ];

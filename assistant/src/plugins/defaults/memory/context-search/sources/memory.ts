@@ -1,0 +1,106 @@
+import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
+import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
+import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
+import { getNodesByIds } from "../../graph/store.js";
+import type { MemoryNode, MemoryType } from "../../graph/types.js";
+import { getLogger } from "../../logging.js";
+import { searchGraphNodes } from "../../v1/graph/graph-search.js";
+import type {
+  RecallEvidence,
+  RecallSearchContext,
+  RecallSearchResult,
+} from "../types.js";
+import { searchMemoryV2Source } from "./memory-v2.js";
+
+const log = getLogger("context-search-memory-source");
+
+export async function searchMemorySource(
+  query: string,
+  context: RecallSearchContext,
+  limit: number,
+): Promise<RecallSearchResult> {
+  const normalizedLimit = Math.max(0, Math.floor(limit));
+  if (normalizedLimit === 0) {
+    return { evidence: [] };
+  }
+
+  // Tier dispatch: under the concept-page substrate (v2/v3) recall reads
+  // concept pages; on v1 it falls through to the legacy graph-node search
+  // below. V1 — delete with v1: everything after this early return is the v1
+  // arm, so the source collapses to the `usesConceptPageMemory` delegation.
+  if (usesConceptPageMemory(context.config.memory)) {
+    return searchMemoryV2Source(query, context, normalizedLimit);
+  }
+
+  let queryVector: number[] | null = null;
+  try {
+    const result = await embedWithRetry(context.config, [query], {
+      signal: context.signal,
+    });
+    queryVector = result.vectors[0] ?? null;
+  } catch (err) {
+    if (context.signal?.aborted || isAbortError(err)) throw err;
+    log.warn({ err }, "Failed to embed memory recall query");
+    return { evidence: [] };
+  }
+
+  if (!queryVector || queryVector.length === 0) {
+    return { evidence: [] };
+  }
+
+  try {
+    const sparseVector = generateSparseEmbedding(query);
+    const searchResults = await searchGraphNodes(
+      queryVector,
+      normalizedLimit,
+      sparseVector,
+    );
+
+    if (searchResults.length === 0) {
+      return { evidence: [] };
+    }
+
+    const nodes = getNodesByIds(searchResults.map((result) => result.nodeId));
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const evidence: RecallEvidence[] = searchResults.flatMap((result) => {
+      const node = nodeById.get(result.nodeId);
+      if (!node || node.fidelity === "gone") {
+        return [];
+      }
+
+      return [memoryNodeToEvidence(node, result.score)];
+    });
+
+    return { evidence };
+  } catch (err) {
+    if (context.signal?.aborted || isAbortError(err)) throw err;
+    log.warn({ err }, "Failed to search memory graph for recall");
+    return { evidence: [] };
+  }
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === "AbortError" || err.name === "APIUserAbortError";
+}
+
+function memoryNodeToEvidence(node: MemoryNode, score: number): RecallEvidence {
+  return {
+    id: `memory:${node.id}`,
+    source: "memory",
+    title: formatMemoryTypeTitle(node.type),
+    locator: node.id,
+    excerpt: node.content,
+    timestampMs: node.created,
+    score,
+    metadata: {
+      confidence: node.confidence,
+      significance: node.significance,
+      type: node.type,
+    },
+  };
+}
+
+function formatMemoryTypeTitle(type: MemoryType): string {
+  return `${type.charAt(0).toUpperCase()}${type.slice(1)} memory`;
+}

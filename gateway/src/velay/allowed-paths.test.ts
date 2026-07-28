@@ -33,7 +33,7 @@ describe("VELAY_ALLOWED_PATHS", () => {
     }
   });
 
-  it("matches the four gateway public-surface route shapes", () => {
+  it("matches the gateway public-surface route shapes", () => {
     // Allowlist coverage check — if you add a public route in
     // `gateway/src/index.ts` that needs to be reachable through the Velay
     // tunnel, add a matching regex to VELAY_ALLOWED_PATHS and a sample here.
@@ -41,7 +41,6 @@ describe("VELAY_ALLOWED_PATHS", () => {
       "/webhooks/telegram": true,
       "/webhooks/twilio/voice": true,
       "/webhooks/twilio/status": true,
-      "/webhooks/twilio/connect-action": true,
       "/webhooks/twilio/voice-verify": true,
       "/webhooks/whatsapp": true,
       "/webhooks/email": true,
@@ -51,7 +50,14 @@ describe("VELAY_ALLOWED_PATHS", () => {
       "/v1/audio/some-uuid.mp3": true,
       "/v1/live-voice": true,
       "/v1/stt/stream": true,
+      "/assistant/credentials/enter": true,
+      "/v1/credential-requests/peek": true,
+      "/v1/credential-requests/submit": true,
       // Negative samples — paths that must NOT be tunnel-public.
+      "/v1/credential-requests": false,
+      "/v1/credential-requests/other": false,
+      "/assistant/credentials": false,
+      "/assistant/settings/credentials": false,
       "/v1/contacts/abc": false,
       "/v1/health": false,
       "/v1/pair": false,

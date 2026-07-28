@@ -16,6 +16,7 @@ import type {
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
+import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 import {
   containsInlineThinkingTag,
   parseInlineThinkingTags,
@@ -180,6 +181,42 @@ export function groupContentBlocks(
 }
 
 /**
+ * Project an activity group's ordered items into the card-rendering shape:
+ * ordered `ToolCallCardItem`s (thinking text interleaved with tool calls)
+ * plus the flat tool-call list. Empty thinking segments and suppressed UI
+ * tools are dropped. Single source of truth for the transcript's
+ * `MultiActivityGroup` props and the activity-steps side panel's live
+ * re-derivation, so the two views cannot drift.
+ */
+export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
+  cardItems: ToolCallCardItem[];
+  toolCalls: ChatMessageToolCall[];
+} {
+  const cardItems: ToolCallCardItem[] = [];
+  const toolCalls: ChatMessageToolCall[] = [];
+  for (const item of items) {
+    if (item.type === "thinking") {
+      if (item.thinking) {
+        cardItems.push({
+          kind: "thinking",
+          text: item.thinking,
+          startedAt: item.startedAt,
+          completedAt: item.completedAt,
+        });
+      }
+      continue;
+    }
+    const tc = item.toolCall;
+    if (isSuppressedUiTool(tc)) {
+      continue;
+    }
+    toolCalls.push(tc);
+    cardItems.push({ kind: "toolCall", toolCall: tc });
+  }
+  return { cardItems, toolCalls };
+}
+
+/**
  * UI surface tools are rendered by the inline surface widget, not as tool-call
  * chips — unless they carry a pending confirmation, in which case the chip must
  * render so the inline confirmation card is visible.
@@ -225,6 +262,36 @@ export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
   const input = toolCall.input;
   if (input == null || typeof input !== "object") return false;
   return (input as Record<string, unknown>).tool === "run_workflow";
+}
+
+/**
+ * Detect whether a tool call is an `acp_spawn` invocation. Like
+ * `subagent_spawn`/`run_workflow`, the daemon exposes `acp_spawn` as a
+ * bundled-skill tool, so the LLM emits a `skill_execute` call with
+ * `input.tool === "acp_spawn"` — the `tool_use_start` event the frontend
+ * receives still carries `toolName: "skill_execute"`. Matching on the raw
+ * `toolName` alone would miss every spawn and leave the inline ACP run card
+ * unrendered.
+ */
+export function isAcpSpawnCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.name === "acp_spawn") return true;
+  if (toolCall.name !== "skill_execute") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).tool === "acp_spawn";
+}
+
+/**
+ * Detect whether a tool call is a backgrounded `bash`/`host_bash` invocation.
+ * Unlike the subagent/workflow/ACP triad, background bash is not a
+ * `skill_execute` envelope — it's an `input.background === true` flag on the
+ * real `bash`/`host_bash` tool, so we match the raw tool name plus the flag.
+ */
+export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.name !== "bash" && toolCall.name !== "host_bash") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).background === true;
 }
 
 /**

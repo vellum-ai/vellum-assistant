@@ -29,20 +29,11 @@ mock.module("../copy-composer.js", () => ({
 
 // Stub only getGuardianDelivery; keep the real selectors so this mock is
 // harmless if it leaks into destination-resolver.test.ts under a shared run.
-const realGuardianReader = await import(
-  "../../contacts/guardian-delivery-reader.js"
-);
+const realGuardianReader =
+  await import("../../contacts/guardian-delivery-reader.js");
 mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   ...realGuardianReader,
   getGuardianDelivery: async () => null,
-}));
-
-// Use the real destination-resolver (DB-free via the local-read stub below)
-// so this mock does not leak into destination-resolver.test.ts under a shared
-// bun-test invocation. With no guardian, the resolver still yields a vellum
-// destination, which is all these tests exercise.
-mock.module("../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: () => null,
 }));
 
 mock.module("../conversation-pairing.js", () => ({
@@ -65,11 +56,24 @@ mock.module("../adapters/macos.js", () => ({
   isGuardianSensitiveEvent: () => false,
 }));
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+// Mock conversation-crud so deep-link fallback tests can control which
+// conversation ids resolve to real rows.
+let knownConversations: Set<string> = new Set();
+mock.module("../../persistence/conversation-crud.js", () => ({
+  getConversation: (id: string) =>
+    knownConversations.has(id) ? { id } : undefined,
+}));
+
+// Mock destination-resolver so platform channel tests get a destination
+// without needing guardian-delivery data.
+mock.module("../destination-resolver.js", () => ({
+  resolveDestinations: (channels: readonly string[], _guardians: unknown) => {
+    const map = new Map();
+    for (const ch of channels) {
+      map.set(ch, { channel: ch, endpoint: ch, metadata: {} });
+    }
+    return map;
+  },
 }));
 
 const { NotificationBroadcaster } = await import("../broadcaster.js");
@@ -117,7 +121,7 @@ interface CapturedSend {
   destination: ChannelDestination;
 }
 
-function makeCapturingAdapter(channel: "vellum"): {
+function makeCapturingAdapter(channel: "vellum" | "platform"): {
   adapter: ChannelAdapter;
   sends: CapturedSend[];
 } {
@@ -137,6 +141,7 @@ function makeCapturingAdapter(channel: "vellum"): {
 
 beforeEach(() => {
   composeFallbackReturn = {};
+  knownConversations = new Set();
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────
@@ -207,5 +212,178 @@ describe("NotificationBroadcaster last-resort copy resolution", () => {
     expect(sends[0]?.payload.copy.body).toBe("Time to drink water");
     expect(results.length).toBe(1);
     expect(results[0]?.status).toBe("sent");
+  });
+});
+
+describe("NotificationBroadcaster platform deep-link from contextPayload", () => {
+  test("uses deepLinkConversationId from contextPayload when no pairing exists", async () => {
+    composeFallbackReturn = {
+      platform: { title: "Reminder", body: "Check the oven" },
+    };
+
+    knownConversations = new Set(["conv-origin-1"]);
+
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const signal = makeSignal({
+      sourceContextId: "schedule-job-1",
+      contextPayload: { deepLinkConversationId: "conv-origin-1" },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: {},
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.deepLinkTarget).toEqual({
+      conversationId: "conv-origin-1",
+    });
+  });
+
+  test("does not use deepLinkConversationId when it does not resolve to a real conversation", async () => {
+    composeFallbackReturn = {
+      platform: { title: "Reminder", body: "Check the oven" },
+    };
+
+    // conv-stale is NOT in knownConversations
+    knownConversations = new Set();
+
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const signal = makeSignal({
+      sourceContextId: "schedule-job-1",
+      contextPayload: { deepLinkConversationId: "conv-stale" },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: {},
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.deepLinkTarget).toBeUndefined();
+  });
+
+  test("omits deepLinkConversationId when not present in contextPayload", async () => {
+    composeFallbackReturn = {
+      platform: { title: "Reminder", body: "Check the oven" },
+    };
+
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    const signal = makeSignal({
+      sourceContextId: "schedule-job-1",
+      contextPayload: {},
+    });
+    const decision = makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: {},
+    });
+
+    await broadcaster.broadcastDecision(signal, decision);
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.deepLinkTarget).toBeUndefined();
+  });
+});
+
+// The card context is built once per broadcast (adapters render only); an
+// answer-mode pending_question with structured options renders them as
+// tappable card actions in the answer-token scheme the reply router
+// recognizes.
+describe("NotificationBroadcaster question option actions", () => {
+  function questionSignal(payload: Record<string, unknown>) {
+    return makeSignal({
+      sourceEventName: "guardian.question",
+      contextPayload: payload,
+    });
+  }
+
+  const decisionForPlatform = () =>
+    makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: { platform: { title: "Question", body: "Which fruit?" } },
+    });
+
+  test("renders pending_question options as answer-token actions plus Skip", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "pending_question",
+        requestId: "req-q1",
+        requestCode: "abc123",
+        questionText: "Which fruit?",
+        options: [
+          { id: "apple", label: "Apple" },
+          { id: "banana", label: "Banana" },
+        ],
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.requestId).toBe("req-q1");
+    expect(approval?.actions).toEqual([
+      { id: "answer_0", label: "Apple" },
+      { id: "answer_1", label: "Banana" },
+      { id: "answer_skip", label: "Skip" },
+    ]);
+    // The plain-text fallback keeps the answer-mode request-code instruction.
+    expect(approval?.plainTextFallback).toContain("ABC123");
+    expect(approval?.plainTextFallback).toContain("your answer");
+  });
+
+  test("an option-less pending_question (voice) carries no card actions", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "pending_question",
+        requestId: "req-v1",
+        requestCode: "def456",
+        questionText: "What time works?",
+        callSessionId: "call-1",
+        activeGuardianRequestCount: 1,
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    // Answer-mode without options renders as plain text with request-code
+    // instructions — no approve/reject pair is ever attached to a question.
+    expect(sends[0]?.payload.approvalContext).toBeUndefined();
+  });
+
+  test("tool_approval payloads keep the approve/reject action pair", async () => {
+    const { adapter, sends } = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      questionSignal({
+        requestKind: "tool_approval",
+        requestId: "req-t1",
+        requestCode: "ghi789",
+        questionText: "Approve tool: bash",
+        toolName: "bash",
+      }),
+      decisionForPlatform(),
+    );
+
+    expect(sends.length).toBe(1);
+    const approval = sends[0]?.payload.approvalContext;
+    expect(approval?.actions?.map((a) => a.id)).toEqual([
+      "approve_once",
+      "reject",
+    ]);
   });
 });

@@ -1,14 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Silence the logger from cdp-inspect-client.
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // Import under test AFTER mock.module calls so that the module's
 // top-level logger import resolves to our fake.

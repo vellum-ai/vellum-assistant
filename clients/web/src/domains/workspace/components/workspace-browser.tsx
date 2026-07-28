@@ -49,16 +49,25 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   );
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("preview");
 
-  // Clear ?file= param after bootstrapping state from it
+  // Apply ?file= deep links (initial mount and later in-page navigations),
+  // then strip the param so tree selection owns the state again.
   useEffect(() => {
-    if (!searchParams.get("file")) return;
+    const filePath = searchParams.get("file");
+    if (!filePath) return;
+    setSelectedPath(filePath);
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      for (const ancestor of getAncestorPaths(filePath)) {
+        next.add(ancestor);
+      }
+      return next.size === prev.size ? prev : next;
+    });
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("file");
       return next;
     }, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams, setSearchParams]);
 
   const handleToggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {

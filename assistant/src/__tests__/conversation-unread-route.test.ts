@@ -1,12 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -21,13 +14,13 @@ mock.module("../config/env.js", () => ({
 
 const mockMarkConversationUnread = mock((_conversationId: string) => true);
 
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   getAttentionStateByConversationIds: () => new Map(),
   recordConversationSeenSignal: () => ({}),
   markConversationUnread: mockMarkConversationUnread,
 }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   resolveConversationId: (id: string) => id,
 }));
 

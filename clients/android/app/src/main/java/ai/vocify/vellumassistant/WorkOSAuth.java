@@ -40,10 +40,8 @@ final class WorkOSAuth {
         String challenge,
         String state,
         String loginHint,
-        String providerHint,
         String intent
     ) {
-        String provider = nonEmpty(providerHint);
         Uri.Builder builder = Uri.parse(API_BASE_URL)
             .buildUpon()
             .appendPath("user_management")
@@ -55,7 +53,7 @@ final class WorkOSAuth {
             .appendQueryParameter("code_challenge", challenge)
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("state", state)
-            .appendQueryParameter("provider", provider != null ? provider : "authkit");
+            .appendQueryParameter("provider", "authkit");
 
         String email = nonEmpty(loginHint);
         if (email != null) {

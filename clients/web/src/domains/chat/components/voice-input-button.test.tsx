@@ -78,7 +78,7 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 mock.module("@/utils/voice-input-device", () => ({
   getVoiceInputMediaStream: async () => fakeStream,
-  voiceInputAudioConstraints: () => true,
+  voiceInputAudioConstraints: () => ({}),
 }));
 
 // Capture the command handler map the component registers so tests can

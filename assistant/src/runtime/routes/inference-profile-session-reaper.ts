@@ -12,7 +12,7 @@
  */
 
 import { findConversation } from "../../daemon/conversation-registry.js";
-import { clearExpiredInferenceProfiles } from "../../memory/conversation-crud.js";
+import { clearExpiredInferenceProfiles } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 

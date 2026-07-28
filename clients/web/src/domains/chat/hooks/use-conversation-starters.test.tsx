@@ -167,7 +167,6 @@ describe("useConversationStarters — query wiring", () => {
     expect(keyObj.query).toEqual({
       limit: 4,
       offset: 0,
-      scope_id: "default",
     });
   });
 

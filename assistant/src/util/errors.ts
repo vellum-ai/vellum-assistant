@@ -99,9 +99,43 @@ export class AssistantError extends VellumError {
   }
 }
 
+/**
+ * Semantic classification of a provider failure, stamped by the provider layer
+ * at the throw site (from status + body signals) so downstream consumers
+ * (`daemon/conversation-error.ts`, `providers/retry.ts`) can switch on intent
+ * instead of re-deriving it from status codes and message regex. Co-located
+ * with `ProviderError` — a leaf module — for the same reason as `abortReason`:
+ * no import cost. `unknown` (and an absent `reason`) defers to the existing
+ * status/regex fallback.
+ */
+export type ProviderErrorReason =
+  | "invalid_credentials"
+  | "model_restricted"
+  | "model_not_found"
+  | "insufficient_credits"
+  | "daily_limit_reached"
+  | "rate_limited"
+  | "overloaded"
+  | "context_overflow"
+  | "vision_unsupported"
+  | "bad_request"
+  | "server_error"
+  | "unknown";
+
 export class ProviderError extends AssistantError {
   /** Delay (in ms) suggested by the server's Retry-After header, if present. */
   public readonly retryAfterMs?: number;
+  /** Upstream provider error metadata, parsed from the raw non-2xx body. */
+  public readonly apiErrorCode?: string;
+  public readonly apiErrorType?: string;
+  public readonly apiErrorParam?: string;
+  public readonly requestId?: string;
+  /**
+   * Verbatim upstream non-2xx body (possibly truncated). Persisted so the
+   * inspector's Raw tab can show the actual provider error payload, not just
+   * the extracted fields.
+   */
+  public readonly rawBody?: string;
   /**
    * Tagged daemon-owned abort reason carried over from the AbortSignal that
    * triggered this error. Untyped here to avoid a daemon→util import cycle;
@@ -109,17 +143,35 @@ export class ProviderError extends AssistantError {
    * `isAbortReason` is the canonical type guard for consumers.
    */
   public readonly abortReason?: unknown;
+  /** Semantic failure classification stamped at the throw site. */
+  public readonly reason?: ProviderErrorReason;
 
   constructor(
     message: string,
     public readonly provider: string,
     public readonly statusCode?: number,
-    options?: { cause?: unknown; retryAfterMs?: number; abortReason?: unknown },
+    options?: {
+      cause?: unknown;
+      retryAfterMs?: number;
+      abortReason?: unknown;
+      apiErrorCode?: string;
+      apiErrorType?: string;
+      apiErrorParam?: string;
+      requestId?: string;
+      rawBody?: string;
+      reason?: ProviderErrorReason;
+    },
   ) {
     super(message, ErrorCode.PROVIDER_ERROR, options);
     this.name = "ProviderError";
     this.retryAfterMs = options?.retryAfterMs;
+    this.apiErrorCode = options?.apiErrorCode;
+    this.apiErrorType = options?.apiErrorType;
+    this.apiErrorParam = options?.apiErrorParam;
+    this.requestId = options?.requestId;
+    this.rawBody = options?.rawBody;
     this.abortReason = options?.abortReason;
+    this.reason = options?.reason;
   }
 }
 

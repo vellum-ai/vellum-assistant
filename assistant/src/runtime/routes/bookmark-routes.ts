@@ -17,36 +17,24 @@ import {
   createBookmark,
   deleteBookmarkByMessageId,
   listBookmarks,
-} from "../../memory/bookmark-crud.js";
-import { getMessageById } from "../../memory/conversation-crud.js";
-import { getDb } from "../../memory/db-connection.js";
-import { getLogger } from "../../util/logger.js";
-import { buildAssistantEvent } from "../assistant-event.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
+} from "../../persistence/bookmark-crud.js";
+import { getMessageById } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-const log = getLogger("bookmark-routes");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function publishBookmarkCreated(bookmark: BookmarkSummary): void {
-  assistantEventHub
-    .publish(buildAssistantEvent({ type: "bookmark.created", bookmark }))
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish bookmark.created");
-    });
+  broadcastMessage({ type: "bookmark.created", bookmark });
 }
 
 function publishBookmarkDeleted(payload: { messageId: string }): void {
-  assistantEventHub
-    .publish(buildAssistantEvent({ type: "bookmark.deleted", ...payload }))
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish bookmark.deleted");
-    });
+  broadcastMessage({ type: "bookmark.deleted", ...payload });
 }
 
 // ---------------------------------------------------------------------------

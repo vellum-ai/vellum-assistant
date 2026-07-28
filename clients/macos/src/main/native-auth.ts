@@ -50,7 +50,6 @@ let activePkceCancel: ((reason?: string) => void) | null = null;
  * the main process; the renderer is uninvolved beyond the IPC result.
  */
 async function startOAuth(options: {
-  providerHint?: string;
   loginHint?: string;
   intent?: string;
 }): Promise<{ sessionToken: string }> {
@@ -75,7 +74,6 @@ async function startOAuth(options: {
       challenge,
       state,
       loginHint: options.loginHint,
-      providerHint: options.providerHint,
       intent: options.intent,
     });
     void shell.openExternal(authorizeUrl);
@@ -107,7 +105,6 @@ async function startOAuth(options: {
 
 const startOAuthSchema = z.tuple([
   z.object({
-    providerHint: z.string().optional(),
     loginHint: z.string().optional(),
     intent: z.string().optional(),
   }),

@@ -12,6 +12,7 @@ import {
   schedulesUsagesummaryGet,
   schedulesPost,
 } from "@/generated/daemon/sdk.gen";
+import { schedulesGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -89,6 +90,21 @@ export async function updateSchedule(
 
 export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
   return fetchSharedSchedules(assistantId);
+}
+
+/**
+ * TanStack Query options for the schedules list. The single definition of
+ * the list's query key + staleTime, so every consumer (the Schedules page
+ * data hook, the Activity page's "View schedule" link validation) reads one
+ * shared cache entry instead of hand-copying the key.
+ */
+export function schedulesListQueryOptions(assistantId: string | undefined) {
+  return {
+    queryKey: schedulesGetQueryKey({ path: { assistant_id: assistantId ?? "" } }),
+    queryFn: () =>
+      assistantId ? fetchSchedules(assistantId) : Promise.resolve<Schedule[]>([]),
+    staleTime: 10_000,
+  };
 }
 
 export async function fetchScheduleRuns(

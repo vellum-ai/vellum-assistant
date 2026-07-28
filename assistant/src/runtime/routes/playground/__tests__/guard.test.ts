@@ -6,10 +6,6 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => _playgroundEnabled,
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 import { RouteError } from "../../errors.js";
 import { assertPlaygroundEnabled } from "../guard.js";
 import { ROUTES } from "../index.js";

@@ -34,11 +34,10 @@ it follows the same remote web app loading model as iOS.
 
 ## Conventions
 
-- Each client subdirectory is its own self-contained Bun package with its own
-  `bun.lock`, `package.json`, `tsconfig.json`, and lint config — matching the
-  existing pattern used by other TypeScript packages in this repo.
-- No workspaces, no Turborepo. Per-package dependency installs with
-  `bun install`. Exact version pinning (see root [`AGENTS.md`](../AGENTS.md)).
+- JavaScript client packages use the root Bun workspace and root `bun.lock`.
+  Native shells such as `ios/` and `android/` consume Capacitor dependencies
+  from `web/` and do not have separate package manifests.
+- Exact version pinning applies repo-wide (see root [`AGENTS.md`](../AGENTS.md)).
 - When a new client is added under `clients/`, add corresponding `paths:` globs
   to any relevant PR/CI workflows in `.github/workflows/`.
 

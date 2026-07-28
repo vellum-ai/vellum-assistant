@@ -4,16 +4,22 @@
  * and response extraction helpers.
  */
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  type ResolveCallSiteOpts,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
+import {
+  resolveRoutingIdentity,
+  tryResolveProviderForConnectionName,
+} from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
 import type {
@@ -31,6 +37,11 @@ export interface ConfiguredProviderResult {
   provider: Provider;
   configuredProviderName: string;
 }
+
+export type ConfiguredProviderOptions = Pick<
+  ResolveCallSiteOpts,
+  "overrideProfile" | "forceOverrideProfile" | "selectionSeed"
+>;
 
 /**
  * Cached promise for the lazy initialization path inside
@@ -58,20 +69,26 @@ export class CallSiteConfiguredProvider implements Provider {
     this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
   }
 
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
+  }
+
   sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const config = options?.config;
-    if (config?.callSite) {
-      return this.inner.sendMessage(messages, options);
-    }
-
+    // Each field falls back independently. Naming a call site per-call must
+    // not suppress the stored override — they are orthogonal, and dropping
+    // the override leaves the transport bound to the requested profile while
+    // the model resolves from the call-site default.
     return this.inner.sendMessage(messages, {
       ...options,
       config: {
         ...config,
-        callSite: this.callSite,
+        callSite: config?.callSite ?? this.callSite,
         ...(config?.overrideProfile === undefined &&
         this.overrideProfile !== undefined
           ? { overrideProfile: this.overrideProfile }
@@ -105,7 +122,7 @@ export class CallSiteConfiguredProvider implements Provider {
  */
 export async function resolveConfiguredProvider(
   callSite: LLMCallSite,
-  opts: { overrideProfile?: string; forceOverrideProfile?: boolean } = {},
+  opts: ConfiguredProviderOptions = {},
 ): Promise<ConfiguredProviderResult | null> {
   const config = getConfig();
 
@@ -132,6 +149,14 @@ export async function resolveConfiguredProvider(
   // skip backfill, freshly-installed configs not yet backfilled, or users
   // who manually cleared the field), try to auto-resolve from the provider
   // before falling back to null.
+  if (!connectionName) {
+    // Routing identities name their own connection row; the provider-keyed
+    // scan below cannot find them ("chatgpt" rows store provider "openai").
+    connectionName = resolveRoutingIdentity(
+      inferenceProvider,
+      resolved.model,
+    )?.connectionName;
+  }
   if (!connectionName) {
     if (inferenceProvider) {
       try {
@@ -160,8 +185,13 @@ export async function resolveConfiguredProvider(
       }
     }
     if (!connectionName) {
-      log.debug(
-        { callSite, inferenceProvider },
+      log.warn(
+        {
+          callSite,
+          inferenceProvider,
+          model: resolved.model,
+          reason: "no_connection",
+        },
         "resolveCallSiteConfig yielded no provider_connection — returning null so callsite can fall back",
       );
       return null;
@@ -177,7 +207,18 @@ export async function resolveConfiguredProvider(
   if (!connectionProvider) {
     // Soft credential failure — the connection resolved to no usable
     // adapter (credential missing, transient auth failure, etc.).
-    // Callers handle null as "no provider available" rather than crash.
+    // Callers handle null as "no provider available" rather than crash;
+    // the structured warn keeps every silent degradation observable.
+    log.warn(
+      {
+        callSite,
+        connectionName,
+        inferenceProvider,
+        model: resolved.model,
+        reason: "credential_unavailable",
+      },
+      "Connection resolved to no usable adapter — returning null so the call site can degrade",
+    );
     return null;
   }
   return {
@@ -201,7 +242,7 @@ export async function resolveConfiguredProvider(
  */
 export async function getConfiguredProvider(
   callSite: LLMCallSite,
-  opts: { overrideProfile?: string; forceOverrideProfile?: boolean } = {},
+  opts: ConfiguredProviderOptions = {},
 ): Promise<Provider | null> {
   const result = await resolveConfiguredProvider(callSite, opts);
   return result?.provider ?? null;

@@ -240,13 +240,18 @@ async function handleEmailDownload({ queryParams = {} }: RouteHandlerArgs) {
 }
 
 async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
-  const { to, text, subject, html, cc, bcc, reply_to } = body as {
+  const { to, text, subject, html, cc, bcc, attachments, reply_to } = body as {
     to: string[];
     text: string;
     subject?: string;
     html?: string;
     cc?: string[];
     bcc?: string[];
+    attachments?: {
+      filename: string;
+      content_type: string;
+      content: string;
+    }[];
     reply_to?: string;
   };
 
@@ -293,6 +298,7 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
   if (resolvedHtml) payload.html = resolvedHtml;
   if (cc && cc.length > 0) payload.cc = cc;
   if (bcc && bcc.length > 0) payload.bcc = bcc;
+  if (attachments && attachments.length > 0) payload.attachments = attachments;
   if (reply_to) payload.reply_to = reply_to;
 
   const response = await client.fetch("/v1/runtime-proxy/email/send/", {
@@ -567,6 +573,16 @@ export const ROUTES: RouteDefinition[] = [
         .describe("HTML body (auto-generated from text if omitted)"),
       cc: z.array(z.string()).optional().describe("CC recipients"),
       bcc: z.array(z.string()).optional().describe("BCC recipients"),
+      attachments: z
+        .array(
+          z.object({
+            filename: z.string(),
+            content_type: z.string(),
+            content: z.string().describe("Base64-encoded file content"),
+          }),
+        )
+        .optional()
+        .describe("File attachments"),
       reply_to: z.string().optional().describe("Reply-to email ID"),
     }),
     responseBody: z.object({

@@ -10,7 +10,6 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
     expect(Object.keys(DEFAULT_ACP_AGENT_PROFILES).sort()).toEqual([
       "claude",
       "codex",
-      "gemini",
     ]);
   });
 
@@ -27,14 +26,6 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
       command: "codex-acp",
       args: [],
       description: "OpenAI Codex CLI (via @zed-industries/codex-acp)",
-    });
-  });
-
-  test("gemini profile speaks native ACP via gemini --acp (no adapter binary)", () => {
-    expect(DEFAULT_ACP_AGENT_PROFILES.gemini).toEqual({
-      command: "gemini",
-      args: ["--acp"],
-      description: "Google Gemini CLI (native ACP via gemini --acp)",
     });
   });
 
@@ -55,7 +46,6 @@ describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
     expect(DEFAULT_AGENT_NPM_PACKAGES).toEqual({
       "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
       "codex-acp": "@zed-industries/codex-acp",
-      gemini: "@google/gemini-cli",
     });
   });
 

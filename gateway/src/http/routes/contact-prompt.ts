@@ -16,7 +16,6 @@
 
 import { and, asc, eq, sql } from "drizzle-orm";
 
-import { assistantDbRun } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
 import { ContactStore } from "../../db/contact-store.js";
 import {
@@ -132,8 +131,8 @@ export async function handleContactPromptSubmit(
     let createdNewContact = false;
 
     if (isGuardian) {
-      // Guardian lives in the gateway DB (source of truth) — bootstrap
-      // dual-writes it there. Resolve from there, not the assistant mirror.
+      // Guardian lives in the gateway DB (source of truth). Resolve from the
+      // gateway DB, not the assistant mirror.
       const guardianRow = getGatewayDb()
         .select({ id: gwContacts.id })
         .from(gwContacts)
@@ -166,11 +165,13 @@ export async function handleContactPromptSubmit(
           .onConflictDoNothing()
           .run();
         try {
-          await assistantDbRun(
-            `INSERT INTO contacts (id, display_name, role, contact_type, created_at, updated_at)
-             VALUES (?, ?, 'guardian', 'human', ?, ?)`,
-            [contactId, effectiveDisplayName, now, now],
-          );
+          await ipcCallAssistant("contacts_mirror_upsert_contact", {
+            body: {
+              contactId,
+              displayName: effectiveDisplayName,
+              contactType: "human",
+            },
+          });
         } catch (mirrorErr) {
           log.warn(
             { err: mirrorErr },
@@ -193,6 +194,14 @@ export async function handleContactPromptSubmit(
         ],
       });
       contactId = contact.id;
+
+      // Invalidate the daemon guardian-id/role caches after the committed
+      // gateway contact write — before the read-back guard, so a
+      // resolveChannelId miss still drops the stale caches.
+      void ipcCallAssistant("emit_event", {
+        body: { kind: "contacts_changed" },
+      } as unknown as Record<string, unknown>).catch(() => {});
+
       channelId = resolveChannelId(contactId, channelType, normalizedAddress);
 
       log.info(
@@ -244,10 +253,10 @@ export async function handleContactPromptSubmit(
     if (existingChannel && existingChannel.contactId === contactId) {
       // Reuse is success-guaranteed: the gateway channel already belongs to
       // this guardian. Best-effort heal the assistant-DB mirror (passing the
-      // guardian's id preserves role="guardian" via upsertContact's id-path
-      // role preservation). The gateway-side syncChannels UPDATE here is
-      // incidental — the real purpose is recovering a stale mirror — so a
-      // transient gateway error must never fail the request.
+      // guardian's id keeps the gateway DB authoritative for role="guardian").
+      // The gateway-side syncChannels UPDATE here is incidental — the real
+      // purpose is recovering a stale mirror — so a transient gateway error
+      // must never fail the request.
       try {
         await getStore().upsertContact({
           id: contactId,
@@ -301,9 +310,9 @@ export async function handleContactPromptSubmit(
           .where(eq(gwContacts.id, contactId))
           .run();
         try {
-          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [
-            contactId,
-          ]);
+          await ipcCallAssistant("contacts_mirror_delete_contact", {
+            body: { contactId },
+          });
         } catch (mirrorErr) {
           log.warn(
             { err: mirrorErr },
@@ -314,9 +323,8 @@ export async function handleContactPromptSubmit(
 
       try {
         // Bind gateway-first. Passing the guardian's id keys the update to the
-        // existing guardian and preserves role="guardian" (upsertContact's
-        // id-path role preservation); the gateway channel is the source of
-        // truth, the assistant mirror is dual-written best-effort.
+        // existing guardian; the gateway DB is authoritative for role="guardian"
+        // and the channel, and the assistant mirror carries identity/info only.
         await getStore().upsertContact({
           id: contactId,
           channels: [
@@ -348,6 +356,14 @@ export async function handleContactPromptSubmit(
           "contact-prompt-submit: channel resolution failed after guardian bind, rolling back contact",
         );
         await rollbackCreatedContact();
+        // A freshly-created guardian was just rolled back (net no change). An
+        // existing guardian's channel bind committed and is NOT rolled back, so
+        // invalidate the daemon caches even though the read-back missed.
+        if (!createdNewContact) {
+          void ipcCallAssistant("emit_event", {
+            body: { kind: "contacts_changed" },
+          } as unknown as Record<string, unknown>).catch(() => {});
+        }
         return await channelResolutionError(requestId);
       }
 
@@ -355,25 +371,6 @@ export async function handleContactPromptSubmit(
         { channelType, address: normalizedAddress, contactId, channelId },
         "contact-prompt-submit: created new channel",
       );
-    }
-
-    // Re-assert role="guardian" in the best-effort assistant mirror: if the
-    // bootstrap-create mirror INSERT failed, the Phase-2 upsertContact INSERTs
-    // this id with a hardcoded role="contact", downgrading the guardian in the
-    // mirror (gateway stays authoritative, so ACL is unaffected). Heal only
-    // when this request minted the guardian; never fails the request.
-    if (createdNewContact) {
-      try {
-        await assistantDbRun(
-          "UPDATE contacts SET role = 'guardian', updated_at = ? WHERE id = ?",
-          [now, contactId],
-        );
-      } catch (roleErr) {
-        log.warn(
-          { err: roleErr, contactId },
-          "contact-prompt-submit: assistant DB guardian role re-assert failed (best-effort)",
-        );
-      }
     }
   } catch (err) {
     log.error({ err, requestId }, "contact-prompt-submit: DB error");
@@ -383,6 +380,12 @@ export async function handleContactPromptSubmit(
       { status: 500 },
     );
   }
+
+  // Invalidate the daemon guardian-id/role caches after a gateway-owned
+  // guardian bind/rebind/reuse.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
 
   return await resolveContactPrompt({
     requestId,

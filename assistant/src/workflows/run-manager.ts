@@ -28,10 +28,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
-import {
-  FALLBACK_TURN_TRUST,
-  type TrustContext,
-} from "../daemon/trust-context.js";
+import { FALLBACK_TURN_TRUST } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";

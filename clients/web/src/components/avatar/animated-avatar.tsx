@@ -8,7 +8,7 @@ interface AnimatedAvatarProps {
   components: CharacterComponents;
   traits: CharacterTraits;
   size: number;
-  isStreaming?: boolean;
+  isAssistantBusy?: boolean;
   /**
    * Continuous idle "breathing" scale pulse. On by default; pass `false` to
    * keep the avatar still while leaving blink/twitch (and streaming morph)
@@ -38,8 +38,7 @@ function parsePathNumbers(d: string): number[] {
   return nums;
 }
 
-function computeCentroid(d: string): PathPoint {
-  const nums = parsePathNumbers(d);
+function computeCentroid(nums: number[]): PathPoint {
   let sx = 0;
   let sy = 0;
   let count = 0;
@@ -51,23 +50,27 @@ function computeCentroid(d: string): PathPoint {
   return count > 0 ? { x: sx / count, y: sy / count } : { x: 0, y: 0 };
 }
 
-function wobblePath(d: string, seed: number, amount: number): string {
-  const center = computeCentroid(d);
+function wobblePath(
+  d: string,
+  nums: number[],
+  center: PathPoint,
+  seed: number,
+  amount: number,
+): string {
   const phase = seed * 1.1;
+  let idx = 0;
 
-  return d.replace(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi, (match, offset: number) => {
-    const val = parseFloat(match);
-    const prevText = d.slice(0, offset);
-    const numsBefore = prevText.match(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi);
-    const idx = numsBefore ? numsBefore.length : 0;
-    const isX = idx % 2 === 0;
+  return d.replace(/-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi, () => {
+    const currentIdx = idx;
+    idx++;
+    const val = nums[currentIdx]!;
+    const isX = currentIdx % 2 === 0;
 
     const refVal = isX ? center.x : center.y;
-    const otherNums = parsePathNumbers(d);
-    const pairedIdx = isX ? idx + 1 : idx - 1;
+    const pairedIdx = isX ? currentIdx + 1 : currentIdx - 1;
     const pairedVal =
-      pairedIdx >= 0 && pairedIdx < otherNums.length
-        ? otherNums[pairedIdx]!
+      pairedIdx >= 0 && pairedIdx < nums.length
+        ? nums[pairedIdx]!
         : refVal;
 
     const px = isX ? val : pairedVal;
@@ -89,9 +92,11 @@ function precomputeWobbledPaths(
   count: number,
   amount: number,
 ): string[] {
+  const nums = parsePathNumbers(basePath);
+  const center = computeCentroid(nums);
   const paths: string[] = [basePath];
   for (let i = 1; i < count; i++) {
-    paths.push(wobblePath(basePath, i, amount));
+    paths.push(wobblePath(basePath, nums, center, i, amount));
   }
   return paths;
 }
@@ -102,7 +107,7 @@ function precomputeWobbledPaths(
  *   - Blink: random 3-7s eye scaleY squish, 20% double-blink
  *   - Twitch: random 8-15s body rotation wobble
  *
- * During streaming (`isStreaming`):
+ * During streaming (`isAssistantBusy`):
  *   - Morph: body path cycles through 16 wobbled variants
  *   - Scale + rotation CSS animations
  *   - Blink + twitch paused
@@ -113,7 +118,7 @@ export function AnimatedAvatar({
   components,
   traits,
   size,
-  isStreaming = false,
+  isAssistantBusy = false,
   breathe = true,
 }: AnimatedAvatarProps) {
   const reduce = useReducedMotion();
@@ -153,33 +158,31 @@ export function AnimatedAvatar({
   const eyeCenterOutputY =
     bodyScaleFactor * (remapTy + eyeStyle.eyeCenter.y * remapScale) + bodyTy;
 
-  // Wobble variants are only used during streaming, and precomputing them is
-  // O(n²) per path — doing it eagerly for every avatar (e.g. the 10 mounted on
-  // each onboarding step) caused a noticeable jank on mount. Compute lazily,
-  // only once an avatar actually streams.
+  // Wobble variants are only used during streaming. Compute them lazily so
+  // idle avatars (including the set mounted during onboarding) do no path
+  // transformation work.
   const morphPaths = useMemo(
     () =>
-      isStreaming
+      isAssistantBusy
         ? precomputeWobbledPaths(bodyShape.svgPath, 16, 0.06)
         : [bodyShape.svgPath],
-    [bodyShape.svgPath, isStreaming],
+    [bodyShape.svgPath, isAssistantBusy],
   );
 
   const [isBlinking, setIsBlinking] = useState(false);
   const [twitchAngle, setTwitchAngle] = useState(0);
-  const [morphIndex, setMorphIndex] = useState(0);
 
-  const morphTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bodyPathRef = useRef<SVGPathElement | null>(null);
 
   useEffect(() => {
     // Force eyes open whenever blinking is disabled (reduced-motion or
     // streaming). A blink is a `setIsBlinking(true)` → 150ms → `false` pair;
-    // if `isStreaming` flips true mid-blink, this effect's cleanup cancels the
+    // if `isAssistantBusy` flips true mid-blink, this effect's cleanup cancels the
     // pending "un-blink" timeout, so without this reset `isBlinking` freezes
     // at `true` and the eyes stay squished (scaleY 0.1) until the component
     // remounts (page refresh / conversation switch). Mirrors the twitch
-    // guard (`effectiveTwitchAngle = isStreaming ? 0 : twitchAngle`).
-    if (reduce || isStreaming) {
+    // guard (`effectiveTwitchAngle = isAssistantBusy ? 0 : twitchAngle`).
+    if (reduce || isAssistantBusy) {
       setIsBlinking(false);
       return;
     }
@@ -217,14 +220,14 @@ export function AnimatedAvatar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [reduce, isStreaming]);
+  }, [reduce, isAssistantBusy]);
 
   useEffect(() => {
     // Reset the body angle when twitching is disabled so a twitch interrupted
     // mid-flight by streaming can't freeze the body rotated. (The render also
     // guards this via `effectiveTwitchAngle`, but resetting the state keeps it
     // correct after streaming ends without waiting for the next twitch cycle.)
-    if (reduce || isStreaming) {
+    if (reduce || isAssistantBusy) {
       setTwitchAngle(0);
       return;
     }
@@ -252,43 +255,62 @@ export function AnimatedAvatar({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [reduce, isStreaming]);
+  }, [reduce, isAssistantBusy]);
 
-  // Morph path cycling (only during streaming)
+  // Morph path cycling (only during streaming).
+  //
+  // Written straight to the DOM rather than held in React state. The morph is
+  // decoration — a 6.7Hz wobble on a body outline — but as state it put a
+  // React update on the queue every 150ms, per visible busy avatar, for the
+  // whole length of every streaming turn. React counts commits that finish
+  // with an update already pending and throws `Maximum update depth exceeded`
+  // once fifty-one land back to back, so purely visual work has no business in
+  // the commit stream at all; this was the most frequently blamed frame in
+  // that error family (LUM-2859). `d` stays out of the rendered props below,
+  // so an unrelated re-render never clobbers the imperative value.
   useEffect(() => {
-    if (!isStreaming || reduce) {
-      setMorphIndex(0);
+    const el = bodyPathRef.current;
+    if (!el) return;
+    const basePath = morphPaths[0] ?? bodyShape.svgPath;
+    if (!isAssistantBusy || reduce || morphPaths.length <= 1) {
+      el.setAttribute("d", basePath);
       return;
     }
 
     let idx = 0;
-    morphTimerRef.current = setInterval(() => {
+    const timer = setInterval(() => {
       idx = (idx + 1) % morphPaths.length;
-      setMorphIndex(idx);
+      const next = morphPaths[idx];
+      if (next) el.setAttribute("d", next);
     }, 150);
 
     return () => {
-      if (morphTimerRef.current) clearInterval(morphTimerRef.current);
-      morphTimerRef.current = null;
+      clearInterval(timer);
+      // A turn that ends mid-cycle would otherwise leave the body frozen on a
+      // wobbled variant instead of settling back to its resting shape.
+      el.setAttribute("d", basePath);
     };
-  }, [isStreaming, reduce, morphPaths.length]);
+  }, [isAssistantBusy, reduce, morphPaths, bodyShape.svgPath]);
 
   const bodyCenterX = size / 2;
   const bodyCenterY = size / 2;
 
   const breatheAnimation = reduce
     ? "none"
-    : isStreaming
+    : isAssistantBusy
       ? "avatar-morph-scale 2.4s ease-in-out infinite, avatar-morph-rotate 3s ease-in-out infinite"
       : breathe
         ? "avatar-breathe-kf 4s ease-in-out infinite"
         : "none";
 
-  const effectiveTwitchAngle = isStreaming ? 0 : twitchAngle;
+  const effectiveTwitchAngle = isAssistantBusy ? 0 : twitchAngle;
   // Never squish the eyes while streaming — guards the one frame between
-  // `isStreaming` flipping true and the blink effect resetting `isBlinking`.
-  const effectiveBlinking = isBlinking && !isStreaming;
-  const currentBodyPath = morphPaths[morphIndex] ?? bodyShape.svgPath;
+  // `isAssistantBusy` flipping true and the blink effect resetting `isBlinking`.
+  const effectiveBlinking = isBlinking && !isAssistantBusy;
+  // Resting shape. The morph effect above drives `d` from here on, so this
+  // value must stay stable across re-renders — React only patches attributes
+  // whose props changed, which is what keeps the imperative writes intact.
+  const baseBodyPath = morphPaths[0] ?? bodyShape.svgPath;
 
   return (
     <svg
@@ -312,11 +334,12 @@ export function AnimatedAvatar({
         }}
       >
         <path
-          d={currentBodyPath}
+          ref={bodyPathRef}
+          d={baseBodyPath}
           fill={color.hex}
           transform={bodyTransform}
           style={{
-            transition: isStreaming ? "d 0.3s ease-in-out" : "none",
+            transition: isAssistantBusy ? "d 0.3s ease-in-out" : "none",
           }}
         />
       </g>

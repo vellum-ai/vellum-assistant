@@ -6,10 +6,6 @@ import type { DiskUsageInfo } from "../util/disk-usage.js";
 let diskSample: DiskUsageInfo | null = null;
 let diskSampleError: unknown = null;
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 mock.module("../util/disk-usage.js", () => ({
   getDiskUsageInfo: () => {
     if (diskSampleError) throw diskSampleError;

@@ -4,47 +4,389 @@
  * A "hook" is a named lifecycle event (`user-prompt-submit`, `post-tool-use`,
  * ...) that every registered plugin may handle. The runner walks each plugin's
  * hook for a given event in registration order, threading a context value
- * through the chain so hooks can observe and transform it. A hook either
- * mutates the context in place (returning `void`) or returns a partial
- * context whose fields are merged onto the threaded value.
+ * through the chain so hooks can observe and transform it. Each hook receives
+ * an isolated draft of the current context. A hook either mutates the draft in
+ * place (returning `void`) or returns a partial context whose fields are merged
+ * onto the draft. Failed hook drafts are discarded.
  *
- * `getHooksFor` is now async — it pulls user-land hooks from the mtime
- * cache (filesystem-as-truth) and default plugin hooks from the registry
+ * `getHooksFor` is now async — it pulls user-land hooks from the plugin
+ * cache (filesystem-as-truth via the source-versions reconcile) and default
+ * plugin hooks from the registry
  * in a single unified call.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
-import type { HookName } from "../plugin-api/constants.js";
-import { getHooksFor } from "./registry.js";
+import { z } from "zod";
+
+import { makeHookBroadcast } from "../hooks/hook-broadcast.js";
+import { makeHookLogger } from "../hooks/hook-logger.js";
+import { getHookEntriesFor } from "../hooks/registry.js";
+import type { BaseHookContext } from "../hooks/types.js";
+import { type HookName, HOOKS } from "../plugin-api/constants.js";
+import { getLogger } from "../util/logger.js";
+import { runInPluginContext } from "./plugin-execution-context.js";
+import type { HookEntry } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
+
+const log = getLogger("plugin-pipeline");
+
+function isPluginLogger(value: unknown): value is {
+  info: unknown;
+  warn: unknown;
+  error: unknown;
+  debug: unknown;
+} {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { info?: unknown }).info === "function" &&
+    typeof (value as { warn?: unknown }).warn === "function" &&
+    typeof (value as { error?: unknown }).error === "function" &&
+    typeof (value as { debug?: unknown }).debug === "function"
+  );
+}
+
+function isPlainObject(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (value instanceof Error || isPluginLogger(value)) {
+    return value;
+  }
+
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing as T;
+  }
+
+  if (Array.isArray(value)) {
+    const copy: unknown[] = [];
+    seen.set(value, copy);
+    for (const item of value) {
+      copy.push(cloneHookValue(item, seen));
+    }
+    return copy as T;
+  }
+
+  if (value instanceof Date) {
+    return new Date(value.getTime()) as T;
+  }
+
+  if (value instanceof Map) {
+    const copy = new Map();
+    seen.set(value, copy);
+    for (const [key, mapValue] of value) {
+      copy.set(cloneHookValue(key, seen), cloneHookValue(mapValue, seen));
+    }
+    return copy as T;
+  }
+
+  if (value instanceof Set) {
+    const copy = new Set();
+    seen.set(value, copy);
+    for (const item of value) {
+      copy.add(cloneHookValue(item, seen));
+    }
+    return copy as T;
+  }
+
+  if (!isPlainObject(value)) {
+    return value;
+  }
+
+  const copy: Record<PropertyKey, unknown> = {};
+  seen.set(value, copy);
+  for (const key of Reflect.ownKeys(value)) {
+    copy[key] = cloneHookValue(
+      (value as Record<PropertyKey, unknown>)[key],
+      seen,
+    );
+  }
+  return copy as T;
+}
+
+// ─── Hook output sanitization ────────────────────────────────────────────────
+
+/**
+ * Schemas for the message shapes hooks may hand back. They require exactly
+ * the fields the loop and serializers read without guards (e.g.
+ * `block.id.length` on every tool_use, `source.media_type` on media blocks);
+ * unknown block types pass — serializers already drop them safely.
+ */
+const MediaSourceSchema = z.discriminatedUnion("type", [
+  z.looseObject({
+    type: z.literal("base64"),
+    data: z.string(),
+    media_type: z.string(),
+  }),
+  z.looseObject({
+    type: z.literal("workspace_ref"),
+    attachmentId: z.string(),
+    media_type: z.string(),
+    sizeBytes: z.number(),
+  }),
+]);
+
+const KNOWN_BLOCK_TYPES = new Set([
+  "text",
+  "thinking",
+  "redacted_thinking",
+  "tool_use",
+  "server_tool_use",
+  "tool_result",
+  "web_search_tool_result",
+  "image",
+  "file",
+]);
+
+// tool_result `content` must be a string (serializers concatenate it); rich
+// content lives in `contentBlocks`, validated recursively because media
+// resolution recurses into it.
+const ToolResultSchema = z.looseObject({
+  type: z.literal("tool_result"),
+  tool_use_id: z.string(),
+  content: z.string(),
+  contentBlocks: z.lazy(() => z.array(ContentBlockSchema).optional()),
+});
+
+const ContentBlockSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.looseObject({ type: z.literal("text"), text: z.string() }),
+    z.looseObject({
+      type: z.literal("thinking"),
+      thinking: z.string(),
+      signature: z.string(),
+    }),
+    z.looseObject({ type: z.literal("redacted_thinking"), data: z.string() }),
+    z.looseObject({
+      type: z.enum(["tool_use", "server_tool_use"]),
+      id: z.string(),
+      name: z.string(),
+      input: z.record(z.string(), z.unknown()),
+    }),
+    ToolResultSchema,
+    // `content` is an opaque provider-specific payload — unchecked.
+    z.looseObject({
+      type: z.literal("web_search_tool_result"),
+      tool_use_id: z.string(),
+    }),
+    z.looseObject({
+      type: z.enum(["image", "file"]),
+      source: MediaSourceSchema,
+    }),
+    z
+      .looseObject({ type: z.string() })
+      .refine((block) => !KNOWN_BLOCK_TYPES.has(block.type)),
+  ]),
+);
+
+const MessageSchema = z.looseObject({
+  role: z.enum(["user", "assistant"]),
+  content: z.array(ContentBlockSchema),
+});
+
+/**
+ * Per-hook schemas for the context fields the loop folds back into the turn
+ * verbatim — a malformed message there fails every subsequent provider call.
+ * Loose + optional: unknown context keys pass, and absent fields are skipped
+ * (call sites and tests may dispatch a hook name with a partial context).
+ */
+const HOOK_OUTPUT_SCHEMAS: Partial<
+  Record<HookName, z.ZodObject<z.ZodRawShape>>
+> = {
+  [HOOKS.USER_PROMPT_SUBMIT]: z.looseObject({
+    latestMessages: z.array(MessageSchema).optional(),
+  }),
+  [HOOKS.POST_COMPACT]: z.looseObject({
+    history: z.array(MessageSchema).optional(),
+  }),
+  [HOOKS.POST_MODEL_CALL]: z.looseObject({
+    messages: z.array(MessageSchema).optional(),
+    content: z.array(ContentBlockSchema).optional(),
+  }),
+  // Strictly a client tool_result: only it can pair back to the assistant's
+  // tool_use — a server-tool web_search_tool_result replacement is rejected.
+  [HOOKS.POST_TOOL_USE]: z.looseObject({
+    toolResponse: ToolResultSchema.optional(),
+  }),
+};
+
+/**
+ * Detect malformed message data in a hook's output. Read-only: a non-empty
+ * result means the caller discards the hook's entire mutation and keeps the
+ * previous context.
+ */
+function findHookOutputIssues<TInput extends object>(
+  name: HookName,
+  ctx: TInput,
+): string[] {
+  const schema = HOOK_OUTPUT_SCHEMAS[name];
+  if (!schema) {
+    return [];
+  }
+  const issues: string[] = [];
+  // `.optional()` lets an absent field skip validation, but it also lets a
+  // hook REPLACE a required field with an explicit `undefined` — which the
+  // loop would then fold back and dereference. Reject present-but-undefined.
+  const rec = ctx as Record<string, unknown>;
+  for (const key of Object.keys(schema.shape)) {
+    if (key in rec && rec[key] === undefined) {
+      issues.push(`${key}: replaced with undefined`);
+    }
+  }
+  const parsed = schema.safeParse(ctx);
+  if (!parsed.success) {
+    issues.push(
+      ...parsed.error.issues.map(
+        (issue) => `${issue.path.join(".")}: ${issue.message}`,
+      ),
+    );
+  }
+  return issues;
+}
+
+// ─── Hook execution timeout ──────────────────────────────────────────────────
+
+/**
+ * Time-box for a single hook invocation: the try/catch contains throws but
+ * not hangs.
+ *
+ * Covers async hangs only: a CPU-bound synchronous loop never yields to the
+ * event loop, so the timeout cannot fire until it returns. Preempting that
+ * needs worker-thread isolation, which the in-process hook contract (contexts
+ * carry non-cloneable capabilities like `logger`/`broadcast`) does not
+ * currently allow.
+ */
+export const HOOK_TIMEOUT_MS = 30_000;
+
+export async function callWithTimeout<T>(
+  run: () => Promise<T> | T,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const work = Promise.resolve().then(run);
+    // Absorb the abandoned hook's late rejection if the timeout wins.
+    work.catch(() => {});
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Execute a hook chain: walk every registered plugin's hook for `name` in
  * registration order, threading `initialCtx` through each. Hooks may either
- * mutate the context in place (returning `void`) or return a partial context
- * whose fields are merged onto the threaded value — keys the hook returns
- * overwrite the running context, every other field is preserved. The final
- * context after the chain settles is returned.
+ * mutate their draft context in place (returning `void`) or return a partial
+ * context whose fields are merged onto the draft — keys the hook returns
+ * overwrite the running context, every other field is preserved. If a hook
+ * throws, its draft is discarded and the next hook receives the last
+ * successfully committed context. The final context after the chain settles is
+ * returned.
+ *
+ * Fail-open guards: a hook whose output carries malformed message data
+ * ({@link findHookOutputIssues}) has its entire mutation discarded, and every
+ * hook is time-boxed so a hung hook cannot block the turn.
+ *
+ * When `initialCtx` carries a `conversationId`, it is passed to
+ * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin
+ * scope (memory, then DB) and skips a hook whose contributing plugin is outside
+ * the effective set. Contexts without a `conversationId` impose no restriction —
+ * every globally-enabled plugin's hook runs.
+ *
+ * Before each hook runs, the pipeline stamps the {@link BaseHookContext}
+ * capabilities onto its (freshly-cloned) draft, both bound to that hook's
+ * identity: `broadcast` emits a `hook_event` attributed to the hook's owner
+ * (and the context's `conversationId`, when present), and `logger` is a child
+ * pre-tagged with the hook name, owner, and conversation / request identity.
+ * Because the pipeline supplies them, call sites construct the per-hook
+ * `XInputContext` shapes and never provide these fields themselves.
  *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
- * @param initialCtx  Context the first hook receives.
+ * @param initialCtx  Input context the first hook receives (the hook sees it
+ *                    with the {@link BaseHookContext} capabilities added).
  * @returns The final context after the chain settles. Same reference as
- *          `initialCtx` when no plugin registers `name`, and when every
- *          chained hook returns `void` (mutation-in-place style).
+ *          `initialCtx` when no plugin registers `name`.
  */
-export async function runHook<TCtx>(
+export async function runHook<TInput extends object>(
   name: HookName,
-  initialCtx: TCtx,
-): Promise<TCtx> {
-  const hooks = await getHooksFor<TCtx>(name);
-  let active = initialCtx;
-  for (const hook of hooks) {
-    const result = await hook(active);
-    if (result !== undefined) {
-      active = { ...active, ...result };
+  initialCtx: TInput,
+): Promise<TInput> {
+  const conversationId = extractStringField(initialCtx, "conversationId");
+  const requestId = extractStringField(initialCtx, "requestId");
+  let entries: HookEntry<TInput & BaseHookContext>[];
+  try {
+    entries = await getHookEntriesFor<TInput & BaseHookContext>(name, {
+      conversationId,
+    });
+  } catch (err) {
+    log.error(
+      { err, hookName: name },
+      "plugin hook discovery failed — proceeding without hooks",
+    );
+    return initialCtx;
+  }
+
+  let active: TInput = initialCtx;
+  for (const { fn, owner } of entries) {
+    const draft = {
+      ...cloneHookValue(active),
+      logger: makeHookLogger({
+        hookName: name,
+        owner,
+        conversationId,
+        requestId,
+      }),
+      broadcast: makeHookBroadcast({ conversationId, hookName: name, owner }),
+    };
+    try {
+      // Mark the contributing plugin as in context so host APIs the hook
+      // reaches (e.g. resolveCredential) can scope to it. Standalone workspace
+      // hooks are not plugins and establish no context.
+      const invokeHook =
+        owner.kind === "plugin"
+          ? () => runInPluginContext(owner.id, () => fn(draft))
+          : () => fn(draft);
+      const result = await callWithTimeout(
+        invokeHook,
+        HOOK_TIMEOUT_MS,
+        `plugin hook '${name}' (${owner.id}) timed out after ${HOOK_TIMEOUT_MS}ms`,
+      );
+      const candidate = result !== undefined ? { ...draft, ...result } : draft;
+      const issues = findHookOutputIssues(name, candidate);
+      if (issues.length > 0) {
+        log.error(
+          { hookName: name, owner, issues },
+          "plugin hook produced malformed message data — skipping this hook",
+        );
+      } else {
+        active = candidate;
+      }
+    } catch (err) {
+      log.error(
+        { err, hookName: name, owner },
+        "plugin hook failed — proceeding with current context",
+      );
     }
   }
   return active;
+}
+
+/** A string-valued field off a hook context, when it carries one. */
+function extractStringField(ctx: unknown, field: string): string | undefined {
+  const value = (ctx as Record<string, unknown> | null)?.[field];
+  return typeof value === "string" ? value : undefined;
 }

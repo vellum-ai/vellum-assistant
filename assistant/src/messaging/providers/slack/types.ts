@@ -41,6 +41,8 @@ export interface SlackConversation {
   unread_count_display?: number;
   latest?: SlackMessage;
   user?: string;
+  /** IM rows only: the DM peer's account has been deactivated. */
+  is_user_deleted?: boolean;
 }
 
 export interface SlackConversationsListResponse extends SlackApiResponse {

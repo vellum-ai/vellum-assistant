@@ -31,6 +31,13 @@ export interface UIContext {
    * message yet. Used with `activeConversationIsProcessing` to restore the
    * thinking indicator after switching back to an in-flight conversation. */
   hasPendingAssistantResponse?: boolean;
+  /** The daemon's authoritative per-conversation `processing` flag, carried on
+   * the rolling snapshot (`PaginatedHistoryResult.processing`) and refreshed by
+   * every `/messages` reseed. Consumed as an authoritative CLOSE-gate: `false`
+   * means the server considers the turn over, so a `phase` left stuck by a
+   * dropped terminal SSE event stops driving the indicator. `undefined` (older
+   * daemons, or a cold snapshot) leaves phase-only behavior untouched. */
+  snapshotProcessing?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,19 +50,19 @@ export interface UIContext {
  * Mirrors macOS TranscriptProjector.wouldShowThinking:
  *   isSending && (isThinking || !hasStreamingAssistantMessage) && !hasActiveToolCall
  *
- * Show the dots whenever the turn is actively processing, no assistant
+ * Show the indicator whenever the turn is actively processing, no assistant
  * text is streaming yet, and no tool call is in-flight. The fallback
- * `!hasStreamingAssistantMessage` keeps the dots visible even after the
- * phase moves past "thinking" (e.g. after a tool call completes before
- * any text arrives).
+ * `!hasStreamingAssistantMessage` keeps it visible even after the phase
+ * moves past "thinking" (e.g. after a tool call completes before any text
+ * arrives).
  *
  * Unlike macOS, this standalone row hands off to the inline
  * {@link SingleActivity} as soon as the live assistant message carries
  * reasoning content (`hasStreamingAssistantThinking`) — that link renders the
- * same three-dot "Thinking" loading state inline and is clickable to open the
- * streaming reasoning. So the dots row is scoped to the pre-reasoning window
- * (no assistant bubble yet, or a bubble that hasn't emitted reasoning) to avoid
- * two competing thinking indicators.
+ * same shimmering "Thinking" loading state inline and is clickable to open the
+ * streaming reasoning. So the standalone row is scoped to the pre-reasoning
+ * window (no assistant bubble yet, or a bubble that hasn't emitted reasoning)
+ * to avoid two competing thinking indicators.
  *
  * Each potentially-competing UI surface has its own explicit gate:
  * pending secret/confirmation/question/contact prompts, and any
@@ -72,6 +79,17 @@ export function shouldShowThinkingIndicator(
   activeToolCallCount: number,
   ctx: UIContext,
 ): boolean {
+  // Authoritative close: when the daemon reports this conversation idle
+  // (`snapshotProcessing === false`, 0.8.8+) the turn is over — even if the
+  // local `phase` never saw the terminal SSE event (dropped while the stream
+  // was disconnected). Guarded by `hasPendingAssistantResponse` so the window
+  // right after a send — before the first token, where the snapshot still
+  // legitimately reads the prior idle — keeps showing the dots. `undefined`
+  // (older daemons / cold snapshot) leaves the phase-driven behavior untouched.
+  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
+    return false;
+  }
+
   const restoredProcessing =
     ctx.activeConversationIsProcessing === true &&
     ctx.hasPendingAssistantResponse === true;
@@ -91,20 +109,39 @@ export function shouldShowThinkingIndicator(
 }
 
 /**
- * Whether the active assistant turn can be cancelled.
+ * Whether the assistant is actively working (not waiting for user input).
  *
- * Web-originated sends drive `TurnState` directly, but external-channel
- * conversations (Slack, Telegram, phone) can stream into an already-open web
- * tab without the web app ever calling `requestSend()`. In that case the live
- * transcript or conversation processing marker is the only local proof that
- * there is an active turn to stop.
+ * Single source of truth for the avatar loading spinner and the stop button.
+ * When the assistant is waiting for the user to resolve a prompt (secret,
+ * confirmation, question, contact request) or an interactive surface, it is
+ * not busy — the prompt IS the UI, and neither a spinner nor a stop button
+ * should be shown. Not-busy is driven exclusively by an actually-pending
+ * prompt or surface: `phase` alone does not suppress busy, so a turn that
+ * keeps streaming after a prompt resolves stays busy even if the phase is
+ * momentarily stale at `awaiting_user_input`.
+ *
+ * External-channel conversations (Slack, Telegram, phone) can stream into an
+ * already-open web tab without the web app ever calling `requestSend()`. In
+ * that case the live transcript or conversation processing marker is the only
+ * local proof that there is an active turn.
+ *
+ * Authoritative close-gate: `snapshotProcessing === false` means the daemon
+ * says the turn is done, even if `phase` is stuck. The
+ * `hasPendingAssistantResponse` guard keeps the window right after a send
+ * (before the first token) covered.
  */
-export function canStopGeneration(
+export function isAssistantBusy(
   phase: TurnPhase,
   ctx: UIContext,
 ): boolean {
+  if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
+    return false;
+  }
+
+  // Only an actually-pending prompt or interactive surface suppresses busy —
+  // the `phase` can lag at `awaiting_user_input` after a prompt resolves while
+  // the turn keeps streaming, so it must not gate this on its own.
   if (
-    phase === "awaiting_user_input" ||
     ctx.hasPendingSecret ||
     ctx.hasPendingConfirmation ||
     ctx.hasPendingQuestion ||

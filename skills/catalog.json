@@ -63,6 +63,30 @@
       "updatedAt": "2026-06-15T21:08:24.000Z"
     },
     {
+      "id": "chat-complex-documents",
+      "name": "chat-complex-documents",
+      "description": "Chat with and search your complex documents — ask questions, extract tables and fields, and get answers grounded in the source. Connects the hosted Unstructured Transform MCP server to parse, structure, and enrich PDFs, Word/Excel/PowerPoint, images, scanned files, emails, and 60+ other formats into clean, AI-ready text for search, Q&A, and summarization without building a custom parsing pipeline.",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "📄",
+        "vellum": {
+          "category": "integrations",
+          "display-name": "Chat with Complex Documents",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User wants to pull content out of documents — PDFs, Word/Excel/PowerPoint, images, emails, scanned files",
+            "User wants to make a set of documents searchable, or answer questions / ground summaries against them (RAG, Q&A, knowledge base)",
+            "User mentions Unstructured, Unstructured Transform, document parsing, partitioning, table extraction, or OCR"
+          ],
+          "avoid-when": [
+            "User just needs the plain text of one small local file (use built-in file reading instead)"
+          ]
+        }
+      },
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Requires an Unstructured account to authorize during the OAuth step.",
+      "updatedAt": "2026-07-13T20:48:26.000Z"
+    },
+    {
       "id": "chatgpt-import",
       "name": "chatgpt-import",
       "description": "Import conversation history from ChatGPT into Vellum",
@@ -105,6 +129,35 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
+      "id": "daily-briefing",
+      "name": "daily-briefing",
+      "description": "Proactive daily briefing that fires on a recurring schedule, pulls recent memory and workspace context, composes a structured summary (action items, progress, radar, next steps), and delivers it to all active channels. Enable with a time like \"set up my daily briefing at 9am\". Disable, reschedule, or check status at any time.",
+      "metadata": {
+        "emoji": "📋",
+        "vellum": {
+          "category": "productivity",
+          "display-name": "Daily Briefing"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-01T10:52:10.000Z"
+    },
+    {
+      "id": "deepgram-voice",
+      "name": "deepgram-voice",
+      "description": "Select and tune a Deepgram TTS voice - curated voice list, full Aura voice catalog via API key, and tuning parameters",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "🎤",
+        "vellum": {
+          "category": "voice",
+          "display-name": "Deepgram Voice"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-23T16:24:31.000Z"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data",
@@ -131,7 +184,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "doordash",
@@ -161,7 +214,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T16:33:06.000Z"
     },
     {
       "id": "email-setup",
@@ -270,7 +323,33 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-23T21:50:11.000Z"
+      "updatedAt": "2026-07-07T04:41:23.000Z"
+    },
+    {
+      "id": "gmail-trigger",
+      "name": "gmail-trigger",
+      "description": "Beta. Act on new Gmail as it arrives: get pinged only for urgent mail, digest newsletters, forward invoices — any standing instruction, across one or several accounts.",
+      "metadata": {
+        "emoji": "📬",
+        "vellum": {
+          "category": "email",
+          "display-name": "Gmail Triggers (Beta)",
+          "includes": [
+            "schedule"
+          ],
+          "activation-hints": [
+            "User wants hands-off monitoring of their Gmail inbox",
+            "Ping me / tell me when a new email arrives",
+            "Watch my inbox for new messages"
+          ],
+          "avoid-when": [
+            "Recurring inbox cleanup, archiving, triage, or reply drafting — use inbox-management",
+            "A one-time inbox summary or search, or reading a specific email"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-10T11:09:04.000Z"
     },
     {
       "id": "google-calendar",
@@ -282,11 +361,16 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Google Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -416,7 +500,7 @@
     {
       "id": "llm-cost-optimizer",
       "name": "llm-cost-optimizer",
-      "description": "Analyze and reduce LLM spend by mapping call-site overrides to managed profiles (Balanced / Quality / Speed). Covers spend analysis, profile assignment, and config correctness.",
+      "description": "Analyze and reduce LLM spend: read usage breakdowns by call site, model, and inference profile, understand single-winner profile resolution, and pin call sites to managed profiles (Balanced / Quality / Speed) only where they should deviate from shipped defaults.",
       "metadata": {
         "emoji": "💸",
         "vellum": {
@@ -424,7 +508,20 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-28T04:58:42.000Z"
+    },
+    {
+      "id": "llm-provider-setup",
+      "name": "llm-provider-setup",
+      "description": "Set up a new LLM provider connection, discover valid model ids, create and validate a model profile — securely and end-to-end via CLI. Covers managed vs BYO keys, secure credential collection, model discovery, profile creation, and live verification.",
+      "metadata": {
+        "emoji": "🔌",
+        "vellum": {
+          "category": "development",
+          "display-name": "LLM Provider Setup"
+        }
+      },
+      "updatedAt": "2026-07-10T04:43:15.000Z"
     },
     {
       "id": "macos-automation",
@@ -461,7 +558,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "mcp-setup",
@@ -475,21 +572,6 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
-    },
-    {
-      "id": "meet-join",
-      "name": "meet-join",
-      "description": "Join a Google Meet call to take notes; only when the user explicitly asks.",
-      "metadata": {
-        "icon": "assets/icon.svg",
-        "emoji": "📹",
-        "vellum": {
-          "category": "voice",
-          "display-name": "Meet Join",
-          "feature-flag": "meet"
-        }
-      },
       "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
@@ -613,16 +695,21 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Outlook Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "plugin-builder",
       "name": "plugin-builder",
-      "description": "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles hooks, tools, and skills into one installable package.",
+      "description": "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles multiple surfaces (hooks, tools, skills, and more) into one installable package.",
       "metadata": {
         "emoji": "🧩",
         "vellum": {
@@ -644,7 +731,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-24T13:35:30.000Z"
+      "updatedAt": "2026-07-27T13:35:46.000Z"
     },
     {
       "id": "public-ingress",
@@ -680,7 +767,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -741,7 +828,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "slack",
@@ -761,7 +848,7 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — opens a guided setup wizard in the side panel so the user can create the app, generate tokens, and connect in one flow.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -782,7 +869,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-19T17:01:42.000Z"
+      "updatedAt": "2026-07-24T22:39:12.000Z"
     },
     {
       "id": "start-the-day",
@@ -823,7 +910,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -860,21 +947,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
-    },
-    {
-      "id": "time-based-actions",
-      "name": "time-based-actions",
-      "description": "Unified routing guide for reminders, schedules, notifications, and tasks - prevents common misrouting",
-      "metadata": {
-        "emoji": "⏰",
-        "vellum": {
-          "category": "productivity",
-          "display-name": "Time-Based Actions"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "twilio-setup",
@@ -892,7 +965,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "typescript-eval",
@@ -937,12 +1010,12 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T20:33:02.000Z"
     },
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export, wipe)",
+      "description": "Manage conversation threads (rename, list, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -951,7 +1024,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-06T16:01:24.000Z"
     },
     {
       "id": "vellum-github-app-setup",
@@ -968,7 +1041,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -1034,7 +1107,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-22T18:02:37.000Z"
+      "updatedAt": "2026-07-27T18:18:10.000Z"
     },
     {
       "id": "vellum-oauth-integrations",
@@ -1048,7 +1121,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-self-knowledge",
@@ -1140,6 +1213,20 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
+      "id": "vellum-workspace-theme",
+      "name": "vellum-workspace-theme",
+      "description": "Customize the app's visual theme — author design-token overrides (accent, background, surfaces, text, message-bubble colors) in the workspace ui/theme.json, validated by the assistant runtime and applied live to connected clients. Covers the token slots, the all-or-none override groups, the contrast floor, and reading back validation issues.",
+      "metadata": {
+        "emoji": "🖌️",
+        "vellum": {
+          "category": "content",
+          "display-name": "Workspace Theme"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-11T00:56:00.000Z"
+    },
+    {
       "id": "vercel-token-setup",
       "name": "vercel-token-setup",
       "description": "Set up a Vercel API token for publishing apps using browser automation",
@@ -1160,7 +1247,7 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
@@ -1168,10 +1255,11 @@
           "category": "voice",
           "display-name": "Voice Setup",
           "includes": [
-            "elevenlabs-voice"
+            "elevenlabs-voice",
+            "deepgram-voice"
           ],
           "activation-hints": [
-            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)",
+            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)",
             "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
           ],
           "avoid-when": [
@@ -1180,12 +1268,12 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T16:33:06.000Z"
     },
     {
       "id": "watch-together",
       "name": "watch-together",
-      "description": "Watch TV shows and movies with the user in real time by processing screen captures into frames and audio analysis.",
+      "description": "Watch TV shows and movies with the user in real time. A fast editor model watches every window of playback, transcribes dialogue, and picks story-critical frames, waking the assistant at the moments that matter instead of on a fixed timer. Plays media files directly via mpv (no screen capture), with screen capture as a fallback for browser-only content.",
       "metadata": {
         "emoji": "📺",
         "vellum": {
@@ -1194,7 +1282,7 @@
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-07-15T00:42:43.000Z"
     },
     {
       "id": "watcher",

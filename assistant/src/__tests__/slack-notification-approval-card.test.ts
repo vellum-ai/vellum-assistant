@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
+import type {
+  CardBlock,
+  ContextBlock,
+  KnownBlock,
+  MrkdwnElement,
+  PlainTextElement,
+  SectionBlock,
+} from "@slack/types";
+
 import { parseAccessRequestPayload } from "../notifications/access-request-copy.js";
 import { buildApprovalNotificationBlocks } from "../notifications/adapters/slack.js";
 import type { ChannelDeliveryPayload } from "../notifications/types.js";
@@ -10,7 +19,7 @@ import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
  * quoted-preview body, action callback ids, source/permalink and requester-id
  * context blocks, the security-warning context block, and guardian
  * verification note that `buildApprovalNotificationBlocks` emits for an
- * access request.
+ * access request — plus the tool-approval card body/continuation split.
  */
 
 const APPROVAL: ApprovalUIMetadata = {
@@ -35,25 +44,28 @@ function buildPayload(
   };
 }
 
-type Block = Record<string, unknown>;
-
-function card(blocks: unknown[]): Block {
-  const c = (blocks as Block[]).find((b) => b.type === "card");
-  if (!c) throw new Error("no card block");
+// Narrowing helpers over the `@slack/types` block union so assertions read
+// typed fields — a block-contract change fails compilation here instead of
+// slipping through a cast.
+function card(blocks: KnownBlock[]): CardBlock {
+  const c = blocks.find((b): b is CardBlock => b.type === "card");
+  if (!c) {
+    throw new Error("no card block");
+  }
   return c;
 }
 
-function contextTexts(blocks: unknown[]): string[] {
-  return (blocks as Block[])
-    .filter((b) => b.type === "context")
-    .map((b) => {
-      const elements = b.elements as Array<{ text: string }>;
-      return elements.map((e) => e.text).join("");
-    });
+function contextTexts(blocks: KnownBlock[]): string[] {
+  return blocks
+    .filter((b): b is ContextBlock => b.type === "context")
+    .map((b) => b.elements.map((e) => ("text" in e ? e.text : "")).join(""));
 }
 
-function text(node: unknown): string {
-  return (node as { text: string }).text;
+function text(node: MrkdwnElement | PlainTextElement | undefined): string {
+  if (!node) {
+    throw new Error("expected a text element");
+  }
+  return node.text;
 }
 
 const BASE: Record<string, unknown> = {
@@ -79,7 +91,7 @@ describe("Slack access-request card blocks", () => {
 
   test("card actions encode the apr:<requestId>:<action> callback ids", () => {
     const c = card(buildApprovalNotificationBlocks(buildPayload(BASE), "msg"));
-    const actions = c.actions as Array<Record<string, unknown>>;
+    const actions = c.actions ?? [];
     expect(actions).toHaveLength(2);
     expect(actions[0].action_id).toBe("apr:req-123:approve_once");
     expect(actions[0].style).toBe("primary");
@@ -134,7 +146,7 @@ describe("Slack access-request card blocks", () => {
     );
     // `subtext` is not a Slack card field; warnings must live in a real block
     // or Slack drops them and the guardian never sees them.
-    expect(card(blocks).subtext).toBeUndefined();
+    expect("subtext" in card(blocks)).toBe(false);
     const warning = contextTexts(blocks).find((t) => t.includes(":warning:"));
     expect(warning).toBeDefined();
     expect(warning).toContain(":warning: This user was previously revoked.");
@@ -146,7 +158,7 @@ describe("Slack access-request card blocks", () => {
 
   test("no warning context block when there are no warnings", () => {
     const blocks = buildApprovalNotificationBlocks(buildPayload(BASE), "msg");
-    expect(card(blocks).subtext).toBeUndefined();
+    expect("subtext" in card(blocks)).toBe(false);
     expect(contextTexts(blocks).some((t) => t.includes(":warning:"))).toBe(
       false,
     );
@@ -172,5 +184,163 @@ describe("Slack access-request card blocks", () => {
     expect(
       texts.some((t) => t.includes("haven't verified your identity on slack")),
     ).toBe(true);
+  });
+});
+
+const TOOL_APPROVAL: ApprovalUIMetadata = {
+  requestId: "req-456",
+  actions: [
+    { id: "approve_once", label: "Approve once" },
+    { id: "reject", label: "Reject" },
+  ],
+  plainTextFallback: 'Reply "ABC123 approve" or "ABC123 reject"',
+  permissionDetails: {
+    toolName: "bash",
+    riskLevel: "medium",
+    toolInput: { command: "ls /tmp" },
+    requesterIdentifier: "Alice",
+  },
+};
+
+function buildToolApprovalPayload(
+  toolApprovalSource?: ChannelDeliveryPayload["toolApprovalSource"],
+): ChannelDeliveryPayload {
+  return {
+    sourceEventName: "guardian.question",
+    copy: { title: "Guardian Question", body: "Approve tool: bash" },
+    urgency: "high",
+    approvalContext: TOOL_APPROVAL,
+    toolApprovalSource,
+  };
+}
+
+function sectionTexts(blocks: KnownBlock[]): string[] {
+  return blocks
+    .filter((b): b is SectionBlock => b.type === "section")
+    .map((b) => text(b.text));
+}
+
+describe("Slack tool-approval card blocks", () => {
+  test("short message renders entirely in the card body with no companion section", () => {
+    const message = "Alice is requesting approval to run: ls /tmp";
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload(),
+      message,
+    );
+    expect(text(card(blocks).body)).toBe(message);
+    expect(sectionTexts(blocks)).toHaveLength(0);
+  });
+
+  test("card carries tool title and tool/requester subtitle", () => {
+    const c = card(
+      buildApprovalNotificationBlocks(buildToolApprovalPayload(), "msg"),
+    );
+    expect(text(c.title)).toBe("Tool Approval");
+    expect(text(c.subtitle)).toBe("bash — requested by Alice");
+  });
+
+  test("long message continues in a section without repeating the card body", () => {
+    const message = Array.from(
+      { length: 40 },
+      (_, i) => `word${String(i).padStart(2, "0")}`,
+    ).join(" "); // 279 chars of distinct words
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload(),
+      message,
+    );
+
+    const body = text(card(blocks).body);
+    expect(body.length).toBeLessThanOrEqual(200);
+    expect(body.endsWith(" ↓")).toBe(true);
+
+    const sections = sectionTexts(blocks);
+    expect(sections).toHaveLength(1);
+    const continuation = sections[0];
+
+    // Body + continuation reassemble the full message with nothing repeated
+    // and nothing lost — the guardian reads each word exactly once.
+    const bodyWords = body.replace(/ ↓$/, "").split(" ");
+    const continuationWords = continuation.replace(/^… /, "").split(" ");
+    expect([...bodyWords, ...continuationWords].join(" ")).toBe(message);
+  });
+
+  test("split lands on a word boundary", () => {
+    const message = `${"a".repeat(190)} ${"b".repeat(60)}`;
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload(),
+      message,
+    );
+    expect(text(card(blocks).body)).toBe(`${"a".repeat(190)} ↓`);
+    expect(sectionTexts(blocks)[0]).toBe(`… ${"b".repeat(60)}`);
+  });
+
+  test("Slack DM source reference renders a source context block with permalink", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload({
+        channel: "slack",
+        chatId: "D01XYZ",
+        isSlackDm: true,
+        permalink: "https://slack.com/archives/D01XYZ/p1700000000000100",
+      }),
+      "msg",
+    );
+    expect(contextTexts(blocks)).toContain(
+      "Source: Slack — Direct message · <https://slack.com/archives/D01XYZ/p1700000000000100|View message>",
+    );
+  });
+
+  test("Slack channel source renders a channel mention with permalink", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload({
+        channel: "slack",
+        chatId: "C01ABC",
+        isSlackDm: false,
+        permalink:
+          "https://slack.com/archives/C01ABC/p1700000001000200?thread_ts=1700000000.000100&cid=C01ABC",
+      }),
+      "msg",
+    );
+    expect(contextTexts(blocks)).toContain(
+      "Source: Slack — <#C01ABC> · <https://slack.com/archives/C01ABC/p1700000001000200?thread_ts=1700000000.000100&cid=C01ABC|View message>",
+    );
+  });
+
+  test("a non-Slack source with a link renders a generic source line", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload({
+        channel: "discord",
+        chatId: "chat-123",
+        isSlackDm: false,
+        permalink: "https://example.com/messages/42",
+      }),
+      "msg",
+    );
+    expect(contextTexts(blocks)).toContain(
+      "Source: discord · <https://example.com/messages/42|View message>",
+    );
+  });
+
+  test("no source context block without a source reference", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload(),
+      "msg",
+    );
+    expect(contextTexts(blocks).some((t) => t.startsWith("Source:"))).toBe(
+      false,
+    );
+  });
+
+  test("no source context block for a non-Slack source without a link", () => {
+    const blocks = buildApprovalNotificationBlocks(
+      buildToolApprovalPayload({
+        channel: "telegram",
+        chatId: "12345",
+        isSlackDm: false,
+      }),
+      "msg",
+    );
+    expect(contextTexts(blocks).some((t) => t.startsWith("Source:"))).toBe(
+      false,
+    );
   });
 });

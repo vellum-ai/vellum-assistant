@@ -14,6 +14,7 @@ import { motion, useReducedMotion } from "motion/react";
 
 import { OnboardingCoin } from "@/domains/onboarding/components/onboarding-coin";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
+import { useOnboardingStageSize } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
 import { useOnboardingTone } from "@/domains/onboarding/onboarding-tone";
 
 interface IntegrationStepProps {
@@ -38,6 +39,7 @@ export function IntegrationStep({
 }: IntegrationStepProps) {
   const reduce = useReducedMotion();
   const tone = useOnboardingTone();
+  const { h: vh } = useOnboardingStageSize();
   const [claiming, setClaiming] = useState(false);
 
   function handleClaim() {
@@ -51,7 +53,6 @@ export function IntegrationStep({
     window.setTimeout(onBumpEyes, DROP * 1000);
   }
 
-  const vh = typeof window === "undefined" ? 800 : window.innerHeight;
   const dropY = vh * 0.42; // down to the eyes
   const apexY = -vh * 0.08; // bumped just a little above the start
   const fallY = vh * 0.9; // falls away off the bottom
@@ -60,17 +61,17 @@ export function IntegrationStep({
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
       <OnboardingTopBar onBack={onBack} onNext={onForward} />
 
-      <div className="absolute left-1/2 top-[26%] flex -translate-x-1/2 flex-col items-center gap-3 px-6 text-center">
+      <div className="absolute left-1/2 top-[26%] flex w-full max-w-xl -translate-x-1/2 flex-col items-center gap-3 px-6 text-center">
         <h1
-          className="text-[2.6rem] leading-none"
+          className="text-[2.6rem] leading-[1.1] max-md:max-w-[80vw]"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          Here are some free credits to get started
+          Here are some free credits<br className="max-md:hidden" /> to get started.
         </h1>
 
         {/* Coin — drops to the eyes, gets bumped up, then falls away (2D flight
             here) while the coin spins in its own 3D context (`spinning`). */}
-        <div className="mt-8 flex flex-col items-center gap-4">
+        <div className="mt-10 flex flex-col items-center gap-4">
           <motion.div
             animate={
               claiming && !reduce
@@ -101,8 +102,9 @@ export function IntegrationStep({
           <button
             type="button"
             onClick={handleClaim}
-            className="mt-6 flex h-11 w-[234px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
+            className="flex cursor-pointer h-11 w-[234px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97]"
             style={{
+              marginTop: Math.round(24 + vh * 0.05),
               backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
               color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
             }}

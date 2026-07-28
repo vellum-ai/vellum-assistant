@@ -19,7 +19,7 @@ import {
 import type { ConversationCandidateSet } from "../notifications/conversation-candidates.js";
 import { composeFallbackCopy } from "../notifications/copy-composer.js";
 import {
-  enforceGuardianCallConversationAffinity,
+  enforceGuardianRequestConversationAffinity,
   validateConversationActions,
 } from "../notifications/decision-engine.js";
 import {
@@ -278,8 +278,8 @@ describe("notification decision strategy", () => {
       const copy = composeFallbackCopy(signal, channels);
       expect(copy.vellum).toBeDefined();
       expect(copy.vellum!.body).toContain("D4E5F6");
-      expect(copy.vellum!.body).toContain("approve");
-      expect(copy.vellum!.body).toContain("reject");
+      expect(copy.vellum!.body).toContain("trust");
+      expect(copy.vellum!.body).toContain("block");
     });
 
     test("ingress.access_request template includes invite flow instruction", () => {
@@ -709,8 +709,19 @@ describe("notification decision strategy", () => {
   describe("access-request instruction detection", () => {
     test("detects complete access-request instructions with full directive patterns", () => {
       const text =
-        'Alice wants access.\nReply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
+        'Alice wants access.\nReply "A1B2C3 verify" to send them a verification code, "A1B2C3 trust" to trust them without one, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(true);
+    });
+
+    test("does not require the verify directive when the handshake is not offered", () => {
+      const text =
+        'Alice wants access.\nReply "A1B2C3 trust" to trust them, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(false);
+      expect(
+        hasAccessRequestInstructions(text, "A1B2C3", {
+          handshakeOffered: false,
+        }),
+      ).toBe(true);
     });
 
     test("fails when request code is missing", () => {
@@ -732,7 +743,7 @@ describe("notification decision strategy", () => {
 
     test("is case-insensitive for request code matching", () => {
       const text =
-        'Reply "a1b2c3 approve" to grant access or "a1b2c3 reject" to deny.\nReply "open invite flow" to start.';
+        'Reply "a1b2c3 verify" to send a code, "a1b2c3 trust" to trust them, "a1b2c3 reject" to leave them unverified, or "a1b2c3 block" to block them.\nReply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(true);
     });
 
@@ -788,7 +799,7 @@ describe("notification decision strategy", () => {
 
     test("accepts directives at the start of text (no preceding newline needed)", () => {
       const text =
-        'Reply "A1B2C3 approve" to grant or "A1B2C3 reject" to deny. Reply "open invite flow" to start.';
+        'Reply "A1B2C3 verify" to send a code, "A1B2C3 trust" to trust, "A1B2C3 reject" to leave unverified, or "A1B2C3 block" to block. Reply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(true);
     });
 
@@ -857,8 +868,11 @@ describe("notification decision strategy", () => {
         previousMemberStatus: "revoked",
       });
       expect(text).toContain("Alice");
-      expect(text).toContain("D4E5F6 approve");
+      // Telegram carries no workspace identity — the handshake leads.
+      expect(text).toContain("D4E5F6 verify");
+      expect(text).toContain("D4E5F6 trust");
       expect(text).toContain("D4E5F6 reject");
+      expect(text).toContain("D4E5F6 block");
       expect(text).toContain("open invite flow");
       expect(text).toContain("previously revoked");
     });
@@ -869,8 +883,43 @@ describe("notification decision strategy", () => {
         requestCode: "A1B2C3",
       });
       expect(text).not.toContain("revoked");
-      expect(text).toContain("A1B2C3 approve");
+      expect(text).toContain("A1B2C3 trust");
       expect(text).toContain("open invite flow");
+    });
+
+    test("workspace-member contract omits the verify directive", () => {
+      const text = buildAccessRequestContractText({
+        senderIdentifier: "Alice",
+        requestCode: "A1B2C3",
+        sourceChannel: "slack",
+        isStranger: false,
+        isRestricted: false,
+      });
+      expect(text).not.toContain("A1B2C3 verify");
+      expect(text).toContain("A1B2C3 trust");
+      expect(text).toContain("A1B2C3 block");
+    });
+
+    test("slack contract with unknown signals keeps the verify directive (fail-safe)", () => {
+      const text = buildAccessRequestContractText({
+        senderIdentifier: "Alice",
+        requestCode: "A1B2C3",
+        sourceChannel: "slack",
+      });
+      expect(text).toContain("A1B2C3 verify");
+    });
+
+    test("bot contract never offers the code option", () => {
+      const text = buildAccessRequestContractText({
+        senderIdentifier: "Shard",
+        requestCode: "A1B2C3",
+        sourceChannel: "slack",
+        isBot: true,
+        isStranger: true,
+      });
+      expect(text).not.toContain("A1B2C3 verify");
+      expect(text).toContain("A1B2C3 trust");
+      expect(text).toContain("code verification isn't possible");
     });
 
     test("builds contract without decision directive when no request code", () => {
@@ -891,14 +940,14 @@ describe("notification decision strategy", () => {
       });
       expect(text).not.toContain("\n\n\n"); // no triple newlines from injected newlines
       expect(text).not.toContain("\x00");
-      expect(text).toContain("A1B2C3 approve");
+      expect(text).toContain("A1B2C3 verify");
       expect(text).toContain("open invite flow");
     });
   });
 
-  // -- Guardian call conversation affinity enforcement --------------------------------
+  // -- Guardian request conversation affinity enforcement -----------------------------
 
-  describe("guardian call conversation affinity enforcement", () => {
+  describe("guardian request conversation affinity enforcement", () => {
     function makeDecision(
       overrides?: Partial<NotificationDecision>,
     ): NotificationDecision {
@@ -930,7 +979,10 @@ describe("notification decision strategy", () => {
         },
       });
 
-      const result = enforceGuardianCallConversationAffinity(decision, signal);
+      const result = enforceGuardianRequestConversationAffinity(
+        decision,
+        signal,
+      );
       expect(result.conversationActions?.vellum).toEqual({
         action: "start_new",
       });
@@ -955,7 +1007,10 @@ describe("notification decision strategy", () => {
         conversationAffinityHint: { vellum: "conv-123" },
       });
 
-      const result = enforceGuardianCallConversationAffinity(decision, signal);
+      const result = enforceGuardianRequestConversationAffinity(
+        decision,
+        signal,
+      );
       // Should remain unchanged — the affinity hint takes precedence
       expect(result.conversationActions?.vellum).toEqual({
         action: "reuse_existing",
@@ -974,15 +1029,22 @@ describe("notification decision strategy", () => {
         contextPayload: { message: "Take out the trash" },
       });
 
-      const result = enforceGuardianCallConversationAffinity(decision, signal);
+      const result = enforceGuardianRequestConversationAffinity(
+        decision,
+        signal,
+      );
       expect(result.conversationActions?.vellum).toEqual({
         action: "reuse_existing",
         conversationId: "conv-456",
       });
     });
 
-    test("guardian.question without callSessionId is not affected", () => {
-      const decision = makeDecision();
+    test("guardian.question without callSessionId and no hint still forces start_new", () => {
+      const decision = makeDecision({
+        conversationActions: {
+          vellum: { action: "reuse_existing", conversationId: "conv-catchall" },
+        },
+      });
       const signal = makeSignal({
         sourceEventName: "guardian.question",
         contextPayload: {
@@ -994,9 +1056,100 @@ describe("notification decision strategy", () => {
         },
       });
 
-      const result = enforceGuardianCallConversationAffinity(decision, signal);
-      // No callSessionId → no enforcement
-      expect(result.conversationActions).toBeUndefined();
+      const result = enforceGuardianRequestConversationAffinity(
+        decision,
+        signal,
+      );
+      // Un-pinned guardian requests must never reuse an LLM-chosen conversation
+      expect(result.conversationActions?.vellum).toEqual({
+        action: "start_new",
+      });
+    });
+
+    test("ingress.access_request without hint forces start_new over LLM reuse", () => {
+      const decision = makeDecision({
+        conversationActions: {
+          vellum: { action: "reuse_existing", conversationId: "conv-catchall" },
+        },
+      });
+      const signal = makeSignal({
+        sourceEventName: "ingress.access_request",
+        contextPayload: {
+          requestId: "access-req-1",
+          senderIdentifier: "Alice",
+        },
+      });
+
+      const result = enforceGuardianRequestConversationAffinity(
+        decision,
+        signal,
+      );
+      expect(result.conversationActions?.vellum).toEqual({
+        action: "start_new",
+      });
+    });
+
+    test("ingress.access_request with affinity hint is left to affinity enforcement", () => {
+      const decision = makeDecision({
+        conversationActions: {
+          vellum: { action: "reuse_existing", conversationId: "conv-origin" },
+        },
+      });
+      const signal = makeSignal({
+        sourceEventName: "ingress.access_request",
+        contextPayload: {
+          requestId: "access-req-2",
+          senderIdentifier: "Bob",
+        },
+        conversationAffinityHint: { vellum: "conv-origin" },
+      });
+
+      const result = enforceGuardianRequestConversationAffinity(
+        decision,
+        signal,
+      );
+      expect(result.conversationActions?.vellum).toEqual({
+        action: "reuse_existing",
+        conversationId: "conv-origin",
+      });
+    });
+
+    test("two unrelated un-pinned guardian requests never share a reuse target", () => {
+      // Simulates the LUM-2870 catch-all: the LLM offers the same recent
+      // guardian conversation as a reuse candidate for two unrelated
+      // requests. The guard must force each to start its own conversation.
+      const llmDecisionForRequest = () =>
+        makeDecision({
+          conversationActions: {
+            vellum: {
+              action: "reuse_existing",
+              conversationId: "conv-catchall",
+            },
+          },
+        });
+
+      const accessRequest = makeSignal({
+        sourceEventName: "ingress.access_request",
+        contextPayload: { requestId: "access-req-3" },
+      });
+      const toolGrant = makeSignal({
+        sourceEventName: "guardian.question",
+        contextPayload: {
+          requestId: "tool-grant-9",
+          requestKind: "tool_grant_request",
+          toolName: "host_bash",
+        },
+      });
+
+      for (const signal of [accessRequest, toolGrant]) {
+        const result = enforceGuardianRequestConversationAffinity(
+          llmDecisionForRequest(),
+          signal,
+        );
+        expect(result.conversationActions?.vellum).toEqual({
+          action: "start_new",
+        });
+      }
     });
   });
 });

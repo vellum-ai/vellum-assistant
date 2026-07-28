@@ -1,8 +1,14 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import type {
   EventTargeting,
   ReplaySubscriber,
@@ -11,16 +17,18 @@ import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
   _simulateRestartForTesting,
+  disableStreamSeqStamping,
+  floorSeqAbove,
   getCurrentSeq,
-  getPersistedSeq,
   getReplayWindow,
-  recordPersistedSeq,
   stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
 
 const CONV = "conv_test";
 
-function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+function mkEvent(
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
   const conversationId =
     "conversationId" in overrides ? overrides.conversationId : CONV;
   return {
@@ -33,7 +41,7 @@ function mkEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
       text: "x",
     },
     ...overrides,
-  } as AssistantEvent;
+  } as AssistantEventEnvelope;
 }
 
 describe("assistant-stream-state", () => {
@@ -136,7 +144,9 @@ describe("assistant-stream-state", () => {
 
   describe("ring buffer eviction", () => {
     test("evicts oldest entries past the 200-event count cap", () => {
-      for (let i = 0; i < 250; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 250; i++) {
+        stampAndBuffer(mkEvent());
+      }
       const peek = _peekStreamForTesting();
       expect(peek.ringLength).toBe(200);
       // Newest is 250, oldest should be 51 (250 - 200 + 1)
@@ -206,7 +216,9 @@ describe("assistant-stream-state", () => {
 
     test("returns null when lastSeenSeq is older than oldest buffered entry", () => {
       // Force eviction by pushing past the count cap.
-      for (let i = 0; i < 250; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 250; i++) {
+        stampAndBuffer(mkEvent());
+      }
       const peek = _peekStreamForTesting();
       expect(peek.oldestSeq).toBe(51);
       // Client claims to have last seen seq=10 — that's far below oldest.
@@ -571,78 +583,107 @@ describe("assistant-stream-state", () => {
     });
   });
 
-  describe("persisted seq", () => {
-    test("getPersistedSeq is null for an unknown conversation", () => {
-      expect(getPersistedSeq("conv_unknown")).toBeNull();
-    });
+  // Per-conversation persisted seq now lives on the `conversations.seq`
+  // column (see conversation-crud `getConversationPersistedSeq` /
+  // `recordConversationPersistedSeq`); its tests live with that module.
 
-    test("records and retrieves a per-conversation value", () => {
-      recordPersistedSeq("conv_a", 7);
-      expect(getPersistedSeq("conv_a")).toBe(7);
-      expect(getPersistedSeq("conv_b")).toBeNull();
-    });
+  describe("seq re-issue guards", () => {
+    const reservationPath = () =>
+      join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json");
 
-    test("tracks conversations independently", () => {
-      recordPersistedSeq("conv_a", 3);
-      recordPersistedSeq("conv_b", 9);
-      expect(getPersistedSeq("conv_a")).toBe(3);
-      expect(getPersistedSeq("conv_b")).toBe(9);
-    });
+    test("reservation writes are raise-only: a higher on-disk ceiling is adopted, not overwritten", () => {
+      // GIVEN this process reserved 1..1024 and another writer then
+      // persisted a higher ceiling
+      stampAndBuffer(mkEvent());
+      writeFileSync(
+        reservationPath(),
+        JSON.stringify({ reservedSeqCeiling: 5000 }),
+      );
 
-    test("advances monotonically and never regresses", () => {
-      recordPersistedSeq("conv_a", 5);
-      recordPersistedSeq("conv_a", 12);
-      expect(getPersistedSeq("conv_a")).toBe(12);
-
-      // A lower seq (e.g. an out-of-order async commit) is clamped.
-      recordPersistedSeq("conv_a", 8);
-      expect(getPersistedSeq("conv_a")).toBe(12);
-    });
-
-    test("ignores non-positive and non-finite seq values", () => {
-      recordPersistedSeq("conv_a", 0);
-      recordPersistedSeq("conv_a", -3);
-      recordPersistedSeq("conv_a", Number.NaN);
-      recordPersistedSeq("conv_a", Number.POSITIVE_INFINITY);
-      expect(getPersistedSeq("conv_a")).toBeNull();
-    });
-
-    test("is cleared by reset", () => {
-      recordPersistedSeq("conv_a", 4);
-      _resetStreamStateForTesting();
-      expect(getPersistedSeq("conv_a")).toBeNull();
-    });
-
-    test("evicts the least-recently-recorded conversation past the cap", () => {
-      // The map is LRU-bounded at 1024 conversations. Fill to the cap,
-      // then one more insert evicts the oldest key.
-      const CAP = 1024;
-      for (let i = 0; i < CAP; i++) {
-        recordPersistedSeq(`conv_${i}`, i + 1);
+      // WHEN the counter crosses its in-memory ceiling and re-reserves
+      for (let i = 0; i < 1023; i++) {
+        stampAndBuffer(mkEvent());
       }
-      // All present at the cap.
-      expect(getPersistedSeq("conv_0")).toBe(1);
-      expect(getPersistedSeq(`conv_${CAP - 1}`)).toBe(CAP);
+      const crossing = mkEvent();
+      stampAndBuffer(crossing);
 
-      // One more distinct conversation evicts the oldest (conv_0).
-      recordPersistedSeq("conv_overflow", 9999);
-      expect(getPersistedSeq("conv_0")).toBeNull();
-      expect(getPersistedSeq("conv_1")).toBe(2);
-      expect(getPersistedSeq("conv_overflow")).toBe(9999);
+      // THEN issuance jumps above the on-disk ceiling instead of
+      // regressing the file below seqs the other writer may have issued
+      expect(crossing.seq).toBe(5001);
+      const persisted = JSON.parse(readFileSync(reservationPath(), "utf8")) as {
+        reservedSeqCeiling: number;
+      };
+      expect(persisted.reservedSeqCeiling).toBeGreaterThan(5000);
     });
 
-    test("re-recording refreshes recency so a kept key is not evicted first", () => {
-      const CAP = 1024;
-      for (let i = 0; i < CAP; i++) {
-        recordPersistedSeq(`conv_${i}`, i + 1);
-      }
-      // Touch the oldest key so it moves to the most-recent end.
-      recordPersistedSeq("conv_0", 5000);
+    test("floorSeqAbove raises the counter above a persisted anchor and the floor survives restart", () => {
+      stampAndBuffer(mkEvent());
 
-      // The next insert now evicts conv_1 (the new oldest), not conv_0.
-      recordPersistedSeq("conv_overflow", 9999);
-      expect(getPersistedSeq("conv_0")).toBe(5000);
-      expect(getPersistedSeq("conv_1")).toBeNull();
+      floorSeqAbove(907779);
+
+      // getCurrentSeq now claims exactly through the floored anchor
+      expect(getCurrentSeq()).toBe(907779);
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(907780);
+
+      // The floor is persisted: a restart resumes above it
+      _simulateRestartForTesting();
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(b.seq).toBeGreaterThan(907780);
+    });
+
+    test("floorSeqAbove at or below the current counter is a no-op", () => {
+      stampAndBuffer(mkEvent());
+      stampAndBuffer(mkEvent());
+
+      floorSeqAbove(1);
+      floorSeqAbove(2);
+      floorSeqAbove(Number.NaN);
+      floorSeqAbove(Number.POSITIVE_INFINITY);
+
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(3);
+    });
+
+    test("a counter that outran failed reservation writes cannot re-issue anchored seqs once floored", () => {
+      /**
+       * Incident shape (2026-07-18): reservation writes fail (e.g. disk
+       * pressure) while the counter keeps issuing; anchors served to
+       * clients then exceed the on-disk ceiling, and a restarted counter
+       * resumes below them. The startup floor repairs the resume point.
+       */
+      // GIVEN a process whose reservation writes start failing (the
+      // reservation path is occupied by a directory, so the atomic
+      // rename fails) while stamping continues past the last persisted
+      // ceiling
+      stampAndBuffer(mkEvent());
+      rmSync(reservationPath(), { force: true });
+      mkdirSync(reservationPath(), { recursive: true });
+      for (let i = 0; i < 1200; i++) {
+        stampAndBuffer(mkEvent());
+      }
+      const issuedMax = getCurrentSeq();
+      expect(issuedMax).toBeGreaterThan(1024);
+
+      // AND only stale reservation state survives to the next boot
+      rmSync(reservationPath(), { recursive: true, force: true });
+      writeFileSync(
+        reservationPath(),
+        JSON.stringify({ reservedSeqCeiling: 1024 }),
+      );
+      _simulateRestartForTesting();
+
+      // WHEN startup floors the counter at the highest persisted anchor
+      floorSeqAbove(issuedMax);
+
+      // THEN issuance resumes strictly above every seq the previous
+      // process handed out
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBeGreaterThan(issuedMax);
     });
   });
 
@@ -663,6 +704,24 @@ describe("assistant-stream-state", () => {
       expect(b.seq).toBe(1025);
     });
 
+    test("getCurrentSeq reports the persisted ceiling before the first stamp of a process", () => {
+      // GIVEN a process that stamped events (reserving a seq block on disk)
+      stampAndBuffer(mkEvent());
+
+      // WHEN the daemon restarts and nothing has been stamped yet
+      _simulateRestartForTesting();
+
+      // THEN the high-water read loads the reservation instead of reporting
+      // 0 — callers seeding baselines at creation (conversation rows) must
+      // never treat a warm workspace as a cold start.
+      expect(getCurrentSeq()).toBe(1024);
+
+      // AND the next stamped event still lands strictly above it.
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(b.seq).toBe(1025);
+    });
+
     test("repeated restarts keep advancing monotonically", () => {
       stampAndBuffer(mkEvent());
       _simulateRestartForTesting();
@@ -677,7 +736,9 @@ describe("assistant-stream-state", () => {
 
     test("stamping within a reserved block does not advance the persisted ceiling", () => {
       // GIVEN many stamps within one block
-      for (let i = 0; i < 100; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 100; i++) {
+        stampAndBuffer(mkEvent());
+      }
 
       // WHEN the daemon restarts
       _simulateRestartForTesting();
@@ -731,7 +792,9 @@ describe("assistant-stream-state", () => {
 
       // Stamp past the 200-event ring cap so the restarted process's
       // earliest events are genuinely evicted.
-      for (let i = 0; i < 205; i++) stampAndBuffer(mkEvent());
+      for (let i = 0; i < 205; i++) {
+        stampAndBuffer(mkEvent());
+      }
 
       // The gap now includes evicted post-restart events, so replay must
       // signal the snapshot fallback.
@@ -743,6 +806,50 @@ describe("assistant-stream-state", () => {
         join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json"),
         { force: true },
       );
+      _simulateRestartForTesting();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
+    });
+  });
+
+  describe("disableStreamSeqStamping", () => {
+    const reservationPath = () =>
+      join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json");
+
+    test("stamping is a complete no-op in a disabled process", () => {
+      disableStreamSeqStamping();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBeUndefined();
+      expect(_peekStreamForTesting().ringLength).toBe(0);
+      expect(existsSync(reservationPath())).toBe(false);
+    });
+
+    test("getCurrentSeq reports no honest position in a disabled process", () => {
+      // A reservation exists on disk from an authoritative process; a
+      // disabled process must not adopt it as a reportable position.
+      stampAndBuffer(mkEvent());
+      disableStreamSeqStamping();
+      expect(getCurrentSeq()).toBe(0);
+    });
+
+    test("floorSeqAbove leaves the reservation file untouched in a disabled process", () => {
+      disableStreamSeqStamping();
+      floorSeqAbove(5_000);
+      expect(existsSync(reservationPath())).toBe(false);
+    });
+
+    test("_resetStreamStateForTesting restores stamping", () => {
+      disableStreamSeqStamping();
+      _resetStreamStateForTesting();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
+    });
+
+    test("_simulateRestartForTesting restores stamping (a fresh process defaults authoritative)", () => {
+      disableStreamSeqStamping();
       _simulateRestartForTesting();
       const a = mkEvent();
       stampAndBuffer(a);

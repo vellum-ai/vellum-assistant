@@ -422,7 +422,9 @@ function retireMiddleware(
         return;
       }
 
-      runRetire(invocation, assistantId).then((result) => {
+      runRetire(invocation, assistantId, {
+        platformToken: getDevPlatformToken() ?? undefined,
+      }).then((result) => {
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
         res.end(

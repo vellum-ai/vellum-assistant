@@ -1,13 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // The scheduler's fresh-bootstrap path routes through `runBackgroundJob`,
 // which invokes the real `processMessage` from `daemon/process-message.ts`
 // instead of the test-injected callback. To keep these tests focused on
@@ -43,8 +35,29 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+// The scheduler's conversation-reuse path dispatches through `processMessage`;
+// route it to the same per-test delegate the runner mock uses.
+let processMessageImpl: (
+  conversationId: string,
+  message: string,
+) => Promise<unknown> = async () => {};
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: (conversationId: string, message: string) =>
+    processMessageImpl(conversationId, message),
+}));
+
+// Notify-mode firings dispatch through `emitNotificationSignal`; a per-test
+// delegate lets a scenario make the notification throw to drive failure paths.
+let emitNotificationSignalImpl: (
+  payload: unknown,
+) => Promise<unknown> = async () => {};
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: (payload: unknown) =>
+    emitNotificationSignalImpl(payload),
+}));
+
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { applyRetryDecision, decideRetry } from "../schedule/retry-policy.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import {
@@ -58,28 +71,42 @@ import {
   scheduleRetry,
 } from "../schedule/schedule-store.js";
 import type { SchedulerHandle } from "../schedule/scheduler.js";
-import { startScheduler as startSchedulerReal } from "../schedule/scheduler.js";
+import {
+  runDueSchedulesOnce,
+  runScheduleDueWorkOnce,
+} from "../schedule/scheduler.js";
 import type { ScheduleMessageProcessor } from "../schedule/scheduler-types.js";
 
 /**
- * Wrap `startScheduler` so the same `processMessage` the scheduler holds for
- * its conversation-reuse path is also handed to the mocked
- * `runBackgroundJob` for the fresh-bootstrap path. The two paths in scheduler
- * production code dispatch through different mechanisms; tests exercise both
- * deterministically through this single callback.
+ * Wire a single per-test `processMessage` callback into both schedule dispatch
+ * paths — the conversation-reuse path (mocked `daemon/process-message`) and the
+ * fresh-bootstrap path (mocked `runBackgroundJob`) — and return a handle that
+ * drives schedule execution directly via `runDueSchedulesOnce` (the schedule
+ * worker's path). Avoids spawning the real worker process in tests while
+ * exercising the exact execution + retry logic.
  */
 function startScheduler(
   processMessage: ScheduleMessageProcessor,
-  notifyScheduleOneShot: Parameters<typeof startSchedulerReal>[1],
-  options?: Parameters<typeof startSchedulerReal>[2],
+  _notifyScheduleOneShot?: unknown,
+  _options?: unknown,
 ): SchedulerHandle {
-  injectedProcessMessageForRunner = async (
-    conversationId: string,
-    message: string,
-  ) => {
+  const dispatch = async (conversationId: string, message: string) => {
     await processMessage(conversationId, message, { trustClass: "guardian" });
   };
-  return startSchedulerReal(processMessage, notifyScheduleOneShot, options);
+  processMessageImpl = dispatch;
+  injectedProcessMessageForRunner = dispatch;
+  // Mimic the real scheduler's immediate startup tick that fires due
+  // schedules once; tests await a short delay for it to settle before
+  // asserting or driving further runs via `runOnce`.
+  void runDueSchedulesOnce();
+  return {
+    async runOnce(): Promise<number> {
+      const r = await runDueSchedulesOnce();
+      return r.completed + r.failed + r.skipped;
+    },
+    runDueWorkOnce: (options) => runScheduleDueWorkOnce(options),
+    stop(): void {},
+  };
 }
 
 await initializeDb();
@@ -102,13 +129,14 @@ function forceScheduleDue(scheduleId: string): void {
 
 describe("schedule retry store", () => {
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("scheduleRetry reverts one-shot from firing to active with future nextRunAt", () => {
-    const schedule = createSchedule({
+  test("scheduleRetry reverts one-shot from firing to active with future nextRunAt", async () => {
+    const schedule = await createSchedule({
       name: "One-shot retry",
       expression: null,
       nextRunAt: Date.now() - 1000,
@@ -122,15 +150,15 @@ describe("schedule retry store", () => {
     ]);
 
     const futureTime = Date.now() + 120_000;
-    scheduleRetry(schedule.id, futureTime);
+    await scheduleRetry(schedule.id, futureTime);
 
     const updated = getSchedule(schedule.id)!;
     expect(updated.status).toBe("active");
     expect(updated.nextRunAt).toBe(futureTime);
   });
 
-  test("scheduleRetry sets nextRunAt for recurring schedule without changing status", () => {
-    const schedule = createSchedule({
+  test("scheduleRetry sets nextRunAt for recurring schedule without changing status", async () => {
+    const schedule = await createSchedule({
       name: "Recurring retry",
       cronExpression: "0 * * * *",
       message: "test",
@@ -139,7 +167,7 @@ describe("schedule retry store", () => {
 
     const originalStatus = getSchedule(schedule.id)!.status;
     const futureTime = Date.now() + 120_000;
-    scheduleRetry(schedule.id, futureTime);
+    await scheduleRetry(schedule.id, futureTime);
 
     const updated = getSchedule(schedule.id)!;
     expect(updated.nextRunAt).toBe(futureTime);
@@ -147,8 +175,8 @@ describe("schedule retry store", () => {
     expect(updated.status).toBe(originalStatus);
   });
 
-  test("resetRetryCount resets retryCount to 0 after error", () => {
-    const schedule = createSchedule({
+  test("resetRetryCount resets retryCount to 0 after error", async () => {
+    const schedule = await createSchedule({
       name: "Reset test",
       cronExpression: "0 * * * *",
       message: "test",
@@ -156,20 +184,20 @@ describe("schedule retry store", () => {
     });
 
     // Simulate an error run which increments retryCount
-    const runId = createScheduleRun(schedule.id, "test-conv");
-    completeScheduleRun(runId, { status: "error", error: "boom" });
+    const runId = await createScheduleRun(schedule.id, "test-conv");
+    await completeScheduleRun(runId, { status: "error", error: "boom" });
 
     const afterError = getSchedule(schedule.id)!;
     expect(afterError.retryCount).toBe(1);
 
-    resetRetryCount(schedule.id);
+    await resetRetryCount(schedule.id);
 
     const afterReset = getSchedule(schedule.id)!;
     expect(afterReset.retryCount).toBe(0);
   });
 
-  test("createSchedule with custom maxRetries and retryBackoffMs", () => {
-    const schedule = createSchedule({
+  test("createSchedule with custom maxRetries and retryBackoffMs", async () => {
+    const schedule = await createSchedule({
       name: "Custom retry config",
       cronExpression: "0 * * * *",
       message: "test",
@@ -183,8 +211,8 @@ describe("schedule retry store", () => {
     expect(retrieved.retryBackoffMs).toBe(30000);
   });
 
-  test("createSchedule with defaults has maxRetries=3 and retryBackoffMs=60000", () => {
-    const schedule = createSchedule({
+  test("createSchedule with defaults has maxRetries=3 and retryBackoffMs=60000", async () => {
+    const schedule = await createSchedule({
       name: "Default retry config",
       cronExpression: "0 * * * *",
       message: "test",
@@ -203,6 +231,7 @@ describe("scheduler retry integration", () => {
   let scheduler: SchedulerHandle;
 
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -213,7 +242,7 @@ describe("scheduler retry integration", () => {
   });
 
   test("execute mode failure retries with backoff", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Failing hourly",
       cronExpression: "0 * * * *",
       message: "do work",
@@ -249,7 +278,7 @@ describe("scheduler retry integration", () => {
   });
 
   test("execute mode retry success resets retryCount", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Flaky hourly",
       cronExpression: "0 * * * *",
       message: "do work",
@@ -283,7 +312,7 @@ describe("scheduler retry integration", () => {
   });
 
   test("execute mode exhaustion resets retryCount and resumes cadence", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Exhaust hourly",
       cronExpression: "0 * * * *",
       message: "do work",
@@ -320,7 +349,7 @@ describe("scheduler retry integration", () => {
   });
 
   test("one-shot failure retries with backoff", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot failing",
       expression: null,
       nextRunAt: Date.now() - 1000,
@@ -347,7 +376,7 @@ describe("scheduler retry integration", () => {
   });
 
   test("one-shot exhaustion permanently cancels", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "One-shot exhaust",
       expression: null,
       nextRunAt: Date.now() - 1000,
@@ -379,7 +408,7 @@ describe("scheduler retry integration", () => {
   });
 
   test("notify one-shot failure creates schedule run", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Notify one-shot",
       expression: null,
       nextRunAt: Date.now() - 1000,
@@ -389,11 +418,11 @@ describe("scheduler retry integration", () => {
       maxRetries: 2,
     });
 
-    const notifyScheduleOneShot = async () => {
+    emitNotificationSignalImpl = async () => {
       throw new Error("notify failed");
     };
 
-    scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
+    scheduler = startScheduler(async () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -406,7 +435,7 @@ describe("scheduler retry integration", () => {
   });
 
   test("recurring schedule retry blocks normal cadence", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Cadence blocking",
       cronExpression: "0 * * * *",
       message: "do work",
@@ -439,13 +468,14 @@ describe("scheduler retry integration", () => {
 
 describe("crash recovery", () => {
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("recovers stale firing one-shot", () => {
-    const schedule = createSchedule({
+  test("recovers stale firing one-shot", async () => {
+    const schedule = await createSchedule({
       name: "Stale one-shot",
       expression: null,
       nextRunAt: Date.now() - 60_000,
@@ -460,7 +490,7 @@ describe("crash recovery", () => {
       [Date.now() - 60_000, schedule.id],
     );
 
-    const recovered = recoverStaleSchedules();
+    const recovered = await recoverStaleSchedules();
     expect(recovered).toBe(1);
 
     // A schedule run should be created with error
@@ -476,8 +506,8 @@ describe("crash recovery", () => {
     expect(updated.nextRunAt).toBeGreaterThan(Date.now() - 5000);
   });
 
-  test("recovers stale running cron_run", () => {
-    const schedule = createSchedule({
+  test("recovers stale running cron_run", async () => {
+    const schedule = await createSchedule({
       name: "Stale run",
       cronExpression: "0 * * * *",
       message: "test",
@@ -485,10 +515,10 @@ describe("crash recovery", () => {
     });
 
     // Create a "running" schedule run to simulate crash
-    const runId = createScheduleRun(schedule.id, "stale-conv");
+    const runId = await createScheduleRun(schedule.id, "stale-conv");
     // The run is now in "running" status by default
 
-    const recovered = recoverStaleSchedules();
+    const recovered = await recoverStaleSchedules();
     expect(recovered).toBe(1);
 
     const runs = getScheduleRuns(schedule.id);
@@ -498,8 +528,8 @@ describe("crash recovery", () => {
     expect(recoveredRun!.error).toContain("recovered on restart");
   });
 
-  test("respects maxRetries on recovery - cancels exhausted one-shot", () => {
-    const schedule = createSchedule({
+  test("respects maxRetries on recovery - cancels exhausted one-shot", async () => {
+    const schedule = await createSchedule({
       name: "Exhausted one-shot",
       expression: null,
       nextRunAt: Date.now() - 60_000,
@@ -514,15 +544,15 @@ describe("crash recovery", () => {
       [3, Date.now() - 60_000, schedule.id],
     );
 
-    recoverStaleSchedules();
+    await recoverStaleSchedules();
 
     const updated = getSchedule(schedule.id)!;
     expect(updated.status).toBe("cancelled");
     expect(updated.enabled).toBe(false);
   });
 
-  test("idempotent - second call returns 0", () => {
-    const schedule = createSchedule({
+  test("idempotent - second call returns 0", async () => {
+    const schedule = await createSchedule({
       name: "Idempotent test",
       expression: null,
       nextRunAt: Date.now() - 60_000,
@@ -535,15 +565,15 @@ describe("crash recovery", () => {
       [Date.now() - 60_000, schedule.id],
     );
 
-    const first = recoverStaleSchedules();
+    const first = await recoverStaleSchedules();
     expect(first).toBe(1);
 
-    const second = recoverStaleSchedules();
+    const second = await recoverStaleSchedules();
     expect(second).toBe(0);
   });
 
-  test("age threshold filters recent in-flight jobs", () => {
-    const schedule = createSchedule({
+  test("age threshold filters recent in-flight jobs", async () => {
+    const schedule = await createSchedule({
       name: "Recent firing",
       expression: null,
       nextRunAt: Date.now() - 1000,
@@ -574,6 +604,7 @@ describe("scheduler-recovery equivalence", () => {
   let scheduler: SchedulerHandle;
 
   beforeEach(() => {
+    emitNotificationSignalImpl = async () => {};
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -585,7 +616,7 @@ describe("scheduler-recovery equivalence", () => {
 
   test("same retry state for identical recurring job inputs", async () => {
     // Create two identical recurring schedules
-    const scheduleA = createSchedule({
+    const scheduleA = await createSchedule({
       name: "Equiv A",
       cronExpression: "0 * * * *",
       message: "test",
@@ -594,7 +625,7 @@ describe("scheduler-recovery equivalence", () => {
       retryBackoffMs: 60000,
     });
 
-    const scheduleB = createSchedule({
+    const scheduleB = await createSchedule({
       name: "Equiv B",
       cronExpression: "0 * * * *",
       message: "test",
@@ -620,8 +651,8 @@ describe("scheduler-recovery equivalence", () => {
       scheduleB.id,
     ]);
     // Create a run and complete it with error (same as what scheduler does)
-    const runId = createScheduleRun(scheduleB.id, "recovery-conv");
-    completeScheduleRun(runId, {
+    const runId = await createScheduleRun(scheduleB.id, "recovery-conv");
+    await completeScheduleRun(runId, {
       status: "error",
       error: "Process terminated during execution (recovered on restart)",
     });
@@ -631,7 +662,7 @@ describe("scheduler-recovery equivalence", () => {
     const noopLogger = new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     });
-    applyRetryDecision({
+    await applyRetryDecision({
       job: jobB,
       isOneShot: false,
       errorMsg: "fail",
@@ -659,7 +690,7 @@ describe("scheduler-recovery equivalence", () => {
 
   test("same exhaust state for identical one-shot inputs", async () => {
     // Create two identical one-shot schedules at max retries
-    const scheduleA = createSchedule({
+    const scheduleA = await createSchedule({
       name: "Exhaust A",
       expression: null,
       nextRunAt: Date.now() - 1000,
@@ -669,7 +700,7 @@ describe("scheduler-recovery equivalence", () => {
       retryBackoffMs: 1000,
     });
 
-    const scheduleB = createSchedule({
+    const scheduleB = await createSchedule({
       name: "Exhaust B",
       expression: null,
       nextRunAt: Date.now() - 1000,
@@ -703,15 +734,15 @@ describe("scheduler-recovery equivalence", () => {
       "UPDATE cron_jobs SET status = 'firing', last_run_at = ? WHERE id = ?",
       [Date.now() - 60_000, scheduleB.id],
     );
-    const runB1 = createScheduleRun(scheduleB.id, "recovery-conv-1");
-    completeScheduleRun(runB1, { status: "error", error: "fail" });
+    const runB1 = await createScheduleRun(scheduleB.id, "recovery-conv-1");
+    await completeScheduleRun(runB1, { status: "error", error: "fail" });
     // decideRetry + apply for first failure
     const jobB1 = getSchedule(scheduleB.id)!;
     const decision1 = decideRetry(jobB1);
     const noopLogger = new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     });
-    applyRetryDecision({
+    await applyRetryDecision({
       job: jobB1,
       isOneShot: true,
       errorMsg: "fail",
@@ -734,11 +765,11 @@ describe("scheduler-recovery equivalence", () => {
       "UPDATE cron_jobs SET status = 'firing', last_run_at = ? WHERE id = ?",
       [Date.now() - 60_000, scheduleB.id],
     );
-    const runB2 = createScheduleRun(scheduleB.id, "recovery-conv-2");
-    completeScheduleRun(runB2, { status: "error", error: "fail" });
+    const runB2 = await createScheduleRun(scheduleB.id, "recovery-conv-2");
+    await completeScheduleRun(runB2, { status: "error", error: "fail" });
     const jobB2 = getSchedule(scheduleB.id)!;
     const decision2 = decideRetry(jobB2);
-    applyRetryDecision({
+    await applyRetryDecision({
       job: jobB2,
       isOneShot: true,
       errorMsg: "fail",

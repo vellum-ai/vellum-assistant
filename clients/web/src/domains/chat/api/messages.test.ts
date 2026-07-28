@@ -11,11 +11,15 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
+  fetchConversationMessages,
+  deleteQueuedMessage,
   getChatHistory,
   mapRuntimeToolCalls,
   normalizeContentBlocks,
   normalizeContentOrder,
   postChatMessage,
+  RECONCILE_LATEST_PAGE_LIMIT,
+  steerToMessage,
 } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 import type {
@@ -41,12 +45,17 @@ function wireMessage(
 // ---------------------------------------------------------------------------
 
 let capturedBody: Record<string, unknown> | null = null;
+let capturedPostOptions: Record<string, unknown> | null = null;
+let capturedDeleteOptions: Record<string, unknown> | null = null;
 let nextPostResult: { data: unknown; error: unknown; response: Response };
 const originalPost = daemonClient.post;
 const originalGet = daemonClient.get;
+const originalDelete = daemonClient.delete;
 
 beforeEach(() => {
   capturedBody = null;
+  capturedPostOptions = null;
+  capturedDeleteOptions = null;
   nextPostResult = {
     data: { accepted: true, messageId: "msg-1" },
     error: null,
@@ -54,15 +63,25 @@ beforeEach(() => {
   };
   daemonClient.post = mock(
     async (options: { body?: Record<string, unknown> }) => {
+      capturedPostOptions = options;
       capturedBody = options.body ?? null;
       return nextPostResult;
     },
   ) as typeof daemonClient.post;
+  daemonClient.delete = mock(async (options: Record<string, unknown>) => {
+    capturedDeleteOptions = options;
+    return {
+      data: { ok: true },
+      error: null,
+      response: new Response(null, { status: 200 }),
+    };
+  }) as typeof daemonClient.delete;
 });
 
 afterEach(() => {
   daemonClient.post = originalPost;
   daemonClient.get = originalGet;
+  daemonClient.delete = originalDelete;
 });
 
 // ---------------------------------------------------------------------------
@@ -71,12 +90,14 @@ afterEach(() => {
 
 describe("postChatMessage — onboarding wire format", () => {
   test("includes googleConnected and googleScopes when provided", async () => {
-    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
-      tools: [],
-      tasks: [],
-      tone: "warm",
-      googleConnected: true,
-      googleScopes: ["https://mail.google.com/"],
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      onboarding: {
+        tools: [],
+        tasks: [],
+        tone: "warm",
+        googleConnected: true,
+        googleScopes: ["https://mail.google.com/"],
+      },
     });
 
     expect(capturedBody).not.toBeNull();
@@ -88,10 +109,8 @@ describe("postChatMessage — onboarding wire format", () => {
   });
 
   test("omits googleConnected and googleScopes when not provided", async () => {
-    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
-      tools: [],
-      tasks: [],
-      tone: "grounded",
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      onboarding: { tools: [], tasks: [], tone: "grounded" },
     });
 
     const onboarding = (capturedBody as Record<string, unknown>)
@@ -112,14 +131,9 @@ describe("postChatMessage — onboarding wire format", () => {
 
 describe("postChatMessage — clientMessageId wire format", () => {
   test("sends the client nonce as the idempotency key when provided", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      undefined,
-      "nonce-123",
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      clientMessageId: "nonce-123",
+    });
 
     expect(capturedBody).not.toBeNull();
     expect((capturedBody as Record<string, unknown>).clientMessageId).toBe(
@@ -134,6 +148,138 @@ describe("postChatMessage — clientMessageId wire format", () => {
     expect(
       (capturedBody as Record<string, unknown>).clientMessageId,
     ).toBeUndefined();
+  });
+});
+
+describe("postChatMessage — enabledPlugins wire format", () => {
+  test("includes an explicit plugin selection verbatim", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: ["alpha", "zeta"],
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toEqual(["alpha", "zeta"]);
+  });
+
+  test("includes an explicit empty selection (user disabled every plugin)", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: [],
+    });
+
+    // An empty array is a genuine "no plugins for this chat" selection, not a
+    // missing one — it must reach the daemon, unlike the omitted-default case.
+    expect((capturedBody as Record<string, unknown>).enabledPlugins).toEqual(
+      [],
+    );
+  });
+
+  test("omits enabledPlugins when undefined (untouched default)", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello");
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toBeUndefined();
+  });
+
+  test("omits enabledPlugins when null", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: null,
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toBeUndefined();
+  });
+});
+
+describe("postChatMessage — bypassSecretCheck wire format", () => {
+  test("includes bypassSecretCheck: true for an explicit Send-anyway override", async () => {
+    await postChatMessage("assistant-1", "conv-key", "user-approved content", {
+      bypassSecretCheck: true,
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).bypassSecretCheck,
+    ).toBe(true);
+  });
+
+  test("omits bypassSecretCheck on an ordinary send", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello");
+
+    expect(
+      (capturedBody as Record<string, unknown>).bypassSecretCheck,
+    ).toBeUndefined();
+  });
+
+  test("omits bypassSecretCheck when explicitly false", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      bypassSecretCheck: false,
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).bypassSecretCheck,
+    ).toBeUndefined();
+  });
+});
+
+describe("queued message request context", () => {
+  test("sends conversation context in both the query and header when deleting", async () => {
+    expect(
+      await deleteQueuedMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe(true);
+
+    expect(capturedDeleteOptions?.query).toEqual({ conversationId: "conv-1" });
+    expect(capturedDeleteOptions?.headers).toEqual({
+      "X-Vellum-Conversation-Id": "conv-1",
+    });
+  });
+
+  test("sends conversation context in both the query and header when steering", async () => {
+    expect(
+      await steerToMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe("steered");
+
+    expect(capturedPostOptions?.query).toEqual({ conversationId: "conv-1" });
+    expect(capturedPostOptions?.headers).toEqual({
+      "X-Vellum-Conversation-Id": "conv-1",
+    });
+  });
+
+  test("classifies a missing queued message as not steerable", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "Queued message not found" },
+      response: new Response(null, { status: 404 }),
+    };
+
+    expect(
+      await steerToMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe("not_steerable");
+  });
+
+  test("restores queue state when the conversation stopped processing", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "Conversation is not currently processing" },
+      response: new Response(null, { status: 400 }),
+    };
+
+    expect(
+      await steerToMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe("request_failed");
+  });
+
+  test("classifies server steer failures as retryable request failures", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "Internal error" },
+      response: new Response(null, { status: 500 }),
+    };
+
+    expect(
+      await steerToMessage("assistant-1", "conv-1", "request-1"),
+    ).toBe("request_failed");
   });
 });
 
@@ -389,6 +535,53 @@ describe("getChatHistory", () => {
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });
     expect(messageText(result.messages[0])).toBe("Slack reply");
+  });
+});
+
+describe("fetchConversationMessages — request shape", () => {
+  function captureQuery(): { current: Record<string, unknown> | null } {
+    const captured: { current: Record<string, unknown> | null } = {
+      current: null,
+    };
+    daemonClient.get = mock(
+      async (options: { query?: Record<string, unknown> }) => {
+        captured.current = options.query ?? null;
+        return {
+          data: { messages: [], seq: 7 },
+          error: null,
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    ) as typeof daemonClient.get;
+    return captured;
+  }
+
+  test("downloads the full conversation when no page limit is given", async () => {
+    const captured = captureQuery();
+
+    await fetchConversationMessages("assistant-1", "conv-1");
+
+    expect(captured.current).toEqual({ conversationId: "conv-1" });
+    // Full-snapshot callers (the inspector) must not page.
+    expect(captured.current).not.toHaveProperty("page");
+    expect(captured.current).not.toHaveProperty("limit");
+  });
+
+  test("requests only the latest page when a page limit is given", async () => {
+    const captured = captureQuery();
+
+    const result = await fetchConversationMessages("assistant-1", "conv-1", {
+      latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
+    });
+
+    expect(captured.current).toEqual({
+      conversationId: "conv-1",
+      page: "latest",
+      limit: RECONCILE_LATEST_PAGE_LIMIT,
+    });
+    // The paginated response still carries the snapshot watermark the
+    // reconcile/seq callers depend on.
+    expect(result?.seq).toBe(7);
   });
 });
 

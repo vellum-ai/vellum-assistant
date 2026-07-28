@@ -1,24 +1,14 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { enqueueMemoryJob, upsertDebouncedJob } from "../memory/jobs-store.js";
-import { memoryJobs } from "../memory/schema.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  enqueueMemoryJob,
+  upsertDebouncedJob,
+} from "../persistence/jobs-store.js";
+import { memoryJobs } from "../persistence/schema/index.js";
 
 describe("upsertDebouncedJob payload refresh", () => {
   beforeAll(async () => {

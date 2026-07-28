@@ -1,27 +1,6 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
-import { ClickHouseLlmRequestLogSource } from "../memory/llm-request-log-source-clickhouse.js";
+import { ClickHouseLlmRequestLogSource } from "../persistence/llm-request-log-source-clickhouse.js";
 
 const DEFAULT_CONFIG = {
   database: "default",
@@ -106,6 +85,7 @@ describe("ClickHouseLlmRequestLogSource", () => {
       createdAt: 1778465138786,
       agentLoopExitReason: "no_tool_calls",
       callSite: "mainAgent",
+      latencyBreakdown: null,
     });
   });
 

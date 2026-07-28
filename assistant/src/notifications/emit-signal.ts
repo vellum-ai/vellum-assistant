@@ -13,12 +13,11 @@ import type { GuardianDelivery } from "@vellumai/gateway-client";
 import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
-import type { ConversationCreateType } from "../memory/conversation-crud.js";
+import type { ConversationCreateType } from "../persistence/conversation-types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { VellumAdapter } from "./adapters/macos.js";
@@ -96,22 +95,17 @@ export function getBroadcaster(): NotificationBroadcaster {
 
 /**
  * Resolve a binding-based channel's delivery endpoint (externalChatId) the
- * SAME way destination-resolver's `resolveGuardian` does: gateway match first,
- * falling back to the LOCAL contacts read on ANY per-channel no-match — gateway
- * list null (unreachable) OR no active gateway entry for this channel. The
- * local read is the transitional dual-written mirror, removed in Combo 11.
- * Keeping connectivity aligned with delivery prevents a channel being marked
- * connected but then skipped with no destination (or vice-versa).
+ * SAME way destination-resolver's `resolveGuardian` does: from the gateway
+ * guardian delivery for this channel. Keeping connectivity aligned with
+ * delivery prevents a channel being marked connected but then skipped with no
+ * destination (or vice-versa).
  */
 function resolveChannelChatId(
   guardians: GuardianDelivery[] | null,
   channelType: string,
 ): string | undefined {
   const g = guardians ? guardianForChannel(guardians, channelType) : undefined;
-  if (g) {
-    return g.externalChatId ?? undefined;
-  }
-  return findGuardianForChannel(channelType)?.channel.externalChatId ?? undefined;
+  return g?.externalChatId ?? undefined;
 }
 
 export async function getConnectedChannels(): Promise<NotificationChannel[]> {
@@ -351,6 +345,28 @@ export async function emitNotificationSignal<TEventName extends string>(
       connectedChannels,
       signal.sourceChannel,
     );
+
+    // Step 2.5c: Access-request signals carry a decisionable canonical
+    // guardian request created before this emit, and that row suppresses
+    // re-prompts for the same sender. A suppressed or vellum-less decision
+    // would strand the card with no way to re-surface it, so always deliver
+    // at least the in-app vellum card (a free local broadcast), whatever
+    // the urgency. Runs after routing-intent enforcement — a
+    // `single_channel` cap must not strip the in-app card — and before the
+    // re-persist below so the stored decision matches what is dispatched.
+    if (
+      signal.sourceEventName === "ingress.access_request" &&
+      (!decision.shouldNotify || !decision.selectedChannels.includes("vellum"))
+    ) {
+      decision = {
+        ...decision,
+        shouldNotify: true,
+        selectedChannels: decision.selectedChannels.includes("vellum")
+          ? decision.selectedChannels
+          : ["vellum", ...decision.selectedChannels],
+        reasoningSummary: `${decision.reasoningSummary} (vellum forced: decisionable access request)`,
+      };
+    }
 
     // Re-persist the decision if routing intent enforcement changed it,
     // so the stored decision row matches what is actually dispatched.

@@ -19,6 +19,7 @@ import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import { generateDirectoryScopeOptions } from "../risk/directory-scope.js";
 import {
   fileRiskClassifier,
+  isPathWithinRoot,
   type FileClassificationContext,
 } from "../risk/file-risk-classifier.js";
 import type {
@@ -46,6 +47,10 @@ const ClassifyRiskSchema = z.object({
   // Used for security escalation checks so a symlink cannot mask the real
   // target. Falls back to lexical resolution of `path` when absent.
   resolvedPath: z.string().optional(),
+  // Symlink-resolved sandbox working dir, canonicalized by the daemon. Paired
+  // with resolvedPath for the workspace-boundary check so a symlinked
+  // workspace prefix does not read as an escape.
+  resolvedWorkingDir: z.string().optional(),
   skill: z.string().optional(),
   mode: z.string().optional(),
   script: z.string().optional(),
@@ -63,6 +68,8 @@ const ClassifyRiskSchema = z.object({
       pluginsDir: z.string().optional(),
       toolsDir: z.string().optional(),
       routesDir: z.string().optional(),
+      workflowsDir: z.string().optional(),
+      monitoringDir: z.string().optional(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
     })
@@ -118,6 +125,13 @@ interface ClassificationResult {
   opaqueConstructs?: boolean;
   isComplexSyntax?: boolean;
   sandboxAutoApprove?: boolean;
+  /**
+   * Lexically-resolved path arguments from sandbox-auto-approve-eligible
+   * segments. The daemon resolves these through symlinks and re-checks
+   * against the workspace root to catch symlink-based escapes that the
+   * gateway's lexical check cannot detect.
+   */
+  sandboxPathArgs?: string[];
   directoryScopeOptions?: DirectoryScopeOption[];
   resolvedPaths?: string[];
   matchType: string;
@@ -137,33 +151,36 @@ function lookupSpec(program: string): CommandRiskSpec | undefined {
     : undefined;
 }
 
-// ── Path-within-workspace check ─────────────────────────────────────────────
-
-function isPathWithinRoot(filePath: string, root: string): boolean {
-  if (!filePath || !root) return false;
-  const normalizedRoot = root.endsWith("/") ? root : root + "/";
-  const normalizedPath = resolve(filePath);
-  return (
-    normalizedPath === root.replace(/\/$/, "") ||
-    normalizedPath.startsWith(normalizedRoot)
-  );
-}
-
 // ── Sandbox auto-approve ────────────────────────────────────────────────────
+
+interface SandboxAutoApproveResult {
+  approved: boolean;
+  /**
+   * Absolute path arguments extracted from all auto-approve-eligible segments,
+   * lexically resolved against workingDir. The daemon resolves these through
+   * symlinks (which the gateway cannot do — it has no filesystem access) and
+   * re-checks against the workspace root to catch symlink-based escapes.
+   * Only populated for non-containerized environments.
+   */
+  pathArgs: string[];
+}
 
 async function computeSandboxAutoApprove(
   command: string,
   workingDir: string,
   workspaceRoot: string,
   isContainerized: boolean,
-): Promise<boolean> {
+): Promise<SandboxAutoApproveResult> {
   const parsed = await cachedParse(command);
 
-  if (parsed.segments.length === 0) return false;
-  if (parsed.hasOpaqueConstructs) return false;
-  if (parsed.dangerousPatterns.length > 0) return false;
+  if (parsed.segments.length === 0) return { approved: false, pathArgs: [] };
+  if (parsed.hasOpaqueConstructs) return { approved: false, pathArgs: [] };
+  if (parsed.dangerousPatterns.length > 0)
+    return { approved: false, pathArgs: [] };
 
-  return parsed.segments.every((seg) => {
+  const collectedPathArgs: string[] = [];
+
+  const approved = parsed.segments.every((seg) => {
     const name = seg.program.split("/").pop() ?? seg.program;
     const spec: CommandRiskSpec | undefined = Object.hasOwn(
       DEFAULT_COMMAND_REGISTRY,
@@ -183,19 +200,23 @@ async function computeSandboxAutoApprove(
     // If no path args, auto-approve (operating on cwd/stdin which is workspace)
     if (parsedArgs.pathArgs.length === 0) return true;
 
-    // All path args must resolve within workspace
+    // All path args must resolve within workspace (lexical check —
+    // the daemon re-checks with symlink resolution)
     return parsedArgs.pathArgs.every((p) => {
+      let resolved: string;
       if (p === "~" || p.startsWith("~/")) {
-        const expanded = p === "~" ? homedir() : join(homedir(), p.slice(2));
-        return isPathWithinRoot(expanded, workspaceRoot);
-      }
-      if (p.startsWith("~")) {
+        resolved = p === "~" ? homedir() : join(homedir(), p.slice(2));
+      } else if (p.startsWith("~")) {
         return false;
+      } else {
+        resolved = p.startsWith("/") ? p : resolve(workingDir, p);
       }
-      const resolved = p.startsWith("/") ? p : resolve(workingDir, p);
+      collectedPathArgs.push(resolved);
       return isPathWithinRoot(resolved, workspaceRoot);
     });
   });
+
+  return { approved, pathArgs: collectedPathArgs };
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -239,14 +260,22 @@ export async function handleClassifyRisk(
 
       // Compute sandbox auto-approve for "bash" tool only
       let sandboxAutoApprove = false;
+      let sandboxPathArgs: string[] | undefined;
       if (tool === "bash") {
         const wsRoot = params.workspaceRoot ?? workingDir;
-        sandboxAutoApprove = await computeSandboxAutoApprove(
+        const autoApproveResult = await computeSandboxAutoApprove(
           command,
           workingDir,
           wsRoot,
           isContainerized,
         );
+        sandboxAutoApprove = autoApproveResult.approved;
+        // Return lexically-resolved path args so the daemon can re-check
+        // with symlink resolution (the gateway has no filesystem access).
+        // Only needed for non-containerized — containerized skips path checks.
+        if (!isContainerized && autoApproveResult.pathArgs.length > 0) {
+          sandboxPathArgs = autoApproveResult.pathArgs;
+        }
       }
 
       // Detect complex syntax and collect filesystem-op path args for the
@@ -418,6 +447,7 @@ export async function handleClassifyRisk(
         opaqueConstructs: analysis.hasOpaqueConstructs,
         isComplexSyntax,
         sandboxAutoApprove,
+        sandboxPathArgs,
         directoryScopeOptions,
         resolvedPaths,
         matchType: assessment.matchType,
@@ -448,6 +478,8 @@ export async function handleClassifyRisk(
         pluginsDir: fileCtx?.pluginsDir ?? SENTINEL,
         toolsDir: fileCtx?.toolsDir ?? SENTINEL,
         routesDir: fileCtx?.routesDir ?? SENTINEL,
+        workflowsDir: fileCtx?.workflowsDir ?? SENTINEL,
+        monitoringDir: fileCtx?.monitoringDir ?? SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
 
@@ -457,6 +489,8 @@ export async function handleClassifyRisk(
           filePath,
           workingDir,
           resolvedPath: params.resolvedPath,
+          resolvedWorkingDir: params.resolvedWorkingDir,
+          isContainerized: params.isContainerized,
           transferSandboxDestPath: params.transferSandboxDestPath,
           transferSandboxWorkingDir: params.transferSandboxWorkingDir,
           resolvedTransferDestPath: params.resolvedTransferDestPath,
@@ -558,13 +592,15 @@ export async function handleClassifyRisk(
       };
     }
 
-    // ── Unknown tool — use registry default risk level if provided ──────
+    // ── Fallback — registered tools use their registry default, truly
+    //    unknown tools get the "Unknown tool" warning. ──────────────────
     default: {
+      const hasRegistryDefault = params.registryDefaultRisk != null;
       return {
         risk: params.registryDefaultRisk ?? "medium",
-        reason: `Unknown tool: ${tool}`,
+        reason: hasRegistryDefault ? "" : `Unknown tool: ${tool}`,
         scopeOptions: [],
-        matchType: "unknown",
+        matchType: hasRegistryDefault ? "registry" : "unknown",
       };
     }
   }

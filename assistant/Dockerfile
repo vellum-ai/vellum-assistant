@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
 # Use debian as base image
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS builder
 
@@ -16,34 +17,24 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Copy shared packages needed by assistant's repo-local dependencies
-COPY packages/ces-client ./packages/ces-client
-COPY packages/service-contracts ./packages/service-contracts
-COPY packages/credential-storage ./packages/credential-storage
-COPY packages/egress-proxy ./packages/egress-proxy
-COPY packages/environments ./packages/environments
-COPY packages/gateway-client ./packages/gateway-client
-COPY packages/ipc-server-utils ./packages/ipc-server-utils
-COPY packages/skill-host-contracts ./packages/skill-host-contracts
-COPY packages/slack-text ./packages/slack-text
-COPY packages/twilio-client ./packages/twilio-client
+# We must include every workspace member's manifest to validate and install the
+# workspace lockfile via --frozen-lockfile.
+# Note that we don't need source code to resolve cross-workspace dependencies.
+COPY package.json bun.lock ./
+COPY patches ./patches
+COPY clients/macos/package.json ./clients/macos/
+COPY clients/web/package.json ./clients/web/
+COPY cli/package.json ./cli/
+COPY gateway/package.json ./gateway/
+COPY credential-executor/package.json ./credential-executor/
+COPY assistant/package.json ./assistant/
+COPY assistant/src/api/package.json ./assistant/src/api/
+COPY --parents packages/*/package.json ./
 
-# Install deps for shared packages whose source is loaded at runtime.
-# Without this, bun's module resolution walks up from packages/<name>/src/
-# and can't find the package's own deps (zod, transitive file: refs)
-# because only assistant/node_modules gets populated.
-RUN cd /app/packages/ces-client && bun install --frozen-lockfile
-RUN cd /app/packages/gateway-client && bun install --frozen-lockfile
-RUN cd /app/packages/service-contracts && bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --ignore-scripts \
+    --filter='./assistant' --filter='./assistant/src/api'
 
-# Install assistant dependencies first for cache reuse
-COPY assistant/package.json assistant/bun.lock ./assistant/
-RUN cd /app/assistant && bun install --frozen-lockfile
-
-# Copy bundled first-party skills and install their deps. The repo-root
-# .dockerignore is the single source of truth for which skills (and which
-# files within them) ship in the assistant image -- adding or removing a
-# bundled skill is a .dockerignore edit, not a Dockerfile edit.
+# The repo-root .dockerignore decides which skills (and files) ship.
 COPY skills ./skills
 RUN set -eu; for pkg in /app/skills/*/package.json; do \
       [ -e "$pkg" ] || continue; \
@@ -52,17 +43,6 @@ RUN set -eu; for pkg in /app/skills/*/package.json; do \
       (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
     done
 
-# Copy assistant source so emit-manifest can resolve the skill's remaining
-# `../../assistant/src/...` imports while walking the register() module
-# graph. Those imports disappear when skill-isolation Phase 1 completes
-# (plan PR 18); the collector host short-circuits before any runtime path
-# touches them, so the emitted manifest is correct in the meantime.
-COPY assistant ./assistant
-
-# Emit the meet-join manifest consumed by the daemon-side loader to
-# register proxy tools/routes without importing the skill in-process.
-RUN bun run /app/skills/meet-join/scripts/emit-manifest.ts \
-      --output /app/skills/meet-join/manifest.json
 
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
@@ -118,9 +98,11 @@ RUN apt-get update && apt-get install -y \
     openssl \
     procps \
     python3 \
+    python3-pip \
     sqlite3 \
     sudo \
     util-linux \
+    util-linux-extra \
     unzip \
     uuid-runtime \
     vim \
@@ -132,6 +114,29 @@ RUN apt-get update && apt-get install -y \
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
+
+COPY --from=builder /app /app
+
+# Copy source after installing dependencies for better layer caching.
+COPY packages/ces-client /app/packages/ces-client
+COPY packages/service-contracts /app/packages/service-contracts
+COPY packages/credential-storage /app/packages/credential-storage
+COPY packages/egress-proxy /app/packages/egress-proxy
+COPY packages/environments /app/packages/environments
+COPY packages/gateway-client /app/packages/gateway-client
+COPY packages/ipc-server-utils /app/packages/ipc-server-utils
+COPY packages/slack-text /app/packages/slack-text
+COPY packages/twilio-client /app/packages/twilio-client
+
+COPY assistant /app/assistant
+
+# Materialize the git-ignored offline plugin manifest from its canonical source.
+# `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON
+# (loaded even when platform features are enabled), so it must exist in the image
+# — the build installs with --ignore-scripts, so the postinstall sync that
+# regenerates it in dev never runs here. Mirrors how CI materializes the
+# feature-flag registry before building.
+COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.json
 
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \
@@ -228,6 +233,30 @@ RUN printf '%s\n' \
     > /usr/local/bin/dpkg && \
     chmod +x /usr/local/bin/dpkg
 
+# pip must persist like apt: on Kata-family runtimes the wrapper routes root
+# installs into the persistent apt chroot.
+RUN ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip && \
+    ln -s /app/assistant/docker-kata-pip.sh /usr/local/bin/pip3
+
+# .pth files (pip install -e) are only processed for site directories, not
+# PYTHONPATH entries — register the persistent chroot dirs as site dirs.
+RUN cp /app/assistant/docker-sitecustomize.py /usr/lib/python3/dist-packages/sitecustomize.py
+
+# Reword Debian's stock externally-managed refusal (shipped with python3, so
+# this refusal exists on every runtime regardless): `python3 -m pip install`
+# bypasses the pip wrappers, so its error must steer users to paths that
+# actually work. Venv advice is correct everywhere; the bare `pip install`
+# route only persists on kata-family machines, so it is worded conditionally.
+RUN printf '%s\n' \
+    '[externally-managed]' \
+    'Error=This Python environment is part of the container image and does not' \
+    ' persist. Create a virtualenv under a persistent directory instead, e.g.' \
+    ' `python3 -m venv /workspace/.venv`. On managed machines with a' \
+    ' persistent system root, `sudo pip install <pkg>` (not `python3 -m pip`)' \
+    ' also persists. Passing --break-system-packages installs into the image' \
+    ' rootfs and will NOT survive a machine save or container restart.' \
+    > "/usr/lib/python$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')/EXTERNALLY-MANAGED"
+
 # Ensure the CES bootstrap socket volume is writable by the non-root CES user.
 RUN mkdir -p /run/ces-bootstrap && chmod 777 /run/ces-bootstrap
 
@@ -238,16 +267,14 @@ EXPOSE 3001
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
 
-# Copy installed deps, shared packages, bundled skills, assistant source,
-# and the generated meet-join manifest from the builder stage.
-COPY --from=builder /app /app
-
 COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/
 
 RUN chmod +x \
     /app/assistant/docker-entrypoint.sh \
     /app/assistant/docker-init-apt-root.sh \
     /app/assistant/docker-kata-apt-env.sh \
+    /app/assistant/docker-kata-pip.sh \
+    /app/assistant/docker-kata-pip-chroot.sh \
     /app/assistant/docker-kata-runtime-family.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \

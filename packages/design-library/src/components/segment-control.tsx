@@ -6,13 +6,19 @@ import { cn } from "../utils/cn";
 export interface SegmentControlItem<T extends string> {
   value: T;
   label: string;
+  /** Optional second line under the label (ignored in `iconOnly` mode). */
+  sublabel?: string;
   icon?: ReactNode;
   disabled?: boolean;
 }
 
 export interface SegmentControlProps<T extends string> {
   items: SegmentControlItem<T>[];
-  value: T;
+  /**
+   * The selected value, or `null` for an unset control: no segment renders
+   * active and the first enabled segment takes the roving tab stop.
+   */
+  value: T | null;
   onChange: (next: T) => void;
   ariaLabel?: string;
   /**
@@ -20,6 +26,14 @@ export interface SegmentControlProps<T extends string> {
    * button's `aria-label`.
    */
   iconOnly?: boolean;
+  /**
+   * When `iconOnly`, each segment shows a hover/focus tooltip of its `label`.
+   * On touch devices Radix keeps that tooltip open while the tapped segment
+   * holds focus, leaving a phantom label floating over the UI. Set this to
+   * `false` when the icons are self-explanatory (and the `aria-label` still
+   * covers screen readers) to suppress the tooltip. Defaults to `true`.
+   */
+  showTooltips?: boolean;
   className?: string;
 }
 
@@ -30,7 +44,7 @@ export interface SegmentControlProps<T extends string> {
  */
 export function resolveSegmentSelection<T extends string>(
   items: SegmentControlItem<T>[],
-  currentValue: T,
+  currentValue: T | null,
   clickedValue: T,
 ): T | null {
   const item = items.find((candidate) => candidate.value === clickedValue);
@@ -64,14 +78,16 @@ export function SegmentControl<T extends string>({
   onChange,
   ariaLabel,
   iconOnly = false,
+  showTooltips = true,
   className,
 }: SegmentControlProps<T>) {
   const groupRef = useRef<HTMLDivElement>(null);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
+      // Unset control: arrow navigation starts from before the first item,
+      // so ArrowRight/Down lands on the first enabled segment.
       const currentIndex = items.findIndex((item) => item.value === value);
-      if (currentIndex === -1) return;
 
       let nextIndex: number | null = null;
 
@@ -82,7 +98,12 @@ export function SegmentControl<T extends string>({
           break;
         case "ArrowLeft":
         case "ArrowUp":
-          nextIndex = findEnabledIndex(items, currentIndex, -1);
+          // From the unset state, wrap to the last enabled segment.
+          nextIndex = findEnabledIndex(
+            items,
+            currentIndex === -1 ? 0 : currentIndex,
+            -1,
+          );
           break;
         case "Home":
           nextIndex = findEnabledIndex(items, items.length - 1, 1);
@@ -110,6 +131,19 @@ export function SegmentControl<T extends string>({
     [items, value, onChange],
   );
 
+  // Roving tab stop: the active segment, or — for an unset control — the
+  // first enabled segment, so the group stays keyboard-reachable.
+  const activeIndex = items.findIndex((item) => item.value === value);
+  const tabStopIndex =
+    activeIndex === -1
+      ? items.findIndex((item) => !item.disabled)
+      : activeIndex;
+
+  // Sublabels add a second line, so the fixed 32px (2px pad + 28px segment)
+  // sizing that fits single-line content would clip them — let height follow
+  // content instead. iconOnly never renders sublabels (see the render below).
+  const hasSublabels = !iconOnly && items.some((item) => item.sublabel != null);
+
   return (
     <div
       ref={groupRef}
@@ -118,13 +152,12 @@ export function SegmentControl<T extends string>({
       data-slot="segment-control"
       onKeyDown={handleKeyDown}
       className={cn(
-        "inline-flex rounded-lg bg-[var(--surface-active)] p-0.5",
+        "inline-flex rounded-md bg-[var(--surface-active)] p-0.5",
         !iconOnly && "w-full",
-        iconOnly && "rounded-[10px]",
         className,
       )}
     >
-      {items.map((item) => {
+      {items.map((item, index) => {
         const isActive = item.value === value;
         const isDisabled = Boolean(item.disabled);
         return (
@@ -134,9 +167,9 @@ export function SegmentControl<T extends string>({
             role="radio"
             aria-checked={isActive}
             aria-label={iconOnly ? item.label : undefined}
-            tooltip={iconOnly ? item.label : undefined}
+            tooltip={iconOnly && showTooltips ? item.label : undefined}
             disabled={isDisabled}
-            tabIndex={isActive ? 0 : -1}
+            tabIndex={index === tabStopIndex ? 0 : -1}
             onClick={() => {
               const next = resolveSegmentSelection(items, value, item.value);
               if (next !== null) {
@@ -144,17 +177,28 @@ export function SegmentControl<T extends string>({
               }
             }}
             className={cn(
-              "min-w-[30px] cursor-pointer justify-center gap-1.5 rounded-md border-0 text-body-medium-default",
+              "min-w-[30px] cursor-pointer justify-center gap-1.5 rounded-[6px] border-0 text-body-medium-default",
+              hasSublabels ? "h-auto py-1.5" : "h-7",
               iconOnly
-                ? "h-7 rounded-lg px-2 py-1 max-md:h-9 max-md:min-w-9 max-md:px-2"
-                : "h-auto flex-1 px-3 py-1.5",
+                ? "px-2 max-md:h-9 max-md:min-w-9 max-md:px-2"
+                : "flex-1 px-3",
               isActive
                 ? "bg-[var(--surface-overlay)] text-[var(--content-emphasised)] shadow-sm hover:bg-[var(--surface-overlay)]"
                 : "bg-transparent text-[var(--content-tertiary)] hover:bg-transparent hover:text-[var(--content-emphasised)]",
             )}
           >
             {item.icon}
-            {!iconOnly && item.label}
+            {!iconOnly &&
+              (item.sublabel != null ? (
+                <span className="flex flex-col items-center gap-0.5">
+                  <span>{item.label}</span>
+                  <span className="text-body-small-default text-[var(--content-tertiary)]">
+                    {item.sublabel}
+                  </span>
+                </span>
+              ) : (
+                item.label
+              ))}
           </Button>
         );
       })}

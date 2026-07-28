@@ -15,13 +15,15 @@ import {
   getUsageGroupedSeries,
   getUsageHourBuckets,
   getUsageTotals,
-  type GroupByDimension,
-  USAGE_GROUP_BY_DIMENSIONS,
   USAGE_SERIES_GROUP_BY_DIMENSIONS,
   type UsageAggregationFilter,
   type UsageGranularity,
-} from "../../memory/llm-usage-store.js";
-import { validateTimezone } from "../../memory/usage-buckets.js";
+} from "../../persistence/llm-usage-store.js";
+import { validateTimezone } from "../../persistence/usage-buckets.js";
+import {
+  type GroupByDimension,
+  USAGE_GROUP_BY_DIMENSIONS,
+} from "../../persistence/usage-types.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import { BadRequestError } from "./errors.js";

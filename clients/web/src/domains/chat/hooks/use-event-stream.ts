@@ -143,7 +143,7 @@ export function useEventStream({
   /* eslint-disable react-hooks/refs -- lazy-init (runs once) */
   if (burstLimiterRef.current == null) {
     burstLimiterRef.current = createReachabilityBurstLimiter({
-      onReady: () => useTurnStore.getState().resetTurn(),
+      onReady: () => useTurnStore.getState().clearStaleTurn(),
       onClearError: () => useChatSessionStore.getState().setError(null),
       onExhausted: (err) => useChatSessionStore.getState().setError(err),
       onReset: () => reachabilityResetRef.current(),
@@ -279,6 +279,16 @@ export function useEventStream({
 
   useBusSubscription("sse.event", (envelope) => {
     consumer?.handleSseEvent(envelope);
+    // Fold the active conversation's events into the materialized snapshot.
+    // Idempotent by seq; a no-op until the snapshot is seeded — the seed
+    // replays the ring tail, so events that arrive first aren't lost. Gated on
+    // the same commit-phase active-conversation ref the consumer's filter uses.
+    if (
+      envelope.conversationId &&
+      envelope.conversationId === activeConversationIdLatestRef.current
+    ) {
+      useChatSessionStore.getState().applyEnvelopeToSnapshot(envelope);
+    }
   });
 
   useBusSubscription("sse.opened", (payload) => {

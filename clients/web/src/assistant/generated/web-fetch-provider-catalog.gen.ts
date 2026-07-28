@@ -8,7 +8,7 @@ export const WEB_FETCH_PROVIDER_IDS: readonly string[] = ["default", "firecrawl"
 export const WEB_FETCH_PROVIDER_DISPLAY_NAMES: Readonly<
   Record<string, string>
 > = {
-  default: "Built-in",
+  default: "Vellum",
   firecrawl: "Firecrawl",
 };
 

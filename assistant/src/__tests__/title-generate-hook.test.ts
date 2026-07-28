@@ -14,7 +14,7 @@
  * broadcast the resulting `conversation_title_updated` / `sync_changed`
  * events.
  *
- * Mocks `memory/conversation-title-service.js` and `config/loader.js` so the
+ * Mocks `persistence/conversation-title-service.js` and `config/loader.js` so the
  * tests don't touch the real provider stack or config, and resets the plugin
  * registry between cases.
  */
@@ -37,7 +37,7 @@ const queueRegenerateConversationTitleMock = mock(
     onlyIfReplaceable?: boolean;
   }): void => undefined,
 );
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   AUTO_TITLE_DETERMINISTIC: 2,
   isReplaceableTitle: (title: string | null) =>
     title == null ||
@@ -63,17 +63,10 @@ const mockGetConversation = mock(
       conversationType: string;
     },
 );
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: mockGetConversation,
-}));
-
-// The `stop` hook reads `conversations.skipAutoRetitling`; stub the loader so
-// the opt-out is controllable per test.
-let skipAutoRetitling = false;
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ conversations: { skipAutoRetitling } }),
 }));
 
 import { HOOKS } from "../plugin-api/constants.js";
@@ -91,6 +84,14 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// The `stop` hook reads `conversations.skipAutoRetitling`; seed it for real so
+// the opt-out is controllable per test.
+/** Seed the retitling opt-out into the workspace config. */
+function setSkipAutoRetitling(skipAutoRetitling: boolean): void {
+  setConfig("conversations", { skipAutoRetitling });
+}
 
 const noopLogger: PluginLogger = {
   info: () => {},
@@ -109,12 +110,13 @@ function makeCtx(
     conversationId: "conv-1",
     userMessageId: "msg-1",
     requestId: "req-1",
-    modelProfileKey: null,
+    modelProfileKey: "balanced",
     isNonInteractive: false,
     prompt: "first message",
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -156,6 +158,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
     messages: historyWithUserTurns(3),
     exitReason: "no_tool_calls",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -183,6 +186,22 @@ describe("title-generate user-prompt-submit hook", () => {
     expect(call?.userMessage).toBe("first message");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("onTitleUpdated");
+  });
+
+  test("skips title generation for hidden machine-signal prompts", async () => {
+    // A hidden send (e.g. the channel-setup wizard-close marker) is not user
+    // speech — minting a title from it would surface invisible scaffolding
+    // text in the sidebar.
+    const ctx = makeCtx({
+      prompt:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      isHiddenPrompt: true,
+    });
+
+    await userPromptSubmit(ctx);
+    await flushMacrotasks();
+
+    expect(queueGenerateConversationTitleMock).toHaveBeenCalledTimes(0);
   });
 
   test("does not block: returns before the title job is scheduled", async () => {
@@ -236,7 +255,7 @@ describe("title-generate stop hook", () => {
           conversationType: string;
         },
     );
-    skipAutoRetitling = false;
+    setSkipAutoRetitling(false);
   });
 
   test("regenerates the title on the third user turn", async () => {
@@ -293,7 +312,7 @@ describe("title-generate stop hook", () => {
   });
 
   test("fallback title retry is not blocked by the retitling opt-out", async () => {
-    skipAutoRetitling = true;
+    setSkipAutoRetitling(true);
     mockGetConversation.mockReturnValueOnce({
       title: "Generating title...",
       isAutoTitle: 1,
@@ -391,7 +410,7 @@ describe("title-generate stop hook", () => {
 
   test("respects the skipAutoRetitling opt-out", async () => {
     // GIVEN the user opted out of second-pass retitling
-    skipAutoRetitling = true;
+    setSkipAutoRetitling(true);
     const ctx = makeStopCtx({ messages: historyWithUserTurns(3) });
 
     // WHEN the stop hook runs on the third user turn and any work flushes

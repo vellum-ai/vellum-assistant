@@ -1,73 +1,45 @@
 /**
- * Plugin registry with manifest validation.
+ * Plugin registry — tracks registered plugins by name and delegates hook
+ * registration to {@link ../hooks/registry.ts}.
  *
- * Host-compat negotiation lives in the plugin's `package.json`
- * `peerDependencies["@vellumai/plugin-api"]` semver range — the
- * external-plugin loader checks it against the assistant version at
- * load time. This module owns the rest of the manifest validation
- * contract: name/version presence, duplicate-name detection, and the
- * closed-registration latch that protects `bootstrapPlugins()` from
- * late-arriving registrations.
- *
- * Registration is order-preserving: {@link getRegisteredPlugins} and
- * {@link getHooksFor} reflect the order in which {@link registerPlugin} was
- * called, which in turn determines the order plugin hooks run.
- *
- * This module does not call `Plugin.init()` — that is the job of the
- * bootstrap. It also does not wire the registry into the daemon.
- *
- * Design doc: `.private/plans/agent-plugin-system.md`.
+ * `registerPlugin` validates a plugin manifest, records its name (so
+ * `getRegisteredPlugins` can enumerate registered plugins), and forwards the
+ * plugin's hooks to the hooks registry. The hook surface itself lives in
+ * `hooks/registry.ts`; this module owns only the plugin-name bookkeeping.
  */
 
-import { getUserHooksFor } from "./mtime-cache.js";
 import {
-  type Plugin,
-  PluginExecutionError,
-  type PluginHookFn,
-} from "./types.js";
+  registerPluginHooks,
+  resetHookRegistryForTests,
+  unregisterPluginHooks,
+} from "../hooks/registry.js";
+import { type Plugin, PluginExecutionError } from "./types.js";
 
 // ─── Internal state ──────────────────────────────────────────────────────────
 
 /**
- * Registered plugins keyed by `manifest.name`. A `Map` preserves insertion
- * order, which the registry relies on for hook ordering and
- * `getRegisteredPlugins()` output.
+ * Plugin names that have been registered, in registration order. Used by
+ * `getRegisteredPlugins` to provide the full plugin list to
+ * `bootstrapPlugins` (for test-registered plugins) and for test assertions.
  */
 const registeredPlugins = new Map<string, Plugin>();
 
 /**
- * Latch that closes the per-boot registration window. Flipped to `true` by
- * {@link closeRegistration} once `loadUserPlugins()` has returned. After that,
- * any attempt to register a *new* plugin throws — this is the safety net
- * against a user plugin whose dynamic `import()` was timed out but whose
- * top-level `await` later resolves and still tries to call
- * {@link registerPlugin}. Without the latch such a late arrival would land in
- * the registry after `bootstrapPlugins()` has already walked it, leaving the
- * plugin visible in the registry with its `init()` hook never invoked.
+ * Latch that closes the per-boot registration window. No longer used in
+ * production (user plugins go through the mtime cache, not `registerPlugin`),
+ * but preserved for test compatibility.
  */
 let registrationClosed = false;
 
 // ─── Registration ────────────────────────────────────────────────────────────
 
 /**
- * Validate and register a plugin. Throws {@link PluginExecutionError} if:
- *
- * - `manifest`, `manifest.name`, or `manifest.version` are missing.
- * - a plugin with the same name is already registered.
- * - registration has been closed by {@link closeRegistration}.
- *
- * Host-compat is checked upstream by the external-plugin loader against
- * the plugin's `peerDependencies["@vellumai/plugin-api"]` semver range —
- * the registry does not re-validate it here.
- *
- * On success the plugin is appended to the registry in the order this
- * function is called. This function does NOT invoke `plugin.init()` — that
- * runs in the bootstrap sequence.
+ * Validate and register a plugin's hooks. Throws {@link PluginExecutionError}
+ * if the manifest is malformed. Delegates hook registration to
+ * {@link registerPluginHooks} in the hooks registry. Also tracks the plugin
+ * name for `getRegisteredPlugins` test assertions.
  */
 export function registerPlugin(plugin: Plugin): void {
-  // Basic shape / required-field validation. The type system already enforces
-  // most of this at compile time; these runtime checks guard against
-  // JS-level callers and malformed manifests loaded dynamically.
   if (!plugin || typeof plugin !== "object") {
     throw new PluginExecutionError(
       "registerPlugin requires a Plugin object",
@@ -85,11 +57,6 @@ export function registerPlugin(plugin: Plugin): void {
       undefined,
     );
   }
-  // Plugin names flow into filesystem paths (e.g. `plugins-data/<name>/` in
-  // the bootstrap's `ensurePluginStorageDir`), so they must not contain path
-  // separators, `..`, or other characters that could escape the parent
-  // directory. Restrict to lowercase-kebab-case, which is the convention used
-  // by every first-party plugin and prevents path-traversal by construction.
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
     throw new PluginExecutionError(
       `plugin manifest.name "${name}" must be kebab-case (lowercase letters, digits, and single hyphens)`,
@@ -102,22 +69,18 @@ export function registerPlugin(plugin: Plugin): void {
       name,
     );
   }
-  // Duplicate-name check — plugins must be uniquely addressable in logs,
-  // storage paths, and error messages. Runs BEFORE the closed-registration
-  // check so `registerDefaultPlugins()` (which replays every default even
-  // after the registration window closes) keeps seeing the familiar
-  // "already registered" error it catches and swallows.
+  // Duplicate-name check — runs BEFORE the closed-registration check so
+  // `registerDefaultPlugins()` (which replays every default) keeps seeing
+  // the familiar "already registered" error it catches and swallows.
   if (registeredPlugins.has(name)) {
     throw new PluginExecutionError(
       `plugin ${name} is already registered`,
       name,
     );
   }
-
   // Closed-registration check — rejects a genuinely new plugin that arrives
-  // after {@link closeRegistration}. The canonical offender is a user plugin
-  // whose dynamic `import()` was timed out in `loadUserPlugins()` but whose
-  // module evaluation eventually completes and still calls this function.
+  // after `closeRegistration`. No longer used in production (user plugins go
+  // through the mtime cache), but preserved for test compatibility.
   if (registrationClosed) {
     throw new PluginExecutionError(
       `plugin ${name} cannot register: plugin registration is closed (late arrival after loadUserPlugins() returned)`,
@@ -126,97 +89,44 @@ export function registerPlugin(plugin: Plugin): void {
   }
 
   registeredPlugins.set(name, plugin);
+
+  if (plugin.hooks) {
+    registerPluginHooks(name, plugin.hooks);
+  }
 }
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
 /**
- * All plugins registered so far, in registration order. Consumers must treat
- * the returned array as a read-only snapshot — mutating it does not mutate
- * the registry.
+ * All plugins registered so far, in registration order. In production this
+ * returns only the default plugins (registered by `registerDefaultPlugins`).
+ * Test fixtures registered via `registerPlugin` are also included.
  */
 export function getRegisteredPlugins(): Plugin[] {
   return Array.from(registeredPlugins.values());
 }
 
 /**
- * Collect every registered plugin's hook for the given name, in
- * registration order. Plugins that don't declare a hook for `name` are
- * skipped. Used by the daemon to invoke chain-style hooks like
- * `user-prompt-submit` where each plugin's hook may transform a shared
- * context.
- *
- * This function is async because it pulls user-land hooks from the mtime
- * cache (filesystem-as-truth), which may need to re-import changed surface
- * files. First-party default plugin hooks are read synchronously from the
- * registry and prepended.
- *
- * The `TCtx` generic mirrors {@link PluginHookFn}'s — callers parameterize
- * over the concrete context type their hook receives. Hooks that mutate
- * the context in place return `void`; hooks that return a new context
- * replace the threaded value for the next hook in the chain.
- */
-export async function getHooksFor<TCtx = unknown>(
-  name: string,
-): Promise<PluginHookFn<TCtx>[]> {
-  // First-party defaults from the registry (synchronous).
-  const defaultHooks: PluginHookFn<TCtx>[] = [];
-  for (const plugin of registeredPlugins.values()) {
-    const hook = plugin.hooks?.[name];
-    if (hook) {
-      defaultHooks.push(hook as PluginHookFn<TCtx>);
-    }
-  }
-
-  // User-land hooks from the mtime cache (async, may re-import).
-  const userHooks = await getUserHooksFor<TCtx>(name);
-
-  return [...defaultHooks, ...userHooks];
-}
-
-/**
- * Close the per-boot registration window. After this call, any attempt to
- * register a genuinely new plugin throws a {@link PluginExecutionError}.
- * Re-registering an already-registered plugin still hits the duplicate-name
- * check first (so idempotent callers like `registerDefaultPlugins()` keep
- * working unchanged).
- *
- * Called by `loadUserPlugins()` immediately before it returns so the
- * `bootstrapPlugins()` invariant ("registry has been fully populated for this
- * boot cycle") cannot be violated by a user plugin whose dynamic `import()`
- * timed out mid-load but whose top-level `await` resolves later and still
- * reaches `registerPlugin()`. Idempotent.
+ * Close the per-boot registration window. No-op in production (user plugins
+ * go through the mtime cache), but preserved for test compatibility.
  */
 export function closeRegistration(): void {
   registrationClosed = true;
 }
 
 /**
- * Remove a plugin from the registry. Invoked from the bootstrap's failure path
- * after {@link Plugin.onShutdown} and contribution teardown have run, so the
- * registry no longer exposes a plugin whose `init()` aborted mid-bootstrap.
- * Safe to call on an already-absent name (no-op).
+ * Remove a plugin's hooks from the hook registry and forget its name. Used by
+ * the bootstrap failure path and tests.
  */
 export function unregisterPlugin(name: string): void {
   registeredPlugins.delete(name);
-}
-
-export function getRegisteredPlugin(name: string): Plugin | undefined {
-  return registeredPlugins.get(name);
-}
-
-export function setRegisteredPlugin(plugin: Plugin): void {
-  registeredPlugins.set(plugin.manifest.name, plugin);
+  unregisterPluginHooks(name);
 }
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────
 
 /**
- * Clear the registry. Test-only — throws when invoked outside a test
- * environment so application code can never accidentally wipe the registry
- * at runtime. The guard recognizes `BUN_TEST=1` (set automatically by bun's
- * test runner) and `NODE_ENV=test` (the Node.js convention used elsewhere
- * in the codebase).
+ * Clear the plugin name set and the hook registry. Test-only.
  */
 export function resetPluginRegistryForTests(): void {
   const isTest =
@@ -228,8 +138,6 @@ export function resetPluginRegistryForTests(): void {
     );
   }
   registeredPlugins.clear();
-  // Re-open the registration window so subsequent tests can register plugins
-  // again. Without this, the latch set by a prior `closeRegistration()` call
-  // would leak across test cases and reject legitimate registrations.
+  resetHookRegistryForTests();
   registrationClosed = false;
 }

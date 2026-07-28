@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { imageGenerationHelp } from "./image-generation.help.js";
 
 // ---------------------------------------------------------------------------
 // MIME type → file extension mapping
@@ -55,70 +57,13 @@ function mimeForExtension(filePath: string): string {
 
 export function registerImageGenerationCommand(program: Command): void {
   registerCommand(program, {
-    name: "image-generation",
+    name: imageGenerationHelp.name,
     transport: "ipc",
-    description: "AI image generation and editing",
+    description: imageGenerationHelp.description,
     build: (imageGen) => {
-      imageGen.addHelpText(
-        "after",
-        `
-Modes:
-  managed    — Uses platform-managed credentials (requires login to Vellum).
-  your-own   — Uses your own Gemini or OpenAI API key depending on the configured model.
+      applyCommandHelp(imageGen, imageGenerationHelp);
 
-Supported models: pass a tier alias, the assistant resolves it to the
-current model for that tier.
-  fast     (default) quickest, good quality
-  quality  higher fidelity, slower
-  openai   OpenAI's model
-A concrete model ID is also accepted; unknown values return an error
-listing the currently available models.
-
-Examples:
-  $ assistant image-generation generate --prompt "A sunset over the ocean"
-  $ assistant image-generation generate --prompt "Remove background" --mode edit --source photo.png
-  $ assistant image-generation generate --prompt "Logo design" --variants 3 --output-dir ./output
-  $ assistant image-generation generate --prompt "A cat" --json`,
-      );
-
-      const generate = imageGen
-        .command("generate")
-        .description("Generate or edit images using AI")
-        .requiredOption(
-          "--prompt <text>",
-          "Description of the image to generate or edits to apply",
-        )
-        .option("--mode <mode>", "generate (default) or edit", "generate")
-        .option(
-          "--source <path...>",
-          "Source image file path for edit mode (repeatable)",
-        )
-        .option("--model <model-id>", "Model override")
-        .option(
-          "--variants <n>",
-          "Number of variants (1-4, default 1)",
-          (v: string) => parseInt(v, 10),
-          1,
-        )
-        .option("--output-dir <dir>", "Directory to save images")
-        .option("--json", "Output structured JSON");
-
-      generate.addHelpText(
-        "after",
-        `
-Notes:
-  Edit mode (--mode edit) requires at least one --source image file.
-  Output files are named image-1.png, image-2.png, etc. (extension matches MIME type).
-  Default output directory is the system temp directory.
-  Uses your own Gemini or OpenAI API key depending on the configured model.
-
-Examples:
-  $ assistant image-generation generate --prompt "A mountain landscape at dawn"
-  $ assistant image-generation generate --prompt "Make it darker" --mode edit --source input.png
-  $ assistant image-generation generate --prompt "Logo variations" --variants 4 --output-dir ./logos
-  $ assistant image-generation generate --prompt "A robot" --model quality --json
-  $ assistant image-generation generate --prompt "A robot" --model openai --json`,
-      );
+      const generate = subcommand(imageGen, "generate");
 
       generate.action(async (opts) => {
         const jsonOutput = opts.json === true;
@@ -127,7 +72,13 @@ Examples:
           opts.mode === "edit" ? "edit" : "generate";
         const sourcePaths: string[] | undefined = opts.source;
         const modelOverride: string | undefined = opts.model;
-        const rawVariants = opts.variants ?? 1;
+        // --variants was declaratively registered without a parse function,
+        // so a user-supplied value arrives as a string; coerce it here
+        // (matching the previous parseInt argParser). The default stays 1.
+        const rawVariants =
+          typeof opts.variants === "string"
+            ? parseInt(opts.variants, 10)
+            : (opts.variants ?? 1);
         const variants: number = Number.isNaN(rawVariants)
           ? 1
           : Math.max(1, Math.min(rawVariants, 4));

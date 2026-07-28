@@ -1,10 +1,10 @@
+import type { PermissionPrompter } from "../permissions/prompter.js";
 import {
   attachInlineAttachmentToMessage,
   AttachmentUploadError,
   getFilePathForAttachment,
   setAttachmentThumbnail,
-} from "../memory/attachments-store.js";
-import type { PermissionPrompter } from "../permissions/prompter.js";
+} from "../persistence/attachments-store.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {

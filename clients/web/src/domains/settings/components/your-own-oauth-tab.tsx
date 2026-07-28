@@ -25,6 +25,7 @@ import type {
   OauthAppsByAppIdConnectionsGetResponses,
   OauthAppsGetResponses,
 } from "@/generated/daemon/types.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -274,13 +275,14 @@ export function YourOwnTab({
                   variant="outlined"
                   size="compact"
                   onClick={() => {
-                    void navigator.clipboard
-                      .writeText(oauthCallbackUrl)
-                      .then(() => {
+                    copyToClipboard(oauthCallbackUrl, {
+                      successMessage: "Copied to clipboard!",
+                      errorMessage: "Couldn't copy the redirect URL.",
+                      onCopied: () => {
                         setCallbackUrlCopied(true);
-                        toast.success("Copied to clipboard!");
                         setTimeout(() => setCallbackUrlCopied(false), 2000);
-                      });
+                      },
+                    });
                   }}
                   aria-label={
                     callbackUrlCopied ? "Copied" : "Copy redirect URL"

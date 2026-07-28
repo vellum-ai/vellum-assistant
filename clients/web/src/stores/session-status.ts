@@ -5,8 +5,7 @@
  * This module is intentionally dependency-free: it imports nothing, so any
  * module — including ones the auth store itself depends on (e.g. the assistant
  * lifecycle service) — can read session meaning without creating an import
- * cycle through the store. `import type` could not break that cycle because
- * the predicates are runtime values, not just types.
+ * cycle through the store.
  *
  * Imperative readers (middleware, lifecycle, route resolvers) call these
  * predicates directly with a status value. Reactive components read the
@@ -65,6 +64,18 @@ export const isSessionSettled = (status: SessionStatus): boolean =>
 export const hasLivePlatformSession = (
   status: PlatformSessionStatus,
 ): boolean => status === "present";
+
+/**
+ * The platform-session probe has settled — `platformSession` left the
+ * `"unknown"` window and is now a definite `"present"` / `"absent"`. Distinct
+ * from {@link isSessionSettled}: the local-gateway path flips `sessionStatus`
+ * to `"authenticated"` before `getSession()` resolves `platformSession`, so a
+ * consumer whose behavior turns on platform-session liveness must wait on this,
+ * not on the (earlier) `sessionStatus` settlement.
+ */
+export const isPlatformSessionSettled = (
+  status: PlatformSessionStatus,
+): boolean => status !== "unknown";
 
 /**
  * A platform session a live probe confirmed — `"present"` AND not a believed

@@ -66,7 +66,6 @@ describe("useOnboardingWindowSize", () => {
       "/assistant/onboarding/hosting",
       "/assistant/onboarding/api-key",
       "/assistant/onboarding/privacy",
-      "/assistant/onboarding/prechat",
       "/assistant/onboarding/hatching",
     ]) {
       setOnboardingWindowMock.mockClear();

@@ -5,18 +5,11 @@
  * `daemon_restarted` stop reason on the next manager construction.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-import { AcpSessionManager } from "../../acp/session-manager.js";
-import { getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { AcpSessionManager } from "../session-manager.js";
 await initializeDb();
 
 function clearHistory() {

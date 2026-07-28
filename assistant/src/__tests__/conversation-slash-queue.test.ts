@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   conversationMessagesSyncTag,
   type SyncChangedEvent,
@@ -13,78 +13,9 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 // Mocks — must precede the Conversation import so Bun applies them at load time.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: {
-      v2: { enabled: false },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-    conversations: { skipAutoRetitling: false },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -99,9 +30,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -133,7 +64,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: mock(() => {}),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -256,30 +187,6 @@ mock.module("../workspace/turn-commit.js", () => ({
   commitTurnChanges: async () => {},
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
-  commitAppTurnChanges: async () => {},
-}));
-
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
-
 // ---------------------------------------------------------------------------
 // Import Conversation AFTER mocks are registered.
 // ---------------------------------------------------------------------------
@@ -341,7 +248,9 @@ async function waitForPendingRun(
 
 async function resolveRun(index: number) {
   const run = pendingRuns[index];
-  if (!run) throw new Error(`No pending run at index ${index}`);
+  if (!run) {
+    throw new Error(`No pending run at index ${index}`);
+  }
   const assistantMsg: Message = {
     role: "assistant",
     content: [{ type: "text", text: `reply-${index}` }],
@@ -392,9 +301,9 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message — blocks on agent loop
     const p1 = conversation.processMessage({
@@ -439,8 +348,8 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const sharedEvents: ServerMessage[] = [];
-    const sharedOnEvent = (event: ServerMessage) => sharedEvents.push(event);
+    const sharedEvents: AssistantEvent[] = [];
+    const sharedOnEvent = (event: AssistantEvent) => sharedEvents.push(event);
 
     const p1 = conversation.processMessage({
       content: "msg-1",
@@ -481,8 +390,8 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
 
     // Start first message — blocks on agent loop
     const p1 = conversation.processMessage({
@@ -524,9 +433,9 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsHi: ServerMessage[] = [];
-    const eventsCompact: ServerMessage[] = [];
-    const eventsBye: ServerMessage[] = [];
+    const eventsHi: AssistantEvent[] = [];
+    const eventsCompact: AssistantEvent[] = [];
+    const eventsBye: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({

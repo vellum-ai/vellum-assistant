@@ -131,17 +131,26 @@ Options:
     account,
   });
 
+  const resolvedAccount = account ?? result.account;
+
   if (!result.ok) {
-    printError(`Failed to list events: status ${result.status}`);
+    printError(
+      `Failed to list events: status ${result.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
   if (!result.data.value?.length) {
-    ok("No events found in the specified time range.");
+    const suffix = resolvedAccount ? ` for ${resolvedAccount}` : "";
+    ok(
+      `No events found in the specified time range${suffix}.`,
+      resolvedAccount,
+    );
     return;
   }
 
-  ok(result.data);
+  ok(result.data, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -164,13 +173,14 @@ Options:
   const account = optionalArg(args, "account");
 
   const result = await getEvent(eventId, undefined, account);
+  const resolvedAccount = account ?? result.account;
 
   if (!result.ok) {
-    printError(`Failed to get event: status ${result.status}`);
+    printError(`Failed to get event: status ${result.status}`, resolvedAccount);
     return;
   }
 
-  ok(result.data);
+  ok(result.data, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +241,7 @@ Options:
     });
 
     if (!confirmed) {
-      ok({ created: false, reason: "User did not confirm" });
+      ok({ created: false, reason: "User did not confirm" }, account);
       return;
     }
   }
@@ -284,15 +294,19 @@ Options:
   }
 
   const result = await createEvent(eventBody, calendarId, account);
+  const resolvedAccount = account ?? result.account;
 
   if (!result.ok) {
-    printError(`Failed to create event: status ${result.status}`);
+    printError(
+      `Failed to create event: status ${result.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
   const event = result.data;
   const webLink = event.webLink ? ` View it here: ${event.webLink}` : "";
-  ok(`Event created (ID: ${event.id}).${webLink}`);
+  ok(`Event created (ID: ${event.id}).${webLink}`, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +350,7 @@ Options:
     printError(
       "No schedules provided and could not determine your email address from your Microsoft profile. " +
         "Please provide at least one email address via --schedules.",
+      account,
     );
     return;
   }
@@ -349,12 +364,17 @@ Options:
     account,
   );
 
+  const resolvedAccount = account ?? result.account;
+
   if (!result.ok) {
-    printError(`Failed to check availability: status ${result.status}`);
+    printError(
+      `Failed to check availability: status ${result.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
-  ok(result.data);
+  ok(result.data, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -391,9 +411,13 @@ Options:
 
   // First GET the event to check if user is organizer
   const eventResult = await getEvent(eventId, undefined, account);
+  const resolvedAccount = account ?? eventResult.account;
 
   if (!eventResult.ok) {
-    printError(`Failed to get event: status ${eventResult.status}`);
+    printError(
+      `Failed to get event: status ${eventResult.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
@@ -401,7 +425,7 @@ Options:
 
   // If the user is the organizer, no RSVP is needed
   if (event.responseStatus?.response === "organizer") {
-    ok("You are the organizer of this event. No RSVP needed.");
+    ok("You are the organizer of this event. No RSVP needed.", resolvedAccount);
     return;
   }
 
@@ -428,7 +452,7 @@ Options:
     });
 
     if (!confirmed) {
-      ok({ rsvped: false, reason: "User did not confirm" });
+      ok({ rsvped: false, reason: "User did not confirm" }, resolvedAccount);
       return;
     }
   }
@@ -442,8 +466,10 @@ Options:
     account,
   );
 
+  const rsvpAccount = account ?? rsvpResult.account ?? resolvedAccount;
+
   if (!rsvpResult.ok) {
-    printError(`Failed to RSVP: status ${rsvpResult.status}`);
+    printError(`Failed to RSVP: status ${rsvpResult.status}`, rsvpAccount);
     return;
   }
 
@@ -453,7 +479,7 @@ Options:
       : response === "declined"
         ? "Declined"
         : "Tentatively accepted";
-  ok(`${responseLabel} the event "${event.subject ?? eventId}".`);
+  ok(`${responseLabel} the event "${event.subject ?? eventId}".`, rsvpAccount);
 }
 
 // ---------------------------------------------------------------------------

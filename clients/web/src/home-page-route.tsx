@@ -1,10 +1,9 @@
-import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useEffect, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
-import { requestComposerFocus } from "@/domains/chat/composer-focus";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import type { ActivityLocationState } from "@/domains/home/components/notifications-bell";
 import { HomePage } from "@/domains/home/home-page";
 import {
     useBackgroundConversationListQuery,
@@ -12,15 +11,24 @@ import {
     useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useConversationStore } from "@/stores/conversation-store";
-import { useViewerStore } from "@/stores/viewer-store";
 import { mergeConversationLists } from "@/utils/conversation-cache";
+import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { Typography } from "@vellumai/design-library";
 
 export function HomePageRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
   const assistantId = useActiveAssistantId();
+  // Set when a notification row in the bell popover routed here — the page
+  // opens that item's detail drawer on arrival.
+  const initialFeedItemId =
+    (location.state as ActivityLocationState | null)?.feedItemId ?? null;
+  // Once consumed, replace the history entry without the feedItemId state so
+  // a reload or Back to this entry doesn't re-open a drawer the user closed.
+  const handleInitialFeedItemConsumed = useCallback(() => {
+    void navigate(location.pathname + location.search, { replace: true });
+  }, [navigate, location.pathname, location.search]);
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
   const { conversations: foregroundConversations } =
@@ -64,17 +72,14 @@ export function HomePageRoute() {
     <HomePage
       assistantId={assistantId}
       validConversationIds={validConversationIds}
-      onStartNewChat={() => {
-        useViewerStore.getState().setMainView("chat");
-        const draftConversationId = createDraftConversationId();
-        useConversationStore
-          .getState()
-          .setActiveConversationId(draftConversationId);
-        navigate(routes.conversation(draftConversationId));
-        requestComposerFocus();
-      }}
+      initialFeedItemId={initialFeedItemId}
+      navigationKey={location.key}
+      onInitialFeedItemConsumed={handleInitialFeedItemConsumed}
       onOpenConversation={(conversationId) =>
-        navigate(routes.conversation(conversationId))
+        navigateToConversation(navigate, conversationId)
+      }
+      onViewSchedule={(scheduleId) =>
+        navigate(routes.schedules.detail(scheduleId))
       }
     />
   );

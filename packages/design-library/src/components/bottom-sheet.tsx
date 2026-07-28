@@ -81,7 +81,9 @@ function Content({
         data-slot="bottom-sheet-content"
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 flex w-full flex-col rounded-t-[24px] border-t bg-[var(--surface-lift)] border-[var(--border-base)] shadow-xl focus:outline-none",
-          "max-h-[50dvh]",
+          // Sheets keep a floor so short content (e.g. a single row) still
+          // reads as a sheet rather than a sliver pinned to the bottom edge.
+          "min-h-[min(280px,45dvh)] max-h-[50dvh]",
           "data-[state=open]:animate-[bottomSheetIn_180ms_ease-out]",
           className,
         )}
@@ -128,7 +130,10 @@ function Title({
           <Icon className="h-5 w-5 text-[var(--primary-base)]" />
         </span>
       ) : null}
-      <span className="min-w-0 truncate">{children}</span>
+      {/* `text-title-*` set line-height: 1, so `truncate`'s `overflow: hidden`
+          shears glyph descenders (the tail of a g/p/y). `leading-snug` grows
+          the line box to contain them; single-line ellipsis still works. */}
+      <span className="min-w-0 truncate leading-snug">{children}</span>
     </Dialog.Title>
   );
 }

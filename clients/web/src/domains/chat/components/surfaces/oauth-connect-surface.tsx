@@ -1,28 +1,29 @@
 import { Tooltip } from "@vellumai/design-library";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-    CheckCircle2,
-    ExternalLink,
-    Info,
-    Loader2,
-    X,
-    XCircle,
+  CheckCircle2,
+  ExternalLink,
+  Info,
+  Loader2,
+  X,
+  XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
-    defaultManagedOAuthConnectClient,
-    type ManagedOAuthConnectClient,
-    type ManagedOAuthProviderSummary,
+  defaultManagedOAuthConnectClient,
+  type ManagedOAuthConnectClient,
+  type ManagedOAuthProviderSummary,
 } from "@/domains/chat/api/managed-oauth";
-import type { Surface } from "@/domains/chat/types/types";
+import {
+  type OAuthConnectSurfaceData,
+  OAuthConnectSurfaceDataSchema,
+} from "@vellumai/assistant-api";
 
-interface OAuthConnectSurfaceData {
-  providerKey?: string;
-  displayName?: string;
-  description?: string;
-  logoUrl?: string | null;
-}
+import type { Surface } from "@/domains/chat/types/types";
+import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 
 interface OAuthConnectSurfaceProps {
   surface: Surface;
@@ -99,17 +100,37 @@ export function OAuthConnectSurface({
   assistantDisplayName,
   oauthClient = defaultManagedOAuthConnectClient,
 }: OAuthConnectSurfaceProps) {
-  const data = surface.data as OAuthConnectSurfaceData;
-  const providerKey = data.providerKey ?? "";
+  const queryClient = useQueryClient();
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (tolerant, so a real payload never fails to parse) rather than an
+  // unchecked cast or a re-declared local interface.
+  const parsedData = OAuthConnectSurfaceDataSchema.safeParse(surface.data);
+  const data: OAuthConnectSurfaceData = parsedData.success
+    ? parsedData.data
+    : { providerKey: "" };
+  const providerKey = data.providerKey;
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
     null,
   );
   const [state, setState] = useState<ConnectState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // A remounted card can share one in-flight OAuth promise (see the module-level
+  // dedupe in `connectManagedOAuthProvider`). Only the still-mounted instance
+  // reports the shared result, so one completed authorization submits one
+  // surface action — not one per instance that awaited the promise.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    if (!assistantId || !providerKey) return;
+    if (!assistantId || !providerKey) {
+      return;
+    }
     void oauthClient.fetchProvider(assistantId, providerKey).then((result) => {
       if (!cancelled) {
         setProvider(result);
@@ -136,7 +157,9 @@ export function OAuthConnectSurface({
   };
 
   const handleConnect = async () => {
-    if (!assistantId || !providerKey || state === "connecting") return;
+    if (!assistantId || !providerKey || state === "connecting") {
+      return;
+    }
     setState("connecting");
     setErrorMessage(null);
 
@@ -146,8 +169,27 @@ export function OAuthConnectSurface({
       providerLabel,
     });
 
+    // Skip if this instance unmounted while the (possibly shared) OAuth flow was
+    // in flight — a still-mounted sibling reports the result instead, so the
+    // surface action is submitted exactly once.
+    if (!mountedRef.current) {
+      return;
+    }
+
     if (result.status === "connected") {
       setState("connected");
+      // Refresh any mounted connections list (e.g. Settings integrations) so a
+      // just-connected account no longer reads as unconnected. Best-effort: the
+      // platform-id resolution can throw and must not block the surface action.
+      void resolveLocalAssistantPlatformIdentity(assistantId)
+        .then((platformAssistantId) =>
+          queryClient.invalidateQueries({
+            queryKey: assistantsOauthConnectionsListQueryKey({
+              path: { assistant_id: platformAssistantId },
+            }),
+          }),
+        )
+        .catch(() => {});
       onAction(surface.surfaceId, "connect", {
         status: "connected",
         providerKey,

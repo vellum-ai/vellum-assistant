@@ -5,16 +5,16 @@
  * do" from the actor's class alone, and stays deliberately pure (no context
  * dependencies) so it remains the single fail-closed trust boundary. Some real
  * decisions additionally depend on runtime context — the channel a request
- * arrived on, surface actions, task authorization, a feature flag. Those
- * compositions belong here, in named/testable helpers, rather than re-derived
- * inline at each call site (which scatters a single policy across the codebase).
+ * arrived on, surface actions, task authorization. Those compositions belong
+ * here, in named/testable helpers, rather than re-derived inline at each call
+ * site (which scatters a single policy across the codebase).
  *
  * Scope: this module composes capabilities with *actor/request* context. It does
- * not read global config or feature flags itself — callers resolve those and
- * pass the result in (e.g. `lockdownEnabled`), keeping this layer focused on the
- * capability composition. `resolveRoutingState` in `trust-context-resolver.ts`
- * is the same shape (capability + guardian-route context → `promptWaitingAllowed`)
- * and predates this module; it stays where it is.
+ * not read global config itself — callers resolve those inputs and pass the
+ * result in, keeping this layer focused on the capability composition.
+ * `resolveRoutingState` in `trust-context-resolver.ts` is the same shape
+ * (capability + guardian-route context → `promptWaitingAllowed`) and predates
+ * this module; it stays where it is.
  */
 import type { TrustClass } from "./actor-trust-resolver.js";
 import { resolveCapabilities } from "./capabilities.js";
@@ -41,21 +41,6 @@ export function canActOnPrivilegedDocuments(actor: {
     resolveCapabilities(actor.trustClass).canAccessPrivilegedDocuments ||
     (actor.executionChannel != null &&
       PRIVILEGED_DOCUMENT_CHANNELS.has(actor.executionChannel))
-  );
-}
-
-/**
- * Whether the CES shell lockdown applies to this actor. Active when the lockdown
- * flag is enabled AND the actor's trust class cannot run an unsandboxed shell.
- * Callers resolve the flag (`isCesShellLockdownEnabled(config)`) and pass it in.
- */
-export function isUntrustedShellLockdownActive(actor: {
-  trustClass: RawTrustClass;
-  lockdownEnabled: boolean;
-}): boolean {
-  return (
-    actor.lockdownEnabled &&
-    !resolveCapabilities(actor.trustClass).canRunUnsandboxedShell
   );
 }
 

@@ -14,17 +14,22 @@
  */
 
 import {
+  accessRequestCardSubtitle,
+  accessRequestCardTitle,
   buildAccessRequestCardView,
   buildAccessRequestContractText,
+  buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import {
+  type ApprovalCardActionOption,
   type ApprovalCardBlock,
   type ApprovalCardParams,
   buildApprovalCardBlocks,
 } from "./approval-card-builder.js";
 import {
   buildGuardianRequestCodeInstruction,
+  buildToolApprovalSourceView,
   type GuardianQuestionPayload,
   type LenientToolApprovalPayload,
   LenientToolApprovalPayloadSchema,
@@ -91,13 +96,53 @@ export interface ToolApprovalCardData {
  */
 export type ApprovalCardData = AccessRequestCardData | ToolApprovalCardData;
 
+// ── Shared source rendering ──────────────────────────────────────────────────
+
+/**
+ * "Source" metadata row shared by the access-request and tool-approval
+ * cards: Slack sources with a known chat get a channel/DM-aware label,
+ * every other channel falls back to its raw channel id.
+ */
+function sourceMetadataRow(
+  channel: string | undefined,
+  slackChatId: string | undefined,
+  isSlackDm: boolean,
+): { label: string; value: string } | undefined {
+  if (channel === "slack" && slackChatId) {
+    return {
+      label: "Source",
+      value: isSlackDm ? "Slack — Direct message" : `Slack — #${slackChatId}`,
+    };
+  }
+  if (channel) {
+    return { label: "Source", value: channel };
+  }
+  return undefined;
+}
+
+/** Card-body link back to the originating message, shared by both cards. */
+function viewMessageLine(permalink: string): string {
+  return `[View message](${permalink})`;
+}
+
 // ── Access-request resolution ────────────────────────────────────────────────
 
 /** Shape the parsed access-request payload into card params via the view model. */
 function resolveAccessRequestCard(
   payload: Record<string, unknown>,
 ): ApprovalCardParams {
-  const view = buildAccessRequestCardView(parseAccessRequestPayload(payload));
+  const parsed = parseAccessRequestPayload(payload);
+  const view = buildAccessRequestCardView(parsed);
+
+  // Signal-driven introduction actions; the emphasis (primary lead,
+  // destructive Block) is resolved by introduction-policy and maps 1:1 onto
+  // the Surface style vocabulary.
+  const actions: ApprovalCardActionOption[] =
+    buildIntroductionActionsForPayload(parsed).map((action) => ({
+      id: action.id,
+      label: action.label,
+      style: action.emphasis,
+    }));
 
   const metadata: Array<{ label: string; value: string }> = [];
 
@@ -108,15 +153,13 @@ function resolveAccessRequestCard(
     });
   }
 
-  if (view.sourceChannel === "slack" && view.conversationExternalId) {
-    metadata.push({
-      label: "Source",
-      value: view.isSlackDm
-        ? "Slack — Direct message"
-        : `Slack — #${view.conversationExternalId}`,
-    });
-  } else if (view.sourceChannel) {
-    metadata.push({ label: "Source", value: view.sourceChannel });
+  const sourceRow = sourceMetadataRow(
+    view.sourceChannel,
+    view.conversationExternalId,
+    view.isSlackDm,
+  );
+  if (sourceRow) {
+    metadata.push(sourceRow);
   }
 
   const bodyParts: string[] = [];
@@ -128,7 +171,7 @@ function resolveAccessRequestCard(
     bodyParts.push(`⚠️ ${w}`);
   }
   if (view.messagePermalink) {
-    bodyParts.push(`[View message](${view.messagePermalink})`);
+    bodyParts.push(viewMessageLine(view.messagePermalink));
   }
 
   const body =
@@ -138,12 +181,13 @@ function resolveAccessRequestCard(
 
   return {
     surfaceIdPrefix: ACCESS_REQUEST_SURFACE_PREFIX,
-    cardTitle: "Access Request",
-    requesterName: view.displayName,
-    subtitle: "Requesting access to the assistant",
+    cardTitle: accessRequestCardTitle(view.admitted),
+    primaryLine: view.displayName,
+    subtitle: accessRequestCardSubtitle(view.admitted),
     body,
     metadata,
     requestId: view.requestId,
+    actions,
     fallbackText: buildAccessRequestContractText(payload),
   };
 }
@@ -170,14 +214,22 @@ function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
     payload.requestKind,
     payload.toolName,
   );
-  if (!modeResolution) return false;
+  if (!modeResolution) {
+    return false;
+  }
   return (
     modeResolution.mode === "approval" &&
     payload.requestKind !== "access_request"
   );
 }
 
-/** Shape a tool-approval/grant payload (strict or lenient) into card params. */
+/**
+ * Shape a tool-approval/grant payload (strict or lenient) into card params.
+ *
+ * The card is about the tool: the primary line names the tool awaiting
+ * approval. The requester appears only as metadata context, never as the
+ * subject of the decision.
+ */
 function extractToolApprovalCard(
   p: GuardianQuestionPayload | LenientToolApprovalPayload,
 ): ApprovalCardParams {
@@ -186,24 +238,43 @@ function extractToolApprovalCard(
   const rawRequester = nonEmpty(p.requesterIdentifier);
   const requester = rawRequester
     ? sanitizeIdentityField(rawRequester)
-    : "Someone";
+    : undefined;
 
   const isGrant = p.requestKind === "tool_grant_request";
 
+  // Who is asking is a fact the guardian weighs, so the row always renders:
+  // an unresolvable requester surfaces as "Unknown" rather than a silently
+  // missing row. In practice the producers always carry at least the raw
+  // channel user ID — this placeholder covers defensive/lenient parses.
   const metadata: Array<{ label: string; value: string }> = [];
-  metadata.push({ label: "Tool", value: toolName });
-  const sourceChannel = nonEmpty(p.sourceChannel);
-  if (sourceChannel) {
-    metadata.push({ label: "Source", value: sourceChannel });
+  metadata.push({ label: "Requested by", value: requester ?? "Unknown" });
+
+  const sourceView = buildToolApprovalSourceView(p);
+  const sourceRow = sourceMetadataRow(
+    nonEmpty(p.sourceChannel),
+    sourceView?.chatId,
+    sourceView?.isSlackDm ?? false,
+  );
+  if (sourceRow) {
+    metadata.push(sourceRow);
   }
 
-  const body = p.questionText
-    ? `> ${p.questionText}`
-    : "No additional context available.";
+  const bodyParts: string[] = [];
+  if (p.questionText) {
+    bodyParts.push(`> ${p.questionText}`);
+  }
+  if (sourceView?.permalink) {
+    bodyParts.push(viewMessageLine(sourceView.permalink));
+  }
+  const body =
+    bodyParts.length > 0
+      ? bodyParts.join("\n\n")
+      : "No additional context available.";
 
   // Fallback text with request-code instructions for older clients.
   const baseFallback =
-    p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
+    p.questionText ??
+    `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
   let fallbackText = baseFallback;
   const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {
@@ -222,10 +293,8 @@ function extractToolApprovalCard(
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
     cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
-    requesterName: requester,
-    subtitle: isGrant
-      ? "Requesting permission to use this tool"
-      : "Requesting approval to run this tool",
+    primaryLine: toolName,
+    subtitle: "Requires your approval to run",
     body,
     metadata,
     requestId: nonEmpty(p.requestId),
@@ -246,13 +315,19 @@ function resolveToolApprovalCard(
 ): ApprovalCardParams | null {
   const strict = parseGuardianQuestionPayload(payload);
   if (strict) {
-    if (!isToolApprovalPayload(strict)) return null;
+    if (!isToolApprovalPayload(strict)) {
+      return null;
+    }
     return extractToolApprovalCard(strict);
   }
 
   const lenient = LenientToolApprovalPayloadSchema.safeParse(payload);
-  if (!lenient.success) return null;
-  if (!isLenientToolApproval(lenient.data)) return null;
+  if (!lenient.success) {
+    return null;
+  }
+  if (!isLenientToolApproval(lenient.data)) {
+    return null;
+  }
   return extractToolApprovalCard(lenient.data);
 }
 
@@ -268,7 +343,9 @@ export function resolveApprovalCardData(
   sourceEventName: string,
   contextPayload: Record<string, unknown> | undefined,
 ): ApprovalCardData | null {
-  if (!contextPayload) return null;
+  if (!contextPayload) {
+    return null;
+  }
 
   if (sourceEventName === "ingress.access_request") {
     return {

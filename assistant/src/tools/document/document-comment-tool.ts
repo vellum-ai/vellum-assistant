@@ -1,11 +1,37 @@
+import { z } from "zod";
+
 import {
   createComment,
   getComment,
   listComments,
   resolveComment,
 } from "../../documents/document-comments-store.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { canAccessDocument, documentNotFound } from "./document-tool.js";
+
+// ── Model-input schemas ────────────────────────────────────────────────
+//
+// `safeParse`d at the top of each `execute*` — same in-tool pattern and
+// drift guard as `document-tool.ts` (see the schema block there for the
+// framework). Every advertised-required field is required here; without
+// schema rejection a missing/mistyped field would fall through to a
+// misleading "Document not found".
+
+export const commentListInputSchema = z.looseObject({
+  surface_id: z.string(),
+});
+
+export const commentResolveInputSchema = z.looseObject({
+  surface_id: z.string(),
+  comment_id: z.string(),
+});
+
+export const commentReplyInputSchema = z.looseObject({
+  surface_id: z.string(),
+  comment_id: z.string(),
+  content: z.string(),
+});
 
 // ── Exported execute functions ─────────────────────────────────────────
 
@@ -13,7 +39,11 @@ export function executeCommentList(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const parsedInput = commentListInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("comment_list", parsedInput.error);
+  }
+  const surfaceId = parsedInput.data.surface_id;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -46,8 +76,11 @@ export function executeCommentResolve(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
-  const commentId = input.comment_id as string;
+  const parsedInput = commentResolveInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("comment_resolve", parsedInput.error);
+  }
+  const { surface_id: surfaceId, comment_id: commentId } = parsedInput.data;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -91,9 +124,15 @@ export function executeCommentReply(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
-  const commentId = input.comment_id as string;
-  const content = input.content as string;
+  const parsedInput = commentReplyInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("comment_reply", parsedInput.error);
+  }
+  const {
+    surface_id: surfaceId,
+    comment_id: commentId,
+    content,
+  } = parsedInput.data;
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);

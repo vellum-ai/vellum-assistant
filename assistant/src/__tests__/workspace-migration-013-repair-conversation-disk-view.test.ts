@@ -7,48 +7,23 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mocks — must come before any imports that depend on them
-// ---------------------------------------------------------------------------
+import { beforeEach, describe, expect, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const workspaceDir = testDir;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
-// ---------------------------------------------------------------------------
-// Imports — after mocks
-// ---------------------------------------------------------------------------
-
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 import {
   attachments,
   conversations,
   messageAttachments,
   messages,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { repairConversationDiskViewMigration } from "../workspace/migrations/013-repair-conversation-disk-view.js";
 
 await initializeDb();
@@ -88,7 +63,6 @@ function seedConversationRows(): {
       updatedAt: conversationUpdatedAt,
       conversationType: "standard",
       source: "user",
-      memoryScopeId: "default",
       originChannel: "desktop",
     })
     .run();
@@ -357,6 +331,7 @@ describe("013-repair-conversation-disk-view migration", () => {
     writeFileSync(stalePath, "stale");
 
     rawRun(
+      "test:setAttachmentFilePath",
       `UPDATE attachments
        SET data_base64 = '', file_path = ?, source_path = NULL
        WHERE id = ?`,

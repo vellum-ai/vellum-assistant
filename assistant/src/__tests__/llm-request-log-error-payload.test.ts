@@ -24,19 +24,16 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { buildProviderErrorResponsePayload } from "../memory/llm-request-log-store.js";
-import {
-  AssistantError,
-  ErrorCode,
-  ProviderError,
-} from "../util/errors.js";
+import { buildProviderErrorResponsePayload } from "../persistence/llm-request-log-store.js";
+import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
 
-function persisted(err: Error): { error: Record<string, unknown> } {
+function persisted(err: Error): {
+  error: Record<string, unknown>;
+  rawResponse?: unknown;
+} {
   // Round-trip through JSON to assert on the actual stored shape, not the
   // in-memory object reference.
-  return JSON.parse(
-    JSON.stringify(buildProviderErrorResponsePayload(err)),
-  );
+  return JSON.parse(JSON.stringify(buildProviderErrorResponsePayload(err)));
 }
 
 describe("buildProviderErrorResponsePayload", () => {
@@ -56,6 +53,34 @@ describe("buildProviderErrorResponsePayload", () => {
         provider: "anthropic",
         statusCode: 429,
         retryAfterMs: 1500,
+      },
+    });
+  });
+
+  test("ProviderError serializes upstream provider error metadata when present", () => {
+    const err = new ProviderError(
+      "OpenAI API error (401): Invalid API key provided",
+      "openai",
+      401,
+      {
+        apiErrorCode: "invalid_api_key",
+        apiErrorType: "invalid_request_error",
+        apiErrorParam: "api_key",
+        requestId: "req_abc123",
+      },
+    );
+    const got = persisted(err);
+    expect(got).toEqual({
+      error: {
+        name: "ProviderError",
+        message: "OpenAI API error (401): Invalid API key provided",
+        code: ErrorCode.PROVIDER_ERROR,
+        provider: "openai",
+        statusCode: 401,
+        apiErrorCode: "invalid_api_key",
+        apiErrorType: "invalid_request_error",
+        apiErrorParam: "api_key",
+        requestId: "req_abc123",
       },
     });
   });
@@ -125,6 +150,43 @@ describe("buildProviderErrorResponsePayload", () => {
         message: "provider timed out after 60s",
       },
     });
+  });
+
+  test("captured JSON rawBody is attached as a parsed rawResponse sibling", () => {
+    // So the inspector's Raw tab can render the actual upstream provider JSON
+    // (like a successful row) instead of only the extracted error fields.
+    const err = new ProviderError(
+      "Together AI API error (400): Model 'MiniMax-M3' is not supported.",
+      "together",
+      400,
+      {
+        apiErrorCode: "model_not_supported",
+        rawBody: JSON.stringify({
+          detail: "Model 'MiniMax-M3' is not supported.",
+        }),
+      },
+    );
+    const got = persisted(err);
+    expect(got.error.apiErrorCode).toBe("model_not_supported");
+    expect(got.rawResponse).toEqual({
+      detail: "Model 'MiniMax-M3' is not supported.",
+    });
+  });
+
+  test("non-JSON rawBody (HTML/text error page) is kept verbatim as a string", () => {
+    const err = new ProviderError("Bad gateway", "openai", 400, {
+      rawBody: "<html><body>upstream timeout</body></html>",
+    });
+    const got = persisted(err);
+    expect(got.rawResponse).toBe("<html><body>upstream timeout</body></html>");
+  });
+
+  test("no captured rawBody omits the rawResponse sibling entirely", () => {
+    const err = new ProviderError("rate limited", "anthropic", 429, {
+      retryAfterMs: 1500,
+    });
+    const got = persisted(err);
+    expect("rawResponse" in got).toBe(false);
   });
 
   test("ProviderError with statusCode 0 is still recorded (not coerced to undefined)", () => {

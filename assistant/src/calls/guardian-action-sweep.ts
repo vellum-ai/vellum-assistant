@@ -6,7 +6,7 @@
  * channels (telegram, slack) get a direct channel reply.
  */
 
-import { addMessage } from "../memory/conversation-crud.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { composeGuardianActionMessageGenerative } from "../runtime/guardian-action-message-composer.js";
 import { getLogger } from "../util/logger.js";

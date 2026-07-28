@@ -110,3 +110,16 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+/**
+ * Wrap a non-OK response and its raw error body into a status-carrying
+ * {@link ApiError}. The daemon client's error interceptor uses this, and so do
+ * `throwOnError: false` reads that bypass that interceptor but still need the
+ * thrown error to carry the HTTP status the global retry predicate inspects.
+ */
+export function toApiError(error: unknown, response: Response): ApiError {
+  return new ApiError(
+    response.status,
+    extractErrorMessage(error, response, `HTTP ${response.status}`),
+  );
+}

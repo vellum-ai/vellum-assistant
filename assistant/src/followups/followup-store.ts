@@ -1,8 +1,8 @@
 import { and, eq, lte, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { followups } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { followups } from "../persistence/schema/index.js";
 import type { FollowUp, FollowUpCreateInput, FollowUpStatus } from "./types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────

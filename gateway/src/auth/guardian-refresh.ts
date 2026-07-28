@@ -19,6 +19,7 @@ import {
   REFRESH_AFTER_FRACTION,
   REFRESH_INACTIVITY_TTL_MS,
 } from "./guardian-bootstrap.js";
+import { guardianIntegrityState } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
 
@@ -33,7 +34,8 @@ export type RefreshErrorCode =
   | "refresh_expired"
   | "refresh_reuse_detected"
   | "device_binding_mismatch"
-  | "revoked";
+  | "revoked"
+  | "guardian_repair_required";
 
 export interface RotateResult {
   guardianPrincipalId: string;
@@ -240,6 +242,26 @@ function rotateRefreshTokenRecord(
 
   if (now > record.inactivityExpiresAt) {
     return { ok: false, error: "refresh_expired" };
+  }
+
+  // Rotation skips the guardian-binding bootstrap, so check integrity
+  // explicitly: a DB that lost its guardian rows would otherwise keep
+  // rotating credentials that every trust verdict denies. Refused before any
+  // side effects, so this refresh token still rotates after guardian repair.
+  // Best-effort: a thrown check must never block a healthy rotation.
+  try {
+    if (guardianIntegrityState() === "missing_guardian") {
+      log.error(
+        { familyId: record.familyId, platform: record.platform },
+        "Rotation refused: guardian rows missing over evidence of prior onboarding — repair via guardian init",
+      );
+      return { ok: false, error: "guardian_repair_required" };
+    }
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Guardian integrity check threw — proceeding with rotation",
+    );
   }
 
   return getGatewayDb().transaction((tx) => {

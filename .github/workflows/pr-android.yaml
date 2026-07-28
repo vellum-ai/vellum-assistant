@@ -4,11 +4,13 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
       - 'clients/android/**'
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/capacitor-shell/**'
       - 'clients/web/package.json'
-      - 'clients/web/bun.lock'
       - '.github/workflows/pr-android.yaml'
       - '.github/workflows/ci-main-android.yaml'
 
@@ -43,7 +45,7 @@ jobs:
 
       - name: Install web dependencies
         working-directory: clients/web
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/web
 
       - name: Sync Android project
         working-directory: clients/web

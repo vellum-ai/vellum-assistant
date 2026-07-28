@@ -90,34 +90,51 @@ export function createTwilioVoiceWebhookHandler(
         // silently forwarding with no assistant ID.
         const fallbackRouting = resolveAssistant(
           config,
-          params.From || "",
-          params.From || "",
+          params.From,
+          params.From,
         );
 
         if (isRejection(fallbackRouting)) {
-          log.warn(
+          // A caller-ID-withheld (anonymous) inbound call has no `From` to
+          // route or trust-classify on, so resolveAssistant fail-closes on the
+          // missing identity. Voice lines are intentionally open, though, so
+          // keep answering an anonymous caller on an unmapped line via the
+          // default assistant when the unmapped policy allows it.
+          if (
+            !params.From &&
+            config.unmappedPolicy === "default" &&
+            config.defaultAssistantId
+          ) {
+            assistantId = config.defaultAssistantId;
+            log.info(
+              { to: params.To },
+              "Anonymous inbound call routed to the default assistant",
+            );
+          } else {
+            log.warn(
+              {
+                from: params.From,
+                to: params.To,
+                reason: fallbackRouting.reason,
+              },
+              "Inbound voice call rejected by routing — no phone number match and unmapped policy rejects",
+            );
+            return new Response(REJECT_TWIML, {
+              status: 200,
+              headers: TWIML_HEADERS,
+            });
+          }
+        } else {
+          assistantId = fallbackRouting.assistantId;
+          log.info(
             {
+              assistantId,
+              routeSource: fallbackRouting.routeSource,
               from: params.From,
-              to: params.To,
-              reason: fallbackRouting.reason,
             },
-            "Inbound voice call rejected by routing — no phone number match and unmapped policy rejects",
+            "Resolved assistant via fallback routing for inbound call",
           );
-          return new Response(REJECT_TWIML, {
-            status: 200,
-            headers: TWIML_HEADERS,
-          });
         }
-
-        assistantId = fallbackRouting.assistantId;
-        log.info(
-          {
-            assistantId,
-            routeSource: fallbackRouting.routeSource,
-            from: params.From,
-          },
-          "Resolved assistant via fallback routing for inbound call",
-        );
       }
 
       // ── Gateway-owned voice verification ────────────────────────────

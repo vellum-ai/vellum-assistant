@@ -1,16 +1,14 @@
 import { Heart, Monitor, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 
 import { cn, SegmentControl } from "@vellumai/design-library";
 
 import {
-    applyThemePreference,
-    readStoredThemePreference,
-    type ThemePreference,
-    writeStoredThemePreference,
-} from "@/domains/settings/utils/theme-preferences";
+  type ThemePreference,
+} from "@/utils/theme-preferences";
+import { useThemePreference } from "@/hooks/use-theme-preference";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { watchDeviceSetting } from "@/utils/device-settings";
+import { isPointerCoarse } from "@/utils/pointer";
 
 const BASE_THEME_OPTIONS: ReadonlyArray<{
   value: ThemePreference;
@@ -32,29 +30,21 @@ const VELVET_THEME_OPTION = {
   Icon: typeof Monitor;
 };
 
+/**
+ * Compact icon-only theme switcher for the sidebar preferences popover.
+ * Mirrors the `AppearanceSection` in the Preferences modal — both share the
+ * `useThemePreference` hook so they stay in sync via the `watchDeviceSetting`
+ * listener.
+ *
+ * Tooltips are suppressed on coarse pointers: a tap moves focus to the segment
+ * and the tooltip stays open until focus leaves, leaving phantom labels. Hover
+ * devices keep the labels, which non-obvious options (Velvet's Heart) need.
+ */
 export function ThemeToggle({ className }: { className?: string } = {}) {
-  const velvet = useClientFeatureFlagStore.use.velvet();
-  const [theme, setTheme] = useState<ThemePreference>(() =>
-    readStoredThemePreference({ velvetEnabled: velvet }),
-  );
+  const { theme, setThemePreference } = useThemePreference();
+  const pointerCoarse = useMemo(() => isPointerCoarse(), []);
 
-  useEffect(() => {
-    setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-  }, [velvet]);
-
-  useEffect(() => {
-    return watchDeviceSetting("theme", () => {
-      setTheme(readStoredThemePreference({ velvetEnabled: velvet }));
-    });
-  }, [velvet]);
-
-  const handleChange = (next: ThemePreference) => {
-    setTheme(next);
-    writeStoredThemePreference(next);
-    applyThemePreference(next);
-  };
-
-  const themeOptions = velvet
+  const themeOptions = useClientFeatureFlagStore.use.velvet()
     ? [...BASE_THEME_OPTIONS, VELVET_THEME_OPTION]
     : BASE_THEME_OPTIONS;
 
@@ -74,8 +64,9 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
       <SegmentControl<ThemePreference>
         ariaLabel="Theme"
         value={theme}
-        onChange={handleChange}
+        onChange={setThemePreference}
         iconOnly
+        showTooltips={!pointerCoarse}
         items={themeOptions.map(({ value, label, Icon }) => ({
           value,
           label,

@@ -5,6 +5,7 @@ import {
   homeFeedByIdActionsByActionIdPost,
   homeFeedByIdPatch,
   homeFeedGet,
+  homeFeedMarkallPost,
 } from "@/generated/daemon/sdk.gen";
 import {
   homeFeedGetQueryKey,
@@ -13,8 +14,11 @@ import {
 import type {
   HomeFeedGetResponse,
   HomeFeedByIdPatchData,
+  HomeFeedMarkallPostData,
 } from "@/generated/daemon/types.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+
+type FeedItemStatus = HomeFeedMarkallPostData["body"]["to"];
 
 /**
  * React Query hook for the home feed.
@@ -170,6 +174,62 @@ export function useHomeFeedQuery(assistantId: string | null) {
     },
   });
 
+  const markAll = useMutation({
+    mutationFn: async ({
+      from,
+      to,
+      ids,
+    }: {
+      from: HomeFeedMarkallPostData["body"]["from"];
+      to: FeedItemStatus;
+      ids?: string[];
+    }) => {
+      const { data } = await homeFeedMarkallPost({
+        path: { assistant_id: assistantId! },
+        body: { from, to, ids },
+        throwOnError: true,
+      });
+      return data;
+    },
+
+    onMutate: async ({ from, to, ids }) => {
+      await queryClient.cancelQueries({ queryKey: feedQueryKey });
+
+      const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
+
+      const fromSet = new Set<FeedItemStatus>(from);
+      const idSet = ids ? new Set(ids) : null;
+      homeFeedGetSetQueryData(queryClient, feedOpts, (old) => {
+        if (!old) return old;
+        const items = old.items.map((item) =>
+          fromSet.has(item.status) &&
+          item.status !== to &&
+          (!idSet || idSet.has(item.id))
+            ? { ...item, status: to }
+            : item,
+        );
+        const newCount = items.filter((i) => i.status === "new").length;
+        return {
+          ...old,
+          items,
+          contextBanner: { ...old.contextBanner, newCount },
+        };
+      });
+
+      return { previous };
+    },
+
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        homeFeedGetSetQueryData(queryClient, feedOpts, context.previous);
+      }
+    },
+
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: feedQueryKey });
+    },
+  });
+
   const invalidate = useCallback(() => {
     if (!assistantId) return;
     void queryClient.invalidateQueries({ queryKey: feedQueryKey });
@@ -179,6 +239,7 @@ export function useHomeFeedQuery(assistantId: string | null) {
     ...query,
     updateStatus,
     triggerAction,
+    markAll,
     invalidate,
   };
 }

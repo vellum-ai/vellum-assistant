@@ -3,9 +3,8 @@
  *
  * Serves two operations:
  *   - webhooks_register (POST webhooks/register): Resolve a stable callback URL
- *     for a webhook type, registering with the platform gateway on
- *     platform-managed assistants or using the configured ingress.publicBaseUrl
- *     on self-hosted assistants.
+ *     for a webhook type. See `handleWebhooksRegister` for the resolution
+ *     order.
  *   - webhooks_list (GET webhooks): List all webhook callback routes registered
  *     with the platform for this assistant.
  */
@@ -18,7 +17,10 @@ import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
-import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
+import {
+  getPublicBaseUrl,
+  isPublicIngressDisabled,
+} from "../../inbound/public-ingress-urls.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -77,10 +79,54 @@ function deriveWebhookPath(type: string): string {
   return `webhooks/${type.replace(/_/g, "/")}`;
 }
 
+/**
+ * Register `webhookPath` with the platform gateway, mapping failures onto the
+ * route error vocabulary.
+ */
+async function registerWithPlatform(
+  webhookPath: string,
+  type: string,
+  source: string | undefined,
+): Promise<WebhooksRegisterResponse> {
+  let callbackUrl: string;
+  try {
+    callbackUrl = await registerCallbackRoute(webhookPath, type, source);
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (msg.includes("missing platform registration context")) {
+      throw new UnprocessableEntityError(msg);
+    }
+    throw new InternalError(`Failed to register callback route: ${msg}`);
+  }
+  return { callbackUrl, type, path: webhookPath, mode: "platform" };
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve a stable callback URL for a webhook type.
+ *
+ * Resolution order:
+ *   1. **Platform pods** (`IS_PLATFORM`) always register with the platform
+ *      gateway: they have no ingress of their own to advertise.
+ *   2. **A configured public ingress wins** for everyone else. That URL is
+ *      either the user's own tunnel (ngrok, a custom domain) or the Velay
+ *      tunnel URL the gateway publishes into `ingress.publicBaseUrl`, so a
+ *      platform-connected local assistant with a live tunnel already resolves
+ *      to a stable platform-owned URL here.
+ *   3. **Platform-connected assistants with no ingress** register with the
+ *      platform gateway rather than failing. Connectivity is decided by
+ *      credentials (platform base URL + assistant ID + assistant API key), not
+ *      by `IS_PLATFORM`, which is only ever true on a platform pod.
+ *
+ * Ingress deliberately precedes platform registration: any logged-in local
+ * assistant holds platform credentials (it needs them for the LLM proxy), so
+ * treating credential presence as "managed" would silently reroute an
+ * explicitly configured self-hosted webhook through the platform. The gateway's
+ * Telegram and email registrars order the same two tiers the same way.
+ */
 async function handleWebhooksRegister(
   args: RouteHandlerArgs,
 ): Promise<WebhooksRegisterResponse> {
@@ -92,39 +138,40 @@ async function handleWebhooksRegister(
 
   const webhookPath =
     (pathOverride as string | undefined) ?? deriveWebhookPath(type as string);
+  const sourceIdentifier = source as string | undefined;
 
   if (getIsPlatform()) {
-    let callbackUrl: string;
-    try {
-      callbackUrl = await registerCallbackRoute(
-        webhookPath,
-        type as string,
-        source as string | undefined,
-      );
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (msg.includes("missing platform registration context")) {
-        throw new UnprocessableEntityError(msg);
-      }
-      throw new InternalError(`Failed to register callback route: ${msg}`);
-    }
-    return { callbackUrl, type, path: webhookPath, mode: "platform" };
+    return registerWithPlatform(webhookPath, type, sourceIdentifier);
   }
 
-  // Self-hosted: use ingress.publicBaseUrl
   const config = getConfig();
-  let baseUrl: string;
-  try {
-    baseUrl = getPublicBaseUrl(config);
-  } catch (err) {
-    throw new UnprocessableEntityError((err as Error).message);
+  if (isPublicIngressDisabled(config)) {
+    throw new UnprocessableEntityError(
+      "Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.",
+    );
   }
-  return {
-    callbackUrl: `${baseUrl}/${webhookPath}`,
-    type,
-    path: webhookPath,
-    mode: "self-hosted",
-  };
+
+  let ingressError: Error;
+  try {
+    const baseUrl = getPublicBaseUrl(config);
+    return {
+      callbackUrl: `${baseUrl}/${webhookPath}`,
+      type,
+      path: webhookPath,
+      mode: "self-hosted",
+    };
+  } catch (err) {
+    ingressError = err as Error;
+  }
+
+  // No ingress configured. Fall back to the platform gateway when this
+  // assistant is connected to the platform.
+  const context = await resolvePlatformCallbackRegistrationContext();
+  if (context.enabled) {
+    return registerWithPlatform(webhookPath, type, sourceIdentifier);
+  }
+
+  throw new UnprocessableEntityError(ingressError.message);
 }
 
 async function handleWebhooksList(
@@ -189,7 +236,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Register a webhook callback URL",
     description:
-      "Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with the platform gateway. On self-hosted assistants, uses the configured ingress.publicBaseUrl.",
+      "Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with the platform gateway. Otherwise uses the configured ingress.publicBaseUrl, falling back to the platform gateway when no ingress is configured and the assistant is connected to the platform.",
     tags: ["webhooks"],
     requestBody: WebhooksRegisterRequestSchema,
     responseBody: WebhooksRegisterResponseSchema,

@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -21,6 +22,11 @@ export const PINNED_CLI_VERSION = "";
 
 // Install dir for fresh, unpinned installs.
 const LATEST_INSTALL_DIR = "latest";
+
+// Records the app version that seeded an unpinned install so a later app
+// update can tell its shared CLI is stale and re-float it. See
+// clearStaleInstallForAppUpdate.
+const INSTALL_APP_VERSION_MARKER = ".app-version";
 
 // Injected by `electron.vite.config.ts` at build time.
 declare const __VELLUM_ENVIRONMENT__: string;
@@ -47,6 +53,12 @@ const LOCAL_CLI_ENTRY =
   typeof __VELLUM_LOCAL_CLI_ENTRY__ === "string"
     ? __VELLUM_LOCAL_CLI_ENTRY__
     : "";
+
+// Baked by electron.vite.config.ts from .tool-versions: the version of the
+// bundled bun. Empty outside a packaged build (e.g. under bun test).
+declare const __VELLUM_BUN_VERSION__: string;
+const BUNDLED_BUN_VERSION =
+  typeof __VELLUM_BUN_VERSION__ === "string" ? __VELLUM_BUN_VERSION__ : "";
 
 /**
  * Repo CLI entry for local builds, when the checkout is actually runnable:
@@ -126,6 +138,42 @@ export function getCliInstallDir(): string {
 }
 
 /**
+ * Rename an adopted version-named install dir (e.g. `cli/0.9.0`) to the
+ * canonical `cli/latest` so its name reflects reality after an in-place float.
+ *
+ * Version-named dirs are only ever created by pinned builds. When a later
+ * unpinned build adopts one and bumps its contents to a newer version in
+ * place, the dir name goes stale (`cli/0.9.0` now holding 0.10.x) and the path
+ * baked into the locator/wrapper misleads debugging (LUM-2648). Pinned builds
+ * always install into a correctly-named dir, so this is a no-op for them.
+ *
+ * Non-fatal — failures are logged and leave the existing dir untouched.
+ */
+export function migrateStaleInstallDir(): void {
+  if (PINNED_CLI_VERSION) return;
+
+  const cliRoot = getCliRootDir();
+  const latestDir = path.join(cliRoot, LATEST_INSTALL_DIR);
+  if (existsSync(binPathIn(latestDir))) return; // already canonical
+
+  const existing = findExistingInstallDir();
+  if (existing === null || path.basename(existing) === LATEST_INSTALL_DIR) {
+    return;
+  }
+
+  try {
+    // Drop any partial `cli/latest` (dir without a bin) so the rename lands.
+    rmSync(latestDir, { recursive: true, force: true });
+    renameSync(existing, latestDir);
+    log.info(
+      `[cli-installer] renamed stale CLI install ${path.basename(existing)} -> ${LATEST_INSTALL_DIR}`,
+    );
+  } catch (err) {
+    log.error("[cli-installer] failed to migrate stale CLI install dir:", err);
+  }
+}
+
+/**
  * Absolute path of what the bundled bun should execute as the CLI: the repo
  * source entry in local builds, otherwise the installed `vellum` binary.
  * Everything downstream (invocation, locator, PATH wrapper) flows through
@@ -177,6 +225,9 @@ export function writeFileAtomicSync(
  * wrapper is never pointed at a missing binary.
  */
 export function writeCliLocator(): void {
+  // Heal a stale versioned install dir first so the locator points at the
+  // canonical path rather than an old version-named one (LUM-2648).
+  migrateStaleInstallDir();
   if (!isCliInstalled()) return;
 
   try {
@@ -247,6 +298,46 @@ function seedCliLockfile(installDir: string): boolean {
   return true;
 }
 
+/**
+ * Stamp `packageManager: bun@<version>` into the install dir's package.json to
+ * mark the install bun-only. Both `bun add` and the seeded package.json omit
+ * the field, so a manual `npm install` during recovery would silently drift the
+ * install to a package-lock.json the bun loader ignores. No-op when the bun
+ * version is unknown (non-packaged build) or already stamped. Non-fatal.
+ */
+function stampPackageManager(installDir: string): void {
+  if (!BUNDLED_BUN_VERSION) return;
+
+  const pkgPath = path.join(installDir, "package.json");
+  const packageManager = `bun@${BUNDLED_BUN_VERSION}`;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    if (pkg.packageManager === packageManager) return;
+    pkg.packageManager = packageManager;
+    writeFileAtomicSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  } catch (err) {
+    log.warn(
+      "[cli-installer] failed to stamp packageManager into package.json:",
+      err,
+    );
+  }
+}
+
+/**
+ * Ensure the install dir has its own package.json before any `bun add`.
+ * Without one, bun walks up and adopts the nearest ancestor project — a stray
+ * ~/package.json makes the install land in $HOME/node_modules and exit 0,
+ * leaving the install dir empty while every retry repeats the same escape.
+ */
+function anchorInstallDir(installDir: string): void {
+  const pkgPath = path.join(installDir, "package.json");
+  if (existsSync(pkgPath)) return;
+  writeFileAtomicSync(
+    pkgPath,
+    `${JSON.stringify({ name: "vellum-cli-install", private: true }, null, 2)}\n`,
+  );
+}
+
 /** Spawn the bundled bun with `args` in `cwd` and await its exit. */
 function runBun(args: string[], cwd: string): Promise<void> {
   const bunPath = getBundledBunPath();
@@ -286,9 +377,95 @@ function runBun(args: string[], cwd: string): Promise<void> {
   });
 }
 
+/** Path to the app-version marker inside an install dir. */
+function installAppVersionMarkerPath(installDir: string): string {
+  return path.join(installDir, INSTALL_APP_VERSION_MARKER);
+}
+
+/** App version that seeded `installDir`, or null when unmarked/unreadable. */
+function readInstalledAppVersion(installDir: string): string | null {
+  try {
+    return readFileSync(installAppVersionMarkerPath(installDir), "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+/** Stamp the running app version into `installDir`. Non-fatal. */
+function writeInstalledAppVersion(installDir: string): void {
+  try {
+    writeFileAtomicSync(
+      installAppVersionMarkerPath(installDir),
+      `${app.getVersion()}\n`,
+    );
+  } catch (err) {
+    log.warn("[cli-installer] failed to record CLI app-version marker:", err);
+  }
+}
+
+/**
+ * Re-float a stale unpinned install after an app update.
+ *
+ * `isCliInstalled()` only checks that the bin exists, so a shared `cli/latest`
+ * seeded by an older app build would otherwise stay on that build's runtime
+ * version across every later app update. A markerless install (from builds
+ * that predate the marker) reads as stale on purpose, one-time healing on the
+ * first launch of a build that writes markers.
+ *
+ * Pinned builds don't need this (a version bump changes the install dir, so
+ * `isCliInstalled` goes false on its own); local builds run the repo CLI
+ * source, not an install. Returns true when a reinstall is needed.
+ */
+function clearStaleInstallForAppUpdate(): boolean {
+  if (PINNED_CLI_VERSION) {
+    return false;
+  }
+  if (getLocalCliEntry() !== null) {
+    return false;
+  }
+
+  const installDir = getCliInstallDir();
+  if (!existsSync(binPathIn(installDir))) {
+    return false;
+  }
+
+  const seededBy = readInstalledAppVersion(installDir);
+  if (seededBy === app.getVersion()) {
+    return false;
+  }
+
+  log.info(
+    `[cli-installer] app ${seededBy ?? "unknown"} -> ${app.getVersion()}: refreshing CLI install`,
+  );
+  rmSync(path.join(installDir, "node_modules"), {
+    recursive: true,
+    force: true,
+  });
+  rmSync(path.join(installDir, "bun.lock"), { force: true });
+  return true;
+}
+
 async function bunInstallCli(): Promise<void> {
   const installDir = getCliInstallDir();
   mkdirSync(installDir, { recursive: true });
+
+  // Recover from a corrupt prior install. When `node_modules` already exists
+  // but no longer exposes the `vellum` bin — e.g. a partial tree left behind
+  // by an app upgrade — `bun add` treats the lockfile as satisfied and exits
+  // 0 without relinking the bin, so every relaunch repeats the same no-op and
+  // the app stays wedged on "Failed to connect". Wipe the stale tree (and its
+  // lockfile) so the install below re-extracts every package and recreates the
+  // bin from scratch, exactly as a fresh install would.
+  const nodeModulesDir = path.join(installDir, "node_modules");
+  if (existsSync(nodeModulesDir) && !existsSync(binPathIn(installDir))) {
+    log.warn(
+      "[cli-installer] stale CLI node_modules without a vellum bin; reinstalling clean",
+    );
+    rmSync(nodeModulesDir, { recursive: true, force: true });
+    rmSync(path.join(installDir, "bun.lock"), { force: true });
+  }
+
+  anchorInstallDir(installDir);
 
   if (PINNED_CLI_VERSION) {
     // Pinned: prefer the seeded frozen lockfile, else resolve the exact version.
@@ -297,22 +474,32 @@ async function bunInstallCli(): Promise<void> {
       ? ["install", "--frozen-lockfile", "--ignore-scripts"]
       : ["add", `vellum@${PINNED_CLI_VERSION}`, "--ignore-scripts"];
     await runBun(args, installDir);
-    return;
+  } else {
+    // Unpinned: float to the environment's dist-tag, falling back to the seeded
+    // frozen lockfile (resolved at build time) when the registry is unreachable.
+    const spec = `vellum@${getCliDistTag()}`;
+    try {
+      await runBun(["add", spec, "--ignore-scripts"], installDir);
+    } catch (err) {
+      if (!seedCliLockfile(installDir)) throw err;
+      log.warn(
+        `[cli-installer] \`bun add ${spec}\` failed; falling back to seeded lockfile:`,
+        err,
+      );
+      await runBun(
+        ["install", "--frozen-lockfile", "--ignore-scripts"],
+        installDir,
+      );
+    }
   }
 
-  // Unpinned: float to the environment's dist-tag, falling back to the seeded
-  // frozen lockfile (resolved at build time) when the registry is unreachable.
-  const spec = `vellum@${getCliDistTag()}`;
-  try {
-    await runBun(["add", spec, "--ignore-scripts"], installDir);
-  } catch (err) {
-    if (!seedCliLockfile(installDir)) throw err;
-    log.warn(
-      `[cli-installer] \`bun add ${spec}\` failed; falling back to seeded lockfile:`,
-      err,
-    );
-    await runBun(["install", "--frozen-lockfile", "--ignore-scripts"], installDir);
-  }
+  // Mark the freshly written install bun-only so manual recovery doesn't drift
+  // it to npm. Both bun add and the seeded package.json omit the field.
+  stampPackageManager(installDir);
+
+  // Record which app build seeded this install so a later update knows to
+  // re-float it (clearStaleInstallForAppUpdate).
+  writeInstalledAppVersion(installDir);
 }
 
 // Singleton promise prevents concurrent installs from corrupting node_modules.
@@ -331,8 +518,13 @@ export function _resetInstallLock(): void {
  * lifecycle scripts are always suppressed via `--ignore-scripts`.
  */
 export async function ensureCliInstalled(): Promise<void> {
-  if (isCliInstalled()) {
+  if (isCliInstalled() && !clearStaleInstallForAppUpdate()) {
     writeCliLocator();
+    // Heal installs written before this field existed (or before a bun bump):
+    // the upgrade path returns here without reinstalling, so an existing user's
+    // package.json would otherwise stay unmarked and exposed to npm drift.
+    // Skipped for local builds that run the repo CLI source.
+    if (getLocalCliEntry() === null) stampPackageManager(getCliInstallDir());
     return;
   }
 

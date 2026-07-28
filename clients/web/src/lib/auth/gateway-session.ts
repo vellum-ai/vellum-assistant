@@ -8,12 +8,14 @@ import type { LockfileAssistant } from "@/runtime/local-mode-host";
 /**
  * Thrown when the gateway `/auth/token` mint rejects the request, carrying the
  * response `status` so callers can branch on the failure class. A `401` means
- * the gateway refused the guardian token itself — most often an
- * `invalid_signature` after the gateway restarted with a different signing key
- * than the on-disk guardian token was leased against — which a guardian
- * re-provision (`wake --repair-guardian`) fixes by re-leasing against the
- * running gateway. A `403` is a loopback/Origin boundary refusal that repair
- * can't change, and `5xx`/network failures are transient.
+ * the gateway refused to mint against the presented guardian identity — most
+ * often an `invalid_signature` after the gateway restarted with a different
+ * signing key than the on-disk guardian token was leased against, or a
+ * `guardian_repair_required` refusal after the gateway DB lost its guardian
+ * rows — which a guardian re-provision (`wake --repair-guardian`) fixes by
+ * re-leasing against the running gateway. A `403` is a loopback/Origin
+ * boundary refusal that repair can't change, and `5xx`/network failures are
+ * transient.
  *
  * Distinct from {@link GuardianTokenError} (thrown by `fetchGuardianTokenHost`
  * when the guardian token is missing/unrefreshable on disk): this is the

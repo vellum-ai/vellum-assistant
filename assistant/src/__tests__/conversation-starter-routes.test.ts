@@ -2,20 +2,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { v4 as uuid } from "uuid";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../prompts/user-reference.js", () => ({
   DEFAULT_USER_REFERENCE: "my human",
   resolveUserReference: () => "Alice",
 }));
 
-import { getMemorySqlite, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getMemorySqlite, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
   orderStrongestFirst,
@@ -65,7 +58,7 @@ function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
 
 function clearTables() {
   getSqlite().run("DELETE FROM conversation_starters");
-  getSqlite().run("DELETE FROM memory_graph_nodes");
+  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
   getMemorySqlite()!.run("DELETE FROM memory_jobs");
   getSqlite().run("DELETE FROM memory_checkpoints");
 }
@@ -99,7 +92,7 @@ function insertStarter(overrides: {
 
 function insertMemoryItem(scopeId = "default") {
   const now = Date.now();
-  getSqlite().run(
+  getMemorySqlite()!.run(
     `INSERT INTO memory_graph_nodes (
       id, content, type, created, last_accessed, last_consolidated,
       emotional_charge, fidelity, confidence, significance,

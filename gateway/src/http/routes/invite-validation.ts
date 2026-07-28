@@ -10,6 +10,12 @@
  * caller (handler or test) can use these directly.
  */
 
+import {
+  RedeemInviteByTokenRequestSchema,
+  RedeemVoiceInviteRequestSchema,
+  type RedeemInviteByTokenRequest,
+  type RedeemVoiceInviteRequest,
+} from "@vellumai/gateway-client";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +29,10 @@ export interface CreateInviteInput {
   maxUses?: number;
   expiresInMs?: number;
   expectedExternalUserId?: string;
+  // Daemon-supplied passthrough fields — the gateway stores them on the
+  // invite row and never interprets them.
+  guardianName?: string;
+  sourceConversationId?: string;
 }
 
 export type ParseResult<T> =
@@ -40,6 +50,8 @@ export const createInviteSchema = z.object({
   maxUses: positiveNumber.optional(),
   expiresInMs: positiveNumber.optional(),
   expectedExternalUserId: z.string().optional(),
+  guardianName: z.string().optional(),
+  sourceConversationId: z.string().optional(),
 });
 
 function firstIssueMessage(error: z.ZodError): string {
@@ -65,22 +77,28 @@ export function parseCreateInviteBody(
 // Redeem invite (voice-code vs token)
 // ---------------------------------------------------------------------------
 
-export interface VoiceRedeemInput {
+export interface VoiceRedeemInput extends RedeemVoiceInviteRequest {
   kind: "voice";
-  code: string;
-  callerExternalUserId: string;
   assistantId?: string;
 }
 
-export interface TokenRedeemInput {
+export interface TokenRedeemInput extends RedeemInviteByTokenRequest {
   kind: "token";
-  token: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  sourceChannel: string;
 }
 
 export type RedeemInviteInput = VoiceRedeemInput | TokenRedeemInput;
+
+/** Map a token-schema failure to the stable redeem error messages. */
+function tokenIssueMessage(error: z.ZodError): string {
+  const issues = error.issues;
+  if (issues.some((issue) => issue.path[0] === "token")) {
+    return "token is required";
+  }
+  if (issues.some((issue) => issue.path[0] === "sourceChannel")) {
+    return "sourceChannel is required";
+  }
+  return firstIssueMessage(error);
+}
 
 export function parseRedeemInviteBody(
   body: unknown,
@@ -90,12 +108,8 @@ export function parseRedeemInviteBody(
   // Voice-code path: presence of `code` selects voice redemption (matching the
   // daemon, which branches on `body.code != null`).
   if (raw.code != null) {
-    const code = typeof raw.code === "string" ? raw.code : "";
-    const callerExternalUserId =
-      typeof raw.callerExternalUserId === "string"
-        ? raw.callerExternalUserId
-        : "";
-    if (!code || !callerExternalUserId) {
+    const parsed = RedeemVoiceInviteRequestSchema.safeParse(raw);
+    if (!parsed.success) {
       return {
         ok: false,
         message: "callerExternalUserId and code are required",
@@ -105,8 +119,7 @@ export function parseRedeemInviteBody(
       ok: true,
       value: {
         kind: "voice",
-        code,
-        callerExternalUserId,
+        ...parsed.data,
         assistantId:
           typeof raw.assistantId === "string" ? raw.assistantId : undefined,
       },
@@ -114,27 +127,11 @@ export function parseRedeemInviteBody(
   }
 
   // Token path.
-  const token = typeof raw.token === "string" ? raw.token : "";
-  if (!token) {
-    return { ok: false, message: "token is required" };
+  const parsed = RedeemInviteByTokenRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, message: tokenIssueMessage(parsed.error) };
   }
-  const sourceChannel =
-    typeof raw.sourceChannel === "string" ? raw.sourceChannel.trim() : "";
-  if (!sourceChannel) {
-    return { ok: false, message: "sourceChannel is required" };
-  }
-  return {
-    ok: true,
-    value: {
-      kind: "token",
-      token,
-      externalUserId:
-        typeof raw.externalUserId === "string" ? raw.externalUserId : undefined,
-      externalChatId:
-        typeof raw.externalChatId === "string" ? raw.externalChatId : undefined,
-      sourceChannel,
-    },
-  };
+  return { ok: true, value: { kind: "token", ...parsed.data } };
 }
 
 // ---------------------------------------------------------------------------

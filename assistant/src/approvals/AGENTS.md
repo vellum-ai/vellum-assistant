@@ -1,11 +1,13 @@
 # Approvals & Guardian Rules
 
+The end-to-end lifecycle of interactive guardian requests (approvals, questions) — promotion, notification cards, reply routing, resolution — is mapped in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). Read it before extending any decision or card-delivery path.
+
 ## Approval Flow Resilience
 
 - **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with instructions (e.g., `Reply "yes" to approve`) — never auto-deny.
 - **Non-rich channels** (http-api) receive plain-text approval prompts. The conversational approval engine handles free-text responses.
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
-- **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, channel reactions and text) must route through `applyCanonicalGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (CAS resolution, resolver dispatch, grant minting) at individual callsites.
+- **Unified guardian decision primitive:** All guardian decision paths (callback buttons, conversational engine, channel reactions and text) must route through `applyGuardianDecision()` in `assistant/src/approvals/guardian-decision-primitive.ts`. Do not inline decision logic (CAS resolution, resolver dispatch, grant minting) at individual callsites.
 
 ## Single-Guardian Invariant
 

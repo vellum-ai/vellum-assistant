@@ -38,10 +38,10 @@ mock.module("../oauth/connection-resolver.js", () => ({
 mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://localhost:3000",
 }));
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: async () => "conv-1",
 }));
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getExternalConversation: () => undefined,
   setExternalConversation: () => {},
 }));
@@ -167,6 +167,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await slackProvider.resolveConnection!();
       expect(result).toBe(oauthConn);
@@ -205,6 +208,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await getProviderConnection(slackProvider);
       expect(result).toBe(oauthConn);

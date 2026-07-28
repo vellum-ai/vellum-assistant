@@ -8,24 +8,18 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ────────────────────────
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ memory: {} }),
-  loadConfig: () => ({}),
-}));
+// The finalize path indexes tool-result messages into memory; keep it inert
+// (the old partial mock left memory undefined/disabled) so no real embedding
+// backend is touched.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 const setLastNotifiedInferenceProfile = mock(
   (_conversationId: string, _profileKey: string) => {},
 );
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   deleteMessageById: () => {},
   getConversation: () => null,
   getMessageById: () => null,
@@ -37,18 +31,18 @@ mock.module("../../memory/conversation-crud.js", () => ({
   updateMessageContent: () => {},
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
   buildProviderErrorResponsePayload: () => ({}),
   recordRequestLog: () => {},
   setAgentLoopExitReasonOnLatestLog: () => {},
 }));
 
-mock.module("../../memory/memory-recall-log-store.js", () => ({
+mock.module("../../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module("../../memory/memory-v2-activation-log-store.js", () => ({
+mock.module("../../plugins/defaults/memory/v2/activation-log-store.js", () => ({
   backfillMemoryV2ActivationMessageId: () => {},
 }));
 
@@ -72,7 +66,6 @@ function makeDeps(): EventHandlerDeps {
     ctx: {
       conversationId: CONVERSATION_ID,
       provider: { name: "mock-provider" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: undefined,
     } as unknown as EventHandlerDeps["ctx"],

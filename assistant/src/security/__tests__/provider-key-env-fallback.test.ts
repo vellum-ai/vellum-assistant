@@ -8,25 +8,15 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mock logger before importing any code that uses it.
 // ---------------------------------------------------------------------------
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports under test
 // ---------------------------------------------------------------------------
-
 import { setStorePathForTesting } from "../../__tests__/encrypted-store-test-helpers.js";
 import { _resetBackend, getProviderKeyAsync } from "../secure-keys.js";
 

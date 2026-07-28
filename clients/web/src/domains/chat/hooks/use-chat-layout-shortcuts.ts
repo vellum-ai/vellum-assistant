@@ -35,6 +35,7 @@ function shouldHandleShortcut(
 
 /**
  * Registers global keyboard shortcuts for the chat layout:
+ * - Ctrl/Cmd+Shift+O → new conversation (ChatGPT / Claude convention)
  * - Ctrl/Cmd+\ → toggle sidebar
  * - Ctrl/Cmd+K → toggle command palette
  * - Ctrl/Cmd+[ → navigate back
@@ -44,10 +45,12 @@ export function useChatLayoutShortcuts({
   toggleSidebar,
   onGoBack,
   onGoForward,
+  onNewConversation,
 }: {
   toggleSidebar: () => void;
   onGoBack: () => void;
   onGoForward: () => void;
+  onNewConversation: () => void;
 }): void {
   useEffect(() => {
     const toggle = useCommandPaletteStore.getState().toggle;
@@ -62,6 +65,19 @@ export function useChatLayoutShortcuts({
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
+      // Cmd/Ctrl+Shift+O → new conversation. Checked before the
+      // input-element guard so it fires from the composer too,
+      // matching ChatGPT / Claude behavior.
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "o"
+      ) {
+        event.preventDefault();
+        onNewConversation();
+        return;
+      }
+
       if (shouldHandleShortcut(event, document.activeElement, "\\")) {
         event.preventDefault();
         toggleSidebar();
@@ -83,5 +99,5 @@ export function useChatLayoutShortcuts({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [toggleSidebar, onGoBack, onGoForward]);
+  }, [toggleSidebar, onGoBack, onGoForward, onNewConversation]);
 }

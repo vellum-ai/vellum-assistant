@@ -23,6 +23,7 @@ import {
   resetGatewayDb,
 } from "../db/connection.js";
 import { contacts } from "../db/schema.js";
+import { seedContact } from "./helpers/contact-fixtures.js";
 
 beforeAll(async () => {
   await initGatewayDb();
@@ -35,25 +36,6 @@ beforeEach(() => {
 afterAll(() => {
   resetGatewayDb();
 });
-
-function seedContact(opts: {
-  id: string;
-  role: string;
-  principalId: string | null;
-}): void {
-  const now = Date.now();
-  getGatewayDb()
-    .insert(contacts)
-    .values({
-      id: opts.id,
-      displayName: `name-${opts.id}`,
-      role: opts.role,
-      principalId: opts.principalId,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-}
 
 describe("findGuardian", () => {
   test("finds a guardian seeded in the gateway DB", async () => {

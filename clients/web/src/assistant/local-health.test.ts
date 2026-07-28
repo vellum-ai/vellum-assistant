@@ -22,9 +22,8 @@ mock.module("@/assistant/lifecycle-store", () => ({
 }));
 
 beforeAll(async () => {
-  ({ deriveLocalAssistantHealth, useLocalAssistantHealth } = await import(
-    "@/assistant/local-health"
-  ));
+  ({ deriveLocalAssistantHealth, useLocalAssistantHealth } =
+    await import("@/assistant/local-health"));
 });
 
 beforeEach(() => {
@@ -55,6 +54,21 @@ describe("deriveLocalAssistantHealth", () => {
   test("returns unhealthy for any other reported status", () => {
     expect(
       deriveLocalAssistantHealth({ ok: true, data: { status: "degraded" } }),
+    ).toBe("unhealthy");
+  });
+
+  test("returns migrating while the daemon reports MIGRATING", () => {
+    // The daemon's detailed health reports MIGRATING while its startup DB
+    // migrations run — an expected in-progress phase, not an unhealthy state
+    // that should invite a mid-migration restart.
+    expect(
+      deriveLocalAssistantHealth({ ok: true, data: { status: "MIGRATING" } }),
+    ).toBe("migrating");
+  });
+
+  test("returns unhealthy when the daemon reports ERROR (failed migrations)", () => {
+    expect(
+      deriveLocalAssistantHealth({ ok: true, data: { status: "ERROR" } }),
     ).toBe("unhealthy");
   });
 });

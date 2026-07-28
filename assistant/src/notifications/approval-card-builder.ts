@@ -70,21 +70,38 @@ export type ApprovalCardBlock = z.infer<typeof ApprovalCardBlockSchema>;
 
 // ── Public types ────────────────────────────────────────────────────────────
 
+/** A card action option resolved from the request's domain (id + label + style). */
+export interface ApprovalCardActionOption {
+  /** Canonical action id — becomes the `apr:<requestId>:<id>` callback. */
+  id: string;
+  label: string;
+  style?: SurfaceAction["style"];
+}
+
 export interface ApprovalCardParams {
   /** Prefix for `surfaceId` — combined with `requestId` to form e.g. "access-request-abc123". */
   surfaceIdPrefix: string;
   /** Top-level card title shown in the surface header (e.g. "Access Request", "Tool approval"). */
   cardTitle: string;
-  /** Primary line inside the card (typically the requester's display name). */
-  requesterName: string;
-  /** Secondary line below the requester name (e.g. "Requesting access to the assistant"). */
+  /**
+   * Primary line inside the card — the subject of the decision: the
+   * requester's display name for access requests, the tool name for tool
+   * approvals.
+   */
+  primaryLine: string;
+  /** Secondary line below the primary line (e.g. "Requesting access to the assistant"). */
   subtitle: string;
   /** Markdown body — blockquotes, warnings, links, etc. */
   body: string;
   /** Key-value metadata grid rendered below the body. */
   metadata: Array<{ label: string; value: string }>;
-  /** When present, Approve/Reject buttons are wired with `apr:<requestId>:*` action IDs. */
+  /** When present, action buttons are wired with `apr:<requestId>:*` action IDs. */
   requestId?: string;
+  /**
+   * Domain-specific action set (e.g. the signal-driven introduction-card
+   * actions). When absent, the generic Approve/Reject pair is rendered.
+   */
+  actions?: ApprovalCardActionOption[];
   /** Plain-text content for the fallback `text` block. */
   fallbackText: string;
 }
@@ -105,7 +122,7 @@ export function buildApprovalCardBlocks(
   const {
     surfaceIdPrefix,
     cardTitle,
-    requesterName,
+    primaryLine,
     subtitle,
     body,
     metadata,
@@ -113,23 +130,21 @@ export function buildApprovalCardBlocks(
     fallbackText,
   } = params;
 
+  const actionOptions: ApprovalCardActionOption[] = params.actions ?? [
+    { id: "approve_once", label: "Approve", style: "primary" },
+    { id: "reject", label: "Reject", style: "destructive" },
+  ];
+
   const actions: SurfaceAction[] | undefined = requestId
-    ? [
-        {
-          id: `apr:${requestId}:approve_once`,
-          label: "Approve",
-          style: "primary",
-        },
-        {
-          id: `apr:${requestId}:reject`,
-          label: "Reject",
-          style: "destructive",
-        },
-      ]
+    ? actionOptions.map((option) => ({
+        id: `apr:${requestId}:${option.id}`,
+        label: option.label,
+        ...(option.style ? { style: option.style } : {}),
+      }))
     : undefined;
 
   const data: CardSurfaceData = {
-    title: requesterName,
+    title: primaryLine,
     subtitle,
     body,
     metadata,

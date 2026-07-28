@@ -220,7 +220,11 @@ export async function exec(): Promise<void> {
 
     if (interactive) {
       // Interactive mode: shell-escape argv and delegate to full terminal
-      await interactiveSession(assistant, shellEscapeArgs(command), serviceParam);
+      await interactiveSession(
+        assistant,
+        shellEscapeArgs(command),
+        serviceParam,
+      );
       return;
     }
 

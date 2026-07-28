@@ -39,8 +39,11 @@ export function useAutoGreetGate(
 ): AutoGreetGateResult {
   const autoGreetPending =
     useAssistantLifecycleStore.use.expectingFirstMessage();
-  const messages = useChatSessionStore.use.messages();
-  const firstAssistantMessageArrived = hasAssistantMessage(messages);
+  // The post-hatch greeting folds into the materialized snapshot as it streams;
+  // a freshly hatched conversation has no persisted history yet, so the snapshot
+  // is the right (and sufficient) place to watch for the first assistant message.
+  const snapshot = useChatSessionStore.use.snapshot();
+  const firstAssistantMessageArrived = hasAssistantMessage(snapshot?.messages);
   const [timedOut, setTimedOut] = useState(false);
 
   // 1. Pre-chat sessionStorage detector — re-arm gate on reload.

@@ -12,6 +12,7 @@
  * verification intercept is mocked per-test so the default path forwards.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import type { GatewayConfig } from "../config.js";
 import type {
   RuntimeInboundPayload,
@@ -70,16 +71,25 @@ mock.module("../feature-flag-resolver.js", () => ({
 }));
 
 await import("./test-preload.js");
-const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
-  "../db/connection.js"
-);
-const { AdmissionPolicyStore } = await import("../db/admission-policy-store.js");
+const { initGatewayDb, resetGatewayDb, getGatewayDb } =
+  await import("../db/connection.js");
+const { AdmissionPolicyStore } =
+  await import("../db/admission-policy-store.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
 const {
-  initAdmissionPolicyCache,
-  resetAdmissionPolicyCache,
-} = await import("../risk/admission-policy-cache.js");
-const { contacts: gwContacts, contactChannels: gwContactChannels } =
-  await import("../db/schema.js");
+  contacts: gwContacts,
+  contactChannels: gwContactChannels,
+  actorTokenRecords,
+  actorRefreshTokenRecords,
+} = await import("../db/schema.js");
+const { bustGuardianIntegrityCache } = await import(
+  "../auth/guardian-integrity.js"
+);
+const {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} = await import("../guardian-integrity-reporter.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 
 const CHANNEL = "telegram";
@@ -185,17 +195,32 @@ beforeEach(async () => {
   // (channels first — FK cascade from contacts).
   getGatewayDb().delete(gwContactChannels).run();
   getGatewayDb().delete(gwContacts).run();
+  // Guardian-evidence tables too: leftover token rows from sibling suites
+  // would flip the recomputed integrity state to missing_guardian.
+  getGatewayDb().delete(actorTokenRecords).run();
+  getGatewayDb().delete(actorRefreshTokenRecords).run();
   const store = new AdmissionPolicyStore();
   for (const row of store.list()) store.remove(row.channelType);
   initAdmissionPolicyCache();
   runtimePayloads = [];
   forwardToRuntimeMock.mockClear();
   interceptResult = { intercepted: false };
+  // The integrity state is TTL-cached process-wide; recompute per test and
+  // silence the fail-loud reporter (its behavior has its own suites).
+  bustGuardianIntegrityCache();
+  resetGuardianIntegrityReporterForTesting();
+  setGuardianIntegrityReporterOverridesForTesting({
+    fetchImpl: async () => new Response("{}"),
+    mintToken: () => "svc-token",
+    baseUrl: "http://127.0.0.1:7821",
+    log: { error: () => {}, warn: () => {} },
+  });
 });
 
 afterEach(() => {
   resetAdmissionPolicyCache();
   resetGatewayDb();
+  resetGuardianIntegrityReporterForTesting();
 });
 
 describe("handle-inbound trust verdict stamping", () => {
@@ -318,5 +343,196 @@ describe("handle-inbound trust verdict stamping", () => {
     expect(verdict.trustClass).toBe("unknown");
     // Matches a real resolve: whitespace-only id normalizes to absent.
     expect(verdict.canonicalSenderId).toBeNull();
+  });
+});
+
+describe("handle-inbound sender-authentication downgrade", () => {
+  const GUARDIAN_EMAIL = "guardian@example.com";
+
+  function makeEmailEvent(): GatewayInboundEvent {
+    return makeEvent({
+      sourceChannel: "email",
+      actor: {
+        actorExternalId: GUARDIAN_EMAIL,
+        displayName: "The Guardian",
+        username: GUARDIAN_EMAIL,
+      },
+      message: {
+        conversationExternalId: "thread-1",
+        externalMessageId: "extmsg-email-1",
+        content: "please run this",
+      },
+    });
+  }
+
+  function insertGuardianEmailContact(): void {
+    insertContact({
+      id: "c-guardian",
+      displayName: "The Guardian",
+      role: "guardian",
+      principalId: "principal-1",
+    });
+    insertChannel({
+      id: "ch-guardian",
+      contactId: "c-guardian",
+      type: "email",
+      address: GUARDIAN_EMAIL,
+      externalChatId: "thread-guardian",
+      status: "active",
+    });
+  }
+
+  test("forged guardian From: with senderAuthenticated=false → verdict downgraded to stranger", async () => {
+    // The address matches the active guardian binding, so absent the auth
+    // signal this classifies `guardian`. A spoofed From: that failed
+    // SPF/DKIM/DMARC must NOT inherit that trust.
+    insertGuardianEmailContact();
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: false,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("unknown");
+    // Guardian + member fields are stripped so no residual trust is rebuilt.
+    expect(verdict.guardianExternalUserId).toBeUndefined();
+    expect(verdict.guardianPrincipalId).toBeUndefined();
+    expect(verdict.contactId).toBeUndefined();
+    // A real stranger, not a resolver failure — flows through the normal
+    // admission floor + verification lane.
+    expect(verdict.resolutionFailed).toBeUndefined();
+    // Canonical sender identity is preserved for logging / verification reply.
+    expect(verdict.canonicalSenderId).toBe(GUARDIAN_EMAIL);
+  });
+
+  test("authenticated guardian From: with senderAuthenticated=true → verdict stays guardian", async () => {
+    insertGuardianEmailContact();
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: true,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("guardian");
+    expect(verdict.guardianExternalUserId).toBe(GUARDIAN_EMAIL);
+  });
+
+  test("absent signal (senderAuthenticated undefined) preserves the resolved verdict", async () => {
+    // Backward-compat: an older platform that sends no signal must not have
+    // its senders downgraded (enforcement only engages on an explicit false).
+    insertGuardianEmailContact();
+
+    await handleInbound(makeConfig(), makeEmailEvent(), ROUTING);
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("guardian");
+  });
+
+  test("missing-guardian DB + senderAuthenticated=false → downgrade preserves resolutionFailed", async () => {
+    // Evidence of prior onboarding with zero guardian rows: the resolver
+    // stamps resolutionFailed on the unknown verdict. The auth downgrade must
+    // not erase it — a failed-auth sender in a broken-trust DB fails closed
+    // instead of getting stranger-lane treatment.
+    insertContact({ id: "c-residual", displayName: "Residual Member" });
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: false,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.resolutionFailed).toBe(true);
+    expect(verdict.canonicalSenderId).toBe(GUARDIAN_EMAIL);
+    // The downgrade's stripping semantics are unchanged.
+    expect(verdict.contactId).toBeUndefined();
+    expect(verdict.guardianExternalUserId).toBeUndefined();
+  });
+
+  test("forged trusted_contact From: with senderAuthenticated=false → downgraded to stranger", async () => {
+    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      type: "email",
+      address: GUARDIAN_EMAIL,
+      externalChatId: "thread-member",
+      status: "active",
+    });
+
+    await handleInbound(makeConfig(), makeEmailEvent(), {
+      ...ROUTING,
+      senderAuthenticated: false,
+    });
+
+    const verdict = runtimePayloads[0]!.sourceMetadata!.trustVerdict!;
+    expect(verdict.trustClass).toBe("unknown");
+    expect(verdict.contactId).toBeUndefined();
+    expect(verdict.status).toBeUndefined();
+  });
+});
+
+describe("handle-inbound contact channel stats", () => {
+  function readChannel(id: string) {
+    return getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.id, id))
+      .get()!;
+  }
+
+  test("non-duplicate inbound bumps lastSeen + interaction on the gateway row", async () => {
+    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_USER_1",
+      externalChatId: "chat-member",
+    });
+
+    await handleInbound(makeConfig(), makeEvent(), ROUTING);
+
+    const channel = readChannel("ch-member");
+    expect(channel.interactionCount).toBe(1);
+    expect(channel.lastInteraction).not.toBeNull();
+    expect(channel.lastSeenAt).not.toBeNull();
+  });
+
+  test("duplicate inbound bumps lastSeen only, leaving interactionCount at 0", async () => {
+    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_USER_1",
+    });
+    forwardToRuntimeMock.mockImplementationOnce(async (_config, payload) => {
+      runtimePayloads.push(payload);
+      return { accepted: true, duplicate: true, eventId: "runtime-dup-1" };
+    });
+
+    await handleInbound(makeConfig(), makeEvent(), ROUTING);
+
+    const channel = readChannel("ch-member");
+    expect(channel.interactionCount).toBe(0);
+    expect(channel.lastInteraction).toBeNull();
+    expect(channel.lastSeenAt).not.toBeNull();
+  });
+
+  test("resolves via externalChatId fallback when the address does not match", async () => {
+    insertContact({ id: "c-legacy", displayName: "Legacy Import" });
+    insertChannel({
+      id: "ch-legacy",
+      contactId: "c-legacy",
+      address: "SOME_OTHER_ADDRESS",
+      externalChatId: "C_CHAT_1",
+    });
+
+    await handleInbound(makeConfig(), makeEvent(), ROUTING);
+
+    const channel = readChannel("ch-legacy");
+    expect(channel.interactionCount).toBe(1);
+    expect(channel.lastSeenAt).not.toBeNull();
   });
 });

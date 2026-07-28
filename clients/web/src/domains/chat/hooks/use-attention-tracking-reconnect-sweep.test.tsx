@@ -33,6 +33,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
+  useArchivedConversationListQuery: () => ({ conversations: [] }),
 }));
 
 mock.module("@/utils/conversation-cache-mutations", () => ({
@@ -81,7 +82,6 @@ mock.module("@/domains/chat/api/interactions", () => ({
   submitConfirmation: stubFromOtherTest("submitConfirmation"),
   submitContactPrompt: stubFromOtherTest("submitContactPrompt"),
   submitQuestionResponse: stubFromOtherTest("submitQuestionResponse"),
-  submitTrustRule: stubFromOtherTest("submitTrustRule"),
 }));
 
 const { useAttentionTracking } = await import(

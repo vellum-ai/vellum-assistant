@@ -3,12 +3,18 @@
  * Provides entry points to start a conversation or import a .vellum bundle.
  */
 
-import { LayoutGrid, Upload } from "lucide-react";
+import { Download, LayoutGrid } from "lucide-react";
 import { type ChangeEvent, type RefObject } from "react";
 
 import { Button } from "@vellumai/design-library";
 
 interface LibraryEmptyStateProps {
+  /**
+   * File-picker `accept` filter. `undefined` leaves the picker unrestricted
+   * (touch devices, where iOS ignores extension filters) — see
+   * `LibraryView` for the platform rationale.
+   */
+  accept: string | undefined;
   fileInputRef: RefObject<HTMLInputElement | null>;
   isImporting: boolean;
   onImportBundle: (e: ChangeEvent<HTMLInputElement>) => void;
@@ -16,6 +22,7 @@ interface LibraryEmptyStateProps {
 }
 
 export function LibraryEmptyState({
+  accept,
   fileInputRef,
   isImporting,
   onImportBundle,
@@ -26,7 +33,7 @@ export function LibraryEmptyState({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".vellum"
+        accept={accept}
         className="hidden"
         onChange={onImportBundle}
       />
@@ -63,7 +70,7 @@ export function LibraryEmptyState({
           {isImporting ? (
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
           ) : (
-            <Upload size={14} />
+            <Download size={14} />
           )}
           <span className="ml-1.5">Import .vellum File</span>
         </Button>

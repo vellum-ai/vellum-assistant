@@ -13,78 +13,16 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: {},
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -111,9 +49,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -139,11 +77,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {},
 }));
@@ -186,7 +124,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "mock-id", createdAt: Date.now() }),
   listUsageEvents: () => [],
 }));
@@ -211,26 +149,6 @@ mock.module("../agent/loop.js", () => ({
       return [];
     }
   },
-}));
-
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
 // ---------------------------------------------------------------------------
@@ -258,7 +176,7 @@ function makeProvider() {
 }
 
 function makeConversation(
-  sendToClient?: (msg: ServerMessage) => void,
+  sendToClient?: (msg: AssistantEvent) => void,
 ): Conversation {
   return new Conversation(
     "conv-signals-test",
@@ -294,7 +212,7 @@ function seedPendingConfirmation(
 
 describe("centralized confirmation emissions", () => {
   test("handleConfirmationResponse emits confirmation_state_changed with approved state for allow decision", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-allow-1");
@@ -322,7 +240,7 @@ describe("centralized confirmation emissions", () => {
   });
 
   test("handleConfirmationResponse emits confirmation_state_changed with denied state for deny decision", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-deny-1");
@@ -346,7 +264,7 @@ describe("centralized confirmation emissions", () => {
   });
 
   test("handleConfirmationResponse emits assistant_activity_state with thinking phase", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-activity-1");
@@ -369,7 +287,7 @@ describe("centralized confirmation emissions", () => {
   });
 
   test("handleConfirmationResponse passes emissionContext source", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-ctx-1");
@@ -396,7 +314,7 @@ describe("centralized confirmation emissions", () => {
 
 describe("activity version ordering", () => {
   test("emitActivityState produces monotonically increasing activityVersion", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     conversation.emitActivityState("thinking", "message_dequeued");
@@ -408,7 +326,7 @@ describe("activity version ordering", () => {
 
     const activityMsgs = emitted.filter(
       (m) => m.type === "assistant_activity_state",
-    ) as Array<ServerMessage & { activityVersion: number }>;
+    ) as Array<AssistantEvent & { activityVersion: number }>;
 
     expect(activityMsgs).toHaveLength(4);
 
@@ -424,7 +342,7 @@ describe("activity version ordering", () => {
   });
 
   test("handleConfirmationResponse increments activityVersion for its activity emission", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     // Emit a baseline activity state
@@ -432,7 +350,7 @@ describe("activity version ordering", () => {
 
     const baselineMsg = emitted.find(
       (m) => m.type === "assistant_activity_state",
-    ) as ServerMessage & { activityVersion: number };
+    ) as AssistantEvent & { activityVersion: number };
     const baselineVersion = baselineMsg.activityVersion;
 
     // Now handle a confirmation
@@ -441,7 +359,7 @@ describe("activity version ordering", () => {
 
     const activityMsgs = emitted.filter(
       (m) => m.type === "assistant_activity_state",
-    ) as Array<ServerMessage & { activityVersion: number; reason: string }>;
+    ) as Array<AssistantEvent & { activityVersion: number; reason: string }>;
 
     // The confirmation_resolved activity message should have a higher version
     const resolvedMsg = activityMsgs.find(
@@ -454,7 +372,7 @@ describe("activity version ordering", () => {
 
 describe("sendToClient receives state signals", () => {
   test("emitActivityState delivers to sendToClient", () => {
-    const clientMsgs: ServerMessage[] = [];
+    const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
     conversation.emitActivityState("thinking", "message_dequeued");
@@ -465,7 +383,7 @@ describe("sendToClient receives state signals", () => {
   });
 
   test("emitConfirmationStateChanged delivers to sendToClient", () => {
-    const clientMsgs: ServerMessage[] = [];
+    const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
     conversation.emitConfirmationStateChanged({
@@ -481,7 +399,7 @@ describe("sendToClient receives state signals", () => {
   });
 
   test("handleConfirmationResponse delivers state signals to sendToClient", () => {
-    const clientMsgs: ServerMessage[] = [];
+    const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
     seedPendingConfirmation(conversation, "req-signal-confirm");

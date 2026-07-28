@@ -6,6 +6,7 @@ import {
   normalizePublicBaseUrl,
   TWILIO_PUBLIC_BASE_WSS_PLACEHOLDER,
 } from "@vellumai/service-contracts/twilio-ingress";
+import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
 
 import type { RuntimeInboundPayload } from "@vellumai/gateway-client";
 import type { ChannelId } from "../channels/types.js";
@@ -577,6 +578,58 @@ export function resolvePublicBaseWssUrl(
 }
 
 /**
+ * Resolve the public base URL as an HTTP(S) URL — the HTTP sibling of
+ * {@link resolvePublicBaseWssUrl}. Used by surfaces that build a public
+ * browser-facing link (credential-collection links, the A2A agent card).
+ *
+ * Sources (in priority order):
+ * 1. `ingress.publicBaseUrl` from the config file — written by Velay after
+ *    tunnel registration, or set manually for self-hosted.
+ * 2. `VELAY_BASE_URL` + the platform assistant ID. This mirrors the Twilio
+ *    resolver's fallback and stays valid even while the tunnel is briefly
+ *    disconnected (Velay clears the config value on every reconnect), so
+ *    these links no longer break on a tunnel flap.
+ *
+ * The platform assistant ID is read through a lazy getter so callers that
+ * resolve from the config value (self-hosted / manual URL) never touch the
+ * credential store — a transient CES outage must not fail those callers.
+ *
+ * Returns `undefined` when no source provides a value.
+ */
+export async function resolvePublicHttpBaseUrl(
+  config: GatewayConfig,
+  configFile?: ConfigFileCache,
+  getPlatformAssistantId?: () => Promise<string | undefined>,
+): Promise<string | undefined> {
+  const resolved =
+    normalizeHttpPublicBaseUrl(
+      configFile?.getString("ingress", "publicBaseUrl"),
+    ) ??
+    normalizeHttpPublicBaseUrl(
+      await resolveVelayHttpFallback(config, getPlatformAssistantId),
+    );
+
+  // Drop a root-path trailing slash so callers can append `/…` without
+  // producing a `//`.
+  return resolved ? resolved.replace(/\/+$/, "") : undefined;
+}
+
+/**
+ * Build the `VELAY_BASE_URL/<platform-assistant-id>` fallback base URL. Only
+ * reads the platform assistant ID (via the getter) when `velayBaseUrl` is
+ * configured, so it's skipped entirely on self-hosted deployments.
+ */
+async function resolveVelayHttpFallback(
+  config: GatewayConfig,
+  getPlatformAssistantId?: () => Promise<string | undefined>,
+): Promise<string | undefined> {
+  if (!config.velayBaseUrl || !getPlatformAssistantId) return undefined;
+  const platformAssistantId = await getPlatformAssistantId();
+  if (!platformAssistantId) return undefined;
+  return config.velayBaseUrl.replace(/\/+$/, "") + "/" + platformAssistantId;
+}
+
+/**
  * Forward a validated Twilio voice webhook payload to the runtime.
  * The gateway sends the parsed form params as JSON; the runtime's internal
  * endpoint reconstructs what it needs.
@@ -665,46 +718,6 @@ export async function forwardTwilioStatusWebhook(
   const url = buildUpstreamUrl(
     config.assistantRuntimeBaseUrl,
     "/v1/internal/twilio/status",
-  );
-
-  let response: Response;
-  try {
-    response = await timedFetch(
-      url,
-      {
-        method: "POST",
-        headers: serviceHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ params }),
-      },
-      config.runtimeTimeoutMs,
-    );
-  } catch (err) {
-    cbOnFailure();
-    throw err;
-  }
-
-  const body = await response.text();
-  const headers: Record<string, string> = {};
-  const contentType = response.headers.get("content-type");
-  if (contentType) headers["Content-Type"] = contentType;
-
-  if (response.status >= 500) cbOnFailure();
-  else cbOnSuccess();
-  return { status: response.status, body, headers };
-}
-
-/**
- * Forward a validated Twilio connect-action callback payload to the runtime.
- */
-export async function forwardTwilioConnectActionWebhook(
-  config: GatewayConfig,
-  params: Record<string, string>,
-): Promise<TwilioForwardResponse> {
-  cbBeforeRequest();
-
-  const url = buildUpstreamUrl(
-    config.assistantRuntimeBaseUrl,
-    "/v1/internal/twilio/connect-action",
   );
 
   let response: Response;

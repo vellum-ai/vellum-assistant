@@ -11,13 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks — declared before imports that depend on them ─────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let mockConversationId = "conv-001";
 let mockMessageId = "msg-001";
 let createConversationShouldThrow = false;
@@ -50,9 +43,9 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -92,7 +85,7 @@ const upsertOutboundBindingMock = mock(
   }) => {},
 );
 
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getBindingByChannelChat: getBindingByChannelChatMock,
   upsertOutboundBinding: upsertOutboundBindingMock,
 }));

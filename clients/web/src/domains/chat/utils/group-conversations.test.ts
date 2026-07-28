@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
-import { groupConversations } from "@/domains/chat/utils/group-conversations";
+import {
+  buildMoveToGroupTargets,
+  groupConversations,
+} from "@/domains/chat/utils/group-conversations";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -11,13 +14,25 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
   };
 }
 
+/** Conversation ids in a given channel's section, or [] when absent. */
+function channelSectionIds(
+  result: ReturnType<typeof groupConversations>,
+  channelId: string,
+): string[] {
+  return (
+    result.channelSections
+      .find((s) => s.channelId === channelId)
+      ?.conversations.map((c) => c.conversationId) ?? []
+  );
+}
+
 describe("groupConversations · bucket routing", () => {
   test("returns empty buckets for an empty input", () => {
     const result = groupConversations([]);
     expect(result.pinned).toEqual([]);
     expect(result.scheduled).toEqual([]);
     expect(result.background).toEqual([]);
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
     expect(result.recents).toEqual([]);
   });
 
@@ -35,7 +50,7 @@ describe("groupConversations · bucket routing", () => {
     expect(result.recents).toEqual([]);
     expect(result.scheduled).toEqual([]);
     expect(result.background).toEqual([]);
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
   });
 
   test("routes conversationType=scheduled into scheduled bucket", () => {
@@ -100,7 +115,7 @@ describe("groupConversations · bucket routing", () => {
       }),
     ]);
 
-    expect(result.slack.map((c) => c.conversationId)).toEqual([
+    expect(channelSectionIds(result, "slack")).toEqual([
       "slack-new",
       "slack-old",
       "slack-scheduled",
@@ -136,7 +151,7 @@ describe("groupConversations · bucket routing", () => {
       { groups },
     );
 
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
     expect(result.pinned.map((c) => c.conversationId)).toEqual([
       "pinned-slack",
     ]);
@@ -161,7 +176,7 @@ describe("groupConversations · bucket routing", () => {
       }),
     ]);
 
-    expect(result.slack).toEqual([]);
+    expect(result.channelSections).toEqual([]);
     expect(result.scheduled.map((c) => c.conversationId)).toEqual([
       "scheduled-slack",
     ]);
@@ -669,10 +684,53 @@ describe("groupConversations · surfaced promotion to recents", () => {
         surfacedAt: 1704067200000,
       }),
     ]);
-    expect(result.slack.map((c) => c.conversationId)).toEqual([
-      "slack-surfaced",
-    ]);
+    expect(channelSectionIds(result, "slack")).toEqual(["slack-surfaced"]);
     expect(result.recents).toEqual([]);
+  });
+
+  test("routes each non-Slack channel into its own section, ordered by channel id", () => {
+    const result = groupConversations([
+      makeConversation({ conversationId: "regular" }),
+      makeConversation({
+        conversationId: "tg-1",
+        originChannel: "telegram",
+        lastMessageAt: 1709251200000,
+      }),
+      makeConversation({
+        conversationId: "tg-2",
+        originChannel: "telegram",
+        lastMessageAt: 1704067200000,
+      }),
+      makeConversation({ conversationId: "wa-1", originChannel: "whatsapp" }),
+      makeConversation({ conversationId: "slack-1", originChannel: "slack" }),
+    ]);
+
+    // Sections are ordered by channel id (slack, telegram, whatsapp).
+    expect(result.channelSections.map((s) => s.channelId)).toEqual([
+      "slack",
+      "telegram",
+      "whatsapp",
+    ]);
+    // Within a section, conversations are recency-sorted.
+    expect(channelSectionIds(result, "telegram")).toEqual(["tg-1", "tg-2"]);
+    expect(channelSectionIds(result, "whatsapp")).toEqual(["wa-1"]);
+    expect(channelSectionIds(result, "slack")).toEqual(["slack-1"]);
+    expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
+  });
+
+  test("excludes native and notification origins from channel sections", () => {
+    const result = groupConversations([
+      makeConversation({ conversationId: "web", originChannel: "vellum" }),
+      makeConversation({
+        conversationId: "notif",
+        originChannel: "notification:slack",
+      }),
+    ]);
+    expect(result.channelSections).toEqual([]);
+    expect(result.recents.map((c) => c.conversationId).sort()).toEqual([
+      "notif",
+      "web",
+    ]);
   });
 
   test("archived surfaced conversations stay excluded", () => {
@@ -711,5 +769,51 @@ describe("groupConversations · surfaced promotion to recents", () => {
       "pinned-1",
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
+  });
+});
+
+describe("buildMoveToGroupTargets", () => {
+  const research = makeGroup({ id: "g_research", name: "Research" });
+  const ideas = makeGroup({ id: "g_ideas", name: "Ideas" });
+  const systemAll = makeGroup({
+    id: "system:all",
+    name: "Recents",
+    isSystemGroup: true,
+  });
+
+  test("returns every custom group when the conversation is ungrouped", () => {
+    const targets = buildMoveToGroupTargets(
+      makeConversation({ conversationId: "c1" }),
+      [research, ideas],
+    );
+    expect(targets).toEqual([
+      { id: "g_research", name: "Research" },
+      { id: "g_ideas", name: "Ideas" },
+    ]);
+  });
+
+  test("excludes the conversation's current custom group", () => {
+    const targets = buildMoveToGroupTargets(
+      makeConversation({ conversationId: "c1", groupId: "g_research" }),
+      [research, ideas],
+    );
+    expect(targets).toEqual([{ id: "g_ideas", name: "Ideas" }]);
+  });
+
+  test("never includes system groups (only custom folders are targets)", () => {
+    const targets = buildMoveToGroupTargets(
+      makeConversation({ conversationId: "c1" }),
+      [systemAll, research],
+    );
+    expect(targets).toEqual([{ id: "g_research", name: "Research" }]);
+  });
+
+  test("returns an empty list when there are no custom groups", () => {
+    expect(
+      buildMoveToGroupTargets(makeConversation({ conversationId: "c1" }), []),
+    ).toEqual([]);
+    expect(
+      buildMoveToGroupTargets(makeConversation({ conversationId: "c1" })),
+    ).toEqual([]);
   });
 });

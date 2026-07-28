@@ -1,6 +1,0 @@
-# LongMemEval-V2 dataset payload is 7+ GB — kept out of the repo.
-# Pull via `bun run data/download.ts`.
-*
-!.gitignore
-!download.ts
-!question-labels.json

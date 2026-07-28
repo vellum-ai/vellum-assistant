@@ -26,6 +26,16 @@ import * as m0004 from "./m0004-actor-token-hash-index-unfiltered.js";
 import * as m0005 from "./m0005-normalize-contact-channel-addresses.js";
 import * as m0006 from "./m0006-reconcile-contacts-from-assistant.js";
 import * as m0007 from "./m0007-backfill-ingress-invites.js";
+import * as m0008 from "./m0008-upsert-acl-columns-from-assistant.js";
+import * as m0009 from "./m0009-invite-fields-backfill.js";
+import * as m0010 from "./m0010-drop-assistant-ingress-invites.js";
+import * as m0011 from "./m0011-drop-gw-verification-sessions.js";
+import * as m0012 from "./m0012-migrate-slack-channel-permissions.js";
+import * as m0013 from "./m0013-verification-sessions-backfill.js";
+import * as m0014 from "./m0014-drop-assistant-verification-tables.js";
+import * as m0015 from "./m0015-guardian-requests-backfill.js";
+import * as m0016 from "./m0016-drop-assistant-guardian-tables.js";
+import * as m0017 from "./m0017-coerce-escalate-policy.js";
 
 const log = getLogger("data-migrations");
 
@@ -36,7 +46,8 @@ type MigrationModule = {
   down: () => MigrationResult | Promise<MigrationResult>;
 };
 
-const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
+/** Exported for ordering assertions in tests. */
+export const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
   { key: "m0001-guardian-init-lock", mod: m0001 },
   { key: "m0002-actor-token-tables-to-gateway", mod: m0002 },
   { key: "m0003-recover-backup-key", mod: m0003 },
@@ -44,6 +55,19 @@ const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
   { key: "m0005-normalize-contact-channel-addresses", mod: m0005 },
   { key: "m0006-reconcile-contacts-from-assistant", mod: m0006 },
   { key: "m0007-backfill-ingress-invites", mod: m0007 },
+  { key: "m0008-upsert-acl-columns-from-assistant", mod: m0008 },
+  { key: "m0009-invite-fields-backfill", mod: m0009 },
+  // m0010 must stay after m0009: it drops the assistant table m0009 reads.
+  { key: "m0010-drop-assistant-ingress-invites", mod: m0010 },
+  { key: "m0011-drop-gw-verification-sessions", mod: m0011 },
+  { key: "m0012-migrate-slack-channel-permissions", mod: m0012 },
+  { key: "m0013-verification-sessions-backfill", mod: m0013 },
+  // m0014 must stay after m0013: it drops the assistant tables m0013 reads.
+  { key: "m0014-drop-assistant-verification-tables", mod: m0014 },
+  { key: "m0015-guardian-requests-backfill", mod: m0015 },
+  // m0016 must stay after m0015: it drops the assistant tables m0015 reads.
+  { key: "m0016-drop-assistant-guardian-tables", mod: m0016 },
+  { key: "m0017-coerce-escalate-policy", mod: m0017 },
 ];
 
 /**

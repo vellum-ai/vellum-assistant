@@ -84,21 +84,6 @@ export function getCesDataRoot(mode?: CesMode): string {
 // Subdirectory layout
 // ---------------------------------------------------------------------------
 
-/** Directory for CES grant persistence. */
-export function getCesGrantsDir(mode?: CesMode): string {
-  return join(getCesDataRoot(mode), "grants");
-}
-
-/** Directory for CES audit log persistence. */
-export function getCesAuditDir(mode?: CesMode): string {
-  return join(getCesDataRoot(mode), "audit");
-}
-
-/** Directory for CES secure tool store (registered secure command tools). */
-export function getCesToolStoreDir(mode?: CesMode): string {
-  return join(getCesDataRoot(mode), "toolstore");
-}
-
 /** Directory for CES log files. */
 export function getCesLogDir(mode?: CesMode): string {
   return join(getCesDataRoot(mode), "logs");
@@ -137,6 +122,32 @@ export function getBootstrapSocketPath(): string {
   return (
     process.env["CES_BOOTSTRAP_SOCKET"] ??
     join(BOOTSTRAP_SOCKET_DIR, BOOTSTRAP_SOCKET_NAME)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Local-mode CES socket
+// ---------------------------------------------------------------------------
+
+/** Default local-mode CES socket filename (under the local data root). */
+const LOCAL_SOCKET_NAME = "ces.sock";
+
+/**
+ * Return the path to the local-mode CES Unix socket.
+ *
+ * Used when local CES runs as a CLI-launched sibling process. The socket
+ * lives under the CES-private local data root, whose directory permissions
+ * are the access boundary.
+ *
+ * Priority:
+ * 1. `CES_LOCAL_SOCKET` env var (full file path override; the CLI sets this
+ *    when launching the sibling).
+ * 2. Default: `<localDataRoot>/ces.sock`.
+ */
+export function getLocalSocketPath(): string {
+  return (
+    process.env["CES_LOCAL_SOCKET"] ??
+    join(getCesDataRoot("local"), LOCAL_SOCKET_NAME)
   );
 }
 

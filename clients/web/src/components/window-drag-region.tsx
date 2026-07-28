@@ -1,4 +1,7 @@
+import { useState } from "react";
+
 import { isElectron } from "@/runtime/is-electron";
+import { isPopoutWindow } from "@/runtime/popout-window";
 import { useTitleBarStore } from "@/stores/title-bar-store";
 
 /**
@@ -23,10 +26,22 @@ import { useTitleBarStore } from "@/stores/title-bar-store";
  *   `.app-shell` (an `isolation: isolate` stacking context), so leaving it up
  *   would out-stack the header's buttons and swallow their clicks. See
  *   {@link useTitleBarStore}.
+ * - Yields entirely in Electron pop-out thread windows (`?popout=1`): those
+ *   windows keep their NATIVE title bar (the desktop shell's
+ *   `popout-window.ts` passes no `titleBarStyle`), so the OS already provides
+ *   dragging — and since pop-outs never mount `ChatLayoutHeader` (the only
+ *   `inlineTitleBarActive` setter), leaving the strip up would permanently
+ *   swallow clicks on the standalone voice-session pill floated at the
+ *   window's top-right (see `VoiceSessionPillHost`).
  */
 export function WindowDragRegion() {
   const inlineTitleBarActive = useTitleBarStore.use.inlineTitleBarActive();
+  // Captured once at mount, mirroring `ChatLayout`: pop-out URLs carry the
+  // flag only on initial load. This component mounts outside the router, so
+  // it reads `window.location` directly rather than `useLocation`.
+  const [isPopout] = useState(() => isPopoutWindow(window.location.search));
   if (!isElectron()) return null;
+  if (isPopout) return null;
   if (inlineTitleBarActive) return null;
 
   return (

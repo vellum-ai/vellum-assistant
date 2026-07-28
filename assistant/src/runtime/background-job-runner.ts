@@ -20,10 +20,8 @@
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { addMessage } from "../memory/conversation-crud.js";
-import type { TitleOrigin } from "../memory/conversation-title-service.js";
+import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   commitDeferredConversation,
   discardDeferredConversation,
@@ -31,6 +29,9 @@ import {
 } from "../notifications/deferred-emit.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
+import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
+import { addMessage } from "../persistence/conversation-crud.js";
+import type { TitleOrigin } from "../persistence/conversation-title-service.js";
 import { getLogger } from "../util/logger.js";
 import { hasReceivedUserMessage } from "./pre-first-message-gate.js";
 
@@ -44,6 +45,26 @@ const DEFAULT_GROUP_ID = "system:background";
  */
 class BackgroundJobTimeoutError extends Error {
   override name = "BackgroundJobTimeoutError";
+}
+
+/**
+ * Internal-only sentinel for a turn that failed without throwing. When an LLM
+ * call fails (e.g. an invalid provider), `processMessage` resolves normally
+ * after persisting a synthetic error message — the failure is reported via
+ * `turnFailure` on its result rather than a rejection. We rethrow it as this
+ * error so it flows through the same failure path (logging + `activity.failed`
+ * emission) as any other background-job failure and the caller gets
+ * `ok: false`.
+ */
+class BackgroundJobTurnFailureError extends Error {
+  override name = "BackgroundJobTurnFailureError";
+  readonly failureCode: string | undefined;
+  constructor(failureCode: string | undefined) {
+    super(
+      failureCode ? `Agent turn failed (${failureCode})` : "Agent turn failed",
+    );
+    this.failureCode = failureCode;
+  }
 }
 
 export type BackgroundJobErrorKind = "timeout" | "model_provider" | "exception";
@@ -73,6 +94,12 @@ export interface RunBackgroundJobOptions {
    * profile; omitted = the call site's default resolution.
    */
   overrideProfile?: string;
+  /**
+   * Firing's `cron_runs.id`, threaded into the turn's usage rows so a scheduled
+   * execute job attributes its LLM spend to that firing. Omitted for
+   * non-scheduled background jobs.
+   */
+  cronRunId?: string | null;
   /** Hard timeout for `processMessage` in milliseconds. */
   timeoutMs: number;
   /**
@@ -86,6 +113,35 @@ export interface RunBackgroundJobOptions {
   groupId?: string;
   /** Title origin tag for `bootstrapConversation`. */
   origin: TitleOrigin;
+  /**
+   * Origin tag threaded into the agent turn's tool context (and through it
+   * `buildPolicyContext`), letting the permission checker scope narrow
+   * non-interactive auto-grants to a specific internal background origin
+   * (e.g. memory-consolidation skill authoring). Background jobs cannot
+   * answer interactive approval prompts, so a job that legitimately needs an
+   * otherwise-gated tool opts in by setting this to the origin its grant
+   * keys on. Omitted = no origin-scoped grant can fire for the turn.
+   */
+  requestOrigin?: string;
+  /**
+   * Restrict the job's agent turn to this exact set of tools. When set, the
+   * turn's tool surface is scoped to the allowlist for the duration of the
+   * run — used by unattended guardian-trust jobs (e.g. memory consolidation)
+   * that must not reach tools they don't need (network egress, host proxy).
+   * The run is non-interactive + guardian, so the permission checker
+   * auto-approves anything within the background threshold; scoping the
+   * surface is what keeps injected buffer/page content from reaching an
+   * auto-approved side-effect tool. Omitted = the full conversation tool
+   * surface (behavior unchanged for every existing caller).
+   */
+  allowedTools?: readonly string[];
+  /**
+   * How {@link allowedTools} is enforced. Defaults to `"wire"` — the excluded
+   * tools are never presented to the model (strongest gate; no reliance on
+   * the permission checker). See {@link SubagentToolGateMode}. Ignored when
+   * `allowedTools` is absent.
+   */
+  toolGateMode?: SubagentToolGateMode;
   /** Conversation type to bootstrap with. Defaults to `"background"`. */
   conversationType?: "background" | "scheduled";
   /**
@@ -95,15 +151,15 @@ export interface RunBackgroundJobOptions {
    */
   scheduleJobId?: string;
   /**
-   * Fires synchronously after `bootstrapConversation` returns and BEFORE
+   * Fires (and is awaited) after `bootstrapConversation` returns and BEFORE
    * `processMessage` starts. Use this to populate the macOS sidebar entry
    * immediately (the SSE event fires when the job starts) rather than after
    * the job finishes (which can be up to `timeoutMs` later for long jobs).
    *
-   * Wrapped in try/catch internally — a callback throw is logged and
-   * swallowed so it cannot kill the job runner.
+   * Wrapped in try/catch internally — a callback throw (or rejection) is
+   * logged and swallowed so it cannot kill the job runner.
    */
-  onConversationCreated?: (conversationId: string) => void;
+  onConversationCreated?: (conversationId: string) => void | Promise<void>;
   /**
    * Opt out of the "skip until first user message" gate. Defaults to
    * `false` (gate active). Set to `true` ONLY for jobs that genuinely need
@@ -137,6 +193,14 @@ export interface RunBackgroundJobOptions {
    * run completes successfully. See `notifications/deferred-emit.ts`.
    */
   deferNotifications?: boolean;
+  /**
+   * Persist the kickoff `prompt` without indexing it — no memory segments,
+   * no embeddings, no lexical-index entry. Opt-in for jobs whose prompt is a
+   * static machine-authored instruction manual (e.g. memory consolidation)
+   * that must not enter memory or search on every run. The run's replies and
+   * all other messages index normally. Defaults to false.
+   */
+  skipPromptIndexing?: boolean;
 }
 
 export interface RunBackgroundJobResult {
@@ -144,6 +208,14 @@ export interface RunBackgroundJobResult {
   ok: boolean;
   error?: Error;
   errorKind?: BackgroundJobErrorKind;
+  /**
+   * Stable classified error code (`ConversationErrorCode`, e.g.
+   * `"PROVIDER_BILLING"`) when the turn failed without throwing. Absent for
+   * timeouts and thrown exceptions. Lets callers branch on the failure class
+   * (e.g. billing vs transient) without depending on error identity or
+   * message text.
+   */
+  failureCode?: string;
   /**
    * Set when the runner declined to execute. Callers can distinguish a
    * skipped job from a successful one even though both report `ok: true`.
@@ -157,6 +229,9 @@ export interface RunBackgroundJobResult {
 
 function classifyError(err: unknown): BackgroundJobErrorKind {
   if (err instanceof BackgroundJobTimeoutError) return "timeout";
+  // A non-throwing turn failure is dominated by LLM-call failures (invalid
+  // provider, auth, rate limit); bucket it with other provider failures.
+  if (err instanceof BackgroundJobTurnFailureError) return "model_provider";
   if (!(err instanceof Error)) return "exception";
 
   const ctorName = err.constructor?.name ?? "";
@@ -205,14 +280,16 @@ export async function runBackgroundJob(
     };
   }
 
-  let conversation: ReturnType<typeof bootstrapConversation> | undefined;
+  let conversation:
+    | Awaited<ReturnType<typeof bootstrapConversation>>
+    | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // Bootstrap inside the try so that a `createConversation` /
     // `queueGenerateConversationTitle` failure is caught and surfaced as a
     // structured `{ ok: false }` result rather than re-thrown to the caller —
     // the documented contract of this runner.
-    conversation = bootstrapConversation({
+    conversation = await bootstrapConversation({
       conversationType: opts.conversationType ?? "background",
       source: opts.source,
       origin: opts.origin,
@@ -231,7 +308,7 @@ export async function runBackgroundJob(
     // callback throw cannot abort the job.
     if (opts.onConversationCreated) {
       try {
-        opts.onConversationCreated(conversation.id);
+        await opts.onConversationCreated(conversation.id);
       } catch (cbErr) {
         log.warn(
           {
@@ -276,6 +353,11 @@ export async function runBackgroundJob(
       ...(opts.overrideProfile
         ? { overrideProfile: opts.overrideProfile }
         : {}),
+      ...(opts.requestOrigin ? { requestOrigin: opts.requestOrigin } : {}),
+      ...(opts.cronRunId ? { cronRunId: opts.cronRunId } : {}),
+      ...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
+      ...(opts.toolGateMode ? { toolGateMode: opts.toolGateMode } : {}),
+      ...(opts.skipPromptIndexing ? { skipUserMessageIndexing: true } : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as
@@ -292,12 +374,22 @@ export async function runBackgroundJob(
       }, opts.timeoutMs);
     });
 
-    await Promise.race([work, timeout]);
+    const runResult = await Promise.race([work, timeout]);
     // Symmetric with the `work.catch` above: once `work` has won the race,
     // the orphan timeout promise can still reject during the await below
     // (commitDeferredConversation). Swallow so it doesn't surface as an
     // unhandled rejection that Bun can use to terminate the process.
     timeout.catch(() => {});
+    // The turn completed but its LLM call failed (e.g. an invalid provider):
+    // `processMessage` reports this via `turnFailure` instead of throwing.
+    // Rethrow so it flows through the shared failure path below (which
+    // discards any deferred notifications) rather than committing them and
+    // returning `ok: true`.
+    if (runResult.turnFailure) {
+      throw new BackgroundJobTurnFailureError(
+        runResult.turnFailure.failureCode,
+      );
+    }
     if (opts.deferNotifications) {
       await commitDeferredConversation(conversation.id);
     }
@@ -305,6 +397,10 @@ export async function runBackgroundJob(
   } catch (err) {
     const errorKind = classifyError(err);
     const error = err instanceof Error ? err : new Error(String(err));
+    const failureCode =
+      err instanceof BackgroundJobTurnFailureError
+        ? err.failureCode
+        : undefined;
     // Bootstrap can fail before `conversation` is assigned; fall back to ""
     // so the structured failure result still flows to the caller.
     const conversationId = conversation?.id ?? "";
@@ -364,6 +460,7 @@ export async function runBackgroundJob(
       ok: false,
       error,
       errorKind,
+      ...(failureCode !== undefined ? { failureCode } : {}),
     };
   } finally {
     if (timer) clearTimeout(timer);

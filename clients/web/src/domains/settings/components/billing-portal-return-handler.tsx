@@ -130,7 +130,7 @@ export function BillingPortalReturnHandler() {
       } finally {
         if (!unmountedRef.current) {
           clearPortalReturnSnapshot();
-          navigate(routes.settings.billing, { replace: true });
+          navigate(routes.settings.usageBilling, { replace: true });
           const backgroundStart = Date.now();
           if (intervalRef.current !== null) {
             clearInterval(intervalRef.current);

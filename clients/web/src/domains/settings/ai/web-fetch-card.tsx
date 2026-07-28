@@ -19,14 +19,20 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { ByoServiceCard, ResetButton, SaveButton } from "@/domains/settings/ai/shared-ui";
-import { LS_WEB_FETCH_PROVIDER } from "@/domains/settings/ai/local-storage-keys";
+import {
+  ByoServiceCard,
+} from "@/domains/settings/ai/shared-ui";
+import {
+  ResetButton,
+  SaveButton,
+} from "@/components/service-form-controls";
+import { LS_WEB_FETCH_PROVIDER } from "@/utils/local-settings-keys";
 import { getWebFetchProviderKeyStorage } from "@/domains/settings/ai/utils";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useQuery } from "@tanstack/react-query";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useDraftOverride } from "@/hooks/use-draft-override";
 import { credentialPresenceQueryKey, useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 
 const DEFAULT_PROVIDER = "default";

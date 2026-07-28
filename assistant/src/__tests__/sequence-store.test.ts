@@ -1,17 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { mock } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { sequenceEnrollments, sequences } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { sequenceEnrollments, sequences } from "../persistence/schema/index.js";
 import {
   advanceEnrollment,
   claimDueEnrollments,

@@ -6,7 +6,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 // `ToolDetailPanel`'s thinking variant subscribes to the chat-session store,
 // which transitively pulls in the generated daemon SDK. Stub every endpoint it
@@ -32,8 +34,41 @@ const { useChatSessionStore } = await import(
 );
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+
+/** Wrap messages into a materialized-snapshot page. */
+function snap(messages: DisplayMessage[]): PaginatedHistoryResult {
+  return {
+    messages,
+    seq: null,
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+  };
+}
 
 const noop = () => {};
+
+let queryClient: QueryClient;
+
+function wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+const render = (ui: Parameters<typeof rtlRender>[0]) =>
+  rtlRender(ui, { wrapper });
+
+/**
+ * Seed a committed message so the drawer's transcript resolves it. History now
+ * folds into the materialized snapshot, so this writes the snapshot.
+ */
+function seedHistory(messages: DisplayMessage[]) {
+  // History now folds into the materialized snapshot — the single source the
+  // drawer reads — so seed it there.
+  useChatSessionStore.setState({ snapshot: snap(messages) });
+}
 
 function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPayload {
   return {
@@ -52,6 +87,9 @@ function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPaylo
 let writeText: ReturnType<typeof mock>;
 
 beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   writeText = mock(() => Promise.resolve());
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText },
@@ -62,8 +100,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   act(() => {
-    useChatSessionStore.setState({ messages: [] });
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
   });
+  queryClient.clear();
 });
 
 describe("ToolDetailPanel", () => {
@@ -72,7 +111,7 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Activity renders in both the header title and the technical-details body.
+    // Activity renders in both the header title and the body.
     expect(
       getAllByText("Spawning subagent to research Toronto's location").length,
     ).toBeGreaterThan(0);
@@ -82,6 +121,65 @@ describe("ToolDetailPanel", () => {
     const text = container.textContent ?? "";
     expect(text).toContain('"toronto-location"');
     expect(text).toContain("Toronto is in Ontario, Canada.");
+  });
+
+  test("omits the Technical details label", () => {
+    const { queryByText } = render(
+      <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+    );
+
+    expect(queryByText("Technical details")).toBeNull();
+  });
+
+  test("renders the Risk Level section with the risk badge but not the raw reason", () => {
+    const { getByTestId, getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ riskReason: "File edit (default)" })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Risk Level")).toBeDefined();
+    expect(getByTestId("risk-badge").getAttribute("data-risk-level")).toBe(
+      "low",
+    );
+    // The tolerance description renders under the chip.
+    expect(
+      getByText("Auto-approved at Conservative tolerance or higher"),
+    ).toBeDefined();
+    // The classifier's rule-match string is internal jargon — never shown.
+    expect(queryByText("File edit (default)")).toBeNull();
+    // The trust-rule affordance was removed from the drawer.
+    expect(queryByText("Create Trust Rule")).toBeNull();
+  });
+
+  test("hides the Risk Level section when the call has no risk level", () => {
+    const { queryByText, queryByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({ riskLevel: undefined })}
+        onClose={noop}
+      />,
+    );
+
+    expect(queryByText("Risk Level")).toBeNull();
+    expect(queryByTestId("risk-badge")).toBeNull();
+  });
+
+  test("does not render a Create Trust Rule button even when the call resolves live", () => {
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          { id: "tc-1", name: "subagent_spawn", riskLevel: "low" },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { queryByText } = render(
+      <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+    );
+
+    expect(queryByText("Create Trust Rule")).toBeNull();
   });
 
   test("hides the Output section when result is empty", () => {
@@ -178,13 +276,13 @@ describe("ToolDetailPanel", () => {
   test("thinking variant streams live reasoning from the chat-session store", () => {
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        snapshot: snap([
           {
             id: "m1",
             role: "assistant",
             contentBlocks: [{ type: "thinking", thinking: "live reasoning" }],
           },
-        ] as DisplayMessage[],
+        ] as DisplayMessage[]),
       });
     });
     const detail = makeDetail({
@@ -205,7 +303,7 @@ describe("ToolDetailPanel", () => {
     // Growing the store message updates the already-open drawer.
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        snapshot: snap([
           {
             id: "m1",
             role: "assistant",
@@ -213,7 +311,7 @@ describe("ToolDetailPanel", () => {
               { type: "thinking", thinking: "live reasoning, extended" },
             ],
           },
-        ] as DisplayMessage[],
+        ] as DisplayMessage[]),
       });
     });
     expect(getByText("live reasoning, extended")).toBeDefined();
@@ -233,10 +331,37 @@ describe("ToolDetailPanel", () => {
     expect(getByText("snapshot fallback")).toBeDefined();
   });
 
+  test("thinking variant keeps the full reasoning from the committed snapshot", () => {
+    // When a turn finishes, the committed row lives in the materialized
+    // snapshot. The drawer must keep rendering the full reasoning resolved from
+    // there, not snap back to the truncated open-time snapshot.
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        contentBlocks: [
+          { type: "thinking", thinking: "the full committed reasoning" },
+        ],
+      } as DisplayMessage,
+    ]);
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thought process",
+      messageId: "m1",
+      thinkingGroupIndex: 0,
+      thinkingText: "stale partial snapshot",
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    expect(getByText("the full committed reasoning")).toBeDefined();
+    expect(queryByText("stale partial snapshot")).toBeNull();
+  });
+
   test("thinking variant selects a single reasoning segment by item index", () => {
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        snapshot: snap([
           {
             id: "m1",
             role: "assistant",
@@ -249,7 +374,7 @@ describe("ToolDetailPanel", () => {
               { type: "thinking", thinking: "segment two" },
             ],
           },
-        ] as DisplayMessage[],
+        ] as DisplayMessage[]),
       });
     });
     const detail = makeDetail({

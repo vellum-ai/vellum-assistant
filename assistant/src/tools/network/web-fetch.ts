@@ -22,7 +22,6 @@ import {
   sleep,
 } from "../../util/retry.js";
 import { safeStringSlice } from "../../util/unicode.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -946,10 +945,14 @@ export async function executeWebFetch(
     }
     // Detect likely JS-rendered SPAs: text is absolutely tiny, or a non-trivial
     // HTML payload compresses to almost nothing (a shell page whose meaningful
-    // content is painted after fetch + document.body rewrite).
+    // content is painted after fetch + document.body rewrite). The ratio arm
+    // also requires a small absolute yield — markup-heavy pages (e.g. GitHub)
+    // extract at <5% while still producing thousands of chars of complete text.
     const lowAbsolute = processed.length < 200;
     const lowRatio =
-      body.bytesRead >= 10_000 && processed.length / body.bytesRead < 0.05;
+      processed.length < 5_000 &&
+      body.bytesRead >= 10_000 &&
+      processed.length / body.bytesRead < 0.05;
     const mayRequireJavaScript = html && !rawMode && (lowAbsolute || lowRatio);
     if (mayRequireJavaScript) {
       const pct =
@@ -1352,7 +1355,11 @@ export async function executeFirecrawlScrape(
     }
 
     if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
-      const delayMs = getHttpRetryDelay(response, attempt, DEFAULT_BASE_DELAY_MS);
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
       log.warn(
         { attempt: attempt + 1, delayMs },
         "Firecrawl scrape rate limited, retrying",
@@ -1434,7 +1441,10 @@ export const webFetchTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    if (getWebFetchProvider() === "firecrawl" && (await canRouteToFirecrawl(input))) {
+    if (
+      getWebFetchProvider() === "firecrawl" &&
+      (await canRouteToFirecrawl(input))
+    ) {
       const apiKey = await getProviderKeyAsync("firecrawl");
       if (apiKey) {
         return executeFirecrawlScrape(input, {
@@ -1450,5 +1460,3 @@ export const webFetchTool = {
     return executeWebFetch(input, { signal: context.signal });
   },
 } satisfies ToolDefinition;
-
-registerTool(webFetchTool);

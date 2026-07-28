@@ -76,13 +76,6 @@ describe("buildAuthorizeUrl", () => {
     expect(url.searchParams.has("prompt")).toBe(false);
   });
 
-  test("provider hint replaces authkit", () => {
-    const url = new URL(
-      buildAuthorizeUrl({ ...base, providerHint: "GoogleOAuth" }),
-    );
-    expect(url.searchParams.get("provider")).toBe("GoogleOAuth");
-  });
-
   test("login hint is forwarded", () => {
     const url = new URL(
       buildAuthorizeUrl({ ...base, loginHint: "user@example.com" }),

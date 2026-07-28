@@ -4,23 +4,20 @@ import type { FC } from "react";
 
 import { Button } from "@vellumai/design-library";
 
-import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
+import { middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
 
 interface AttachmentLoadingChipProps {
   localId: string;
   filename: string;
-  sizeBytes: number;
   onCancel: (localId: string) => void;
 }
 
 export const AttachmentLoadingChip: FC<AttachmentLoadingChipProps> = ({
   localId,
   filename,
-  sizeBytes,
   onCancel,
 }) => {
   const displayName = middleTruncate(filename);
-  const displaySize = formatAttachmentSize(sizeBytes);
 
   return (
     <div
@@ -30,14 +27,9 @@ export const AttachmentLoadingChip: FC<AttachmentLoadingChipProps> = ({
       <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--surface-lift)] text-[var(--content-tertiary)]">
         <Loader2 className="h-4 w-4 animate-spin" />
       </div>
-      <div className="flex min-w-0 max-w-[156px] flex-col gap-1">
-        <span className="truncate text-body-small-default text-[var(--content-secondary)]">
-          {displayName}
-        </span>
-        <span className="truncate text-label-small-default text-[var(--content-tertiary)]">
-          {displaySize}
-        </span>
-      </div>
+      <span className="min-w-0 max-w-[156px] truncate text-body-small-default leading-4 text-[var(--content-secondary)]">
+        {displayName}
+      </span>
       <div className="h-8 w-px shrink-0 bg-[var(--border-disabled)]" />
       <Button
         variant="ghost"

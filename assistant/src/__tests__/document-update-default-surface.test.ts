@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDocumentById } from "../documents/document-store.js";
-import { getSqlite } from "../memory/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
 import { executeDocumentUpdate } from "../tools/document/document-tool.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { resetDbForTesting } from "./db-test-helpers.js";

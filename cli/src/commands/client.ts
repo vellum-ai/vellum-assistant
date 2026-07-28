@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -60,6 +60,9 @@ import {
 import { tuiLog } from "../lib/tui-log";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import { probePort } from "../lib/port-probe.js";
+import { openBrowser } from "../lib/open-browser";
+import { isCompiledCli } from "../lib/local.js";
+import { getLogDir, openLogFile, resetLogFile } from "../lib/xdg-log.js";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -90,6 +93,12 @@ interface ParsedArgs {
   /** Parsed --flag overrides: kebab-case key -> typed value (for web injection). */
   parsedFlagOverrides: Record<string, boolean | string>;
   disablePlatform: boolean;
+  /** Auto-open the web interface in the default browser (--interface web only). */
+  openBrowser: boolean;
+  /** Explicit web server port (--interface web only). Binds strictly — no scan. */
+  webPort?: number;
+  /** Run the web server as a detached background process (--interface web only). */
+  background: boolean;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -135,7 +144,12 @@ export function parseArgs(): ParsedArgs {
     "-i",
     "--token",
     "-t",
+    "--port",
   ]);
+  // Auto-open the web interface in the browser by default; --no-open opts out.
+  let openBrowserPref = true;
+  let webPort: number | undefined;
+  let background = false;
   const flagArgs: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -144,6 +158,21 @@ export function parseArgs(): ParsedArgs {
       process.exit(0);
     } else if (arg === "--disable-platform") {
       disablePlatform = true;
+    } else if (arg === "--no-open") {
+      openBrowserPref = false;
+    } else if (arg === "--background") {
+      background = true;
+    } else if (arg === "--port") {
+      const value = args[++i];
+      const parsed =
+        value === undefined ? Number.NaN : Number.parseInt(value, 10);
+      if (String(parsed) !== value || parsed < 1 || parsed > 65535) {
+        console.error(
+          `Invalid --port '${value ?? ""}'. Expected an integer between 1 and 65535.`,
+        );
+        process.exit(1);
+      }
+      webPort = parsed;
     } else if (
       (arg === "--url" ||
         arg === "-u" ||
@@ -252,6 +281,17 @@ export function parseArgs(): ParsedArgs {
     }
   }
 
+  if (interfaceId !== WEB_INTERFACE_ID) {
+    if (webPort !== undefined) {
+      console.error("--port requires --interface web.");
+      process.exit(1);
+    }
+    if (background) {
+      console.error("--background requires --interface web.");
+      process.exit(1);
+    }
+  }
+
   return {
     runtimeUrl: normalizeRuntimeUrl(runtimeUrl),
     assistantId,
@@ -264,6 +304,9 @@ export function parseArgs(): ParsedArgs {
     flagEnvVars,
     parsedFlagOverrides,
     disablePlatform,
+    openBrowser: openBrowserPref,
+    webPort,
+    background,
   };
 }
 
@@ -283,6 +326,13 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
                               not persisted.
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
+    --no-open                  Don't auto-open the browser (--interface web)
+    --port <port>              Web server port, 1-65535 (--interface web).
+                              Errors if the port is taken. Default: 3000,
+                              scanning upward when busy.
+    --background               Run the web server as a background process
+                              (--interface web). Prints the URL, PID, and log
+                              path, then returns to the shell.
     --flag <key=value>         Feature flag override (repeatable, kebab-case key)
     --disable-platform         Suppress all outbound platform API calls
     -h, --help                 Show this help message
@@ -302,6 +352,9 @@ ${ANSI.bold}EXAMPLES:${ANSI.reset}
     # Ephemeral: connect to another machine's assistant with a paired token
     # (no lockfile entry, nothing persisted):
     vellum client --url https://your-tunnel.example --token <jwt>
+
+    # Web interface on a fixed port, detached from the shell:
+    vellum client --interface web --port 4000 --background
 `);
 }
 
@@ -766,12 +819,12 @@ function tryBindLoopback(
  * Never binds wildcard interfaces (`0.0.0.0`/`::`): the server exposes
  * `/__local/*` control endpoints, so it must stay loopback-only.
  */
-function serveLoopback(preferredPort: number, fetchHandler: WebFetchHandler) {
-  for (
-    let port = preferredPort;
-    port < preferredPort + WEB_PORT_SCAN_LIMIT;
-    port++
-  ) {
+function serveLoopback(
+  preferredPort: number,
+  fetchHandler: WebFetchHandler,
+  scanLimit = WEB_PORT_SCAN_LIMIT,
+) {
+  for (let port = preferredPort; port < preferredPort + scanLimit; port++) {
     const primary = tryBindLoopback(port, "127.0.0.1", fetchHandler);
     if (!primary) continue;
 
@@ -795,8 +848,19 @@ function serveLoopback(preferredPort: number, fetchHandler: WebFetchHandler) {
     }
   }
   throw new Error(
-    `Could not bind a free loopback port in [${preferredPort}, ${preferredPort + WEB_PORT_SCAN_LIMIT - 1}]`,
+    scanLimit === 1
+      ? `Port ${preferredPort} is already in use`
+      : `Could not bind a free loopback port in [${preferredPort}, ${preferredPort + scanLimit - 1}]`,
   );
+}
+
+/** True when neither loopback family has a listener on `port`. */
+async function isDualLoopbackPortFree(port: number): Promise<boolean> {
+  const [busyV4, busyV6] = await Promise.all([
+    probePort(port, "127.0.0.1"),
+    probePort(port, "::1"),
+  ]);
+  return !busyV4 && !busyV6;
 }
 
 /**
@@ -807,19 +871,156 @@ function serveLoopback(preferredPort: number, fetchHandler: WebFetchHandler) {
  */
 async function findFreeDualLoopbackPort(preferred: number): Promise<number> {
   for (let port = preferred; port < preferred + WEB_PORT_SCAN_LIMIT; port++) {
-    const [busyV4, busyV6] = await Promise.all([
-      probePort(port, "127.0.0.1"),
-      probePort(port, "::1"),
-    ]);
-    if (!busyV4 && !busyV6) return port;
+    if (await isDualLoopbackPortFree(port)) {
+      return port;
+    }
   }
   return preferred;
+}
+
+/**
+ * Resolve the port for a probe-based web server launch: an explicit --port
+ * must be free (exit 1 otherwise — strict, no silent move), the default picks
+ * the first free port at/above 3000.
+ */
+async function resolveWebPort(webPort: number | undefined): Promise<number> {
+  if (webPort === undefined) {
+    return findFreeDualLoopbackPort(3000);
+  }
+  if (!(await isDualLoopbackPortFree(webPort))) {
+    console.error(`Port ${webPort} is already in use`);
+    process.exit(1);
+  }
+  return webPort;
+}
+
+/**
+ * Open `url` in the browser once `port` is accepting connections, polling for
+ * up to ~10s. Used for the Vite dev server, which binds the port asynchronously
+ * after spawn — opening immediately would load the tab before Vite is ready.
+ */
+async function openBrowserWhenReady(url: string, port: number): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (await probePort(port, "127.0.0.1")) {
+      openBrowser(url);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+const WEB_BACKGROUND_LOG_FILE = "client-web.log";
+// Generous cap so a cold Vite dev-server boot (dependency optimization) still
+// counts as a successful start.
+const WEB_BACKGROUND_START_TIMEOUT_MS = 30_000;
+
+/**
+ * Launch `vellum client --interface web` as a detached background process.
+ *
+ * The port is resolved up front (explicit --port must be free; otherwise the
+ * first free port at/above 3000) and pinned via `--port` on the child so the
+ * URL printed here is the one the child binds. The child's stdout/stderr go to
+ * `<xdg-log-dir>/client-web.log` — same detach idiom as the nginx/ngrok
+ * spawns. Success is only reported once the child is accepting connections on
+ * the port; an early child exit (e.g. missing @vellumai/web assets) or a
+ * startup timeout fails with a pointer at the log file.
+ */
+async function spawnBackgroundWebInterface(
+  webPort: number | undefined,
+): Promise<void> {
+  const port = await resolveWebPort(webPort);
+
+  // Rebuild the argv without --background, pinning the resolved port.
+  const childArgs: string[] = ["client"];
+  const rawArgs = process.argv.slice(3);
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    if (arg === "--background") {
+      continue;
+    }
+    // A dangling --port can't reach here — parseArgs already rejected it.
+    if (arg === "--port") {
+      i++;
+      continue;
+    }
+    childArgs.push(arg);
+  }
+  childArgs.push("--port", String(port));
+
+  // A compiled binary re-invokes itself; under plain bun (source tree, npm
+  // install) the entry script is argv[1].
+  const spawnArgs = isCompiledCli()
+    ? childArgs
+    : [process.argv[1], ...childArgs];
+
+  resetLogFile(WEB_BACKGROUND_LOG_FILE);
+  const fd = openLogFile(WEB_BACKGROUND_LOG_FILE);
+  const child = spawn(process.execPath, spawnArgs, {
+    detached: true,
+    stdio: ["ignore", fd, fd],
+  });
+  if (typeof fd === "number") {
+    closeSync(fd);
+  }
+  child.unref();
+
+  const logPath = path.join(getLogDir(), WEB_BACKGROUND_LOG_FILE);
+
+  // Don't report success until the child is actually serving: watch for an
+  // early exit (e.g. missing @vellumai/web assets, port lost to the TOCTOU
+  // window) and poll the port until it accepts connections.
+  let exit: { code: number | null } | undefined;
+  child.on("error", () => {
+    exit = { code: null };
+  });
+  child.on("exit", (code) => {
+    exit = { code };
+  });
+
+  const deadline = Date.now() + WEB_BACKGROUND_START_TIMEOUT_MS;
+  let listening = false;
+  while (Date.now() < deadline && !exit) {
+    if (await probePort(port, "127.0.0.1")) {
+      listening = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  if (exit) {
+    console.error(
+      `Web interface exited during startup${exit.code !== null ? ` (exit code ${exit.code})` : ""}. Logs: ${logPath}`,
+    );
+    process.exit(1);
+  }
+  if (!listening) {
+    // Kill the detached child (its whole process group — the Vite path spawns
+    // grandchildren) so a slow startup can't bind the port and linger after
+    // we've reported failure.
+    if (child.pid !== undefined) {
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        child.kill("SIGTERM");
+      }
+    }
+    console.error(
+      `Web interface did not start listening on port ${port} within ${WEB_BACKGROUND_START_TIMEOUT_MS / 1000}s; terminated it. Logs: ${logPath}`,
+    );
+    process.exit(1);
+  }
+
+  console.log(`Vellum web interface: http://localhost:${port}${SPA_BASE}`);
+  console.log(`Running in background (pid ${child.pid}). Logs: ${logPath}`);
+  console.log(`Stop with: kill ${child.pid}`);
 }
 
 async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
   disablePlatform: boolean,
+  openInBrowser: boolean,
+  webPort: number | undefined,
 ): Promise<void> {
   // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
   Object.assign(process.env, flagEnvVars);
@@ -828,7 +1029,13 @@ async function runWebInterface(
   // (HMR, __local endpoints, gateway proxy).
   const webSourceDir = findWebSourceDir();
   if (webSourceDir) {
-    return runViteDevServer(webSourceDir, flagEnvVars, disablePlatform);
+    return runViteDevServer(
+      webSourceDir,
+      flagEnvVars,
+      disablePlatform,
+      openInBrowser,
+      webPort,
+    );
   }
 
   const distDir = findWebDistDir();
@@ -971,14 +1178,30 @@ async function runWebInterface(
     return new Response("Not Found", { status: 404 });
   };
 
-  const { port, servers } = serveLoopback(3000, fetchHandler);
-  if (port !== 3000) {
-    console.log(`Port 3000 in use; using ${port}.`);
+  // An explicit --port binds strictly (no scan) so the user gets the port they
+  // asked for or a clear error.
+  const preferredPort = webPort ?? 3000;
+  let bound: ReturnType<typeof serveLoopback>;
+  try {
+    bound = serveLoopback(
+      preferredPort,
+      fetchHandler,
+      webPort !== undefined ? 1 : WEB_PORT_SCAN_LIMIT,
+    );
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  const { port, servers } = bound;
+  if (port !== preferredPort) {
+    console.log(`Port ${preferredPort} in use; using ${port}.`);
   }
   // Advertise `localhost` (not `127.0.0.1`) so the app origin matches the host
   // the platform hardcodes in its loopback callback. We bind both loopback
   // families above so `localhost` reaches us whichever one it resolves to.
-  console.log(`Vellum web interface: http://localhost:${port}${SPA_BASE}`);
+  const webInterfaceUrl = `http://localhost:${port}${SPA_BASE}`;
+  console.log(`Vellum web interface: ${webInterfaceUrl}`);
+  if (openInBrowser) openBrowser(webInterfaceUrl);
 
   const shutdown = (): void => {
     for (const server of servers) server.stop();
@@ -994,6 +1217,8 @@ async function runViteDevServer(
   webSourceDir: string,
   flagEnvVars: Record<string, string>,
   disablePlatform: boolean,
+  openInBrowser: boolean,
+  webPort: number | undefined,
 ): Promise<void> {
   const platformUrl = getPlatformUrl();
 
@@ -1006,8 +1231,9 @@ async function runViteDevServer(
   // Auto-pick a free port (Vite uses strictPort) so a running `vel up` stack
   // on :3000 doesn't wedge dev. The loopback callback port follows
   // window.location.port, so a non-3000 port propagates automatically.
-  const port = await findFreeDualLoopbackPort(3000);
-  if (port !== 3000) {
+  // An explicit --port is strict: error rather than silently moving.
+  const port = await resolveWebPort(webPort);
+  if (webPort === undefined && port !== 3000) {
     console.log(`Port 3000 in use; using ${port}.`);
   }
 
@@ -1026,6 +1252,12 @@ async function runViteDevServer(
       PORT: String(port),
     },
   });
+
+  // Vite binds the port itself, so wait until it's listening before opening the
+  // browser — otherwise the tab loads before the dev server is ready.
+  if (openInBrowser) {
+    void openBrowserWhenReady(`http://localhost:${port}${SPA_BASE}`, port);
+  }
 
   const shutdown = (): void => {
     child.kill();
@@ -1099,6 +1331,9 @@ export async function client(): Promise<void> {
     flagEnvVars,
     parsedFlagOverrides,
     disablePlatform,
+    openBrowser: openInBrowser,
+    webPort,
+    background,
   } = parseArgs();
 
   if (disablePlatform) {
@@ -1106,7 +1341,17 @@ export async function client(): Promise<void> {
   }
 
   if (interfaceId === WEB_INTERFACE_ID) {
-    await runWebInterface(flagEnvVars, parsedFlagOverrides, disablePlatform);
+    if (background) {
+      await spawnBackgroundWebInterface(webPort);
+      return;
+    }
+    await runWebInterface(
+      flagEnvVars,
+      parsedFlagOverrides,
+      disablePlatform,
+      openInBrowser,
+      webPort,
+    );
     return;
   }
 

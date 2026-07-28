@@ -32,6 +32,7 @@ export function createStreamingBubble(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   return [
     ...prev,
@@ -42,7 +43,7 @@ export function createStreamingBubble(
       textSegments: [text],
       contentOrder: [{ type: "text", id: "0" }],
       contentBlocks: [{ type: "text", text }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -181,6 +182,8 @@ export function appendTextDelta(
   prev: DisplayMessage[],
   text: string,
   messageId?: string,
+  seedTwin?: () => DisplayMessage | undefined,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -190,11 +193,25 @@ export function appendTextDelta(
     if (tailIsAssistant(prev)) {
       return appendTextSegmentIntoRow(prev, prev.length - 1, text, messageId);
     }
-    return createStreamingBubble(prev, text, messageId);
+    // No live row owns this id and there is no assistant tail to fold into:
+    // this is the first delta this client sees for the turn. If the daemon
+    // persisted a prefix before we attached — re-attach, late-join, or a
+    // reconnect that replays only `seq >` the snapshot watermark — that
+    // prefix lives in history under this id. Seed the live row from that
+    // history twin so the delta extends the persisted prefix instead of
+    // opening a fresh, prefix-less bubble (the "vanishing prefix" bug). The
+    // thunk is resolved here, in the cold branch only, so the steady-state
+    // hot path never pays for the history lookup. No twin → genuinely new
+    // turn → open a fresh bubble as before.
+    const twin = seedTwin?.();
+    if (twin) {
+      return appendTextSegmentIntoRow([...prev, twin], prev.length, text, messageId);
+    }
+    return createStreamingBubble(prev, text, messageId, at);
   }
 
   if (!tailIsAssistant(prev)) {
-    return createStreamingBubble(prev, text, messageId);
+    return createStreamingBubble(prev, text, messageId, at);
   }
   return appendTextSegmentIntoRow(prev, prev.length - 1, text, undefined);
 }
@@ -213,6 +230,7 @@ export function createStreamingThinkingBubble(
   prev: DisplayMessage[],
   thinking: string,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   return [
     ...prev,
@@ -223,7 +241,7 @@ export function createStreamingThinkingBubble(
       thinkingSegments: [thinking],
       contentOrder: [{ type: "thinking", id: "0" }],
       contentBlocks: [{ type: "thinking", thinking }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -241,6 +259,8 @@ export function appendThinkingDelta(
   prev: DisplayMessage[],
   thinking: string,
   messageId?: string,
+  seedTwin?: () => DisplayMessage | undefined,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -254,11 +274,24 @@ export function appendThinkingDelta(
         messageId,
       );
     }
-    return createStreamingThinkingBubble(prev, thinking, messageId);
+    // First event this client sees for the turn — seed from the history twin
+    // (the persisted prefix) when present so a re-attach extends it instead of
+    // dropping it. See `appendTextDelta` for the full rationale; reasoning-heavy
+    // models open the turn with thinking, so the prefix can be thinking text.
+    const twin = seedTwin?.();
+    if (twin) {
+      return appendThinkingSegmentIntoRow(
+        [...prev, twin],
+        prev.length,
+        thinking,
+        messageId,
+      );
+    }
+    return createStreamingThinkingBubble(prev, thinking, messageId, at);
   }
 
   if (!tailIsAssistant(prev)) {
-    return createStreamingThinkingBubble(prev, thinking, messageId);
+    return createStreamingThinkingBubble(prev, thinking, messageId, at);
   }
   return appendThinkingSegmentIntoRow(prev, prev.length - 1, thinking, undefined);
 }
@@ -273,11 +306,14 @@ export function appendThinkingDelta(
  * conversation's processing state (see `liveAssistantRowId`), which the
  * idle event clears, so no per-row flag needs flipping here.
  */
-export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
+export function finalizeOnIdle(
+  prev: DisplayMessage[],
+  at: number = Date.now(),
+): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant") return m;
-    const finalized = finalizeRunningToolCalls(m);
+    const finalized = finalizeRunningToolCalls(m, at);
     if (!finalized) return m;
     changed = true;
     return { ...m, ...finalized };
@@ -318,6 +354,7 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
 export function finalizeMessageComplete(
   prev: DisplayMessage[],
   event: MessageCompleteEvent,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   const last = prev[prev.length - 1];
   const attachments = toDisplayAttachments(event.attachments);
@@ -330,13 +367,13 @@ export function finalizeMessageComplete(
         id: event.messageId ?? crypto.randomUUID(),
         ...(event.messageId ? {} : { isOptimistic: true }),
         role: "assistant" as const,
-        timestamp: Date.now(),
+        timestamp: at,
         attachments,
       },
     ];
   }
 
-  const finalized = finalizeRunningToolCalls(last);
+  const finalized = finalizeRunningToolCalls(last, at);
   const adoptServerId = last.isOptimistic === true && !!event.messageId;
   return [
     ...prev.slice(0, -1),
@@ -364,8 +401,9 @@ export function finalizeMessageComplete(
  * send and an already-resolved row is short-circuited by id upstream, so the
  * nonce match needs no separate optimistic flag. When the event carries no
  * nonce — a daemon that predates the idempotency contract, or a synthetic
- * surface-action echo — fall back to the most recent still-optimistic user
- * row, which has no nonce to key on and so is identified by `isOptimistic`.
+ * surface-action echo — prefer the most recent still-optimistic user row that
+ * also lacks a nonce. Fall back to any optimistic user row for compatibility
+ * with daemons that accept a client nonce but do not echo it.
  */
 function findOptimisticUserEchoIdx(
   prev: DisplayMessage[],
@@ -377,13 +415,19 @@ function findOptimisticUserEchoIdx(
     );
   }
 
+  let nonceBearingFallbackIdx = -1;
   for (let i = prev.length - 1; i >= 0; i--) {
     const m = prev[i];
     if (m && m.role === "user" && m.isOptimistic === true) {
-      return i;
+      if (!m.clientMessageId) {
+        return i;
+      }
+      if (nonceBearingFallbackIdx === -1) {
+        nonceBearingFallbackIdx = i;
+      }
     }
   }
-  return -1;
+  return nonceBearingFallbackIdx;
 }
 
 /**
@@ -416,6 +460,7 @@ function findOptimisticUserEchoIdx(
 export function applyUserMessageEcho(
   prev: DisplayMessage[],
   event: { text: string; messageId?: string; clientMessageId?: string },
+  at: number = Date.now(),
 ): DisplayMessage[] {
   const serverId = event.messageId;
 
@@ -451,11 +496,17 @@ export function applyUserMessageEcho(
     {
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
+      // Carry the nonce so the folded row shares the persisted server row's
+      // identity keys — the transcript overlay and the reseed prune both
+      // correlate on it (see `messageMatchKeys`).
+      ...(event.clientMessageId
+        ? { clientMessageId: event.clientMessageId }
+        : {}),
       role: "user",
       textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
       contentBlocks: [{ type: "text", text: event.text }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -467,12 +518,13 @@ export function applyUserMessageEcho(
 /** Handle conversation error: finalize tool calls, remove empty bubbles. */
 export function handleConversationError(
   prev: DisplayMessage[],
+  at: number = Date.now(),
 ): DisplayMessage[] {
   const lastIdx = prev.length - 1;
   const last = prev[lastIdx];
   if (!last || last.role !== "assistant") return prev;
 
-  const finalized = finalizeRunningToolCalls(last);
+  const finalized = finalizeRunningToolCalls(last, at);
   const hasContent =
     messagePlainText(last).trim().length > 0 ||
     (last.thinkingSegments != null && last.thinkingSegments.length > 0) ||

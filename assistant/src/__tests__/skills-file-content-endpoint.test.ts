@@ -95,13 +95,6 @@ mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockResolvedSkills.map((r) => r.summary),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
 mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => mockResolvedSkills,
   skillFlagKey: () => null,
@@ -232,7 +225,7 @@ mock.module("../skills/managed-store.js", () => ({
   validateManagedSkillId: () => null,
 }));
 
-mock.module("../memory/graph/capability-seed.js", () => ({
+mock.module("../plugins/defaults/memory/graph/capability-seed.js", () => ({
   deleteSkillCapabilityNode: () => {},
   seedSkillGraphNodes: () => {},
   seedUninstalledCatalogSkillMemories: async () => {},

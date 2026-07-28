@@ -6,36 +6,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
   updateMessageContent: () => {},
@@ -43,12 +14,13 @@ mock.module("../../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -59,7 +31,6 @@ import {
   formatFetchStatusText,
   formatSearchStatusText,
 } from "../conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../message-protocol.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -80,7 +51,6 @@ function createCollectorDeps(): {
     ctx: {
       conversationId: "conv-status-text",
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: (
         phase: string,
@@ -98,7 +68,7 @@ function createCollectorDeps(): {
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (_msg: ServerMessage) => {},
+    onEvent: (_msg: AssistantEvent) => {},
     reqId: "req-status-text",
     isFirstMessage: false,
     shouldGenerateTitle: false,
@@ -121,9 +91,7 @@ function createCollectorDeps(): {
 
 describe("formatSearchStatusText", () => {
   test("surfaces the query in quotes", () => {
-    expect(formatSearchStatusText("web_search", "foo")).toBe(
-      'Searching "foo"',
-    );
+    expect(formatSearchStatusText("web_search", "foo")).toBe('Searching "foo"');
   });
 
   test("truncates queries longer than 60 chars with an ellipsis", () => {

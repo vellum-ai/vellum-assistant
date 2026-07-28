@@ -3,12 +3,12 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { getSqliteFrom } from "../memory/db-connection.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
 import {
   migrate231RepairMemoryGraphEventDates,
   repairMemoryGraphEventDate,
-} from "../memory/migrations/231-repair-memory-graph-event-dates.js";
-import * as schema from "../memory/schema.js";
+} from "../persistence/migrations/231-repair-memory-graph-event-dates.js";
+import * as schema from "../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

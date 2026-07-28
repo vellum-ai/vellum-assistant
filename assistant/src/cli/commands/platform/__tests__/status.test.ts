@@ -18,7 +18,6 @@ let mockResponse: unknown = {
     available: false,
     organizationId: null,
     userId: null,
-    velayTunnel: null,
   },
 };
 
@@ -63,7 +62,6 @@ describe("assistant platform status", () => {
         available: false,
         organizationId: null,
         userId: null,
-        velayTunnel: null,
       },
     };
     process.exitCode = 0;
@@ -81,7 +79,6 @@ describe("assistant platform status", () => {
         available: true,
         organizationId: "org-456",
         userId: "user-789",
-        velayTunnel: null,
       },
     };
 
@@ -116,93 +113,6 @@ describe("assistant platform status", () => {
     expect(parsed.available).toBe(true);
     expect(parsed.organizationId).toBe("org-456");
     expect(parsed.userId).toBe("user-789");
-    expect(parsed.velayTunnel).toBeNull();
-  });
-
-  test("velayTunnel connected with publicUrl is returned when gateway is live", async () => {
-    mockResponse = {
-      ok: true,
-      result: {
-        isPlatform: false,
-        baseUrl: "",
-        assistantId: "",
-        hasAssistantApiKey: false,
-        hasWebhookSecret: false,
-        available: false,
-        organizationId: null,
-        userId: null,
-        velayTunnel: {
-          connected: true,
-          publicUrl: "https://abc123.vellum.ai",
-        },
-      },
-    };
-
-    const program = buildProgram();
-    const stdoutChunks: string[] = [];
-    const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = ((chunk: unknown) => {
-      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
-
-    try {
-      await program.parseAsync([
-        "node",
-        "assistant",
-        "platform",
-        "status",
-        "--json",
-      ]);
-    } finally {
-      process.stdout.write = origWrite;
-    }
-
-    const parsed = JSON.parse(stdoutChunks.join(""));
-    expect(parsed.velayTunnel).toEqual({
-      connected: true,
-      publicUrl: "https://abc123.vellum.ai",
-    });
-  });
-
-  test("velayTunnel disconnected when gateway reports no active connection", async () => {
-    mockResponse = {
-      ok: true,
-      result: {
-        isPlatform: false,
-        baseUrl: "",
-        assistantId: "",
-        hasAssistantApiKey: false,
-        hasWebhookSecret: false,
-        available: false,
-        organizationId: null,
-        userId: null,
-        velayTunnel: { connected: false, publicUrl: null },
-      },
-    };
-
-    const program = buildProgram();
-    const stdoutChunks: string[] = [];
-    const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = ((chunk: unknown) => {
-      stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
-      return true;
-    }) as typeof process.stdout.write;
-
-    try {
-      await program.parseAsync([
-        "node",
-        "assistant",
-        "platform",
-        "status",
-        "--json",
-      ]);
-    } finally {
-      process.stdout.write = origWrite;
-    }
-
-    const parsed = JSON.parse(stdoutChunks.join(""));
-    expect(parsed.velayTunnel).toEqual({ connected: false, publicUrl: null });
   });
 
   test("plain text mode does not emit JSON to stdout", async () => {

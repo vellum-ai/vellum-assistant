@@ -14,6 +14,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import {
     useAnalyticsConsentCurrent,
     useDiagnosticsConsentCurrent,
+    useHasConsentRecord,
     usePrivacyConsent,
     useShareAnalytics,
     useShareDiagnostics,
@@ -26,7 +27,7 @@ import {
     PRIVACY_CONSENT_VERSION,
     TOS_CONSENT_VERSION,
     saveConsent,
-} from "@/utils/onboarding-cleanup";
+} from "@/lib/consent/consent-persistence";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -45,6 +46,11 @@ export function ReviewTermsScreen() {
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [analyticsConsentCurrent] = useAnalyticsConsentCurrent();
   const [diagnosticsConsentCurrent] = useDiagnosticsConsentCurrent();
+  const hasConsentRecord = useHasConsentRecord();
+  // Never-asked (null) displays as on: both toggles are opt-out, so an
+  // unchosen toggle is effectively enabled.
+  const shareAnalyticsChecked = shareAnalytics ?? true;
+  const shareDiagnosticsChecked = shareDiagnostics ?? true;
 
   // Snapshot staleness at mount: these are the sections the user was routed
   // here to address. Gating render on live values would unmount a checkbox the
@@ -62,10 +68,33 @@ export function ReviewTermsScreen() {
     !privacyStaleAtMount &&
     !analyticsStaleAtMount &&
     !diagnosticsStaleAtMount;
+  // No consent record at all means this user never consented (e.g. arrived
+  // with an assistant via the bring-your-agent import, which replaces
+  // onboarding). Present first-time consent framing, not the "we've updated
+  // our terms" re-review framing — there is no baseline to diff against.
+  //
+  // Keyed off the explicit record signal, NOT off the two staleness flags:
+  // those carry version currency, so an established user whose acceptances
+  // predate BOTH current required versions has both stale and would otherwise
+  // be misread as never-consented — losing the "what's changed" notes that are
+  // the whole point of their re-review.
+  //
+  // Snapshotted at mount for the same reason as the staleness flags above: a
+  // sync landing mid-visit must not re-frame the page or unmount the
+  // diagnostics toggle while the user is using it.
+  const [firstConsentAtMount] = useState(() => !hasConsentRecord);
   const showTos = tosStaleAtMount || nothingStaleAtMount;
   const showPrivacy = privacyStaleAtMount || nothingStaleAtMount;
   const showAnalytics = analyticsStaleAtMount || nothingStaleAtMount;
-  const showDiagnostics = diagnosticsStaleAtMount || nothingStaleAtMount;
+  // A first-consent user (bring-your-agent) skips the onboarding privacy
+  // screen entirely, so review-terms is where they first choose diagnostics
+  // sharing. Their *Current flags read never-asked as "nothing to re-review"
+  // (true), so diagnosticsStaleAtMount is false — surface the toggle anyway to
+  // match the onboarding privacy screen (diagnostics-only; analytics stays
+  // null until an explicit opt-in, so showAnalytics is deliberately not forced
+  // here).
+  const showDiagnostics =
+    diagnosticsStaleAtMount || nothingStaleAtMount || firstConsentAtMount;
   const onlyTogglesStaleAtMount =
     !nothingStaleAtMount && !tosStaleAtMount && !privacyStaleAtMount;
 
@@ -73,15 +102,31 @@ export function ReviewTermsScreen() {
     ? "Terms & privacy"
     : onlyTogglesStaleAtMount
       ? "Review your privacy preferences"
-      : "Updated terms";
+      : firstConsentAtMount
+        ? "Before You Start"
+        : "Updated terms";
   const subheading = nothingStaleAtMount
     ? "Review your terms and privacy preferences anytime."
     : onlyTogglesStaleAtMount
       ? "Confirm your privacy preferences to continue."
-      : "We've updated our terms. Please review and accept to continue.";
+      : firstConsentAtMount
+        ? "Review and accept the terms to start using your assistant. You can update your preferences anytime in Settings."
+        : "We've updated our terms. Please review and accept to continue.";
 
   const onContinue = useCallback(() => {
-    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics, shareDiagnostics, hasPlatformSession });
+    // Only persist a share toggle when it was actually on screen — a user
+    // routed here for other stale sections must not silently grant (or
+    // re-stamp) consent for a toggle they never saw; the server keeps null
+    // until they choose. A toggle that WAS on screen persists on Continue
+    // even if untouched — shown + acknowledged is an explicit choice.
+    saveConsent({
+      userId,
+      tos: tosAccepted,
+      privacy: privacyConsent,
+      shareAnalytics: showAnalytics ? shareAnalyticsChecked : null,
+      shareDiagnostics: showDiagnostics ? shareDiagnosticsChecked : null,
+      hasPlatformSession,
+    });
 
     const destination = sanitizeReturnTo(searchParams.get("returnTo"), routes.assistant);
     void navigate(destination, { replace: true });
@@ -90,8 +135,10 @@ export function ReviewTermsScreen() {
     hasPlatformSession,
     navigate,
     searchParams,
-    shareAnalytics,
-    shareDiagnostics,
+    shareAnalyticsChecked,
+    shareDiagnosticsChecked,
+    showAnalytics,
+    showDiagnostics,
     tosAccepted,
     userId,
   ]);
@@ -138,8 +185,8 @@ export function ReviewTermsScreen() {
             electron={electron}
             showAnalytics={showAnalytics}
             showDiagnostics={showDiagnostics}
-            shareAnalytics={shareAnalytics}
-            shareDiagnostics={shareDiagnostics}
+            shareAnalytics={shareAnalyticsChecked}
+            shareDiagnostics={shareDiagnosticsChecked}
             onShareAnalyticsChange={setShareAnalytics}
             onShareDiagnosticsChange={setShareDiagnostics}
             className="mt-9 w-full"
@@ -156,8 +203,16 @@ export function ReviewTermsScreen() {
             tosAccepted={tosAccepted}
             onPrivacyChange={setPrivacyConsent}
             onTosChange={setTosAccepted}
-            privacyNotes={showPrivacy ? privacyChangeNotes(PRIVACY_CONSENT_VERSION) : []}
-            tosNotes={showTos ? tosChangeNotes(TOS_CONSENT_VERSION) : []}
+            privacyNotes={
+              showPrivacy && !firstConsentAtMount
+                ? privacyChangeNotes(PRIVACY_CONSENT_VERSION)
+                : []
+            }
+            tosNotes={
+              showTos && !firstConsentAtMount
+                ? tosChangeNotes(TOS_CONSENT_VERSION)
+                : []
+            }
             className="mt-6 w-full"
             style={{ animation: "fadeInUp 0.5s ease-out 0.36s both" }}
           />

@@ -2,7 +2,7 @@
  * Bus consumer for assistant-level resource cache invalidation.
  *
  * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
- * apps) and discrete SSE events (`home_feed_updated`,
+ * apps, plugins) and discrete SSE events (`home_feed_updated`,
  * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
  * TanStack Query cache invalidations.
  *
@@ -29,6 +29,8 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
+import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
   configGetQueryKey,
   identityGetQueryKey,
@@ -80,6 +82,10 @@ export function useAssistantResourceSync(
               void queryClient.invalidateQueries({
                 queryKey: configGetQueryKey(pathOpts),
               });
+              // Memory availability is derived from config (`memory.enabled`,
+              // `memory.v3.live`), so a config write on any client can change
+              // what the Memory surface must render.
+              invalidateMemoryQueries(queryClient, assistantId);
               break;
             case SYNC_TAGS.assistantSounds:
               void queryClient.invalidateQueries({
@@ -104,6 +110,9 @@ export function useAssistantResourceSync(
               void queryClient.invalidateQueries({
                 predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
               });
+              break;
+            case SYNC_TAGS.pluginsList:
+              invalidatePluginQueries(queryClient, assistantId);
               break;
           }
         }
@@ -152,6 +161,7 @@ export function useAssistantResourceSync(
     void queryClient.invalidateQueries({
       queryKey: configGetQueryKey(pathOpts),
     });
+    invalidateMemoryQueries(queryClient, assistantId);
     void queryClient.invalidateQueries({
       queryKey: soundsConfigGetQueryKey(pathOpts),
     });
@@ -170,6 +180,7 @@ export function useAssistantResourceSync(
     void queryClient.invalidateQueries({
       predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
     });
+    invalidatePluginQueries(queryClient, assistantId);
     void queryClient.invalidateQueries({
       predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
     });

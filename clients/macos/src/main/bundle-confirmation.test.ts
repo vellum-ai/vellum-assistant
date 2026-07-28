@@ -99,7 +99,7 @@ const { openBundleConfirmation, installBundleConfirmation } = await import(
 
 const SAMPLE_DATA: BundleScanData = {
   manifest: {
-    format_version: 1,
+    format_version: 2,
     name: "Test Bundle",
     description: "A test bundle",
     icon: "🧪",

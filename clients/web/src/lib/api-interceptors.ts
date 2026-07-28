@@ -35,7 +35,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
-import { ApiError, extractErrorMessage } from "@/utils/api-errors";
+import { ApiError, toApiError } from "@/utils/api-errors";
 import {
   isLocalMode,
   isPlatformDisabled,
@@ -50,6 +50,13 @@ import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { useAuthStore } from "@/stores/auth-store";
+import {
+  isAuthenticated,
+  isSettledSessionRejection,
+} from "@/stores/session-status";
+import { routes } from "@/utils/routes";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
@@ -76,7 +83,6 @@ function getRendererTupleOrigin(): string {
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   "conversations",
-  "channel-admission-policy",
   // Live SSE event stream — `subscribeEvents` opens it through the
   // platform client, so it must be forwarded to the gateway in local /
   // self-hosted mode like any other runtime route.
@@ -87,33 +93,47 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // must be forwarded to the gateway in local / self-hosted mode rather
   // than falling through to the platform proxy.
   "x",
-  // Daemon- and gateway-owned per-assistant resources that are reached
-  // through the platform client via raw `client.*` calls (their gateway
-  // SDK functions aren't generated yet) instead of the daemon client.
-  // Like `events`/`x` above they must be forwarded to the gateway in
-  // local / self-hosted mode rather than falling through to the dead
-  // platform proxy — otherwise e.g. the background `TimezoneSync` PATCH to
-  // `config` retries against a nonexistent platform and floods the console
-  // with 502s. Each is listed only because the gateway (or the daemon it
-  // proxies to) actually serves the assistant-scoped routes the call sites
-  // hit: `config` (daemon GET/PATCH), and `permissions/thresholds` +
-  // `trust-rules` (gateway, all methods).
+  // Daemon-owned app-serving routes (`/v1/apps/*`: bundled asset media and
+  // compiled dist files). The sandbox asset proxy in `useSandboxFetchProxy`
+  // fetches `/v1/assistants/{id}/apps/{appId}/asset/...` through the platform
+  // client, so it must be forwarded to the gateway in local / self-hosted
+  // mode rather than falling through to the platform proxy.
+  "apps",
+  // Daemon-owned config reached through the platform client via raw
+  // `client.*` calls (the background `TimezoneSync` PATCH and the general
+  // settings page). Must be forwarded to the gateway in local /
+  // self-hosted mode rather than falling through to the dead platform
+  // proxy — otherwise the PATCH retries against a nonexistent platform
+  // and floods the console with 502s. Removable once those call sites
+  // move to the generated daemon SDK (LUM-2716).
   //
-  // Deliberately NOT listed: `contacts`, `contact-channels`, `artifacts`,
-  // and `a2a`. Their assistant-scoped routes aren't served by the gateway
-  // or daemon — the contacts control plane is registered at flat
-  // `/v1/contacts...` paths (only an assistant-scoped contacts DELETE
-  // exists), there is no `artifacts` route, and `/a2a/invites/redeem` is a
-  // platform broker route. Forwarding them would only turn the existing
-  // failure into a 404, so they stay on the platform until the
-  // assistant-scoped routes are mirrored.
+  // Every removed entry (contacts, trust-rules, permissions,
+  // channel-admission-policy, …) was retired by migrating its call sites
+  // to the generated gateway SDK, whose client forwards all
+  // assistant-scoped requests without this list — that is the paved road
+  // for new endpoints. Deliberately NOT listed: `artifacts` (no
+  // gateway/daemon route exists) and `a2a` (platform broker route); those
+  // stay on the platform. The contact family (`contacts`,
+  // `contact-channels`) is forwarded via {@link FLATTENED_FIRST_SEGMENTS}
+  // with the assistant prefix stripped — it does not belong in this
+  // allowlist.
   "config",
-  "permissions",
-  "trust-rules",
 ]);
 
 const ASSISTANT_PATH_RE =
-  /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
+  /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+
+/**
+ * First segments whose `/v1/assistants/{id}/` prefix is stripped before
+ * forwarding to the ingress. The gateway serves the contact family on
+ * flat `/v1/...` control-plane routes only, so the rewrite delivers the
+ * same flat shape cloud's Django `RuntimeProxyView` does. Flattened
+ * segments are forwarded by every client, allowlist or not.
+ */
+const FLATTENED_FIRST_SEGMENTS = new Set<string>([
+  "contacts",
+  "contact-channels",
+]);
 
 /**
  * Rewrites a request bound for `/v1/assistants/{id}/{runtime-segment}/...`
@@ -129,7 +149,8 @@ const ASSISTANT_PATH_RE =
  *   {@link RUNTIME_PROXIED_FIRST_SEGMENTS}. The daemon client sets this
  *   because every daemon SDK endpoint is a daemon route by definition.
  *   The platform client leaves it `false` to avoid forwarding
- *   platform-owned routes (maintenance-mode, system-events, etc.).
+ *   platform-owned routes (maintenance-mode, system-events, etc.);
+ *   {@link FLATTENED_FIRST_SEGMENTS} are forwarded regardless.
  *
  * Exported for direct unit testing — production code paths invoke this
  * via {@link requestInterceptor} / {@link daemonRequestInterceptor}.
@@ -145,22 +166,26 @@ export async function rewriteForSelfHostedIngress(
 
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
   if (!match) return null;
-  const firstSegment = match[1];
+  const [, subPath, firstSegment] = match;
   if (
-    !firstSegment ||
-    (!skipSegmentAllowlist &&
-      !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment))
+    !skipSegmentAllowlist &&
+    !RUNTIME_PROXIED_FIRST_SEGMENTS.has(firstSegment) &&
+    !FLATTENED_FIRST_SEGMENTS.has(firstSegment)
   ) {
     return null;
   }
 
-  // Splice the platform's base out and the user's gateway in. Path and
-  // query are preserved verbatim — the gateway exposes the same
-  // `/v1/assistants/{id}/...` routes the platform's RuntimeProxyView
-  // would otherwise forward to.
+  // Splice the platform's base out and the user's gateway in. Contact-family
+  // paths are flattened to `/v1/<rest>` — the shape cloud's Django strip
+  // delivers to the gateway, which serves them on its flat control-plane
+  // routes. Every other segment keeps the scoped path verbatim: the gateway
+  // exposes the same `/v1/assistants/{id}/...` routes the platform's
+  // RuntimeProxyView would otherwise forward to.
   const rewrittenUrl = new URL(ingressUrl);
   const prefix = rewrittenUrl.pathname.replace(/\/$/, "");
-  rewrittenUrl.pathname = prefix + url.pathname;
+  rewrittenUrl.pathname = FLATTENED_FIRST_SEGMENTS.has(firstSegment)
+    ? `${prefix}/v1/${subPath}`
+    : prefix + url.pathname;
   rewrittenUrl.search = url.search;
 
   // Build a fresh header set. Drop platform-only headers; keep client +
@@ -424,6 +449,73 @@ export function localGatewayAuthRecoveryInterceptor(response: Response): Respons
   return response;
 }
 
+// In-memory latch so a burst of concurrent session rejections triggers only
+// one recovery. Reset in the recovery's `finally` so a genuine expiry after a
+// permission-403 that left the session live is still caught later.
+let platformAuthRecoveryFired = false;
+
+/** @internal Exposed for test teardown only. */
+export function resetPlatformAuthRecoveryFlag(): void {
+  platformAuthRecoveryFired = false;
+}
+
+async function recoverFromPlatformSessionRejection(): Promise<void> {
+  try {
+    // Authoritative re-probe. `refreshSession` calls `getSession()` and only
+    // ends the session on a genuine settled rejection, so an ambiguous
+    // permission-403 on a still-live session does not log anyone out. In
+    // local/gateway mode a platform rejection only drops `platformSession`
+    // and keeps `sessionStatus` authenticated, so the redirect below is
+    // skipped there.
+    await useAuthStore.getState().refreshSession();
+    if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+      hardNavigate(
+        `${routes.account.login}?returnTo=${encodeURIComponent(
+          window.location.pathname + window.location.search,
+        )}`,
+      );
+    }
+  } finally {
+    platformAuthRecoveryFired = false;
+  }
+}
+
+/**
+ * Response interceptor for a platform session that expires mid-use.
+ *
+ * A cookie-authenticated request that comes back 401/403/410 while the app
+ * still believes it is signed in means the platform session may have ended.
+ * Nothing else notices this between boot and app-resume, so the rejection
+ * would otherwise surface only as a generic chat error. This re-verifies the
+ * session and, when it is truly gone, routes to login via a full reload.
+ *
+ * No-ops unless the rejection is settled, the app currently reads as
+ * authenticated (excludes boot probes and the already-logged-out login flow,
+ * and prevents a redirect loop), and the response did not come from the
+ * self-hosted / remote-gateway bearer path — those 401s are recovered by
+ * {@link localGatewayAuthRecoveryInterceptor}.
+ */
+export function platformAuthRecoveryInterceptor(response: Response): Response {
+  if (!isSettledSessionRejection({ ok: response.ok, status: response.status })) {
+    return response;
+  }
+  if (platformAuthRecoveryFired) {
+    return response;
+  }
+  if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+    return response;
+  }
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (ingressUrl && response.url.startsWith(ingressUrl)) {
+    return response;
+  }
+
+  platformAuthRecoveryFired = true;
+  void recoverFromPlatformSessionRejection();
+
+  return response;
+}
+
 /**
  * Normalizes HeyAPI's raw thrown errors into {@link ApiError} instances
  * for `throwOnError: true` calls only.
@@ -452,21 +544,20 @@ export function daemonErrorInterceptor(
   if (!options.throwOnError) return error;
   if (error instanceof ApiError) return error;
   if (!response || response.ok) return error;
-  return new ApiError(
-    response.status,
-    extractErrorMessage(error, response, `HTTP ${response.status}`),
-  );
+  return toApiError(error, response);
 }
 
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 daemonClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
+daemonClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Gateway client uses the same routing as daemon — all gateway endpoints
 // are proxied through the same self-hosted ingress / platform gateway path.
 gatewayClient.interceptors.request.use(daemonRequestInterceptor);
 gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
+gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Force JSON body parsing for all three generated clients. The default
@@ -487,6 +578,12 @@ for (const apiClient of [daemonClient, gatewayClient, platformClient, authClient
 for (const apiClient of [authClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }
+
+// A chat send in cloud mode goes through the daemon client; other platform
+// calls go through the platform client. Not installed on `authClient` — the
+// allauth session endpoints manage their own 401 semantics, and adding it
+// there risks re-entrancy with the `getSession()` inside `refreshSession`.
+platformClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 
 function arePlatformFeaturesEnabled(): boolean {
   return !isPlatformDisabled();

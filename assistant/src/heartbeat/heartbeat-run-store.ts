@@ -1,9 +1,19 @@
-import { desc, eq, lt, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  lt,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
-import { heartbeatRuns } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges } from "../persistence/raw-query.js";
+import { heartbeatRuns } from "../persistence/schema/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,7 +35,8 @@ export type HeartbeatSkipReason =
   | "overlap"
   | "pre_first_user_message"
   | "max_consecutive_runs"
-  | "max_daily_runs";
+  | "max_daily_runs"
+  | "quiesced";
 
 export interface HeartbeatRunRecord {
   id: string;
@@ -271,7 +282,19 @@ export function countRecentConsecutiveRuns(maxToCheck: number): number {
 }
 
 /**
- * List heartbeat runs ordered by `scheduledFor` descending.
+ * Statuses excluded from run history: scheduler bookkeeping rows, not runs.
+ * `pending` is the not-yet-fired next scheduled run (surfaced separately as
+ * "next run"), and `superseded` rows are pending rows replaced by a timer
+ * reset — a guardian message resets the heartbeat timer, so an active chat
+ * day leaves dozens of them behind without a single heartbeat firing.
+ */
+const BOOKKEEPING_STATUSES: HeartbeatRunStatus[] = ["pending", "superseded"];
+
+/**
+ * List heartbeat run history ordered by `scheduledFor` descending.
+ * Bookkeeping rows ({@link BOOKKEEPING_STATUSES}) are excluded — every
+ * returned row is a run that executed, was skipped by a guard (with its
+ * `skipReason`), or was missed while the daemon was down.
  * When `before` is set, only runs with `scheduledFor` strictly older than it
  * are returned (cursor for paginating into history).
  */
@@ -280,14 +303,68 @@ export function listHeartbeatRuns(
   before?: number,
 ): HeartbeatRunRecord[] {
   const db = getDb();
+  const historyOnly = notInArray(heartbeatRuns.status, BOOKKEEPING_STATUSES);
   const rows = db
     .select()
     .from(heartbeatRuns)
-    .where(before != null ? lt(heartbeatRuns.scheduledFor, before) : undefined)
+    .where(
+      before != null
+        ? and(lt(heartbeatRuns.scheduledFor, before), historyOnly)
+        : historyOnly,
+    )
     .orderBy(desc(heartbeatRuns.scheduledFor))
     .limit(limit)
     .all();
   return rows.map(parseRow);
+}
+
+/** Terminal statuses of runs that actually executed. */
+const EXECUTED_STATUSES: HeartbeatRunStatus[] = ["ok", "error", "timeout"];
+
+/**
+ * Epoch-ms timestamp of the most recent heartbeat run that actually executed
+ * (reached `ok`, `error`, or `timeout`), or null when none exists. Uses
+ * `finishedAt`, falling back to `startedAt` for rows finalized by a crash
+ * sweep without one.
+ */
+export function getLastHeartbeatRunAt(): number | null {
+  const db = getDb();
+  const row = db
+    .select({
+      lastRunAt: sql<
+        number | null
+      >`max(coalesce(${heartbeatRuns.finishedAt}, ${heartbeatRuns.startedAt}))`,
+    })
+    .from(heartbeatRuns)
+    .where(inArray(heartbeatRuns.status, EXECUTED_STATUSES))
+    .get();
+  return row?.lastRunAt ?? null;
+}
+
+/**
+ * Heartbeat runs currently `running`, capped to those started within
+ * `maxAgeMs`. The age bound matters: a run orphaned by a crash keeps its
+ * `running` status until a later boot's stale sweep relabels it, and an
+ * unbounded read would let that phantom row hold a drain open indefinitely.
+ */
+export function listRunningHeartbeatRuns(
+  maxAgeMs: number,
+): Array<{ runId: string; startedAt: number }> {
+  const db = getDb();
+  const cutoff = Date.now() - maxAgeMs;
+  return db
+    .select({ runId: heartbeatRuns.id, startedAt: heartbeatRuns.startedAt })
+    .from(heartbeatRuns)
+    .where(
+      and(
+        eq(heartbeatRuns.status, "running"),
+        isNotNull(heartbeatRuns.startedAt),
+        gt(heartbeatRuns.startedAt, cutoff),
+      ),
+    )
+    .orderBy(desc(heartbeatRuns.startedAt))
+    .limit(20)
+    .all() as Array<{ runId: string; startedAt: number }>;
 }
 
 // ---------------------------------------------------------------------------

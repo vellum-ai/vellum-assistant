@@ -1,25 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+
 // --- Mutable mock state (per test) -----------------------------------------
-let mockWebFetchProvider: string | undefined = "default";
 let mockFirecrawlSecureKey: string | undefined;
 
-// Capture the registered tool so we can exercise provider dispatch.
-let capturedTool: any = null;
-
-mock.module("../../registry.js", () => ({
-  registerTool: (tool: any) => {
-    capturedTool = tool;
-  },
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      "web-fetch": { mode: "your-own", provider: mockWebFetchProvider },
-    },
-  }),
-}));
+/** Seed the active web-fetch provider into the workspace config for real. */
+function seedWebFetch(provider: string): void {
+  setConfig("services", { "web-fetch": { provider } });
+}
 
 mock.module("../../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (provider: string) =>
@@ -50,7 +39,8 @@ mock.module("../url-safety.js", () => ({
   resolveHostAddresses: async () => mockResolveAddresses,
 }));
 
-const { executeFirecrawlScrape } = await import("../web-fetch.js");
+const { executeFirecrawlScrape, webFetchTool } =
+  await import("../web-fetch.js");
 
 const SCRAPE_URL = "api.firecrawl.dev/v2/scrape";
 
@@ -204,18 +194,21 @@ describe("executeFirecrawlScrape", () => {
     expect(result.content).toContain("invalid JSON");
   });
 
-  test.each([401, 403])("surfaces %d as an invalid-key error", async (status) => {
-    globalThis.fetch = (async () =>
-      new Response("Unauthorized", { status })) as any;
+  test.each([401, 403])(
+    "surfaces %d as an invalid-key error",
+    async (status) => {
+      globalThis.fetch = (async () =>
+        new Response("Unauthorized", { status })) as any;
 
-    const result = await executeFirecrawlScrape(
-      { url: "https://example.com" },
-      { apiKey: "bad-key" },
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Invalid or expired Firecrawl API key");
-    expect(result.activityMetadata?.webFetch?.provider).toBe("firecrawl");
-  });
+      const result = await executeFirecrawlScrape(
+        { url: "https://example.com" },
+        { apiKey: "bad-key" },
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Invalid or expired Firecrawl API key");
+      expect(result.activityMetadata?.webFetch?.provider).toBe("firecrawl");
+    },
+  );
 
   test("retries 429 then surfaces a rate-limit error", async () => {
     let callCount = 0;
@@ -241,11 +234,11 @@ describe("web_fetch provider dispatch", () => {
   let originalFetch: typeof globalThis.fetch;
 
   const execute = (input: Record<string, unknown>, ctx: any = {}) =>
-    capturedTool.execute(input, ctx);
+    webFetchTool.execute(input, ctx);
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
-    mockWebFetchProvider = "default";
+    seedWebFetch("default");
     mockFirecrawlSecureKey = undefined;
     mockResolveAddresses = [];
   });
@@ -254,7 +247,7 @@ describe("web_fetch provider dispatch", () => {
   });
 
   test("routes to Firecrawl when provider=firecrawl and a key is set", async () => {
-    mockWebFetchProvider = "firecrawl";
+    seedWebFetch("firecrawl");
     mockFirecrawlSecureKey = "fc-key";
     mockResolveAddresses = ["93.184.216.34"]; // public → passes the DNS safety gate
     let hitUrl = "";
@@ -272,7 +265,7 @@ describe("web_fetch provider dispatch", () => {
   });
 
   test("falls back to the built-in fetcher when provider=firecrawl but no key", async () => {
-    mockWebFetchProvider = "firecrawl";
+    seedWebFetch("firecrawl");
     mockFirecrawlSecureKey = undefined;
     let firecrawlHit = false;
     globalThis.fetch = (async (url: string) => {
@@ -289,7 +282,7 @@ describe("web_fetch provider dispatch", () => {
   });
 
   test("provider=default never touches Firecrawl", async () => {
-    mockWebFetchProvider = "default";
+    seedWebFetch("default");
     mockFirecrawlSecureKey = "fc-key";
     let firecrawlHit = false;
     globalThis.fetch = (async (url: string) => {
@@ -305,7 +298,7 @@ describe("web_fetch provider dispatch", () => {
   });
 
   test("private/local targets bypass Firecrawl and use the built-in fetcher", async () => {
-    mockWebFetchProvider = "firecrawl";
+    seedWebFetch("firecrawl");
     mockFirecrawlSecureKey = "fc-key";
     let firecrawlHit = false;
     globalThis.fetch = (async (url: string) => {
@@ -323,7 +316,7 @@ describe("web_fetch provider dispatch", () => {
   });
 
   test("a public host that DNS-resolves to a private IP is not sent to Firecrawl", async () => {
-    mockWebFetchProvider = "firecrawl";
+    seedWebFetch("firecrawl");
     mockFirecrawlSecureKey = "fc-key";
     mockResolveAddresses = ["10.0.0.5"]; // public name, private address → blocked
     let firecrawlHit = false;
@@ -334,14 +327,16 @@ describe("web_fetch provider dispatch", () => {
       return new Response("", { status: 200 });
     }) as any;
 
-    const result = await execute({ url: "https://internal.example/secret?token=abc" });
+    const result = await execute({
+      url: "https://internal.example/secret?token=abc",
+    });
     expect(firecrawlHit).toBe(false); // internal URL never leaked to Firecrawl
     expect(result.isError).toBe(true);
     expect(result.activityMetadata?.webFetch?.provider).toBe("default");
   });
 
   test("non-http(s) schemes are not sent to Firecrawl", async () => {
-    mockWebFetchProvider = "firecrawl";
+    seedWebFetch("firecrawl");
     mockFirecrawlSecureKey = "fc-key";
     mockResolveAddresses = ["93.184.216.34"];
     let firecrawlHit = false;

@@ -1,0 +1,100 @@
+/**
+ * Background-process descriptor for bash / host_bash background tasks.
+ *
+ * This is the count-less kind: unlike subagents ("3 agents") or workflows
+ * ("5 steps"), a background task has no meaningful unit count, so its
+ * {@link CardSummary} omits `count` and the inline card leads with a
+ * tool-keyed terminal glyph (`bash` → square-terminal, `host_bash` →
+ * file-terminal) instead of an avatar.
+ */
+
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
+import { BackgroundTaskGlyph } from "@/domains/chat/components/background-task-glyph";
+import { useBackgroundTaskCardData } from "@/domains/chat/components/background-task-inline-card/use-background-task-card-data";
+import { useActiveBackgroundTaskIds } from "@/domains/chat/hooks/use-active-background-task-ids";
+import { MAX_VISIBLE_STACKED_CHIPS } from "@/domains/chat/process-registry/constants";
+import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
+import type { BackgroundProcessDescriptor } from "@/domains/chat/process-registry/types";
+import { captureError } from "@/lib/sentry/capture-error";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
+
+/**
+ * Active background-task ids for the currently-selected conversation.
+ *
+ * The descriptor contract's `useActiveIds` is zero-arg, but
+ * `useActiveBackgroundTaskIds` is conversation-scoped (the store is global
+ * across conversations). Bind it to the active conversation id here so the
+ * registry sees only the tasks for the conversation on screen — exactly what
+ * `ChatRouteContent` does today.
+ */
+function useActiveIds(): string[] {
+  const conversationId = useConversationStore((s) => s.activeConversationId);
+  return useActiveBackgroundTaskIds(conversationId);
+}
+
+/**
+ * Leading slot of the inline card: a tool-keyed terminal glyph. Subscribes
+ * reactively to just this task's `toolName` so the glyph swaps if the entry
+ * lands after the card mounts (the start race). Falls back to `bash` when the
+ * entry isn't present yet, matching the overlay pill's fallback.
+ */
+function BackgroundTaskCardLeading({ id }: { id: string }) {
+  const toolName = useBackgroundTaskStore((s) => s.byId[id]?.toolName);
+  // `BackgroundTaskGlyph` forwards only the className it's given (no default
+  // size), so size/colour the inline-card glyph to match the other process
+  // rows — 16px secondary, the same as the ACP card's `AcpAgentIcon` default.
+  return (
+    <BackgroundTaskGlyph
+      toolName={toolName ?? "bash"}
+      className="h-4 w-4 text-[var(--content-secondary)]"
+    />
+  );
+}
+
+/**
+ * One stacked chip for the overlay pill. The chip owns its own stacking offset
+ * (`-ml-1 ring-2` for every chip past the first) since `StackedChipsPill`
+ * passes only `id`, not an index.
+ */
+function BackgroundTaskChip({ id }: { id: string }) {
+  const toolName = useBackgroundTaskStore((s) => s.byId[id]?.toolName);
+  return (
+    <span className="flex h-4 w-4 items-center justify-center rounded bg-[var(--surface-lift)] [&:not(:first-child)]:-ml-1 [&:not(:first-child)]:ring-2 [&:not(:first-child)]:ring-[var(--surface-lift)]">
+      <BackgroundTaskGlyph
+        toolName={toolName ?? "bash"}
+        className="h-3.5 w-3.5 text-[var(--content-emphasised)]"
+      />
+    </span>
+  );
+}
+
+export const BACKGROUND_TASK_DESCRIPTOR: BackgroundProcessDescriptor = {
+  kind: "background-task",
+  useActiveIds,
+  useCardSummary: (id) => {
+    const data = useBackgroundTaskCardData(id);
+    if (!data) return null;
+    // No `count`: a background task has no meaningful unit count. `toolName`
+    // drives `renderCardLeading`, not the summary.
+    return { state: data.state, title: data.title, info: data.info };
+  },
+  renderCardLeading: (id) => <BackgroundTaskCardLeading id={id} />,
+  pill: {
+    variant: "stacked",
+    renderChip: (id) => <BackgroundTaskChip key={id} id={id} />,
+    max: MAX_VISIBLE_STACKED_CHIPS,
+  },
+  overlayTitle: (count) => `${count} Active Command${count === 1 ? "" : "s"}`,
+  pillAriaLabel: () => "Active commands",
+  openCardAriaLabel: "Open command",
+  stopAriaLabel: "Stop command",
+  onOpenDetail: (id) =>
+    useViewerStore.getState().openProcessDetail({ kind: "background-task", id }),
+  // `stopBackgroundTask` can reject (offline / non-OK / no active assistant);
+  // report instead of leaving an unhandled rejection.
+  onStop: (id) =>
+    void stopBackgroundTask(id).catch((err) => {
+      captureError(err, { context: "BackgroundTaskDescriptor.stop" });
+    }),
+};

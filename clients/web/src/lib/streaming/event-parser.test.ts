@@ -1097,6 +1097,29 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  // ---------------------------------------------------------------------
+  // conversation_notice (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses conversation_notice with billing fields", () => {
+    const event = parseEvent({
+      type: "conversation_notice",
+      conversationId: "conv-1",
+      source: "memory_v3",
+      code: "PROVIDER_BILLING",
+      userMessage: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+    expect(event).toEqual({
+      type: "conversation_notice",
+      conversationId: "conv-1",
+      source: "memory_v3",
+      code: "PROVIDER_BILLING",
+      userMessage: "You've run out of credits.",
+      errorCategory: "credits_exhausted",
+    });
+  });
+
   test("parses interaction_resolved with explicit conversationId", () => {
     const event = parseEvent({
       type: "interaction_resolved",
@@ -1401,6 +1424,44 @@ describe("parseAssistantEvent", () => {
     expect(event).toEqual({
       type: "unknown",
       rawType: "navigate_settings",
+      data,
+    });
+  });
+
+  test("parses open_conversation with all fields (not unknown)", () => {
+    const event = parseEvent({
+      type: "open_conversation",
+      conversationId: "conv-1",
+      title: "New conversation",
+      anchorMessageId: "msg-42",
+      focus: true,
+    });
+    expect(event).toEqual({
+      type: "open_conversation",
+      conversationId: "conv-1",
+      title: "New conversation",
+      anchorMessageId: "msg-42",
+      focus: true,
+    });
+  });
+
+  test("parses open_conversation with only the required conversationId", () => {
+    const event = parseEvent({
+      type: "open_conversation",
+      conversationId: "conv-1",
+    });
+    expect(event).toEqual({
+      type: "open_conversation",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown open_conversation event when conversationId is missing", () => {
+    const data = { type: "open_conversation", focus: true };
+    const event = parseEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "open_conversation",
       data,
     });
   });
@@ -3032,115 +3093,6 @@ describe("parseAssistantEvent", () => {
       rawType: "subagent_event",
       data,
       conversationId: "conv-4",
-    });
-  });
-
-  // ---------------------------------------------------------------------
-  // trace_event (schema-validated)
-  // ---------------------------------------------------------------------
-
-  test("parses trace_event with all fields", () => {
-    const event = parseEvent({
-      type: "trace_event",
-      eventId: "evt-1",
-      conversationId: "conv-1",
-      requestId: "req-1",
-      timestampMs: 1780604080844,
-      sequence: 11612,
-      kind: "tool_started",
-      status: "info",
-      summary: "Tool bash started",
-      attributes: { toolName: "bash" },
-    });
-    expect(event).toEqual({
-      type: "trace_event",
-      eventId: "evt-1",
-      conversationId: "conv-1",
-      requestId: "req-1",
-      timestampMs: 1780604080844,
-      sequence: 11612,
-      kind: "tool_started",
-      status: "info",
-      summary: "Tool bash started",
-      attributes: { toolName: "bash" },
-    });
-  });
-
-  test("parses trace_event with only required fields", () => {
-    const event = parseEvent({
-      type: "trace_event",
-      eventId: "evt-2",
-      conversationId: "conv-2",
-      timestampMs: 1,
-      sequence: 0,
-      kind: "request_received",
-      summary: "Request received",
-    });
-    expect(event).toEqual({
-      type: "trace_event",
-      eventId: "evt-2",
-      conversationId: "conv-2",
-      timestampMs: 1,
-      sequence: 0,
-      kind: "request_received",
-      summary: "Request received",
-    });
-  });
-
-  test("returns unknown trace_event when sequence is missing", () => {
-    const data = {
-      type: "trace_event",
-      eventId: "evt-3",
-      conversationId: "conv-3",
-      timestampMs: 1,
-      kind: "tool_finished",
-      summary: "Tool finished",
-    };
-    expect(parseEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "trace_event",
-      data,
-      conversationId: "conv-3",
-    });
-  });
-
-  test("returns unknown trace_event when kind is not a known value", () => {
-    const data = {
-      type: "trace_event",
-      eventId: "evt-4",
-      conversationId: "conv-4",
-      timestampMs: 1,
-      sequence: 1,
-      kind: "not_a_real_kind",
-      summary: "Bogus kind",
-    };
-    expect(parseEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "trace_event",
-      data,
-      conversationId: "conv-4",
-    });
-  });
-
-  test("strips unknown fields from trace_event", () => {
-    const event = parseEvent({
-      type: "trace_event",
-      eventId: "evt-5",
-      conversationId: "conv-5",
-      timestampMs: 2,
-      sequence: 3,
-      kind: "llm_call_finished",
-      summary: "LLM call finished",
-      legacyField: "x",
-    });
-    expect(event).toEqual({
-      type: "trace_event",
-      eventId: "evt-5",
-      conversationId: "conv-5",
-      timestampMs: 2,
-      sequence: 3,
-      kind: "llm_call_finished",
-      summary: "LLM call finished",
     });
   });
 });

@@ -2,12 +2,30 @@
  * Tests for the `resolve_inbound_trust` IPC route.
  *
  * Seeds the gateway ACL DB directly (contacts + contact_channels) and invokes
- * the route handler with params, asserting the returned `{ verdict }` matches
- * the resolver output for guardian / member / unknown actors.
+ * the route handler with params, asserting the returned verdict matches the
+ * resolver output for guardian / member / unknown actors and that the
+ * envelope carries the channel admission policy from the same store
+ * `get_channel_admission_policy` reads.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { AdmissionPolicy } from "@vellumai/gateway-client";
 
 await import("../../__tests__/test-preload.js");
+
+// Leak-safe snapshot-spread delegating mock: only resolveAdmissionPolicy is
+// overridden, and it delegates to a per-test implementation.
+const actualAdmissionPolicyCache = await import(
+  "../../risk/admission-policy-cache.js"
+);
+let resolveAdmissionPolicyImpl: (channelType: string) => AdmissionPolicy | null =
+  () => null;
+mock.module("../../risk/admission-policy-cache.js", () => ({
+  ...actualAdmissionPolicyCache,
+  resolveAdmissionPolicy: (channelType: string) =>
+    resolveAdmissionPolicyImpl(channelType),
+}));
+
 const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
   "../../db/connection.js"
 );
@@ -77,6 +95,7 @@ beforeEach(async () => {
   await initGatewayDb();
   getGatewayDb().delete(gwContactChannels).run();
   getGatewayDb().delete(gwContacts).run();
+  resolveAdmissionPolicyImpl = () => null;
 });
 
 afterEach(() => {
@@ -89,7 +108,7 @@ describe("resolve_inbound_trust route", () => {
     expect(route.schema).toBeDefined();
   });
 
-  test("guardian actor → { verdict } matching the resolver output", async () => {
+  test("guardian actor → verdict matching the resolver output", async () => {
     insertContact({
       id: "c-guardian",
       displayName: "The Guardian",
@@ -147,10 +166,42 @@ describe("resolve_inbound_trust route", () => {
     ).toBeUndefined();
   });
 
-  test("resolver throw → resolutionFailed sentinel verdict", async () => {
+  test("response envelope carries the channel's resolved admission policy", async () => {
+    resolveAdmissionPolicyImpl = (channelType) =>
+      channelType === CHANNEL ? "guardian_only" : null;
+
+    const result = (await route.handler({
+      channelType: CHANNEL,
+      actorExternalId: "U_STRANGER",
+    })) as { admissionPolicy: unknown };
+
+    expect(result.admissionPolicy).toBe("guardian_only");
+  });
+
+  test("no-enforcement channel → explicit null admission policy on the envelope", async () => {
+    const result = (await route.handler({
+      channelType: CHANNEL,
+      actorExternalId: "U_STRANGER",
+    })) as { admissionPolicy: unknown };
+
+    expect(result.admissionPolicy).toBeNull();
+  });
+
+  test("a thrown admission-policy read fails the whole call (fail closed, no fabricated null)", async () => {
+    resolveAdmissionPolicyImpl = () => {
+      throw new Error("admission cache not initialized");
+    };
+
+    expect(
+      route.handler({ channelType: CHANNEL, actorExternalId: "U_STRANGER" }),
+    ).rejects.toThrow("admission cache not initialized");
+  });
+
+  test("resolver throw → resolutionFailed sentinel verdict, policy still carried", async () => {
     // Drop the gateway DB connection so resolveTrustVerdict's getGatewayDb()
     // throws.
     resetGatewayDb();
+    resolveAdmissionPolicyImpl = () => "trusted_contacts";
 
     const params = { channelType: CHANNEL, actorExternalId: "U_STRANGER" };
     const result = (await route.handler(params)) as {
@@ -159,11 +210,13 @@ describe("resolve_inbound_trust route", () => {
         canonicalSenderId: string | null;
         resolutionFailed?: boolean;
       };
+      admissionPolicy: unknown;
     };
 
     expect(result.verdict.resolutionFailed).toBe(true);
     expect(result.verdict.trustClass).toBe("unknown");
     expect(result.verdict.canonicalSenderId).toBe("U_STRANGER");
+    expect(result.admissionPolicy).toBe("trusted_contacts");
   });
 
   test("resolver throw with whitespace-only actor id → sentinel canonicalSenderId is null", async () => {

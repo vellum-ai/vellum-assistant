@@ -34,8 +34,6 @@ export interface ProviderRedirectOptions {
   readonly intent?: ProviderIntent;
   /** Pre-fill the WorkOS AuthKit email field (and email-first flows). */
   readonly loginHint?: string;
-  /** Skip AuthKit and go directly to a specific IdP ("GoogleOAuth" etc.). */
-  readonly providerHint?: string;
 }
 
 /**
@@ -61,9 +59,6 @@ export function buildProviderRedirectFields(
   }
   if (options.loginHint) {
     fields["login_hint"] = options.loginHint;
-  }
-  if (options.providerHint) {
-    fields["provider_hint"] = options.providerHint;
   }
 
   return fields;

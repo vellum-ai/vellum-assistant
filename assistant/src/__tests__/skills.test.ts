@@ -340,15 +340,20 @@ describe("plugin-resident skills", () => {
     expect(skill).toBeUndefined();
   });
 
-  test("ignores plugin dirs whose package.json name mismatches the directory", () => {
-    // Mirrors the loader's recognition gate: an un-adapted clone whose
-    // package.json declares `caveman-installer` in a `caveman` dir is skipped.
+  test("surfaces plugin skills when package.json name differs from the directory", () => {
+    // A plugin is installed under its slug (marketplace name or GitHub path
+    // leaf), which routinely differs from its authored `package.json` name —
+    // e.g. cognee installs to `cognee`/`vellum-assistant` while its package is
+    // named `cognee-memory`. The skill must still surface, attributed to the
+    // install directory (the identity every other surface uses).
     writePluginSkill("caveman", "caveman", "Caveman", "Terse mode", "body", {
       packageName: "caveman-installer",
     });
 
     const skill = loadSkillCatalog().find((s) => s.id === "caveman");
-    expect(skill).toBeUndefined();
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("plugin");
+    expect(skill!.owner).toEqual({ kind: "plugin", id: "caveman" });
   });
 
   test("warns when a plugin directory is missing package.json", () => {

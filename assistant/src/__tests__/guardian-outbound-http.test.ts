@@ -18,13 +18,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -84,6 +77,24 @@ globalThis.fetch = (async (
   return originalFetch(input, init as never);
 }) as unknown as typeof fetch;
 
+// Gateway IPC mock — session lifecycle now goes through the gateway session
+// client; delegate verification_sessions_* methods to the local-service sim
+// so the flows under test keep reading/writing the local test DB.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    const { handleVerificationSessionsIpc, isVerificationSessionsIpcMethod } =
+      await import("./helpers/verification-sessions-ipc-sim.js");
+    if (isVerificationSessionsIpcMethod(method)) {
+      return handleVerificationSessionsIpc(method, params);
+    }
+    return { ok: true };
+  },
+  ipcCall: async () => null,
+}));
+
 // Guardian-delivery reader mock — the inbound challenge guard reads guardian
 // existence from the gateway. These tests seed no binding, so report an empty
 // list (not bound) rather than a null that would fail closed as already-bound.
@@ -93,17 +104,14 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 // ---------------------------------------------------------------------------
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   handleCancelVerificationSession,
   handleCreateVerificationSession,
@@ -116,6 +124,10 @@ import {
   startOutbound,
 } from "../runtime/verification-outbound-actions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import {
+  resetVerificationSessionsSim,
+  updateSessionDelivery,
+} from "./helpers/verification-sessions-ipc-sim.js";
 
 // Initialize the database (creates all tables)
 await initializeDb();
@@ -126,13 +138,7 @@ afterAll(() => {
 });
 
 function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM channel_verification_sessions");
-  try {
-    db.run("DELETE FROM channel_guardian_rate_limits");
-  } catch {
-    /* table may not exist */
-  }
+  resetVerificationSessionsSim();
 }
 
 // ---------------------------------------------------------------------------
@@ -304,8 +310,8 @@ describe("startOutbound", () => {
 // ===========================================================================
 
 describe("resendOutbound", () => {
-  test("returns no_active_session when no session exists", () => {
-    const result = resendOutbound({ channel: "phone" });
+  test("returns no_active_session when no session exists", async () => {
+    const result = await resendOutbound({ channel: "phone" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("no_active_session");
   });
@@ -328,7 +334,7 @@ describe("resendOutbound", () => {
       );
     }
 
-    const resendResult = resendOutbound({ channel: "phone" });
+    const resendResult = await resendOutbound({ channel: "phone" });
     expect(resendResult.success).toBe(true);
     expect(resendResult.verificationSessionId).toBeDefined();
     expect(resendResult.sendCount).toBe(2);
@@ -350,7 +356,7 @@ describe("resendOutbound", () => {
       );
     }
 
-    const resendResult = resendOutbound({
+    const resendResult = await resendOutbound({
       channel: "phone",
       originConversationId: "conv-resend-voice-origin",
     });
@@ -375,7 +381,7 @@ describe("resendOutbound", () => {
       );
     }
 
-    const resendResult = resendOutbound({
+    const resendResult = await resendOutbound({
       channel: "phone",
       originConversationId: "conv-resend-voice-origin",
     });
@@ -399,8 +405,8 @@ describe("resendOutbound", () => {
 // ===========================================================================
 
 describe("cancelOutbound", () => {
-  test("returns no_active_session when no session exists", () => {
-    const result = cancelOutbound({ channel: "phone" });
+  test("returns no_active_session when no session exists", async () => {
+    const result = await cancelOutbound({ channel: "phone" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("no_active_session");
   });
@@ -412,7 +418,7 @@ describe("cancelOutbound", () => {
     });
     expect(startResult.success).toBe(true);
 
-    const cancelResult = cancelOutbound({ channel: "phone" });
+    const cancelResult = await cancelOutbound({ channel: "phone" });
     expect(cancelResult.success).toBe(true);
     expect(cancelResult.channel).toBe("phone");
   });
@@ -613,7 +619,7 @@ describe("origin conversation linkage", () => {
     }
 
     // Resend with origin conversation ID
-    const resendResult = resendOutbound({
+    const resendResult = await resendOutbound({
       channel: "phone",
       originConversationId: "conv-resend-origin-linkage",
     });

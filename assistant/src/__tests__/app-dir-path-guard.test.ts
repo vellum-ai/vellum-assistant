@@ -9,15 +9,14 @@ import { describe, expect, test } from "bun:test";
  * This prevents regressions where new code bypasses the dirName-based path
  * resolution and constructs UUID-based paths directly.
  *
- * Allowlist: only app-store.ts itself, app-git-service.ts (uses getAppsDir
- * for the git repo root, not for per-app paths), and workspace migrations
+ * Allowlist: only app-store.ts itself, app-source-watcher.ts (uses getAppsDir
+ * for the fs.watch root, not for per-app paths), and workspace migrations
  * (self-contained, don't import from app-store).
  */
 
 /** Files that are permitted to import getAppsDir. */
 const ALLOWLIST = new Set([
-  "assistant/src/memory/app-store.ts", // defines getAppsDir
-  "assistant/src/memory/app-git-service.ts", // uses getAppsDir for git repo root, not per-app paths
+  "assistant/src/apps/app-store.ts", // defines getAppsDir
   "assistant/src/daemon/app-source-watcher.ts", // uses getAppsDir for recursive fs.watch root, not per-app paths
   "assistant/src/tools/filesystem/write.ts", // uses getAppsDir as an exemption root for the artifact-HTML guard, not per-app paths
 ]);

@@ -15,15 +15,18 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
-import { loadSkillCatalog } from "../config/skills.js";
-import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
+import {
+  filterSkillsByEnabledPlugins,
+  loadSkillCatalog,
+} from "../config/skills.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
 import { getCachedCatalogSync } from "../skills/catalog-cache.js";
-import { readInstallMeta } from "../skills/install-meta.js";
+import { readInstallMeta, touchSkillLastUsed } from "../skills/install-meta.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
+import { recordSkillLoadedEvent } from "../telemetry/skill-loaded-events-store.js";
 import {
   getTool,
   getToolOwner,
@@ -114,6 +117,14 @@ export interface ProjectSkillToolsOptions {
    * reads across agent turns.
    */
   cache?: SkillProjectionCache;
+  /**
+   * The conversation's effective per-chat plugin scope from
+   * `getEffectiveEnabledPluginSet`. `null`/absent means no per-chat restriction
+   * (all globally-enabled plugins apply). When a set is given, plugin-owned
+   * skills whose owning plugin id is outside it are dropped from this
+   * conversation's resolution; non-plugin skills are unaffected.
+   */
+  effectiveEnabledPluginSet?: Set<string> | null;
   /** Telemetry context for skill_loaded events; absent disables recording. */
   telemetry?: {
     conversationId: string;
@@ -157,7 +168,9 @@ function loadManifestForSkill(skill: SkillSummary): SkillToolManifest | null {
  * never emit.
  */
 function isVellumProducedSkill(skill: SkillSummary): boolean {
-  if (skill.source === "bundled") return true;
+  if (skill.source === "bundled") {
+    return true;
+  }
   if (skill.source === "managed") {
     return readInstallMeta(skill.directoryPath)?.origin === "vellum";
   }
@@ -175,9 +188,13 @@ function recordSkillLoadedTelemetry(
   skill: SkillSummary,
   telemetry: ProjectSkillToolsOptions["telemetry"],
 ): void {
-  if (!telemetry) return;
+  if (!telemetry) {
+    return;
+  }
   try {
-    if (!isVellumProducedSkill(skill)) return;
+    if (!isVellumProducedSkill(skill)) {
+      return;
+    }
     const catalogEntry = getCachedCatalogSync().find((s) => s.id === skill.id);
     recordSkillLoadedEvent({
       conversationId: telemetry.conversationId,
@@ -189,6 +206,29 @@ function recordSkillLoadedTelemetry(
     log.debug(
       { err, skillId: skill.id },
       "Failed to record skill_loaded telemetry event (non-fatal)",
+    );
+  }
+}
+
+/**
+ * Stamp `lastUsedAt` (day-debounced) on a newly-loaded managed skill's
+ * install metadata. Independent of telemetry consent and the
+ * `isVellumProducedSkill` gate — those suppress `origin: "custom"` skills,
+ * which are exactly the assistant-authored skills the usage-based prune must
+ * track. Only managed skills carry install metadata; bundled, workspace, and
+ * plugin skills are skipped. Best-effort: the underlying write never throws.
+ */
+function stampManagedSkillUsage(skill: SkillSummary): void {
+  if (skill.source !== "managed") {
+    return;
+  }
+  try {
+    const today = new Date().toLocaleDateString("en-CA");
+    touchSkillLastUsed(skill.directoryPath, today);
+  } catch (err) {
+    log.warn(
+      { err, skillId: skill.id },
+      "Failed to stamp managed-skill lastUsedAt (non-fatal)",
     );
   }
 }
@@ -211,7 +251,9 @@ function getCachedActiveSkills(
   history: Message[],
   cache?: SkillProjectionCache,
 ): ActiveSkillEntry[] {
-  if (!cache) return deriveActiveSkills(history);
+  if (!cache) {
+    return deriveActiveSkills(history);
+  }
 
   const cached = cache.derived;
 
@@ -274,7 +316,9 @@ function getCachedActiveSkills(
  * directories changed on disk while the conversation is still processing).
  */
 function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
-  if (!cache) return loadSkillCatalog();
+  if (!cache) {
+    return loadSkillCatalog();
+  }
 
   if (!cache.catalog) {
     cache.catalog = loadSkillCatalog();
@@ -318,8 +362,13 @@ export function projectSkillTools(
   const contextIds = contextEntries.map((e) => e.id);
   const allCandidateIds = new Set<string>([...contextIds, ...preactivated]);
 
-  // Load the catalog (cached for conversation lifetime) and index by ID
-  const catalog = getCachedCatalog(options?.cache);
+  // Load the catalog (cached for conversation lifetime), then scope it to the
+  // conversation's per-chat plugin selection so plugin-contributed skills from
+  // unselected plugins are not resolvable for this run (null = no restriction).
+  const catalog = filterSkillsByEnabledPlugins(
+    getCachedCatalog(options?.cache),
+    options?.effectiveEnabledPluginSet ?? null,
+  );
   const catalogById = new Map<string, SkillSummary>();
   for (const skill of catalog) {
     catalogById.set(skill.id, skill);
@@ -349,7 +398,9 @@ export function projectSkillTools(
   // with the no-tools sentinel never registered anything — skip them so we
   // don't decrement refcounts held by other conversations.
   for (const id of removedIds) {
-    if (!hasRegisteredTools(prevActive.get(id))) continue;
+    if (!hasRegisteredTools(prevActive.get(id))) {
+      continue;
+    }
     log.info({ skillId: id }, "Unregistering tools for deactivated skill");
     unregisterSkillTools(id);
   }
@@ -403,6 +454,7 @@ export function projectSkillTools(
       successfulEntries.set(skillId, NO_TOOLS_VERSION);
       if (prevHash === undefined) {
         recordSkillLoadedTelemetry(skill, options?.telemetry);
+        stampManagedSkillUsage(skill);
       }
       continue;
     }
@@ -446,6 +498,7 @@ export function projectSkillTools(
         // activation gaining a TOOLS.json re-registers, which — like a
         // version-hash change — counts as a new load.
         recordSkillLoadedTelemetry(skill, options?.telemetry);
+        stampManagedSkillUsage(skill);
       } else if (prevHash !== currentHash) {
         // Hash changed — unregister stale tools, then re-register with new definitions
         log.info(
@@ -466,6 +519,7 @@ export function projectSkillTools(
         }
         // A version change that re-registers counts as a new skill load.
         recordSkillLoadedTelemetry(skill, options?.telemetry);
+        stampManagedSkillUsage(skill);
       } else {
         // Hash unchanged — filter to only tools that are actually registered
         // for this skill. Some tools may have been skipped during initial
@@ -474,7 +528,9 @@ export function projectSkillTools(
         // because the permission checker derives bundled state from the
         // live catalog instead of a stamped tool field.
         accepted = tools.filter((t) => {
-          if (getTool(t.name) === undefined) return false;
+          if (getTool(t.name) === undefined) {
+            return false;
+          }
           const owner = getToolOwner(t.name);
           return owner?.kind === "skill" && owner.id === skillId;
         });
@@ -532,7 +588,9 @@ export function resetSkillToolProjection(
       // Sentinel entries (active skills without a manifest) registered no
       // tools — skip them so we don't decrement refcounts held by other
       // conversations.
-      if (!hasRegisteredTools(hash)) continue;
+      if (!hasRegisteredTools(hash)) {
+        continue;
+      }
       unregisterSkillTools(id);
     }
     trackedIds.clear();

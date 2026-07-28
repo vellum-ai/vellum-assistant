@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  extractWirePendingAcpConnect,
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
   hasAssistantMessage,
+  isConversationScopedStreamEvent,
   shouldClearFirstMessageGateOnConversationChange,
 } from "@/domains/chat/utils/chat";
+import { ACP_CLAUDE_OAUTH_MISSING_CODE } from "@/domains/chat/utils/acp-connect";
+import type { AssistantEvent } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
@@ -24,6 +28,35 @@ function assistantWithToolCalls(
 }
 
 describe("chat utilities", () => {
+  describe("isConversationScopedStreamEvent", () => {
+    const scoped = (type: string) =>
+      isConversationScopedStreamEvent({ type } as AssistantEvent);
+
+    test("background-tool lifecycle events are global (not conversation-scoped)", () => {
+      // A completion firing while the user views another conversation must still
+      // reach the global background-task store, like the subagent/acp families.
+      expect(scoped("background_tool_started")).toBe(false);
+      expect(scoped("background_tool_completed")).toBe(false);
+    });
+
+    test("matches the subagent/acp global treatment", () => {
+      expect(scoped("subagent_spawned")).toBe(false);
+      expect(scoped("acp_session_completed")).toBe(false);
+    });
+
+    test("ordinary conversation events stay scoped", () => {
+      expect(scoped("tool_output_chunk")).toBe(true);
+    });
+
+    test("open_url stays conversation-scoped (conversationless CLI emits are owned by useOpenUrlDirectives)", () => {
+      // Making open_url global would let a background turn's browser
+      // hand-off fire over an unrelated conversation. The conversationless
+      // CLI variant is handled by the always-mounted root subscriber, not
+      // by exempting the type here.
+      expect(scoped("open_url")).toBe(true);
+    });
+  });
+
   describe("hasAssistantMessage", () => {
     test("does not treat the user opener as an assistant response", () => {
       expect(hasAssistantMessage([message("user", "user-1")])).toBe(false);
@@ -190,6 +223,86 @@ describe("chat utilities", () => {
 
       // WHEN we extract the wire-carried question
       const restored = extractWirePendingQuestion(messages);
+
+      // THEN there is nothing to restore
+      expect(restored).toBeNull();
+    });
+  });
+
+  describe("extractWirePendingAcpConnect", () => {
+    test("restores the Connect card from a failed acp_spawn's persisted marker", () => {
+      /**
+       * The live `tool_result` tap raises the card once on arrival, but a full
+       * reload / SSE reconnect rebuilds the store empty. On the next history
+       * load the daemon carries the `acp_claude_oauth_missing` marker on the
+       * failed tool call; the FE must re-raise the card so it doesn't vanish.
+       */
+      // GIVEN a snapshot whose acp_spawn tool call failed for a missing token
+      const messages = [
+        message("user", "user-1"),
+        assistantWithToolCalls("assistant-1", [
+          {
+            id: "tool-1",
+            name: "acp_spawn",
+            input: { agent: "claude" },
+            isError: true,
+            errorCode: ACP_CLAUDE_OAUTH_MISSING_CODE,
+          },
+        ]),
+      ];
+
+      // WHEN we extract the wire-carried Connect prompt
+      const restored = extractWirePendingAcpConnect(messages);
+
+      // THEN it is anchored to the failed tool call so the card restores in place
+      expect(restored?.toolUseId).toBe("tool-1");
+    });
+
+    test("returns the most recent failure when several are present", () => {
+      // GIVEN two failed acp_spawn calls across the transcript
+      const messages = [
+        assistantWithToolCalls("assistant-1", [
+          {
+            id: "old-fail",
+            name: "acp_spawn",
+            input: { agent: "claude" },
+            isError: true,
+            errorCode: ACP_CLAUDE_OAUTH_MISSING_CODE,
+          },
+        ]),
+        assistantWithToolCalls("assistant-2", [
+          {
+            id: "new-fail",
+            name: "acp_spawn",
+            input: { agent: "claude" },
+            isError: true,
+            errorCode: ACP_CLAUDE_OAUTH_MISSING_CODE,
+          },
+        ]),
+      ];
+
+      // WHEN we extract the wire-carried Connect prompt
+      const restored = extractWirePendingAcpConnect(messages);
+
+      // THEN the latest failure wins (scanned latest-first)
+      expect(restored?.toolUseId).toBe("new-fail");
+    });
+
+    test("returns null when no tool call carries the missing-token marker", () => {
+      // GIVEN a snapshot whose acp_spawn succeeded (no error marker)
+      const messages = [
+        assistantWithToolCalls("assistant-1", [
+          {
+            id: "tool-1",
+            name: "acp_spawn",
+            input: { agent: "claude" },
+            result: "spawned",
+          },
+        ]),
+      ];
+
+      // WHEN we extract the wire-carried Connect prompt
+      const restored = extractWirePendingAcpConnect(messages);
 
       // THEN there is nothing to restore
       expect(restored).toBeNull();

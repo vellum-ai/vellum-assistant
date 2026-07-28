@@ -20,12 +20,14 @@ import {
   geminiThinkingLevels,
   type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
+import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const EFFORT_OPTIONS = [
+  "inherit",
   "none",
   "low",
   "medium",
@@ -38,8 +40,8 @@ const VERBOSITY_OPTIONS = ["low", "medium", "high"] as const;
 
 /**
  * Sentinel for the Gemini thinking-level selector: "inherit" → omit
- * thinking.level so the daemon applies the model default (mirrors effort's
- * "none"). Concrete levels come from `geminiThinkingLevels(model)`.
+ * thinking.level so the daemon applies the model default. Concrete levels come
+ * from `geminiThinkingLevels(model)`.
  */
 export const THINKING_LEVEL_INHERIT = "default";
 
@@ -52,13 +54,6 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 64_000;
 interface ProfileAdvancedParamsProps {
   visibility: ProfileParamVisibility;
   isReadOnly: boolean;
-  /**
-   * Overrides `isReadOnly` for the Top P toggle/slider only. Top P is
-   * user-editable wherever it's visible — including managed-profile view mode,
-   * where the rest of the advanced params stay locked. Defaults to `isReadOnly`
-   * when omitted so callers that don't opt in keep the old behavior.
-   */
-  topPReadOnly?: boolean;
   model: string;
   /** Resolved catalog entry for the selected model (null if not in catalog). */
   selectedModel: {
@@ -252,7 +247,6 @@ function TokenBudgetField({
 export function ProfileAdvancedParams({
   visibility,
   isReadOnly,
-  topPReadOnly,
   model,
   selectedModel,
   defaultMaxOutputTokens,
@@ -282,6 +276,8 @@ export function ProfileAdvancedParams({
   thinkingLevel,
   onThinkingLevelChange,
 }: ProfileAdvancedParamsProps) {
+  const supportsSnapshots = useSupportsCompleteProfileSnapshots();
+
   // Each model's hard ceiling doubles as that field's slider/input max. The
   // resolved runtime defaults, however, are what a profile inherits when it
   // omits the override: `llm.default.maxTokens` and
@@ -302,17 +298,22 @@ export function ProfileAdvancedParams({
     contextWindowCeiling,
   );
 
-  // Top P stays editable even when the rest of the params are locked (managed
-  // view mode). Fall back to the shared `isReadOnly` when the caller omits the
-  // override.
-  const topPDisabled = topPReadOnly ?? isReadOnly;
-
   return (
     // space-y-4 matches the modal body's rhythm so each advanced param gets
     // the same vertical breathing room as the "normal" fields above. Without
     // a spacing wrapper the fragment stacked these blocks flush against each
     // other (and against the disclosure edges).
     <div className="space-y-4">
+      {!isReadOnly && supportsSnapshots && (
+        // Profiles are complete overrides: fields left at their default are
+        // baked into the profile at save time and do not track later changes
+        // to the assistant defaults. Pre-0.10.8 assistants still live-inherit
+        // (deep merge), so the line is hidden against them.
+        <p className="text-body-small-default text-[var(--content-tertiary)]">
+          Fields left at their default are saved with the values shown and won’t
+          change if the assistant defaults change later.
+        </p>
+      )}
       {visibility.maxTokens && (
         <TokenBudgetField
           label="Max Output Tokens"
@@ -339,13 +340,16 @@ export function ProfileAdvancedParams({
       {visibility.effort && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Effort{" "}
-            <span className="text-[var(--content-disabled)]">
-              (none = inherit)
-            </span>
+            Effort
           </label>
           <SegmentControl
-            items={EFFORT_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={EFFORT_OPTIONS.map((v) => ({
+              value: v,
+              // "inherit" is a wire sentinel; post-M6 the saved profile bakes
+              // the current default, so the UI says "default", not "inherit".
+              label: v === "inherit" ? "default" : v,
+              disabled: isReadOnly,
+            }))}
             value={effort}
             onChange={(v) => onEffortChange(v)}
             ariaLabel="Effort"
@@ -360,7 +364,11 @@ export function ProfileAdvancedParams({
             Speed
           </label>
           <SegmentControl
-            items={SPEED_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={SPEED_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={speed}
             onChange={(v) => onSpeedChange(v)}
             ariaLabel="Speed"
@@ -375,7 +383,11 @@ export function ProfileAdvancedParams({
             Verbosity
           </label>
           <SegmentControl
-            items={VERBOSITY_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={VERBOSITY_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={verbosity}
             onChange={(v) => onVerbosityChange(v)}
             ariaLabel="Verbosity"
@@ -422,7 +434,7 @@ export function ProfileAdvancedParams({
             checked={topPEnabled}
             onChange={(v) => onTopPEnabledChange(v)}
             label="Top P"
-            disabled={topPDisabled}
+            disabled={isReadOnly}
           />
           {topPEnabled && (
             <div className="flex items-center justify-between">
@@ -435,7 +447,7 @@ export function ProfileAdvancedParams({
                   min={0}
                   max={1}
                   step={0.01}
-                  disabled={topPDisabled}
+                  disabled={isReadOnly}
                   showValue
                   formatValue={(v) =>
                     typeof v === "number" ? v.toFixed(2) : String(v)
@@ -454,7 +466,9 @@ export function ProfileAdvancedParams({
             checked={thinkingEnabled}
             onChange={(v) => {
               onThinkingEnabledChange(v);
-              if (!v) onThinkingStreamThinkingChange(false);
+              if (!v) {
+                onThinkingStreamThinkingChange(false);
+              }
             }}
             label="Enable extended thinking"
             disabled={isReadOnly}
@@ -487,6 +501,7 @@ export function ProfileAdvancedParams({
             ).map((v) => ({
               value: v,
               label: `${v}`,
+              disabled: isReadOnly,
             }))}
             value={thinkingLevel}
             onChange={onThinkingLevelChange}

@@ -6,70 +6,9 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { SecretPromptResult } from "../permissions/secret-prompter.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
+import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
@@ -123,15 +62,18 @@ let _conversationFactory: (() => Conversation) | undefined;
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: () => {
     // Return the current test session for any conversation ID lookup.
-    if (!_conversationFactory) return undefined;
+    if (!_conversationFactory) {
+      return undefined;
+    }
     return _conversationFactory();
   },
 }));
 
 mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => {
-    if (!_conversationFactory)
+    if (!_conversationFactory) {
       throw new Error("_conversationFactory not set in test");
+    }
     return _conversationFactory();
   },
 }));
@@ -139,8 +81,8 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => undefined,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -162,10 +104,6 @@ function makeIdleSession(opts?: {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext: () => {},
@@ -185,7 +123,7 @@ function makeIdleSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
@@ -229,10 +167,6 @@ function makeConfirmationEmittingSession(opts?: {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setTrustContext: () => {},
@@ -252,7 +186,7 @@ function makeConfirmationEmittingSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       const onEvent = options?.onEvent ?? (() => {});
       // Simulate PermissionPrompter.prompt(): self-register in pendingInteractions

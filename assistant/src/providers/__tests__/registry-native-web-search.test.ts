@@ -1,6 +1,14 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
-import { type LLMConfigBase, LLMSchema } from "../../config/schemas/llm.js";
+import { LLMSchema } from "../../config/schemas/llm.js";
 import type { ProviderConnection } from "../inference/auth.js";
 import type { ProvidersConfig } from "../registry.js";
 
@@ -41,32 +49,25 @@ mock.module("../inference/adapter-factory.js", () => ({
 
 import {
   clearConnectionProviderCache,
+  isNativeWebSearchCapableProvider,
   resolveProviderFromConnection,
 } from "../registry.js";
 
 function makeConfig(): ProvidersConfig {
-  const baseLlm = LLMSchema.parse({});
+  // Every test passes an explicit `opts.model`, so the llm config only needs
+  // to be schema-valid — resolution is never consulted for the model here.
   return {
     services: {
       inference: {},
       "image-generation": {
-        mode: "your-own",
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },
       "web-search": {
-        mode: "managed",
         provider: "inference-provider-native",
       },
     },
-    llm: {
-      ...baseLlm,
-      default: {
-        ...baseLlm.default,
-        provider: "openrouter" as LLMConfigBase["provider"],
-        model: "x-ai/grok-4.20-beta",
-      },
-    },
+    llm: LLMSchema.parse({}),
   };
 }
 
@@ -102,7 +103,7 @@ describe("resolveProviderFromConnection native web search selection", () => {
 
   test("keeps OpenRouter native web search model-specific across cached connections", async () => {
     await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
-      model: "x-ai/grok-4.20-beta",
+      model: "x-ai/grok-4.20",
     });
     await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
       model: "anthropic/claude-opus-4-7",
@@ -110,7 +111,7 @@ describe("resolveProviderFromConnection native web search selection", () => {
 
     expect(adapterCalls.map((call) => call.opts)).toEqual([
       expect.objectContaining({
-        model: "x-ai/grok-4.20-beta",
+        model: "x-ai/grok-4.20",
         useNativeWebSearch: false,
       }),
       expect.objectContaining({
@@ -118,5 +119,60 @@ describe("resolveProviderFromConnection native web search selection", () => {
         useNativeWebSearch: true,
       }),
     ]);
+  });
+});
+
+describe("resolveProviderFromConnection connection cache TTL", () => {
+  beforeEach(() => {
+    adapterCalls.length = 0;
+    clearConnectionProviderCache();
+    setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  });
+
+  afterEach(() => {
+    // Restore the real clock so later suites are not frozen.
+    setSystemTime();
+  });
+
+  test("serves a cached provider within the TTL, re-resolves after it expires", async () => {
+    // First resolution: a cache miss builds an adapter.
+    await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
+      model: "anthropic/claude-opus-4-7",
+    });
+    expect(adapterCalls).toHaveLength(1);
+
+    // A second resolution 59s later is a cache hit — no new adapter, so the
+    // baked-in credential is reused.
+    setSystemTime(new Date("2026-01-01T00:00:59Z"));
+    await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
+      model: "anthropic/claude-opus-4-7",
+    });
+    expect(adapterCalls).toHaveLength(1);
+
+    // Past the 60s TTL the entry is stale: the next resolution re-reads the
+    // credential and rebuilds the adapter, so a key rotated out-of-band is
+    // picked up without any explicit cache invalidation.
+    setSystemTime(new Date("2026-01-01T00:01:01Z"));
+    await resolveProviderFromConnection(openRouterConnection, makeConfig(), {
+      model: "anthropic/claude-opus-4-7",
+    });
+    expect(adapterCalls).toHaveLength(2);
+  });
+});
+
+describe("isNativeWebSearchCapableProvider gateway anthropic routing", () => {
+  test("vercel-ai-gateway anthropic/* models are capable", () => {
+    expect(
+      isNativeWebSearchCapableProvider(
+        "vercel-ai-gateway",
+        "anthropic/claude-opus-4-7",
+      ),
+    ).toBe(true);
+  });
+
+  test("vercel-ai-gateway non-Anthropic models are not capable", () => {
+    expect(
+      isNativeWebSearchCapableProvider("vercel-ai-gateway", "x-ai/grok-4.20"),
+    ).toBe(false);
   });
 });

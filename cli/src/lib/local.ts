@@ -11,14 +11,24 @@ import { createRequire } from "module";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
+import { isValidReleaseVersion } from "@vellumai/local-mode";
+
 import {
   getDaemonPidPath,
   type LocalInstanceResources,
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
-import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
+import {
+  type DaemonReadiness,
+  httpHealthCheck,
+  probeDaemonReadiness,
+  probeDaemonReadinessWithRetry,
+  waitForDaemonMigrationsReady,
+  waitForDaemonReady,
+} from "./http-client.js";
 import { stopIngressNginx } from "./nginx-ingress.js";
 import {
+  type ProcessState,
   resolveProcessState,
   stopProcess,
   stopProcessByPidFile,
@@ -32,8 +42,8 @@ const _require = createRequire(import.meta.url);
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 
 // The longest socket filename we place in the workspace directory.
-// assistant-skill.sock = 20 chars, plus 1 for the "/" separator = 21 overhead.
-const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
+// assistant.sock = 14 chars, plus 1 for the "/" separator = 15 overhead.
+const LONGEST_SOCKET_FILENAME = "assistant.sock";
 const LOCAL_RUNTIME_PACKAGE = "vellum";
 
 export interface LocalRuntimeInstall {
@@ -84,9 +94,26 @@ function hasLocalRuntimeComponents(installDir: string): boolean {
   );
 }
 
-function resolveBunExecutable(): string {
+/**
+ * True when this process is a compiled standalone binary (desktop app or
+ * `bun build --compile` CLI) rather than a script executed by a plain `bun`
+ * binary (source tree, bunx, npm/global install).
+ *
+ * Only a compiled binary may trust product siblings in
+ * `dirname(process.execPath)`: under plain bun that directory is bun's own
+ * bin dir (e.g. `~/.bun/bin`), where bin links of globally-installed packages
+ * (`assistant`, `credential-executor`) collide with app-bundle binary names
+ * and point at whatever version happens to be installed globally.
+ */
+export function isCompiledCli(): boolean {
   const execBase = basename(process.execPath);
-  if (execBase === "bun" || execBase.startsWith("bun-")) {
+  return (
+    execBase !== "bun" && execBase !== "bunx" && !execBase.startsWith("bun-")
+  );
+}
+
+function resolveBunExecutable(): string {
+  if (!isCompiledCli()) {
     return process.execPath;
   }
 
@@ -143,11 +170,36 @@ function localRuntimeGatewayDir(
   return isGatewaySourceDir(candidate) ? candidate : undefined;
 }
 
+function localRuntimeCesDir(
+  resources: LocalInstanceResources | undefined,
+): string | undefined {
+  const installDir = resources?.runtimeInstallDir;
+  if (!installDir) return undefined;
+  const candidate = packagePath(
+    installDir,
+    "@vellumai/credential-executor",
+    "",
+  );
+  return isCesSourceDir(candidate) ? candidate : undefined;
+}
+
 export function ensureLocalRuntime(
   resources: LocalInstanceResources,
   version: string,
   options: { force?: boolean } = {},
 ): LocalRuntimeInstall {
+  // Reject anything that is not a trusted release identifier BEFORE it becomes
+  // a filesystem path segment or a `bun install` dependency spec. Without this,
+  // a package-manager spec (npm alias, tarball/git URL) or a `../`-laden string
+  // reaching this sink would install and then execute arbitrary attacker code
+  // as the local assistant runtime. Shares the validator with the host-bridge
+  // boundary guard (`runUpgrade`) so the two can never drift.
+  if (!isValidReleaseVersion(version)) {
+    throw new Error(
+      `Invalid runtime version '${version}': expected a release tag like v1.2.3 or 'latest'.`,
+    );
+  }
+
   const normalizedVersion = normalizeRuntimeVersion(version);
   const displayVersion =
     normalizedVersion === "latest" ? "latest" : `v${normalizedVersion}`;
@@ -248,7 +300,7 @@ function warnIfLegacyWorkspaceFallbackDetected(
 }
 
 /**
- * On macOS, if `{workspaceDir}/assistant-skill.sock` would exceed the
+ * On macOS, if `{workspaceDir}/assistant.sock` would exceed the
  * 103-byte AF_UNIX path limit, compute a short tmpdir-based IPC socket
  * directory and return it.  Returns `undefined` when no override is needed
  * (the workspace path is short enough, or we're not on macOS).
@@ -288,7 +340,6 @@ function applyIpcSocketDirOverride(
   mkdirSync(override, { recursive: true });
   env.GATEWAY_IPC_SOCKET_DIR = override;
   env.ASSISTANT_IPC_SOCKET_DIR = override;
-  env.ASSISTANT_SKILL_IPC_SOCKET_DIR = override;
 }
 
 function isAssistantSourceDir(dir: string): boolean {
@@ -328,6 +379,18 @@ function isGatewaySourceDir(dir: string): boolean {
   try {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     return pkg.name === "@vellumai/vellum-gateway";
+  } catch {
+    return false;
+  }
+}
+
+function isCesSourceDir(dir: string): boolean {
+  const pkgPath = join(dir, "package.json");
+  if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "main.ts")))
+    return false;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.name === "@vellumai/credential-executor";
   } catch {
     return false;
   }
@@ -485,6 +548,7 @@ export function generateLocalSigningKey(): string {
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
+  requireReady?: boolean;
   signingKey?: string;
 };
 
@@ -526,24 +590,62 @@ function applyDaemonEnvOverrides(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
+  // Pin the daemon to the exact socket the sibling binds so the two agree
+  // regardless of any stale CES_LOCAL_SOCKET inherited from the parent
+  // environment. The assistant connects to the sibling instead of spawning
+  // its own CES.
+  env.CES_LOCAL_SOCKET = resolveCesSocketPath(resources);
   applyIpcSocketDirOverride(env);
 }
 
-function logDaemonReadiness(ready: boolean): void {
-  if (ready) {
-    console.log("   Assistant ready\n");
-  } else {
-    console.log(
-      "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-    );
+function logDaemonReadiness(
+  readiness: DaemonReadiness,
+  requireReady = false,
+): void {
+  switch (readiness) {
+    case "ready":
+      console.log("   Assistant ready\n");
+      break;
+    case "migrating":
+      console.log(
+        "   Assistant is up — database migrations still running; DB-backed commands return 503 until they finish\n",
+      );
+      break;
+    case "failed":
+      console.log(
+        "   ⚠️  Assistant database migrations FAILED — DB-backed commands return 503 until the assistant is restarted\n",
+      );
+      break;
+    default:
+      if (requireReady) {
+        throw new Error(
+          "Assistant did not bind its local port within 60 seconds.",
+        );
+      }
+      console.log(
+        "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
+      );
   }
+}
+
+function logAssistantAlreadyRunning(
+  pid: number,
+  status: ProcessState["status"],
+): void {
+  const suffix =
+    status === "migration_failed"
+      ? " but its database migrations failed — restart to recover"
+      : status === "unready"
+        ? " — database migrations still running"
+        : "";
+  console.log(`   Assistant already running (pid ${pid})${suffix}\n`);
 }
 
 async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
   options?: DaemonStartOptions,
-): Promise<void> {
+): Promise<boolean> {
   const foreground = options?.foreground ?? false;
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
@@ -553,19 +655,21 @@ async function startDaemonFromSource(
   mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
-  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return false;
 
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
     "Assistant",
+    60_000,
+    "readyz",
   );
-  if (daemonState.status === "healthy") {
-    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
-    return;
+  if (daemonState.status !== "needs_start") {
+    logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
+    return false;
   }
 
-  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return false;
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -606,6 +710,7 @@ async function startDaemonFromSource(
       unlinkSync(pidFile);
     } catch {}
   }
+  return true;
 }
 
 // NOTE: startDaemonWatchFromSource() is the CLI-side watch-mode daemon
@@ -616,7 +721,7 @@ async function startDaemonWatchFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
   options?: DaemonStartOptions,
-): Promise<void> {
+): Promise<boolean> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
     throw new Error(`Daemon main.ts not found at ${mainPath}`);
@@ -626,19 +731,21 @@ async function startDaemonWatchFromSource(
   mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
-  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return false;
 
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
     "Assistant",
+    60_000,
+    "readyz",
   );
-  if (daemonState.status === "healthy") {
-    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
-    return;
+  if (daemonState.status !== "needs_start") {
+    logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
+    return false;
   }
 
-  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return false;
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -672,6 +779,7 @@ async function startDaemonWatchFromSource(
   }
 
   console.log("   Assistant started in watch mode (bun --watch)");
+  return true;
 }
 
 function resolveGatewayDir(resources?: LocalInstanceResources): string {
@@ -698,7 +806,7 @@ function resolveGatewayDir(resources?: LocalInstanceResources): string {
 
   // Compiled binary: gateway/ bundled adjacent to the CLI executable.
   const binGateway = join(dirname(process.execPath), "gateway");
-  if (isGatewaySourceDir(binGateway)) {
+  if (isCompiledCli() && isGatewaySourceDir(binGateway)) {
     return binGateway;
   }
 
@@ -714,6 +822,154 @@ function resolveGatewayDir(resources?: LocalInstanceResources): string {
     throw new Error(
       "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
     );
+  }
+}
+
+function resolveCesDir(resources?: LocalInstanceResources): string {
+  const runtimeCesDir = localRuntimeCesDir(resources);
+  if (runtimeCesDir) return runtimeCesDir;
+
+  // Source tree / npm sibling: cli/src/lib/ → ../../.. → credential-executor/
+  const sourceDir = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "credential-executor",
+  );
+  if (isCesSourceDir(sourceDir)) {
+    return sourceDir;
+  }
+
+  // npm-installed elsewhere on disk: resolve via the package entry.
+  try {
+    const pkgPath = _require.resolve(
+      "@vellumai/credential-executor/package.json",
+    );
+    return dirname(pkgPath);
+  } catch {
+    throw new Error(
+      "credential-executor not found. Ensure @vellumai/credential-executor is installed or run from the source tree.",
+    );
+  }
+}
+
+/**
+ * Resolve the Unix socket path the CLI-launched CES sibling binds and the
+ * daemon connects to. Both sides read `CES_LOCAL_SOCKET`, which the CLI sets to
+ * this exact path so they agree. On macOS, long workspace paths are relocated
+ * to a short tmpdir override (the same one the IPC sockets use) to stay under
+ * the AF_UNIX path limit.
+ */
+function resolveCesSocketPath(resources?: LocalInstanceResources): string {
+  const workspaceDir = resources
+    ? join(resources.instanceDir, ".vellum", "workspace")
+    : join(homedir(), ".vellum", "workspace");
+  const override = computeIpcSocketDirOverride(workspaceDir);
+  const socketDir = override ?? workspaceDir;
+  mkdirSync(socketDir, { recursive: true });
+  return join(socketDir, "ces.sock");
+}
+
+/**
+ * Launch the local CES sibling over a Unix socket. The sibling model is now
+ * the default topology for local (non-containerized) instances, matching how
+ * containerized homes already run CES.
+ *
+ * The sibling runs as an independent process with its lifecycle anchored to
+ * SIGTERM, mirroring the gateway: a CLI-owned process with a PID file under
+ * `.vellum/ces.pid`, started by `wake` and stopped by `sleep`.
+ */
+export async function startCes(
+  watch: boolean = false,
+  resources?: LocalInstanceResources,
+): Promise<void> {
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  const cesPidFile = join(vellumDir, "ces.pid");
+
+  // Kill any existing sibling first — a stale CES holds the socket and would
+  // corrupt the shared credential store if a second copy also bound it.
+  await stopProcessByPidFile(cesPidFile, "credential-executor");
+
+  console.log("🔐 Starting credential-executor sibling...");
+
+  const socketPath = resolveCesSocketPath(resources);
+  // A stale socket file from an unclean shutdown blocks re-bind; CES unlinks it
+  // on startup, but remove it here too so a leftover never masks a launch bug.
+  try {
+    unlinkSync(socketPath);
+  } catch {
+    /* no stale socket — fine */
+  }
+
+  const securityDir = resources
+    ? join(resources.instanceDir, ".vellum", "protected")
+    : join(homedir(), ".vellum", "protected");
+  const workspaceDir = resources
+    ? join(resources.instanceDir, ".vellum", "workspace")
+    : join(homedir(), ".vellum", "workspace");
+  mkdirSync(securityDir, { recursive: true });
+
+  const cesEnv: Record<string, string | undefined> = {
+    ...process.env,
+    CES_LOCAL_SOCKET: socketPath,
+    CREDENTIAL_SECURITY_DIR: securityDir,
+    VELLUM_WORKSPACE_DIR: workspaceDir,
+  };
+
+  let ces;
+  const runtimeCesDir = !watch ? localRuntimeCesDir(resources) : undefined;
+  const cesBinary = join(dirname(process.execPath), "credential-executor");
+  if (!runtimeCesDir && isCompiledCli() && existsSync(cesBinary) && !watch) {
+    // Compiled binary alongside the CLI (desktop app / compiled CLI).
+    const cesLogFd = openLogFile("hatch.log");
+    ces = spawn(cesBinary, [], {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: cesEnv,
+    });
+    pipeToLogFile(ces, cesLogFd, "credential-executor");
+  } else {
+    // Source tree / bunx: run the CES entry point via bun.
+    const cesDir = runtimeCesDir ?? resolveCesDir(resources);
+    const bunArgs = watch
+      ? ["--watch", "run", "src/main.ts"]
+      : ["run", "src/main.ts"];
+    const cesLogFd = openLogFile("hatch.log");
+    ces = spawn(resolveBunExecutable(), bunArgs, {
+      cwd: cesDir,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: envWithBunPath(cesEnv),
+    });
+    pipeToLogFile(ces, cesLogFd, "credential-executor");
+    if (watch) {
+      console.log("   credential-executor started in watch mode (bun --watch)");
+    }
+  }
+
+  ces.unref();
+
+  if (ces.pid) {
+    mkdirSync(vellumDir, { recursive: true });
+    writeFileSync(cesPidFile, String(ces.pid), "utf-8");
+  }
+
+  // Wait for the socket to appear so the daemon's discovery finds it on the
+  // first probe rather than burning its retry budget.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (existsSync(socketPath)) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  if (!existsSync(socketPath)) {
+    console.warn(
+      "⚠ credential-executor started but its socket did not appear within 10s",
+    );
+  } else {
+    console.log("✅ credential-executor started\n");
   }
 }
 
@@ -787,8 +1043,14 @@ async function awaitStartingSentinel(
   }
 
   console.log("   Assistant is starting — waiting for it to become ready...");
-  if (await waitForDaemonReady(daemonPort, 60000)) {
-    console.log("   Assistant is ready\n");
+  const readiness = await waitForDaemonMigrationsReady(
+    daemonPort,
+    Date.now() + 60000,
+  );
+  if (readiness !== "unreachable") {
+    // The daemon exists and is answering — migrating and failed states must
+    // NOT fall through to a second spawn (split-brain). Report honestly.
+    logDaemonReadiness(readiness);
     return true;
   }
   try {
@@ -1016,7 +1278,7 @@ export function isGatewayWatchModeAvailable(): boolean {
  */
 function writeAssistantWrapper(resources: LocalInstanceResources): void {
   const assistantBinary = join(dirname(process.execPath), "assistant");
-  if (!existsSync(assistantBinary)) return;
+  if (!isCompiledCli() || !existsSync(assistantBinary)) return;
 
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
   const protectedDir = join(resources.instanceDir, ".vellum", "protected");
@@ -1055,8 +1317,21 @@ export async function startLocalDaemon(
     : undefined;
   if (runtimeAssistantIndex) {
     console.log("🔨 Starting local assistant runtime...");
-    await startDaemonFromSource(runtimeAssistantIndex, resources, options);
-    logDaemonReadiness(await waitForDaemonReady(resources.daemonPort, 60000));
+    // Wait for readiness only after an actual spawn — an attach to an
+    // already-running daemon was classified and logged inside
+    // startDaemonFromSource, and re-waiting would just block on a migration
+    // the user was already told about.
+    if (
+      await startDaemonFromSource(runtimeAssistantIndex, resources, options)
+    ) {
+      logDaemonReadiness(
+        await waitForDaemonMigrationsReady(
+          resources.daemonPort,
+          Date.now() + 60000,
+        ),
+        options?.requireReady,
+      );
+    }
     return;
   }
 
@@ -1066,7 +1341,7 @@ export async function startLocalDaemon(
   // the user runs the compiled CLI directly from the terminal (e.g. via a
   // /usr/local/bin/vellum symlink into the app bundle).
   const daemonBinary = join(dirname(process.execPath), "vellum-daemon");
-  if (existsSync(daemonBinary) && !watch) {
+  if (isCompiledCli() && existsSync(daemonBinary) && !watch) {
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
 
@@ -1082,15 +1357,23 @@ export async function startLocalDaemon(
       pidFile,
       resources.daemonPort,
       "Assistant",
+      60_000,
+      "readyz",
     );
-    const daemonAlive = daemonState.status === "healthy";
+    const daemonAlive = daemonState.status !== "needs_start";
     if (daemonAlive) {
-      console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
+      logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
     }
 
     if (!daemonAlive) {
       if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) {
         ensureBunInstalled();
+        // The orphan already answers health checks — a readiness probe
+        // classifies it without blocking on an in-flight migration.
+        logDaemonReadiness(
+          await probeDaemonReadinessWithRetry(resources.daemonPort),
+          options?.requireReady,
+        );
         return;
       }
 
@@ -1140,6 +1423,8 @@ export async function startLocalDaemon(
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
         "VELLUM_DISABLE_PLATFORM",
+        "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
+        "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
         "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
@@ -1191,29 +1476,56 @@ export async function startLocalDaemon(
     }
 
     // Wait for daemon to respond on HTTP (up to 60s — fresh installs
-    // may need 30-60s for Qdrant download, migrations, and first-time init)
-    let daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
+    // may need 30-60s for Qdrant download, migrations, and first-time init).
+    // "migrating" and "failed" both mean the daemon is up and answering, so
+    // they don't trigger the source fallback (a restart against the same DB
+    // would reproduce the same migration state).
+    //
+    // Runs only after a fresh spawn: an attached daemon was already
+    // classified and logged by resolveProcessState above, and re-waiting on
+    // its in-flight migration would just double the reported diagnosis.
+    if (!daemonAlive) {
+      let readiness = await waitForDaemonMigrationsReady(
+        resources.daemonPort,
+        Date.now() + 60000,
+      );
+      const daemonHealthy =
+        readiness !== "unreachable" ||
+        (await httpHealthCheck(resources.daemonPort));
 
-    // Dev fallback: if the bundled daemon did not become ready in time,
-    // fall back to source daemon startup so local source runs still work.
-    if (!daemonReady) {
-      const assistantIndex = resolveAssistantIndexPath(resources);
-      if (assistantIndex) {
-        console.log(
-          "   Bundled assistant not ready after 60s — falling back to source assistant...",
-        );
-        // Kill the bundled daemon to avoid two processes competing for the same port
-        await stopProcessByPidFile(pidFile, "bundled daemon");
-        if (watch) {
-          await startDaemonWatchFromSource(assistantIndex, resources, options);
-        } else {
-          await startDaemonFromSource(assistantIndex, resources, options);
+      // Dev fallback: if the bundled daemon did not become healthy in time,
+      // fall back to source daemon startup so local source runs still work.
+      if (!daemonHealthy) {
+        const assistantIndex = resolveAssistantIndexPath(resources);
+        if (assistantIndex) {
+          console.log(
+            "   Bundled assistant not healthy after 60s — falling back to source assistant...",
+          );
+          // Kill the bundled daemon to avoid two processes competing for the same port
+          await stopProcessByPidFile(pidFile, "bundled daemon");
+          if (watch) {
+            await startDaemonWatchFromSource(
+              assistantIndex,
+              resources,
+              options,
+            );
+          } else {
+            await startDaemonFromSource(assistantIndex, resources, options);
+          }
+          readiness = await waitForDaemonMigrationsReady(
+            resources.daemonPort,
+            Date.now() + 60000,
+          );
         }
-        daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
+      } else if (readiness === "unreachable") {
+        // The health check just passed, so the readyz probes were the flaky
+        // part — re-probe once so the log reports the daemon's real state
+        // instead of "did not become ready".
+        readiness = await probeDaemonReadiness(resources.daemonPort);
       }
-    }
 
-    logDaemonReadiness(daemonReady);
+      logDaemonReadiness(readiness, options?.requireReady);
+    }
   } else {
     console.log("🔨 Starting local assistant...");
 
@@ -1224,12 +1536,19 @@ export async function startLocalDaemon(
           "  Ensure the daemon binary is bundled alongside the CLI, or run from the source tree.",
       );
     }
-    if (watch) {
-      await startDaemonWatchFromSource(assistantIndex, resources, options);
-    } else {
-      await startDaemonFromSource(assistantIndex, resources, options);
+    const spawned = watch
+      ? await startDaemonWatchFromSource(assistantIndex, resources, options)
+      : await startDaemonFromSource(assistantIndex, resources, options);
+    // Attach case was classified and logged inside the start function.
+    if (spawned) {
+      logDaemonReadiness(
+        await waitForDaemonMigrationsReady(
+          resources.daemonPort,
+          Date.now() + 60000,
+        ),
+        options?.requireReady,
+      );
     }
-    logDaemonReadiness(await waitForDaemonReady(resources.daemonPort, 60000));
   }
 }
 
@@ -1240,6 +1559,7 @@ export async function startGateway(
     signingKey?: string;
     bootstrapSecret?: string;
     envOverrides?: Record<string, string>;
+    requireReady?: boolean;
   },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
@@ -1318,7 +1638,12 @@ export async function startGateway(
     ? localRuntimeGatewayDir(resources)
     : undefined;
   const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
-  if (!runtimeGatewayDir && existsSync(gatewayBinary) && !watch) {
+  if (
+    !runtimeGatewayDir &&
+    isCompiledCli() &&
+    existsSync(gatewayBinary) &&
+    !watch
+  ) {
     // Use the compiled gateway binary when available (desktop app or compiled
     // CLI invoked from the terminal). In watch mode, skip the bundled binary
     // and use source (bun --watch only works with source files).
@@ -1364,6 +1689,11 @@ export async function startGateway(
   // connection-refused errors.
   const ready = await waitForDaemonReady(effectiveGatewayPort, 30000);
   if (!ready) {
+    if (options?.requireReady) {
+      throw new Error(
+        "Assistant gateway did not bind its local port within 30 seconds.",
+      );
+    }
     console.warn(
       "⚠ Gateway started but health check did not respond within 30s",
     );
@@ -1406,6 +1736,11 @@ export async function stopLocalProcesses(
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
+
+  // Stop the CES sibling if one was launched. No-op when the
+  // PID file is absent.
+  const cesPidFile = join(vellumDir, "ces.pid");
+  await stopProcessByPidFile(cesPidFile, "credential-executor");
 
   // Kill ngrok directly by PID rather than using stopProcessByPidFile, because
   // isVellumProcess() won't match the ngrok binary — resulting in a no-op that

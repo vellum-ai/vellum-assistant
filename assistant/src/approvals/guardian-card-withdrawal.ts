@@ -13,41 +13,68 @@
  * affordances (it does not delete the message/card) so each surface keeps an
  * audit trail of what was decided.
  *
- * It is driven off `canonical_guardian_deliveries` — the per-request registry of
- * where each card was sent — so it stays correct as surfaces are added and is
- * agnostic to which surface originated the decision.
+ * It is driven off the gateway's `guardian_request_deliveries` — the
+ * per-request registry of where each card was sent — so it stays correct as
+ * surfaces are added and is agnostic to which surface originated the decision.
  *
  * Best-effort by contract: the request is already resolved (CAS committed)
  * before this runs, so a failed edit must never surface as a decision failure.
  * Every surface is attempted independently; one failure never blocks the rest.
  */
 
-import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
 import {
-  type CanonicalGuardianDelivery,
-  type CanonicalGuardianRequest,
-  type CanonicalRequestStatus,
-  listCanonicalGuardianDeliveries,
-} from "../memory/canonical-guardian-store.js";
+  type GuardianRequestDeliveryWire,
+  type GuardianRequestStatus,
+  listGuardianRequestDeliveries,
+} from "../channels/gateway-guardian-requests.js";
+import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
+import {
+  type ApprovalAction,
+  isParkAction,
+  PARK_STATUS_LABEL,
+} from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("guardian-card-withdrawal");
 
 /** Completion-summary label shown on an in-app card for a resolved request. */
-const SURFACE_STATUS_LABELS: Partial<Record<CanonicalRequestStatus, string>> = {
+const SURFACE_STATUS_LABELS: Partial<Record<GuardianRequestStatus, string>> = {
   approved: "Approved",
   denied: "Denied",
   expired: "Expired",
   cancelled: "Cancelled",
 };
 
+/**
+ * The completion-summary label for a resolved card. A `denied` status reached by
+ * a park action reads as the neutral {@link PARK_STATUS_LABEL} rather than
+ * "Denied" — a parked contact was neither trusted nor kept out.
+ */
+function resolveStatusLabel(
+  status: GuardianRequestStatus,
+  decidedAction: ApprovalAction | undefined,
+): string {
+  if (status === "denied" && isParkAction(decidedAction)) {
+    return PARK_STATUS_LABEL;
+  }
+  return SURFACE_STATUS_LABELS[status] ?? "Resolved";
+}
+
+/** The request fields withdrawal reads — structural subset of the wire row. */
+export interface WithdrawableGuardianRequest {
+  id: string;
+  kind: string;
+  decidedByExternalUserId: string | null;
+  updatedAt: number;
+}
+
 export interface WithdrawGuardianCardsParams {
   /** The request, already transitioned to its terminal status. */
-  request: CanonicalGuardianRequest;
+  request: WithdrawableGuardianRequest;
   /** Terminal status to reflect on each card. */
-  status: CanonicalRequestStatus;
+  status: GuardianRequestStatus;
   /**
    * Channel the decision originated on, when applicable.
    *
@@ -57,6 +84,14 @@ export interface WithdrawGuardianCardsParams {
    * sweep) to withdraw every surface.
    */
   originChannel?: string;
+  /**
+   * The action the guardian took, when the terminal status came from a decision
+   * (omitted for the expiry sweep). A `denied` status can mean either a neutral
+   * park (`leave_unverified`) or an active rejection (`block`/`reject`); the
+   * action disambiguates them so a park renders neutrally as
+   * {@link PARK_STATUS_LABEL} instead of "Denied".
+   */
+  decidedAction?: ApprovalAction;
 }
 
 /**
@@ -66,11 +101,11 @@ export interface WithdrawGuardianCardsParams {
 export async function withdrawGuardianRequestCards(
   params: WithdrawGuardianCardsParams,
 ): Promise<void> {
-  const { request, status, originChannel } = params;
+  const { request, status, originChannel, decidedAction } = params;
 
-  let deliveries: CanonicalGuardianDelivery[];
+  let deliveries: GuardianRequestDeliveryWire[];
   try {
-    deliveries = listCanonicalGuardianDeliveries(request.id);
+    deliveries = await listGuardianRequestDeliveries(request.id);
   } catch (err) {
     log.warn(
       { err, requestId: request.id },
@@ -82,9 +117,15 @@ export async function withdrawGuardianRequestCards(
   for (const delivery of deliveries) {
     try {
       if (delivery.destinationChannel === "vellum") {
-        withdrawVellumCard(request, delivery, status, originChannel);
+        withdrawVellumCard(
+          request,
+          delivery,
+          status,
+          originChannel,
+          decidedAction,
+        );
       } else if (delivery.destinationChannel === "slack") {
-        await withdrawSlackCard(request, delivery, status);
+        await withdrawSlackCard(request, delivery, status, decidedAction);
       }
       // Telegram/WhatsApp direct delivery can't edit a message in place (it
       // would post a new one), so their stale clicks are left to the existing
@@ -108,19 +149,26 @@ export async function withdrawGuardianRequestCards(
  * client already completed the card itself.
  */
 function withdrawVellumCard(
-  request: CanonicalGuardianRequest,
-  delivery: CanonicalGuardianDelivery,
-  status: CanonicalRequestStatus,
+  request: WithdrawableGuardianRequest,
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
   originChannel: string | undefined,
+  decidedAction: ApprovalAction | undefined,
 ): void {
-  if (originChannel === "vellum") return;
-  if (!delivery.destinationConversationId) return;
+  if (originChannel === "vellum") {
+    return;
+  }
+  if (!delivery.destinationConversationId) {
+    return;
+  }
   const surfaceId = approvalCardSurfaceId(request.kind, request.id);
-  if (!surfaceId) return;
+  if (!surfaceId) {
+    return;
+  }
   completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
-    SURFACE_STATUS_LABELS[status] ?? "Resolved",
+    resolveStatusLabel(status, decidedAction),
   );
 }
 
@@ -130,15 +178,19 @@ function withdrawVellumCard(
  * No-ops when the channel-native message id was not captured at delivery time.
  */
 async function withdrawSlackCard(
-  request: CanonicalGuardianRequest,
-  delivery: CanonicalGuardianDelivery,
-  status: CanonicalRequestStatus,
+  request: WithdrawableGuardianRequest,
+  delivery: GuardianRequestDeliveryWire,
+  status: GuardianRequestStatus,
+  decidedAction: ApprovalAction | undefined,
 ): Promise<void> {
-  if (!delivery.destinationChatId || !delivery.destinationMessageId) return;
+  if (!delivery.destinationChatId || !delivery.destinationMessageId) {
+    return;
+  }
   await withdrawSlackApprovalCard({
     channel: delivery.destinationChatId,
     messageTs: delivery.destinationMessageId,
     status,
+    ...(decidedAction ? { decidedAction } : {}),
     decidedByExternalUserId: request.decidedByExternalUserId ?? undefined,
     decidedAtMs: request.updatedAt,
   });

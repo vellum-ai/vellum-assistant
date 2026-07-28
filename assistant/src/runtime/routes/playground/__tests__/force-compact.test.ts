@@ -6,10 +6,6 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 mock.module("../helpers.js", () => ({
   getConversationById: async () => _mockConversation,
   listConversationsByTitlePrefix: () => [],

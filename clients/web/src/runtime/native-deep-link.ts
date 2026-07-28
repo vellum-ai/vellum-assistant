@@ -48,6 +48,61 @@ export function getNativeUrlSchemeForHost(host: string): string | null {
   return NATIVE_URL_SCHEME_BY_HOST[host] ?? null;
 }
 
+export const BILLING_CHECKOUT_COMPLETE_DEEP_LINK_HOST = "billing";
+const BILLING_CHECKOUT_COMPLETE_PATH_SEGMENT = "checkout-complete";
+
+/**
+ * Stripe Checkout Session id shape (`cs_test_a1B2…` / `cs_live_…`). Mirrors
+ * the platform's own check in `checkout_native_return.py` and the macOS main
+ * parser, so a malformed id never reaches the billing route.
+ */
+const CHECKOUT_SESSION_ID_RE = /^cs_[A-Za-z0-9_]{1,255}$/;
+
+export type BillingCheckoutCompleteDeepLinkPayload =
+  | { status: "success"; sessionId: string }
+  | { status: "cancel"; sessionId: null };
+
+/**
+ * Parse a `vellum-assistant://billing/checkout-complete?status=…&session_id=…`
+ * deep link, the hand-off the platform bounces a `return_target=native`
+ * Checkout to (`checkout_native_return.py`).
+ *
+ * Returns `null` for anything else — including a `success` without a
+ * well-formed Session id, which the app can do nothing with. Semantics mirror
+ * the macOS main-process parser so both shells agree.
+ */
+export function parseBillingCheckoutCompleteDeepLink(
+  rawUrl: string,
+): BillingCheckoutCompleteDeepLinkPayload | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (!ALLOWED_NATIVE_URL_PROTOCOLS.has(url.protocol)) {
+    return null;
+  }
+  if (url.host !== BILLING_CHECKOUT_COMPLETE_DEEP_LINK_HOST) {
+    return null;
+  }
+  const segment = url.pathname.replace(/^\/+/, "").split("/")[0];
+  if (segment !== BILLING_CHECKOUT_COMPLETE_PATH_SEGMENT) {
+    return null;
+  }
+
+  const status = url.searchParams.get("status");
+  if (status === "cancel") {
+    return { status: "cancel", sessionId: null };
+  }
+  const sessionId = url.searchParams.get("session_id") ?? "";
+  if (status === "success" && CHECKOUT_SESSION_ID_RE.test(sessionId)) {
+    return { status: "success", sessionId };
+  }
+  return null;
+}
+
 export function buildOAuthCompleteDeepLink(
   scheme: string,
   payload: OAuthCompleteDeepLinkPayload,

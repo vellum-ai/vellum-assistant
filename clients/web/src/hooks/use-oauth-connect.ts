@@ -14,7 +14,7 @@ import {
   parseOAuthCompletePayload,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
@@ -282,7 +282,7 @@ export function useOAuthConnect({
     const start = async (popup: Window | null) => {
       let platformAssistantId: string;
       try {
-        platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
+        platformAssistantId = await resolveLocalAssistantPlatformIdentity(assistantId);
       } catch (error) {
         closePopupWindow();
         clearPendingRequest();

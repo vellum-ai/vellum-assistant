@@ -259,10 +259,6 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
                 click: () => dispatchMenuCommand({ kind: "replayOnboarding" }),
               },
               {
-                label: "Preview PreChat",
-                click: () => dispatchMenuCommand({ kind: "previewPrechat" }),
-              },
-              {
                 label: "Replay Hatch Failure",
                 click: () => dispatchToFocused({ kind: "replayHatchFailure" }),
               },
@@ -292,7 +288,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         {
           label: "Vellum Documentation",
           click: () => {
-            void shell.openExternal("https://docs.vellum.ai");
+            void shell.openExternal("https://www.vellum.ai/docs");
           },
         },
       ],

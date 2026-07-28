@@ -55,7 +55,7 @@ export interface ComposerNoticesProps {
    */
   billingBannerSlot?: ReactNode;
 
-  /** True when the assistant returned `PROVIDER_NOT_CONFIGURED` or `MANAGED_KEY_INVALID`. */
+  /** True when the assistant returned `PROVIDER_NOT_CONFIGURED`. */
   showMissingApiKeyBanner: boolean;
   /** Handler invoked when the user clicks "Open settings" on the missing-API-key banner. */
   onOpenAiSettings: () => void;

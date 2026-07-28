@@ -5,6 +5,7 @@
  * agent loop is in flight.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -12,7 +13,6 @@ import type {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { getLogger } from "../util/logger.js";
 import type {
-  ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
@@ -23,7 +23,7 @@ export interface QueuedMessage {
   content: string;
   attachments: UserMessageAttachment[];
   requestId: string;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   activeSurfaceId?: string;
   currentPage?: string;
   metadata?: Record<string, unknown>;
@@ -123,11 +123,29 @@ export class MessageQueue {
   }
 
   /**
+   * Requeue a message at the FRONT of the queue. Used when a drained
+   * message hits processing-lock contention and must run on the next
+   * drain instead of being dropped. Deliberately skips the byte-budget
+   * check: the item was already accepted (and just popped), so a requeue
+   * must never reject it.
+   */
+  unshift(item: QueuedMessage): void {
+    this.items.unshift(item);
+    this.currentBytes += estimateItemBytes(item);
+  }
+
+  /**
    * Read-only access to a queued message by index without mutating the queue.
    * Returns `undefined` when the index is out of range.
    */
   peek(index: number = 0): QueuedMessage | undefined {
     return this.items[index];
+  }
+
+  /** FIFO snapshot of the queued messages. The array is a copy; the items are
+   * the live references (callers must treat them as read-only). */
+  snapshot(): QueuedMessage[] {
+    return [...this.items];
   }
 
   /**
@@ -138,7 +156,7 @@ export class MessageQueue {
    */
   shiftN(count: number): QueuedMessage[] {
     const n = Math.min(Math.max(0, count), this.items.length);
-    if (n === 0) return [];
+    if (n === 0) {return [];}
     const removed = this.items.splice(0, n);
     for (const item of removed) {
       this.currentBytes -= estimateItemBytes(item);
@@ -170,8 +188,8 @@ export class MessageQueue {
    */
   promoteToHead(requestId: string): QueuedMessage | undefined {
     const idx = this.items.findIndex((m) => m.requestId === requestId);
-    if (idx === -1) return undefined;
-    if (idx === 0) return this.items[0]; // already at head
+    if (idx === -1) {return undefined;}
+    if (idx === 0) {return this.items[0];} // already at head
     const [promoted] = this.items.splice(idx, 1);
     this.items.unshift(promoted);
     return promoted;
@@ -183,7 +201,7 @@ export class MessageQueue {
    */
   removeByRequestId(requestId: string): QueuedMessage | undefined {
     const idx = this.items.findIndex((m) => m.requestId === requestId);
-    if (idx === -1) return undefined;
+    if (idx === -1) {return undefined;}
     const [removed] = this.items.splice(idx, 1);
     this.currentBytes -= estimateItemBytes(removed);
     return removed;
@@ -202,7 +220,7 @@ function estimateItemBytes(item: QueuedMessage): number {
   let bytes = item.content.length * 2; // JS strings are UTF-16
   for (const a of item.attachments) {
     bytes += a.data.length * 2;
-    if (a.extractedText) bytes += a.extractedText.length * 2;
+    if (a.extractedText) {bytes += a.extractedText.length * 2;}
   }
   // Include transport metadata in the estimate so large transport
   // payloads (e.g. hostHomeDir, hostUsername) count against the budget.

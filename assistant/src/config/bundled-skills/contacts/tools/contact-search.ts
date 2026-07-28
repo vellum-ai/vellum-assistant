@@ -21,7 +21,7 @@ function formatContactSummary(c: SearchContact): string {
     c.role === "guardian" ? resolveGuardianName(c.displayName) : c.displayName;
   const parts = [`- **${displayName}** (ID: ${c.id})`];
   if (c.notes) parts.push(`  Notes: ${c.notes}`);
-  if (c.interactionCount > 0)
+  if ((c.interactionCount ?? 0) > 0)
     parts.push(`  Interactions: ${c.interactionCount}`);
   if (c.channels.length > 0) {
     const channelList = c.channels

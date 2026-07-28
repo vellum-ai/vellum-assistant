@@ -26,6 +26,12 @@ export interface ScheduleMessageOptions {
    * = the call site's default resolution (main-agent model selection).
    */
   overrideProfile?: string;
+  /**
+   * Firing's `cron_runs.id`, stamped onto the turn's usage rows so a scheduled
+   * execute turn attributes its LLM spend to that firing. Per-turn: a reused
+   * conversation attributes each turn to its own firing.
+   */
+  cronRunId?: string | null;
 }
 
 export type ScheduleMessageProcessor = (

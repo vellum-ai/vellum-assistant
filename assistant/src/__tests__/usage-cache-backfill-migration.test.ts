@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 let mockPricingOverrides: Array<{
   provider: string;
@@ -7,34 +7,23 @@ let mockPricingOverrides: Array<{
   outputPer1M: number;
 }> = [];
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+/** Seed the current pricing overrides into the workspace config for real. */
+function seedPricingOverrides(): void {
+  setConfig("llm", { pricingOverrides: mockPricingOverrides });
+}
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      pricingOverrides: mockPricingOverrides,
-    },
-  }),
-}));
-
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { migrateBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
-import { rawGet, rawRun } from "../memory/raw-query.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { migrateBackfillUsageCacheAccounting } from "../persistence/migrations/140-backfill-usage-cache-accounting.js";
+import { rawGet, rawRun } from "../persistence/raw-query.js";
 import type { PricingUsage } from "../usage/types.js";
 import {
   resolvePricing,
   resolvePricingForUsageWithOverrides,
 } from "../util/pricing.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
-
-
 
 interface UsageEventRow {
   input_tokens: number;
@@ -58,6 +47,7 @@ function insertUsageEvent(args: {
   pricingStatus?: string;
 }): void {
   rawRun(
+    "test:insertUsageEvent",
     /*sql*/ `
     INSERT INTO llm_usage_events (
       id,
@@ -101,6 +91,7 @@ function insertRequestLog(args: {
   // that ordering — the unqualified reads in the migration resolve to `main`
   // when a same-named table is present there.
   rawRun(
+    "test:insertRequestLog",
     /*sql*/ `
     INSERT INTO main.llm_request_logs (
       id,
@@ -162,6 +153,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     getSqlite().run(`DELETE FROM main.llm_request_logs`);
     getSqlite().run(`DELETE FROM llm_usage_events`);
     mockPricingOverrides = [];
+    seedPricingOverrides();
   });
 
   test("rewrites historical Anthropic rows from request logs, ignores foreign logs, and leaves missing-log rows unchanged", () => {
@@ -262,6 +254,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     );
 
     const targetRow = rawGet<UsageEventRow>(
+      "test:fetchTargetUsage",
       `SELECT
          input_tokens,
          output_tokens,
@@ -286,6 +279,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     expect(targetRow?.estimated_cost_usd).not.toBe(flattenedHistoricalCost);
 
     const untouchedRow = rawGet<UsageEventRow>(
+      "test:fetchUntouchedUsage",
       `SELECT
          input_tokens,
          output_tokens,
@@ -306,8 +300,6 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       estimated_cost_usd: noLogCost,
       pricing_status: "priced",
     });
-
-
   });
 
   test("uses pricing overrides when backfilling Anthropic cache-aware usage rows", () => {
@@ -320,6 +312,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
         outputPer1M: 7.25,
       },
     ];
+    seedPricingOverrides();
 
     insertUsageEvent({
       id: "usage-target",
@@ -363,6 +356,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     );
 
     const targetRow = rawGet<UsageEventRow>(
+      "test:fetchTargetUsage",
       `SELECT
          input_tokens,
          output_tokens,

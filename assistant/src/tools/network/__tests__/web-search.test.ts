@@ -1,40 +1,30 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
 import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../web-search-error.js";
 
 // Mutable mock state - set per test
-let mockWebSearchProvider: string | undefined = "perplexity";
-let mockWebSearchMode: string | undefined = "your-own";
 let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
 let mockFirecrawlSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
+let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
   provider: string;
   request: Record<string, unknown>;
   signal?: AbortSignal;
 }> = [];
 
-// Capture the registered tool
-let capturedTool: any = null;
-
-mock.module("../../registry.js", () => ({
-  registerTool: (tool: any) => {
-    capturedTool = tool;
-  },
-}));
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      "web-search": {
-        mode: mockWebSearchMode,
-        provider: mockWebSearchProvider,
-      },
-    },
-  }),
-}));
+/**
+ * Seed the web-search service into the workspace config. Pass `undefined`
+ * for mode to write a post-migration-132 config carrying only `provider`.
+ */
+function seedWebSearch(mode: string | undefined, provider: string): void {
+  setConfig("services", {
+    "web-search": mode === undefined ? { provider } : { mode, provider },
+  });
+}
 
 mock.module("../../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (provider: string) => {
@@ -68,23 +58,24 @@ mock.module("../managed-search-proxy.js", () => ({
     mockManagedSearchProxyCalls.push({ provider, request, signal });
     return mockManagedSearchProxyResult;
   },
+  managedSearchAvailable: async () => mockManagedSearchAvailable,
 }));
 
-// Force the module to load (triggers registerTool)
-await import("../web-search.js");
+// Import after the mocks above so the module under test sees them.
+const { webSearchTool } = await import("../web-search.js");
 
 describe("web_search tool", () => {
   let originalFetch: typeof globalThis.fetch;
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
-    mockWebSearchProvider = "perplexity";
-    mockWebSearchMode = "your-own";
+    seedWebSearch("your-own", "perplexity");
     mockBraveSecureKey = undefined;
     mockPerplexitySecureKey = undefined;
     mockTavilySecureKey = undefined;
     mockFirecrawlSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
+    mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
       ok: true,
       status: 200,
@@ -97,8 +88,10 @@ describe("web_search tool", () => {
     globalThis.fetch = originalFetch;
   });
 
-  function execute(input: Record<string, unknown>, context: any = {}) {
-    return capturedTool.execute(input, context);
+  // Return type is `any` so assertions can poke at provider-specific
+  // metadata shapes without narrowing at every site.
+  function execute(input: Record<string, unknown>, context: any = {}): any {
+    return webSearchTool.execute(input, context);
   }
 
   // ---- Input validation ---------------------------------------------------
@@ -121,6 +114,96 @@ describe("web_search tool", () => {
     const result = await execute({ query: "test" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No web search API key configured");
+  });
+
+  // ---- Provider vellum (managed, provider is the only axis) ---------------
+
+  test("provider vellum with no mode routes to the platform proxy", async () => {
+    seedWebSearch(undefined, "vellum");
+
+    const result = await execute({ query: "vellum managed query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+    expect(mockManagedSearchProxyCalls[0].provider).toBe("brave");
+  });
+
+  test("provider vellum routes managed even under a stale your-own mode", async () => {
+    // The provider choice wins over a leftover legacy mode key.
+    seedWebSearch("your-own", "vellum");
+
+    const result = await execute({ query: "stale mode query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+  });
+
+  test("provider vellum surfaces a 402 hard error and never falls back to BYOK keys", async () => {
+    // Billing rule: an explicit vellum choice must never silently reroute to
+    // a user's paid third-party key (and vice versa).
+    seedWebSearch(undefined, "vellum");
+    mockPerplexitySecureKey = "pplx-should-not-be-used";
+    mockManagedSearchProxyResult = {
+      ok: false,
+      kind: "platform-error",
+      status: 402,
+      headers: { "content-type": "application/json" },
+      body: { detail: "Insufficient balance" },
+      message: "Managed search proxy returned status 402: Insufficient balance",
+    };
+    let byokFetchCalls = 0;
+    globalThis.fetch = (async () => {
+      byokFetchCalls += 1;
+      return new Response("{}", { status: 200 });
+    }) as any;
+
+    const result = await execute({ query: "billing query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("account balance");
+    expect(result.content).toContain("different web search provider");
+    expect(byokFetchCalls).toBe(0);
+  });
+
+  // ---- Provider Native fallback order (keys first, proxy last) ------------
+
+  test("provider native with a BYOK key uses the key, not the proxy", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+    mockPerplexitySecureKey = "pplx-test-key";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "BYOK answer" } }],
+          citations: ["https://example.com"],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as any;
+
+    const result = await execute({ query: "native fallback query" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("BYOK answer");
+    expect(mockManagedSearchProxyCalls).toHaveLength(0);
+  });
+
+  test("provider native with no keys falls back to the platform proxy", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+
+    const result = await execute({ query: "no key native query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+  });
+
+  test("provider native with no keys and no platform reports the no-key error", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+    mockManagedSearchAvailable = false;
+
+    const result = await execute({ query: "offline native query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No web search API key configured");
+    expect(mockManagedSearchProxyCalls).toHaveLength(0);
   });
 
   // ---- Perplexity provider ------------------------------------------------
@@ -230,7 +313,7 @@ describe("web_search tool", () => {
   // ---- Brave provider -----------------------------------------------------
 
   test("executes Brave search successfully", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-test-key";
     globalThis.fetch = (async (_url: string) => {
       return new Response(
@@ -266,7 +349,7 @@ describe("web_search tool", () => {
   });
 
   test("Brave sends correct query parameters", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
@@ -291,7 +374,7 @@ describe("web_search tool", () => {
   });
 
   test("Brave clamps count and offset", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
@@ -309,7 +392,7 @@ describe("web_search tool", () => {
   });
 
   test("Brave skips invalid freshness values", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
@@ -326,7 +409,7 @@ describe("web_search tool", () => {
   });
 
   test("Brave handles empty results", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-key";
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ web: { results: [] } }), {
@@ -341,7 +424,7 @@ describe("web_search tool", () => {
   });
 
   test("Brave handles 401 auth error", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "bad-key";
     globalThis.fetch = (async () => {
       return new Response("Forbidden", { status: 403 });
@@ -353,7 +436,7 @@ describe("web_search tool", () => {
   });
 
   test("Brave handles 429 rate limit with Retry-After header", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-key";
     let callCount = 0;
     globalThis.fetch = (async () => {
@@ -391,9 +474,8 @@ describe("web_search tool", () => {
 
   // ---- Managed Brave provider -------------------------------------------
 
-  test("managed mode uses Brave proxy without BYOK provider keys", async () => {
-    mockWebSearchMode = "managed";
-    mockWebSearchProvider = "inference-provider-native";
+  test("provider vellum uses Brave proxy without BYOK provider keys", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: true,
       status: 200,
@@ -455,8 +537,7 @@ describe("web_search tool", () => {
       },
     };
 
-    mockWebSearchMode = "your-own";
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-key";
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify(braveBody), {
@@ -467,7 +548,7 @@ describe("web_search tool", () => {
 
     const directResult = await execute({ query: "same query" });
 
-    mockWebSearchMode = "managed";
+    seedWebSearch(undefined, "vellum");
     mockBraveSecureKey = undefined;
     mockManagedSearchProxyResult = {
       ok: true,
@@ -485,8 +566,8 @@ describe("web_search tool", () => {
     );
   });
 
-  test("managed mode passes abort signal to the platform proxy", async () => {
-    mockWebSearchMode = "managed";
+  test("provider vellum passes abort signal to the platform proxy", async () => {
+    seedWebSearch(undefined, "vellum");
     const controller = new AbortController();
 
     await execute({ query: "abortable query" }, { signal: controller.signal });
@@ -495,8 +576,8 @@ describe("web_search tool", () => {
     expect(mockManagedSearchProxyCalls[0].signal).toBe(controller.signal);
   });
 
-  test("managed mode maps insufficient balance to a managed usage error", async () => {
-    mockWebSearchMode = "managed";
+  test("provider vellum maps insufficient balance to a managed usage error", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: false,
       kind: "platform-error",
@@ -511,11 +592,11 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Managed web search");
     expect(result.content).toContain("account balance");
-    expect(result.content).toContain("Your Own mode");
+    expect(result.content).toContain("different web search provider");
   });
 
-  test("managed mode maps proxied provider errors to a tool error", async () => {
-    mockWebSearchMode = "managed";
+  test("provider vellum maps proxied provider errors to a tool error", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: true,
       status: 400,
@@ -531,8 +612,8 @@ describe("web_search tool", () => {
     );
   });
 
-  test("managed mode returns a clear error when platform context is unavailable", async () => {
-    mockWebSearchMode = "managed";
+  test("provider vellum returns a clear error when platform context is unavailable", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: false,
       kind: "unavailable",
@@ -547,8 +628,7 @@ describe("web_search tool", () => {
   });
 
   test("your-own mode keeps direct Brave BYOK behavior unchanged", async () => {
-    mockWebSearchMode = "your-own";
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockBraveSecureKey = "brave-direct-key";
     let capturedHeaders: Headers | undefined;
     globalThis.fetch = (async (_url: string, init?: RequestInit) => {
@@ -571,7 +651,7 @@ describe("web_search tool", () => {
   // ---- Tavily provider ----------------------------------------------------
 
   test("executes Tavily search successfully", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("your-own", "tavily");
     mockTavilySecureKey = "tvly-test-key";
     globalThis.fetch = (async () => {
       return new Response(
@@ -602,7 +682,7 @@ describe("web_search tool", () => {
   });
 
   test("Tavily sends correct request format", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("your-own", "tavily");
     mockTavilySecureKey = "tvly-test-key";
     let capturedUrl = "";
     let capturedBody: any = null;
@@ -627,7 +707,7 @@ describe("web_search tool", () => {
   });
 
   test("Tavily skips invalid freshness values", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("your-own", "tavily");
     mockTavilySecureKey = "tvly-key";
     let capturedBody: any = null;
     globalThis.fetch = (async (_url: string, init?: RequestInit) => {
@@ -643,7 +723,7 @@ describe("web_search tool", () => {
   });
 
   test("Tavily returns no results message when response is empty", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("your-own", "tavily");
     mockTavilySecureKey = "tvly-key";
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ results: [] }), {
@@ -658,7 +738,7 @@ describe("web_search tool", () => {
   });
 
   test.each([401, 403])("Tavily handles %d auth error", async (status) => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("your-own", "tavily");
     mockTavilySecureKey = "bad-key";
     globalThis.fetch = (async () => {
       return new Response("Auth error", { status });
@@ -670,7 +750,7 @@ describe("web_search tool", () => {
   });
 
   test("Tavily handles 429 rate limit after max retries", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("your-own", "tavily");
     mockTavilySecureKey = "tvly-key";
     let callCount = 0;
     globalThis.fetch = (async () => {
@@ -691,7 +771,7 @@ describe("web_search tool", () => {
   // ---- Firecrawl provider -------------------------------------------------
 
   test("executes Firecrawl search successfully", async () => {
-    mockWebSearchProvider = "firecrawl";
+    seedWebSearch("your-own", "firecrawl");
     mockFirecrawlSecureKey = "fc-test-key";
     globalThis.fetch = (async () => {
       return new Response(
@@ -724,7 +804,7 @@ describe("web_search tool", () => {
   });
 
   test("Firecrawl sends correct request format", async () => {
-    mockWebSearchProvider = "firecrawl";
+    seedWebSearch("your-own", "firecrawl");
     mockFirecrawlSecureKey = "fc-test-key";
     let capturedUrl = "";
     let capturedBody: any = null;
@@ -733,10 +813,13 @@ describe("web_search tool", () => {
       capturedUrl = url;
       capturedBody = JSON.parse(init?.body as string);
       capturedHeaders = new Headers(init?.headers);
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     await execute({ query: "test query", count: 50, freshness: "pm" });
@@ -750,15 +833,18 @@ describe("web_search tool", () => {
   });
 
   test("Firecrawl skips invalid freshness values", async () => {
-    mockWebSearchProvider = "firecrawl";
+    seedWebSearch("your-own", "firecrawl");
     mockFirecrawlSecureKey = "fc-key";
     let capturedBody: any = null;
     globalThis.fetch = (async (_url: string, init?: RequestInit) => {
       capturedBody = JSON.parse(init?.body as string);
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     await execute({ query: "test", freshness: "invalid" });
@@ -766,13 +852,16 @@ describe("web_search tool", () => {
   });
 
   test("Firecrawl returns no results message when response is empty", async () => {
-    mockWebSearchProvider = "firecrawl";
+    seedWebSearch("your-own", "firecrawl");
     mockFirecrawlSecureKey = "fc-key";
     globalThis.fetch = (async () => {
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     const result = await execute({ query: "obscure query" });
@@ -781,7 +870,7 @@ describe("web_search tool", () => {
   });
 
   test.each([401, 403])("Firecrawl handles %d auth error", async (status) => {
-    mockWebSearchProvider = "firecrawl";
+    seedWebSearch("your-own", "firecrawl");
     mockFirecrawlSecureKey = "bad-key";
     globalThis.fetch = (async () => {
       return new Response("Auth error", { status });
@@ -793,7 +882,7 @@ describe("web_search tool", () => {
   });
 
   test("Firecrawl handles 429 rate limit after max retries", async () => {
-    mockWebSearchProvider = "firecrawl";
+    seedWebSearch("your-own", "firecrawl");
     mockFirecrawlSecureKey = "fc-key";
     let callCount = 0;
     globalThis.fetch = (async () => {
@@ -814,7 +903,7 @@ describe("web_search tool", () => {
   // ---- Provider fallback --------------------------------------------------
 
   test("falls back from perplexity to brave when perplexity has no key", async () => {
-    mockWebSearchProvider = "perplexity";
+    seedWebSearch("your-own", "perplexity");
     mockBraveSecureKey = "brave-fallback-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
@@ -831,7 +920,7 @@ describe("web_search tool", () => {
   });
 
   test("falls back from brave to perplexity when brave has no key", async () => {
-    mockWebSearchProvider = "brave";
+    seedWebSearch("your-own", "brave");
     mockPerplexitySecureKey = "pplx-fallback-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string, _init?: RequestInit) => {
@@ -850,7 +939,7 @@ describe("web_search tool", () => {
   });
 
   test("falls back to tavily when earlier providers have no key", async () => {
-    mockWebSearchProvider = "perplexity";
+    seedWebSearch("your-own", "perplexity");
     mockTavilySecureKey = "tvly-fallback-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
@@ -867,15 +956,18 @@ describe("web_search tool", () => {
   });
 
   test("falls back to firecrawl when all earlier providers have no key", async () => {
-    mockWebSearchProvider = "perplexity";
+    seedWebSearch("your-own", "perplexity");
     mockFirecrawlSecureKey = "fc-fallback-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
       capturedUrl = url;
-      return new Response(JSON.stringify({ success: true, data: { web: [] } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ success: true, data: { web: [] } }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as any;
 
     const result = await execute({ query: "fallback test" });
@@ -884,7 +976,7 @@ describe("web_search tool", () => {
   });
 
   test("falls back from tavily to perplexity when tavily has no key", async () => {
-    mockWebSearchProvider = "tavily";
+    seedWebSearch("your-own", "tavily");
     mockPerplexitySecureKey = "pplx-fallback-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {
@@ -901,7 +993,7 @@ describe("web_search tool", () => {
   });
 
   test("maps inference-provider-native to perplexity", async () => {
-    mockWebSearchProvider = "inference-provider-native";
+    seedWebSearch("your-own", "inference-provider-native");
     mockPerplexitySecureKey = "pplx-key";
     let capturedUrl = "";
     globalThis.fetch = (async (url: string) => {

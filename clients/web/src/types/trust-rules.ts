@@ -1,60 +1,25 @@
-export type TrustRuleRisk = "low" | "medium" | "high";
-export type TrustRuleOrigin = "default" | "user_defined";
+/**
+ * Trust-rules view-model types, derived from the generated gateway SDK
+ * types so they cannot drift from the wire (see docs/CONVENTIONS.md
+ * "Generated types are the source of truth"). The schemas originate in
+ * `gateway/src/http/routes/trust-rules-routes.ts`.
+ */
 
-export interface TrustRuleItem {
-  id: string;
-  tool: string;
-  pattern: string;
-  risk: TrustRuleRisk;
-  description: string;
-  origin: TrustRuleOrigin;
-  userModified: boolean;
-  deleted: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+import type {
+  AssistantTrustRuleCreateData,
+  AssistantTrustRuleSuggestData,
+  AssistantTrustRuleSuggestResponses,
+  AssistantTrustRuleUpdateData,
+  AssistantTrustRulesListResponses,
+} from "@/generated/gateway/types.gen";
 
-export interface TrustRulesListResponse {
-  rules: TrustRuleItem[];
-}
+export type TrustRulesListResponse = AssistantTrustRulesListResponses[200];
+export type TrustRuleItem = TrustRulesListResponse["rules"][number];
+export type TrustRuleRisk = TrustRuleItem["risk"];
+export type TrustRuleOrigin = TrustRuleItem["origin"];
 
-export interface AddTrustRuleBody {
-  tool: string;
-  pattern: string;
-  risk: TrustRuleRisk;
-  description: string;
-  /** Directory scope for this rule (e.g. a specific path, or "everywhere"). */
-  scope?: string;
-}
-
-export interface UpdateTrustRuleBody {
-  risk?: TrustRuleRisk;
-  description?: string;
-}
-
-export interface SuggestTrustRuleBody {
-  tool: string;
-  command: string;
-  riskAssessment: {
-    risk: string;
-    reasoning: string;
-    reasonDescription: string;
-  };
-  scopeOptions: { pattern: string; label: string }[];
-  directoryScopeOptions?: { scope: string; label: string }[];
-  intent: "auto_approve" | "escalate";
-  existingRule?: {
-    id: string;
-    pattern: string;
-    risk: string;
-  };
-}
-
-export interface TrustRuleSuggestion {
-  pattern: string;
-  risk: string;
-  scope: string | null;
-  description: string;
-  scopeOptions: { pattern: string; label: string }[];
-  directoryScopeOptions?: { scope: string; label: string }[] | null;
-}
+export type AddTrustRuleBody = AssistantTrustRuleCreateData["body"];
+export type UpdateTrustRuleBody = AssistantTrustRuleUpdateData["body"];
+export type SuggestTrustRuleBody = AssistantTrustRuleSuggestData["body"];
+export type TrustRuleSuggestion =
+  AssistantTrustRuleSuggestResponses[200]["suggestion"];

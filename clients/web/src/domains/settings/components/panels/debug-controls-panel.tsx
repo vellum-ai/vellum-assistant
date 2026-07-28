@@ -1,4 +1,4 @@
-import { Loader2, RotateCw, Wrench } from "lucide-react";
+import { HardDrive, Loader2, RotateCw, Wrench } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
@@ -10,7 +10,7 @@ import { RestartAssistant } from "@/domains/settings/components/restart-assistan
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
-import { clearConsentForUser } from "@/utils/onboarding-cleanup";
+import { clearConsentForUser } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -98,7 +98,10 @@ export function DebugControlsPanel() {
               </p>
             </div>
             <div className="ml-4 shrink-0">
-              <RestartAssistant assistantId={assistant.id} />
+              <RestartAssistant
+                assistantId={assistant.id}
+                isLocal={assistant.is_local}
+              />
             </div>
           </div>
 
@@ -138,9 +141,12 @@ export function DebugControlsPanel() {
           )}
           {platformGate !== "disabled" && (
             <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-              <h3 className="mb-3 text-body-medium-default text-[var(--content-default)]">
-                Backups
-              </h3>
+              <div className="mb-3 flex items-center gap-2">
+                <HardDrive className="h-4 w-4 text-[var(--content-secondary)]" />
+                <h3 className="text-body-medium-default text-[var(--content-default)]">
+                  Backups
+                </h3>
+              </div>
               <AssistantBackups assistantId={assistant.id} />
             </div>
           )}

@@ -1,0 +1,450 @@
+// ---------------------------------------------------------------------------
+// Memory Tool handlers
+//
+// remember: save facts to the concept-page memory buffer
+// (memory/buffer.md + memory/archive/<today>.md); consolidation files them
+// into concept pages.
+// ---------------------------------------------------------------------------
+
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+import {
+  isMemoryEnabled,
+  usesConceptPageMemory,
+} from "../../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../../config/types.js";
+import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
+import { getWorkspaceDir } from "../paths.js";
+import type { GraphStats } from "./store.js";
+import {
+  computeGraphStats,
+  deleteNode,
+  queryNodes,
+  recordNodeEdit,
+  updateNode,
+} from "./store.js";
+import { type CapabilityKind, capabilityKind } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// remember handler — appends to the memory/ buffer + daily archive
+// ---------------------------------------------------------------------------
+
+export interface RememberInput {
+  /**
+   * The fact(s) to remember. A single string records one fact; an array
+   * records several independent facts in one call (each becomes its own
+   * timestamped entry), so a single turn can batch unrelated facts instead of
+   * calling `remember` once per fact.
+   */
+  content: string | string[];
+  finish_turn?: boolean;
+}
+
+export interface RememberResult {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * Normalize the `remember` content input to a list of non-empty facts.
+ * Accepts the single-string form or the batch array form, trims each fact, and
+ * drops blanks so an empty or whitespace-only input yields no facts.
+ */
+function normalizeFacts(content: string | string[]): string[] {
+  const raw = Array.isArray(content) ? content : [content];
+  return raw
+    .filter((fact): fact is string => typeof fact === "string")
+    .map((fact) => fact.trim())
+    .filter((fact) => fact.length > 0);
+}
+
+function rememberSuccessMessage(count: number): string {
+  return count === 1
+    ? "Saved to knowledge base."
+    : `Saved ${count} facts to knowledge base.`;
+}
+
+export function handleRemember(
+  input: RememberInput,
+  _conversationId: string,
+  config: AssistantConfig,
+): RememberResult {
+  const facts = normalizeFacts(input.content);
+  if (facts.length === 0) {
+    return { success: false, message: "content is required" };
+  }
+  if (!isMemoryEnabled(config)) {
+    return { success: false, message: "Memory is disabled." };
+  }
+
+  const workspaceDir = getWorkspaceDir();
+  const now = new Date();
+  // Each fact becomes its own timestamped bullet; a batched call writes them
+  // all in a single append so one turn can record several independent facts.
+  const entry = facts.map((fact) => formatRememberEntry(fact, now)).join("");
+  const message = rememberSuccessMessage(facts.length);
+
+  // The buffer is the concept-page substrate's intake regardless of which
+  // injection engine is live: consolidation files the entries into concept
+  // pages, and embedding happens via the dedicated `embed_concept_page` job
+  // after consolidation, not on every remember() write.
+  appendBufferAndArchive({
+    rootDir: join(workspaceDir, "memory"),
+    entry,
+    now,
+  });
+
+  return { success: true, message };
+}
+
+/**
+ * Format `now` as a buffer-entry timestamp (`Mon D, h:mm AM/PM`). Exported so
+ * the memory v2 consolidation job can present its cutoff in the same shape
+ * the buffer entries use, making the agent's "timestamp ≥ cutoff" comparison
+ * unambiguous at minute precision.
+ */
+export function formatBufferTimestamp(now: Date): string {
+  const month = now.toLocaleString("en-US", { month: "short" });
+  const day = now.getDate();
+  const hours = now.getHours();
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${month} ${day}, ${displayHour}:${minutes} ${ampm}`;
+}
+
+/**
+ * Build a timestamped bullet entry for `buffer.md` / `archive/<date>.md`.
+ *
+ * Format mirrors the long-standing v1 PKB layout so v2 buffers stay
+ * human-readable and downstream consumers (sweep, consolidation) can parse
+ * the same shape regardless of which path produced the entry.
+ *
+ * Exported so memory v2 sweep / extractor jobs format their auto-remembered
+ * entries identically to user-facing `remember()` calls.
+ */
+export function formatRememberEntry(content: string, now: Date): string {
+  return `- [${formatBufferTimestamp(now)}] ${content}\n`;
+}
+
+/**
+ * Append `entry` to `<rootDir>/buffer.md` and `<rootDir>/archive/<today>.md`,
+ * creating the archive directory and seeding the archive header if missing.
+ *
+ * Returns the absolute paths of both files so callers can fan out follow-up
+ * work.
+ *
+ * Exported so background jobs (`sweep`, future LLM-driven extractors) can
+ * append to `memory/buffer.md` + `memory/archive/<today>.md` with exactly the
+ * same format `remember()` produces, keeping the two write paths
+ * byte-compatible for downstream consumers (consolidation, search).
+ */
+export function appendBufferAndArchive(args: {
+  rootDir: string;
+  entry: string;
+  now: Date;
+}): { bufferPath: string; archivePath: string } {
+  const { rootDir, entry, now } = args;
+  const archiveDir = join(rootDir, "archive");
+  mkdirSync(archiveDir, { recursive: true });
+
+  const bufferPath = join(rootDir, "buffer.md");
+  appendFileSync(bufferPath, entry, "utf-8");
+
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const archivePath = join(archiveDir, `${yyyy}-${mm}-${dd}.md`);
+  if (!existsSync(archivePath)) {
+    const month = now.toLocaleString("en-US", { month: "short" });
+    appendFileSync(
+      archivePath,
+      `# ${month} ${now.getDate()}, ${yyyy}\n\n`,
+      "utf-8",
+    );
+  }
+  appendFileSync(archivePath, entry, "utf-8");
+
+  return { bufferPath, archivePath };
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers for delete / update / list
+// ---------------------------------------------------------------------------
+
+const SNIPPET_LENGTH = 80;
+
+// ---------------------------------------------------------------------------
+// handleDeleteMemory
+// ---------------------------------------------------------------------------
+
+export interface DeleteMemoryInput {
+  content: string;
+}
+
+export interface DeleteMemoryResult {
+  success: boolean;
+  message: string;
+}
+
+export function handleDeleteMemory(
+  input: DeleteMemoryInput,
+  config: AssistantConfig,
+): DeleteMemoryResult {
+  if (!input.content?.trim()) {
+    return { success: false, message: "content is required" };
+  }
+
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message:
+        "delete requires concept-page memory. Use remember() to record a correction instead.",
+    };
+  }
+
+  const search = input.content.trim().toLowerCase();
+  const nodes = queryNodes({
+    fidelityNot: ["gone"],
+  });
+
+  const exactMatches = nodes.filter(
+    (n) => n.content.trim().toLowerCase() === search,
+  );
+  const candidates =
+    exactMatches.length > 0
+      ? exactMatches
+      : nodes.filter((n) => n.content.toLowerCase().includes(search));
+
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      message:
+        "No memory found matching that content. Use `assistant memory nodes list` to find the exact text first.",
+    };
+  }
+
+  if (candidates.length > 1) {
+    const list = candidates
+      .slice(0, 5)
+      .map((n) => `- ${n.content.slice(0, SNIPPET_LENGTH)}`)
+      .join("\n");
+    return {
+      success: false,
+      message: `Multiple memories match — be more specific:\n${list}`,
+    };
+  }
+
+  const target = candidates[0]!;
+  deleteNode(target.id);
+  return {
+    success: true,
+    message: `Deleted: "${target.content.slice(0, SNIPPET_LENGTH)}"`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleUpdateMemory
+// ---------------------------------------------------------------------------
+
+export interface UpdateMemoryInput {
+  old_content: string;
+  new_content: string;
+}
+
+export interface UpdateMemoryResult {
+  success: boolean;
+  message: string;
+}
+
+export function handleUpdateMemory(
+  input: UpdateMemoryInput,
+  conversationId: string,
+  config: AssistantConfig,
+): UpdateMemoryResult {
+  if (!input.old_content?.trim() || !input.new_content?.trim()) {
+    return {
+      success: false,
+      message: "old_content and new_content are both required",
+    };
+  }
+
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message:
+        "update requires concept-page memory. Use remember() to record a correction instead.",
+    };
+  }
+
+  const search = input.old_content.trim().toLowerCase();
+  const newContent = input.new_content.trim();
+  const nodes = queryNodes({
+    fidelityNot: ["gone"],
+  });
+
+  const exactMatches = nodes.filter(
+    (n) => n.content.trim().toLowerCase() === search,
+  );
+  const candidates =
+    exactMatches.length > 0
+      ? exactMatches
+      : nodes.filter((n) => n.content.toLowerCase().includes(search));
+
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      message:
+        "No memory found matching old_content. Use `assistant memory nodes list` to find the exact text first.",
+    };
+  }
+
+  if (candidates.length > 1) {
+    const list = candidates
+      .slice(0, 5)
+      .map((n) => `- ${n.content.slice(0, SNIPPET_LENGTH)}`)
+      .join("\n");
+    return {
+      success: false,
+      message: `Multiple memories match old_content — be more specific:\n${list}`,
+    };
+  }
+
+  const target = candidates[0]!;
+
+  const newContentNorm = newContent.toLowerCase();
+  const duplicate = nodes.find(
+    (n) =>
+      n.id !== target.id && n.content.trim().toLowerCase() === newContentNorm,
+  );
+  if (duplicate) {
+    return {
+      success: false,
+      message: `A memory with that content already exists: "${duplicate.content.slice(0, SNIPPET_LENGTH)}"`,
+    };
+  }
+
+  recordNodeEdit({
+    nodeId: target.id,
+    previousContent: target.content,
+    newContent,
+    source: "manual",
+    conversationId,
+  });
+  updateNode(target.id, { content: newContent });
+  enqueueMemoryJob("embed_graph_node", { nodeId: target.id });
+
+  return {
+    success: true,
+    message: `Updated: "${target.content.slice(0, SNIPPET_LENGTH)}" → "${newContent.slice(0, SNIPPET_LENGTH)}"`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleListMemory
+// ---------------------------------------------------------------------------
+
+export interface ListMemoryInput {
+  search?: string;
+  limit?: number;
+  /**
+   * Restrict results to auto-seeded capability nodes of a given flavor:
+   * `skill` (one node per enabled/catalog skill) or `cli` (one per CLI
+   * command). Omit to list every kind of node.
+   */
+  kind?: CapabilityKind;
+}
+
+export interface ListMemoryItem {
+  id: string;
+  content: string;
+  type: string;
+  fidelity: string;
+  created: number;
+}
+
+export interface ListMemoryResult {
+  success: boolean;
+  message: string;
+  nodes: ListMemoryItem[];
+  total: number;
+}
+
+export function handleListMemory(
+  input: ListMemoryInput,
+  config: AssistantConfig,
+): ListMemoryResult {
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message: "list requires concept-page memory.",
+      nodes: [],
+      total: 0,
+    };
+  }
+
+  const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
+  const search = input.search?.trim().toLowerCase();
+  const kind = input.kind;
+
+  // When a filter (search or kind) is active, fetch all active nodes (no
+  // limit) so filtering is exhaustive regardless of graph size — capability
+  // nodes carry only middling significance and would otherwise fall outside a
+  // significance-capped page. The DB still orders by significance DESC, so the
+  // most relevant matches surface first after slicing.
+  const allNodes = queryNodes({
+    fidelityNot: ["gone"],
+    ...(search || kind ? {} : { limit }),
+  });
+
+  let matches = allNodes;
+  if (kind) {
+    matches = matches.filter((n) => capabilityKind(n) === kind);
+  }
+  if (search) {
+    matches = matches.filter((n) => n.content.toLowerCase().includes(search));
+  }
+  const filtered = matches.slice(0, limit);
+
+  return {
+    success: true,
+    message: `${filtered.length} memor${filtered.length === 1 ? "y" : "ies"} found.`,
+    nodes: filtered.map((n) => ({
+      id: n.id,
+      content: n.content,
+      type: n.type,
+      fidelity: n.fidelity,
+      created: n.created,
+    })),
+    total: filtered.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleStatsMemory
+// ---------------------------------------------------------------------------
+
+export interface StatsMemoryResult {
+  success: boolean;
+  message: string;
+  stats: GraphStats | null;
+}
+
+export function handleStatsMemory(config: AssistantConfig): StatsMemoryResult {
+  if (!usesConceptPageMemory(config.memory)) {
+    return {
+      success: false,
+      message: "stats requires concept-page memory.",
+      stats: null,
+    };
+  }
+  const stats = computeGraphStats();
+  const n = stats.total;
+  const e = stats.edgeCount;
+  return {
+    success: true,
+    message: `${n} active node${n === 1 ? "" : "s"}, ${e} edge${e === 1 ? "" : "s"}.`,
+    stats,
+  };
+}

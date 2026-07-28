@@ -105,12 +105,6 @@ mock.module("../skills/install-meta.js", () => ({
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
 mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
   skillFlagKey: () => null,
@@ -135,7 +129,7 @@ mock.module("../skills/managed-store.js", () => ({
   deleteManagedSkill: () => ({ deleted: true }),
   validateManagedSkillId: () => null,
 }));
-mock.module("../memory/graph/capability-seed.js", () => ({
+mock.module("../plugins/defaults/memory/graph/capability-seed.js", () => ({
   deleteSkillCapabilityNode: () => {},
   seedSkillGraphNodes: () => {},
   seedUninstalledCatalogSkillMemories: async () => {},

@@ -5,27 +5,7 @@
  * chain and `/compact` silently falls back to the local estimate. These tests
  * pin the forwarding.
  */
-import { describe, expect, mock, test } from "bun:test";
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
+import { describe, expect, test } from "bun:test";
 
 import { CallSiteRoutingProvider } from "../call-site-routing.js";
 import { RateLimitProvider } from "../ratelimit.js";

@@ -9,18 +9,28 @@
 
 import {
   GetContactIpcParamsSchema,
+  GetGuardianContactIpcParamsSchema,
+  GetGuardianContactIpcResponseSchema,
   ListContactsIpcParamsSchema,
   MarkChannelRevokedIpcParamsSchema,
   MarkChannelRevokedIpcResponseSchema,
-  MarkChannelVerifiedIpcParamsSchema,
-  MarkChannelVerifiedIpcResponseSchema,
+  MergeContactsIpcParamsSchema,
   UpdateContactChannelIpcParamsSchema,
+  UpsertVerifiedChannelIpcParamsSchema,
+  UpsertVerifiedChannelIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
 import { ContactStore } from "../db/contact-store.js";
-import { updateContactChannelCore } from "../http/routes/contacts-control-plane-proxy.js";
+import {
+  mergeContactsCore,
+  updateContactChannelCore,
+} from "../http/routes/contacts-control-plane-proxy.js";
 import { getLogger } from "../logger.js";
+import {
+  getGatewayChannelByKey,
+  upsertVerifiedContactChannel,
+} from "../verification/contact-helpers.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import type { IpcRoute } from "./server.js";
 
@@ -96,6 +106,20 @@ export const contactRoutes: IpcRoute[] = [
           ? { assistantMetadata: result.assistantMetadata }
           : {}),
       };
+    },
+  },
+  {
+    // Exposes the guardian contact id(s) from the gateway DB (source of truth)
+    // so the daemon can determine the guardian without reading the local
+    // contacts.role column.
+    method: "get_guardian_contact",
+    schema: GetGuardianContactIpcParamsSchema,
+    handler: () => {
+      const guardianIds = getStore().listGuardianContactIds();
+      return GetGuardianContactIpcResponseSchema.parse({
+        ok: true,
+        guardianIds,
+      });
     },
   },
   {
@@ -187,31 +211,57 @@ export const contactRoutes: IpcRoute[] = [
     },
   },
   {
-    method: "mark_channel_verified",
-    schema: MarkChannelVerifiedIpcParamsSchema,
+    method: "merge_contacts",
+    schema: MergeContactsIpcParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const parsed = MergeContactsIpcParamsSchema.parse(params);
+      return mergeContactsCore(parsed);
+    },
+  },
+  {
+    method: "upsert_verified_channel",
+    schema: UpsertVerifiedChannelIpcParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
-      const { contactChannelId, verifiedVia } =
-        MarkChannelVerifiedIpcParamsSchema.parse(params);
-      const result = await getStore().markChannelVerified(
-        contactChannelId,
+      const {
+        type,
+        address,
+        externalChatId,
+        displayName,
+        username,
         verifiedVia,
-      );
-      if (!result) {
-        throw new Error(`Channel "${contactChannelId}" not found`);
+        contactId,
+        allowRevokedReactivation,
+      } = UpsertVerifiedChannelIpcParamsSchema.parse(params);
+
+      const { verified } = await upsertVerifiedContactChannel({
+        sourceChannel: type,
+        externalUserId: address,
+        externalChatId,
+        displayName,
+        username,
+        verifiedVia,
+        contactId,
+        allowRevokedReactivation,
+      });
+
+      // A blocked/revoked skip is not an error: surface it as verified:false
+      // with no channel rather than throwing.
+      if (!verified) {
+        return UpsertVerifiedChannelIpcResponseSchema.parse({
+          ok: true,
+          verified: false,
+        });
       }
-      const { channel, didWrite } = result;
-      return MarkChannelVerifiedIpcResponseSchema.parse({
+
+      // Read the post-write state from the gateway (source of truth) by the
+      // canonical logical key the helper writes under.
+      const canonicalAddress =
+        canonicalizeInboundIdentity(type, address) ?? address;
+      const channel = getGatewayChannelByKey(type, canonicalAddress);
+      return UpsertVerifiedChannelIpcResponseSchema.parse({
         ok: true,
-        didWrite,
-        channel: {
-          id: channel.id,
-          contactId: channel.contactId,
-          type: channel.type,
-          address: channel.address,
-          status: channel.status,
-          verifiedAt: channel.verifiedAt,
-          verifiedVia: channel.verifiedVia,
-        },
+        verified: true,
+        ...(channel ? { channel } : {}),
       });
     },
   },

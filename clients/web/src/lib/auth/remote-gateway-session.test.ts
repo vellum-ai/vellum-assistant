@@ -143,6 +143,30 @@ describe("remote gateway token exchange", () => {
     );
     expect(error).toBeInstanceOf(RemoteWebPairingError);
     expect((error as RemoteWebPairingError).status).toBe(502);
+    expect((error as RemoteWebPairingError).code).toBeNull();
+  });
+
+  test("surfaces the error body code on a repair-required token-exchange failure", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        {
+          error: {
+            code: "GUARDIAN_REPAIR_REQUIRED",
+            message: "gateway guardian binding is missing",
+          },
+        },
+        { status: 503 },
+      ),
+    ) as unknown as typeof fetch;
+
+    const error = await exchangeRemoteWebPairingToken("device-code").catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(RemoteWebPairingError);
+    expect((error as RemoteWebPairingError).status).toBe(503);
+    expect((error as RemoteWebPairingError).code).toBe(
+      "GUARDIAN_REPAIR_REQUIRED",
+    );
   });
 
   test("posts the device code with cookie credentials", async () => {
@@ -181,7 +205,6 @@ describe("remote gateway token exchange", () => {
     setLocation("/assistant-123/assistant/pair");
 
     activateRemoteGatewaySession({
-      status: "approved",
       accessToken: "access-token",
       accessTokenExpiresAt: "2999-01-01T00:00:00.000Z",
       refreshAfter: "2999-01-01T00:00:00.000Z",
@@ -203,7 +226,6 @@ describe("remote gateway token exchange", () => {
     ) as unknown as typeof fetch;
 
     activateRemoteGatewaySession({
-      status: "approved",
       accessToken: "access-token",
       accessTokenExpiresAt: "2999-01-01T00:00:00.000Z",
       refreshAfter: "2999-01-01T00:00:00.000Z",

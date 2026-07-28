@@ -20,7 +20,9 @@ export const VALID_INFERENCE_PROVIDERS = [
   "openrouter",
 ] as const;
 
-const VALID_IMAGE_GEN_PROVIDERS = ["gemini", "openai"] as const;
+// `vellum` generates through the platform runtime proxy; the backend
+// (gemini/openai) derives from the selected model's prefix at request time.
+const VALID_IMAGE_GEN_PROVIDERS = ["vellum", "gemini", "openai"] as const;
 
 /**
  * Derived from `SEARCH_PROVIDER_CATALOG`. Adding a new web-search provider
@@ -51,27 +53,40 @@ const BaseServiceSchema = z.object({
  */
 const InferenceServiceSchema = z.object({});
 
-const ImageGenerationServiceSchema = BaseServiceSchema.extend({
+/**
+ * Image generation carries no `mode`: `provider` is the only axis. `"vellum"`
+ * generates through the platform runtime proxy for the model-appropriate
+ * backend, billed to Vellum credits; `"gemini"`/`"openai"` use the user's
+ * key. A `mode` key sent by an older client is stripped at parse.
+ */
+const ImageGenerationServiceSchema = z.object({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
   model: z.string().default(DEFAULT_IMAGE_MODEL),
 });
 
-const WebSearchServiceSchema = BaseServiceSchema.extend({
-  // Provider choice for app-executed search in Your Own mode, or the native
-  // hosted-search preference when set to `inference-provider-native`. In
-  // Managed mode, non-native inference providers can still use the platform
-  // managed search proxy through the app-executed `web_search` tool.
+/**
+ * Web-search carries no `mode`: `provider` is the only axis. `"vellum"`
+ * searches through the Vellum platform search proxy, billed to Vellum
+ * credits; `"inference-provider-native"` prefers the inference model's own
+ * hosted search, falling back to the user's keys and then the platform
+ * proxy; any other provider uses the user's own API key. A `mode` key sent
+ * by an older client is stripped at parse.
+ */
+const WebSearchServiceSchema = z.object({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
 });
 
-const WebFetchServiceSchema = BaseServiceSchema.extend({
+/**
+ * Web-fetch carries no `mode`: there is no managed proxy for it, so the only
+ * axis is which provider backs the tool.
+ */
+const WebFetchServiceSchema = z.object({
   // Provider that backs the `web_fetch` tool. `default` is the daemon's
   // built-in HTTP fetch + extract path (no key). BYOK providers (e.g.
   // `firecrawl`) scrape via their hosted API and reuse the same stored key as
-  // their web-search counterpart. The `mode` field is inherited from
-  // `BaseServiceSchema` for symmetry; web-fetch has no managed proxy today.
+  // their web-search counterpart.
   provider: z.enum(VALID_WEB_FETCH_PROVIDERS).default("default"),
 });
 
@@ -115,42 +130,6 @@ const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
-/**
- * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
- * skill process. Kept narrow: only the values the daemon reads before the
- * meet-host child is spawned live here. Skill-internal configuration
- * (avatar renderer, consent copy, proactive-chat keywords, etc.) lives in
- * `skills/meet-join/config-schema.ts` and is sourced from the separate
- * `<workspace>/config/meet.json` file the skill owns.
- */
-const MeetHostConfigSchema = z
-  .object({
-    idle_timeout_ms: z
-      .number({
-        error: "services.meet.host.idle_timeout_ms must be a number",
-      })
-      .int()
-      .nonnegative()
-      .optional()
-      .describe(
-        "Idle window in milliseconds after the last active meet session closes before the meet-host child is shut down. Defaults to 5 minutes when unset.",
-      ),
-  })
-  .describe("Daemon-side configuration for the external meet-join skill host");
-
-/**
- * Daemon-side `services.meet` block. Intentionally distinct from the
- * skill-internal `MeetServiceSchema` in `skills/meet-join/config-schema.ts`,
- * which validates the bot-facing `<workspace>/config/meet.json` file. This
- * schema only describes the keys the assistant itself reads from its global
- * `config.json` before the meet-host child process is spawned.
- */
-const MeetDaemonServiceSchema = z
-  .object({
-    host: MeetHostConfigSchema.default(MeetHostConfigSchema.parse({})),
-  })
-  .describe("meet-join skill daemon-side configuration");
-
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -161,7 +140,6 @@ export const ServicesSchema = z.object({
   ),
   "web-fetch": WebFetchServiceSchema.default(WebFetchServiceSchema.parse({})),
   stt: SttServiceSchema.default({
-    mode: "your-own" as const,
     provider: "deepgram" as const,
     providers: {},
   }),
@@ -196,7 +174,6 @@ export const ServicesSchema = z.object({
   "hubspot-oauth": HubspotOAuthServiceSchema.default(
     HubspotOAuthServiceSchema.parse({}),
   ),
-  meet: MeetDaemonServiceSchema.default(MeetDaemonServiceSchema.parse({})),
 });
 export type Services = z.infer<typeof ServicesSchema>;
 

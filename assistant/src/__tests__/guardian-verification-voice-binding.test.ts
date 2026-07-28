@@ -4,13 +4,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: () => ({
     accountSid: "AC_test",
@@ -20,7 +13,7 @@ mock.module("../calls/twilio-config.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     async checkCallerIdEligibility() {
       return { eligible: true };
     }
@@ -49,16 +42,6 @@ mock.module("../calls/voice-ingress-preflight.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    calls: {
-      callerIdentity: {
-        allowPerCallOverride: true,
-      },
-    },
-  }),
-}));
-
 mock.module("../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async (fn: () => string) => fn(),
 }));
@@ -81,14 +64,14 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   isGuardian: () => false,
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
 import { startVerificationCall } from "../calls/call-domain.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb } from "../memory/db-init.js";
-import { getBindingByConversation } from "../memory/external-conversation-store.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 
 await initializeDb();
 

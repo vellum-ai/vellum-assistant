@@ -4,7 +4,7 @@ import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "AXTree")
 
-struct AXElement: Identifiable {
+struct AXElement: Identifiable, Sendable {
     let id: Int
     let role: String
     let title: String?
@@ -19,7 +19,7 @@ struct AXElement: Identifiable {
     let placeholderValue: String?
 }
 
-struct WindowInfo {
+struct WindowInfo: Sendable {
     let elements: [AXElement]
     let windowTitle: String
     let appName: String

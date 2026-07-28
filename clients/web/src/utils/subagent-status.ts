@@ -18,6 +18,7 @@ export function statusColor(status: SubagentStatus): string {
       return "var(--system-positive-strong)";
     case "failed":
     case "aborted":
+    case "interrupted":
       return "var(--system-negative-strong)";
     default:
       return "var(--primary-base)";
@@ -39,6 +40,8 @@ export function statusLabel(status: SubagentStatus): string {
       return "Failed";
     case "aborted":
       return "Aborted";
+    case "interrupted":
+      return "Interrupted";
     default:
       return "Unknown";
   }

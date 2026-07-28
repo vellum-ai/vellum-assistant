@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   clearConversations,
   findConversation,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message } from "../providers/types.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentConfig, SubagentState } from "../subagent/types.js";
@@ -16,7 +16,7 @@ interface FakeManagedSubagent {
     abort: () => void;
     dispose: () => void;
     messages: Message[];
-    sendToClient: (msg: ServerMessage) => void;
+    sendToClient: (msg: AssistantEvent) => void;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     enqueueMessage?: () => { rejected: boolean; queued: boolean };
@@ -28,9 +28,10 @@ interface FakeManagedSubagent {
       outputTokens: number;
       estimatedCost: number;
     };
+    subagentDeniedToolNames: Set<string>;
   } | null;
   state: SubagentState;
-  parentSendToClient: (msg: ServerMessage) => void;
+  parentSendToClient: (msg: AssistantEvent) => void;
   retainedUntil?: number;
   hadEnqueuedMessages?: boolean;
 }
@@ -57,6 +58,7 @@ function makeFakeConversation(): NonNullable<
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.005 },
+    subagentDeniedToolNames: new Set<string>(),
   };
 }
 
@@ -64,7 +66,7 @@ function injectFakeSubagent(
   manager: SubagentManager,
   subagentId: string,
   state: SubagentState,
-  parentSendToClient?: (msg: ServerMessage) => void,
+  parentSendToClient?: (msg: AssistantEvent) => void,
   conversation?: FakeManagedSubagent["conversation"],
 ): void {
   const internals = asInternals(manager);
@@ -236,44 +238,7 @@ describe("SubagentManager fork spawn", () => {
     expect(resolvedSendResultToUser).toBeUndefined();
   });
 
-  test("fork uses default memory scope, not isolated subagent scope", () => {
-    // Validate the fork memory policy shape matches what spawn() produces.
-    const isFork = true;
-    const subagentId = "sub-fork-mem";
-
-    const memoryPolicy = isFork
-      ? {
-          scopeId: "default",
-          includeDefaultFallback: false,
-        }
-      : {
-          scopeId: `subagent:${subagentId}`,
-          includeDefaultFallback: true,
-        };
-
-    expect(memoryPolicy.scopeId).toBe("default");
-    expect(memoryPolicy.includeDefaultFallback).toBe(false);
-  });
-
-  test("non-fork uses isolated subagent memory scope", () => {
-    const isFork = false;
-    const subagentId = "sub-normal-mem";
-
-    const memoryPolicy = isFork
-      ? {
-          scopeId: "default",
-          includeDefaultFallback: false,
-        }
-      : {
-          scopeId: `subagent:${subagentId}`,
-          includeDefaultFallback: true,
-        };
-
-    expect(memoryPolicy.scopeId).toBe(`subagent:${subagentId}`);
-    expect(memoryPolicy.includeDefaultFallback).toBe(true);
-  });
-
-  test("fork forces general role and skips tool filtering", async () => {
+  test("fork defaults to general role (which has no tool allowlist)", async () => {
     const manager = new SubagentManager();
     const subagentId = "sub-fork-role";
 
@@ -286,14 +251,16 @@ describe("SubagentManager fork spawn", () => {
     fakeConversation.injectInheritedContext = () => {};
     fakeConversation.setSubagentAllowedTools = () => {};
 
-    // Create a fork state — in real spawn(), the role would be forced to
-    // "general" regardless of what was requested, and tool filtering skipped.
+    // A fork that does not request a role defaults to "general", which has
+    // `allowedTools: undefined` — so no tool filter is applied. (An explicit
+    // non-general role on a fork IS honored; that path is covered in
+    // subagent-fork-prompt-role.test.ts.)
     const state = makeState(
       subagentId,
       { isFork: true },
       {
         fork: true,
-        role: "general", // forced by spawn() logic
+        role: "general",
         parentMessages: FAKE_PARENT_MESSAGES,
         parentSystemPrompt: "Parent system prompt.",
       },
@@ -303,9 +270,6 @@ describe("SubagentManager fork spawn", () => {
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
 
-    // Tool filtering is only applied in spawn(), not runSubagent(), so we
-    // verify the logic directly: forks skip setSubagentAllowedTools.
-    // For this test, we verify the fork's role is general (which has no allowedTools).
     expect(state.config.role).toBe("general");
 
     asInternals(manager).stopSweep();

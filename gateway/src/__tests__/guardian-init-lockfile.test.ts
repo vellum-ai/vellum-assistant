@@ -56,6 +56,25 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
 }));
 
+// The guardian identity mirror goes through the typed transactional IPC
+// (`contacts_mirror_apply`); record the emitted ops so the bootstrap test can
+// assert the mirror fired with the gateway-minted ids. The op's DB effect is
+// covered assistant-side in contacts-mirror-apply.test.ts.
+const mirrorApplyOps: unknown[][] = [];
+const realAssistantClient = await import("../ipc/assistant-client.js");
+mock.module("../ipc/assistant-client.js", () => ({
+  ...realAssistantClient,
+  async ipcCallAssistant(
+    method: string,
+    params?: { body?: { ops?: unknown[] } },
+  ) {
+    if (method === "contacts_mirror_apply") {
+      mirrorApplyOps.push(params?.body?.ops ?? []);
+    }
+    return { ok: true };
+  },
+}));
+
 const { createChannelVerificationSessionProxyHandler } =
   await import("../http/routes/channel-verification-session-proxy.js");
 
@@ -434,6 +453,7 @@ describe("guardian/init one-time-use lockfile", () => {
   });
 
   test("bootstrap creates contact and token records in the DB", async () => {
+    mirrorApplyOps.length = 0;
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
@@ -445,38 +465,40 @@ describe("guardian/init one-time-use lockfile", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // Verify contact records were written to the assistant DB
-    const assistantDb = new Database(
-      join(testRoot, "data", "db", "assistant.db"),
-      {
-        readonly: true,
-      },
-    );
-
-    const contact = assistantDb
-      .query<
-        { role: string; principal_id: string },
-        []
-      >("SELECT role, principal_id FROM contacts WHERE role = 'guardian'")
-      .get();
-    expect(contact).toBeTruthy();
-    expect(contact!.principal_id).toBe(body.guardianPrincipalId);
-
-    const channel = assistantDb
-      .query<
-        { type: string; status: string },
-        []
-      >("SELECT type, status FROM contact_channels WHERE type = 'vellum'")
-      .get();
-    expect(channel).toBeTruthy();
-    expect(channel!.status).toBe("active");
-
-    assistantDb.close();
+    // Assistant DB mirrors identity only (no ACL columns — gateway-owned) via a
+    // single atomic upsert_channel op keyed on the gateway-minted ids.
+    expect(mirrorApplyOps).toHaveLength(1);
+    const op = mirrorApplyOps[0][0] as Record<string, unknown>;
+    expect(op.op).toBe("upsert_channel");
+    expect(op.type).toBe("vellum");
+    expect(op.isPrimary).toBe(true);
+    expect(op.contactId).toBeTruthy();
+    expect(op.channelId).toBeTruthy();
 
     // Verify token records were written to the gateway DB
     const gwDb = new Database(join(securityDir, "gateway.sqlite"), {
       readonly: true,
     });
+
+    // Gateway DB owns the ACL state for the guardian binding.
+    const gwContact = gwDb
+      .query<
+        { role: string; principal_id: string },
+        []
+      >("SELECT role, principal_id FROM contacts WHERE role = 'guardian'")
+      .get();
+    expect(gwContact).toBeTruthy();
+    expect(gwContact!.principal_id).toBe(body.guardianPrincipalId);
+
+    const gwChannel = gwDb
+      .query<
+        { status: string; policy: string },
+        []
+      >("SELECT status, policy FROM contact_channels WHERE type = 'vellum'")
+      .get();
+    expect(gwChannel).toBeTruthy();
+    expect(gwChannel!.status).toBe("active");
+    expect(gwChannel!.policy).toBe("allow");
 
     const tokenCount = gwDb
       .query<

@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
 
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   __resetPendingDeepLinkForTesting,
   usePendingDeepLinkStore,
 } from "@/stores/pending-deep-link-store";
+import { useViewerStore } from "@/stores/viewer-store";
 
 const navigateMock = mock((_to: string) => undefined);
 mock.module("react-router", () => ({
@@ -29,9 +30,15 @@ mock.module("@sentry/react", () => ({
   captureException: () => {},
 }));
 
-const { useGlobalDeepLinkConsumer } = await import(
-  "./use-global-deep-link-consumer"
-);
+const { useGlobalDeepLinkConsumer } =
+  await import("./use-global-deep-link-consumer");
+
+const resetStores = () => {
+  useViewerStore.setState({ mainView: "chat" });
+  useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
+  useConversationStore.getState().reset();
+};
 
 beforeEach(() => {
   __resetForTesting();
@@ -39,12 +46,14 @@ beforeEach(() => {
   navigateMock.mockClear();
   ensureMainWindowVisibleMock.mockClear();
   sentryBreadcrumbMock.mockClear();
+  resetStores();
 });
 
 afterEach(() => {
   cleanup();
   __resetForTesting();
   __resetPendingDeepLinkForTesting();
+  resetStores();
 });
 
 describe("deeplink.send", () => {
@@ -73,6 +82,92 @@ describe("deeplink.openThread", () => {
 
     expect(navigateMock).toHaveBeenCalledWith(
       "/assistant/conversations/abc-123",
+    );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("resets the main view to chat so the thread isn't hidden behind the app viewer", () => {
+    useViewerStore.setState({ mainView: "app" });
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.openThread", { threadId: "abc-123" });
+    });
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
+  });
+
+  test("runs the full conversation-switch path — subagent/workflow resets + active id sync", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useWorkflowStore.setState({ orderedIds: ["wf-1"] });
+    useConversationStore.setState({ activeConversationId: "old-conversation" });
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.openThread", { threadId: "abc-123" });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual([]);
+    expect(useWorkflowStore.getState().orderedIds).toEqual([]);
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "abc-123",
+    );
+  });
+
+  test("same-thread tap keeps live subagent/workflow state — the id doesn't change, so re-seed effects wouldn't re-run", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useWorkflowStore.setState({ orderedIds: ["wf-1"] });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    useViewerStore.setState({ mainView: "app" });
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.openThread", { threadId: "abc-123" });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual(["sub-1"]);
+    expect(useWorkflowStore.getState().orderedIds).toEqual(["wf-1"]);
+    // Viewer reset + URL sync + window activation still apply.
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("deeplink.billingCheckoutComplete", () => {
+  test("success navigates to billing carrying the session id so the wizard opens", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.billingCheckoutComplete", {
+        status: "success",
+        sessionId: "cs_test_a1B2",
+      });
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/settings/usage?tab=billing&session_id=cs_test_a1B2",
+    );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancel lands on the upgrade-cancel page — no session id, no wizard", () => {
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.billingCheckoutComplete", {
+        status: "cancel",
+        sessionId: null,
+      });
+    });
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/settings/billing/upgrade/cancel",
     );
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
   });

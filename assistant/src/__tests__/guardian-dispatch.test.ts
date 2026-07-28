@@ -3,32 +3,30 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Note: stale mock for channel-guardian-store.js removed — the barrel was
 // deleted and none of the functions it mocked (getActiveBinding, createBinding,
 // listActiveBindingsByAssistant) existed in the barrel.
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    calls: {
-      userConsultTimeoutSeconds: 120,
-    },
-  }),
+// The pending_question request principal is resolved via the gateway guardian
+// delivery for the vellum channel — the SAME source the Vellum actor uses — so
+// the stamped principal always equals the submitting actor principal. The real
+// contacts DB is seeded in resetTables(); the reader mock below derives the
+// gateway delivery from that DB binding so tests model drift / missing guardian
+// by reseeding or clearing the local binding directly.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
+    const { deriveGuardianDeliveries } =
+      await import("./helpers/derive-guardian-delivery.js");
+    return deriveGuardianDeliveries({
+      channelTypes: input?.channelTypes ?? [],
+    });
+  },
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-// The pending_question request principal is resolved via the SAME local source
-// the Vellum actor uses — findGuardianForChannel("vellum")?.contact.principalId
-// — so the stamped principal always equals the submitting actor principal. The
-// real contacts DB is seeded in resetTables(); tests model drift / missing
-// guardian by reseeding or clearing that local binding directly.
 const emitCalls: unknown[] = [];
 let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
@@ -63,15 +61,28 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
+// Guardian requests/deliveries are created through the gateway client; serve
+// that surface from the in-memory sim the assertions read.
+import {
+  bridgeState,
+  gatewayGuardianRequestsStoreBridge,
+} from "./helpers/gateway-guardian-requests-store-bridge.js";
+
+mock.module(
+  "../channels/gateway-guardian-requests.js",
+  () => gatewayGuardianRequestsStoreBridge,
+);
+
 import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -88,18 +99,28 @@ function ensureConversation(id: string): void {
     .run();
 }
 
+function requestsForCallSession(callSessionId: string) {
+  return [...bridgeState.requests.values()]
+    .filter((r) => r.callSessionId === callSessionId)
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function deliveryFor(requestId: string, channel: string) {
+  return bridgeState.deliveries.find(
+    (d) => d.requestId === requestId && d.destinationChannel === channel,
+  );
+}
+
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
+  bridgeState.reset();
   db.run("DELETE FROM call_pending_questions");
   db.run("DELETE FROM call_events");
   db.run("DELETE FROM call_sessions");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 
   // Seed the vellum guardian binding (gateway does this at startup in production)
   createGuardianBinding({
@@ -151,37 +172,17 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq,
     });
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as
-      | {
-          id: string;
-          status: string;
-          question_text: string;
-          guardian_principal_id: string | null;
-        }
-      | undefined;
+    const [request] = requestsForCallSession(session.id);
     expect(request).toBeDefined();
     expect(request!.status).toBe("pending");
-    expect(request!.question_text).toBe("What is the gate code?");
+    expect(request!.questionText).toBe("What is the gate code?");
     // principalId comes from the local guardian binding (same source the actor submits)
-    expect(request!.guardian_principal_id).toBe("test-principal-id");
+    expect(request!.guardianPrincipalId).toBe("test-principal-id");
 
-    const vellumDelivery = raw
-      .query(
-        "SELECT * FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
-      )
-      .get(request!.id, "vellum") as
-      | { status: string; destination_conversation_id: string | null }
-      | undefined;
+    const vellumDelivery = deliveryFor(request!.id, "vellum");
     expect(vellumDelivery).toBeDefined();
     expect(vellumDelivery!.status).toBe("sent");
-    expect(vellumDelivery!.destination_conversation_id).toBe("conv-vellum-1");
+    expect(vellumDelivery!.destinationConversationId).toBe("conv-vellum-1");
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
     expect(typeof signalParams.onConversationCreated).toBe("function");
@@ -195,6 +196,7 @@ describe("guardian-dispatch", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
     createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "local-actor-principal",
@@ -221,23 +223,16 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq,
     });
 
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as
-      | { guardian_principal_id: string | null }
-      | undefined;
+    const [request] = requestsForCallSession(session.id);
     expect(request).toBeDefined();
-    expect(request!.guardian_principal_id).toBe("local-actor-principal");
+    expect(request!.guardianPrincipalId).toBe("local-actor-principal");
   });
 
   test("skips dispatch when no local guardian binding exists (no principal to stamp)", async () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
+    resetGatewayAclStore();
 
     const convId = "conv-dispatch-no-principal";
     ensureConversation(convId);
@@ -258,14 +253,7 @@ describe("guardian-dispatch", () => {
     });
 
     // No request is created and the pipeline is never invoked.
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as { id: string } | null;
-    expect(request).toBeNull();
+    expect(requestsForCallSession(session.id)).toHaveLength(0);
     expect(emitCalls).toHaveLength(0);
   });
 
@@ -308,24 +296,11 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq,
     });
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as { id: string } | undefined;
-    const telegramDelivery = raw
-      .query(
-        "SELECT * FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
-      )
-      .get(request!.id, "telegram") as
-      | { status: string; destination_chat_id: string | null }
-      | undefined;
+    const [request] = requestsForCallSession(session.id);
+    const telegramDelivery = deliveryFor(request!.id, "telegram");
     expect(telegramDelivery).toBeDefined();
     expect(telegramDelivery!.status).toBe("sent");
-    expect(telegramDelivery!.destination_chat_id).toBe("tg-chat-999");
+    expect(telegramDelivery!.destinationChatId).toBe("tg-chat-999");
   });
 
   test("marks non-sent pipeline delivery results as failed", async () => {
@@ -363,19 +338,8 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq,
     });
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as { id: string } | undefined;
-    const vellumDelivery = raw
-      .query(
-        "SELECT * FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
-      )
-      .get(request!.id, "vellum") as { status: string } | undefined;
+    const [request] = requestsForCallSession(session.id);
+    const vellumDelivery = deliveryFor(request!.id, "vellum");
     expect(vellumDelivery).toBeDefined();
     expect(vellumDelivery!.status).toBe("failed");
   });
@@ -419,28 +383,15 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq,
     });
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as { id: string } | undefined;
-    const vellumDelivery = raw
-      .query(
-        "SELECT * FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
-      )
-      .get(request!.id, "vellum") as
-      | { destination_conversation_id: string | null }
-      | undefined;
+    const [request] = requestsForCallSession(session.id);
+    const vellumDelivery = deliveryFor(request!.id, "vellum");
     expect(vellumDelivery).toBeDefined();
-    expect(vellumDelivery!.destination_conversation_id).toBe(
+    expect(vellumDelivery!.destinationConversationId).toBe(
       "conv-from-thread-created",
     );
   });
 
-  test("persists toolName and inputDigest on canonical guardian request for tool-approval dispatches", async () => {
+  test("persists toolName and inputDigest on the guardian request for tool-approval dispatches", async () => {
     const convId = "conv-dispatch-5";
     ensureConversation(convId);
 
@@ -464,19 +415,10 @@ describe("guardian-dispatch", () => {
       inputDigest: "abc123def456",
     });
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as
-      | { id: string; tool_name: string | null; input_digest: string | null }
-      | undefined;
+    const [request] = requestsForCallSession(session.id);
     expect(request).toBeDefined();
-    expect(request!.tool_name).toBe("send_email");
-    expect(request!.input_digest).toBe("abc123def456");
+    expect(request!.toolName).toBe("send_email");
+    expect(request!.inputDigest).toBe("abc123def456");
 
     const signalParams = emitCalls[0] as Record<string, unknown>;
     const payload = signalParams.contextPayload as Record<string, unknown>;
@@ -503,19 +445,10 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq,
     });
 
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const request = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ?",
-      )
-      .get(session.id) as
-      | { id: string; tool_name: string | null; input_digest: string | null }
-      | undefined;
+    const [request] = requestsForCallSession(session.id);
     expect(request).toBeDefined();
-    expect(request!.tool_name).toBeNull();
-    expect(request!.input_digest).toBeNull();
+    expect(request!.toolName).toBeNull();
+    expect(request!.inputDigest).toBeNull();
   });
 
   test("includes activeGuardianRequestCount in context payload", async () => {
@@ -610,39 +543,24 @@ describe("guardian-dispatch", () => {
       pendingQuestion: pq2,
     });
 
-    // Both dispatches should have created separate canonical requests
-    const db = getDb();
-    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
-      .$client;
-    const requests = raw
-      .query(
-        "SELECT * FROM canonical_guardian_requests WHERE call_session_id = ? ORDER BY created_at ASC",
-      )
-      .all(session.id) as Array<{ id: string; question_text: string }>;
+    // Both dispatches should have created separate requests
+    const requests = requestsForCallSession(session.id);
     expect(requests).toHaveLength(2);
-    expect(requests[0].question_text).toBe("What is the gate code?");
-    expect(requests[1].question_text).toBe("Should I let them in?");
+    expect(requests[0].questionText).toBe("What is the gate code?");
+    expect(requests[1].questionText).toBe("Should I let them in?");
 
     // Each request should have its own delivery row, both pointing to the shared conversation
     for (const req of requests) {
-      const delivery = raw
-        .query(
-          "SELECT * FROM canonical_guardian_deliveries WHERE request_id = ? AND destination_channel = ?",
-        )
-        .get(req.id, "vellum") as
-        | { status: string; destination_conversation_id: string | null }
-        | undefined;
+      const delivery = deliveryFor(req.id, "vellum");
       expect(delivery).toBeDefined();
       expect(delivery!.status).toBe("sent");
-      expect(delivery!.destination_conversation_id).toBe(sharedConversationId);
+      expect(delivery!.destinationConversationId).toBe(sharedConversationId);
     }
 
     // Total delivery rows should be 2 (one per request), not 1
-    const allDeliveries = raw
-      .query(
-        "SELECT * FROM canonical_guardian_deliveries WHERE destination_conversation_id = ?",
-      )
-      .all(sharedConversationId) as Array<{ request_id: string }>;
+    const allDeliveries = bridgeState.deliveries.filter(
+      (d) => d.destinationConversationId === sharedConversationId,
+    );
     expect(allDeliveries).toHaveLength(2);
 
     // Second dispatch should report a higher activeGuardianRequestCount

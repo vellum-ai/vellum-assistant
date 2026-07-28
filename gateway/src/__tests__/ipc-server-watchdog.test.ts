@@ -1,13 +1,13 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
-import { createConnection, type Socket } from "node:net";
+import { type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import "./test-preload.js";
 
 import { GatewayIpcServer, type IpcRoute } from "../ipc/server.js";
+import { connectClient, sendRequest } from "./helpers/ipc-newline-client.js";
 
 // Integration tests for GatewayIpcServer's watchdog wiring. The watchdog's
 // own unit tests (race guards, timer error handling, etc.) live in
@@ -28,42 +28,6 @@ afterAll(() => {
     // best-effort
   }
 });
-
-function connectClient(path: string): Promise<Socket> {
-  return new Promise<Socket>((resolve, reject) => {
-    const client: Socket = createConnection(path, () => resolve(client));
-    client.on("error", reject);
-  });
-}
-
-function sendRequest(
-  client: Socket,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<{ id: string; result?: unknown; error?: string }> {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(4).toString("hex");
-    let buffer = "";
-
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const newlineIdx = buffer.indexOf("\n");
-      if (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        client.off("data", onData);
-        try {
-          resolve(JSON.parse(line));
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
-
-    client.on("data", onData);
-    client.write(JSON.stringify({ id, method, params }) + "\n");
-  });
-}
 
 const echoRoute: IpcRoute = {
   method: "echo",

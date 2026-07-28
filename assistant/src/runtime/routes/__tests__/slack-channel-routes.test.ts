@@ -29,13 +29,13 @@ import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../../../daemon/message-types/sync.js";
-import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { createConversation } from "../../../persistence/conversation-crud.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import {
   getBindingByConversation,
   upsertBinding,
-} from "../../../memory/external-conversation-store.js";
+} from "../../../persistence/external-conversation-store.js";
 import { ROUTES } from "../slack-channel-routes.js";
 import type { RouteDefinition } from "../types.js";
 

@@ -1,4 +1,4 @@
-import { Copy, FileCode } from "lucide-react";
+import { FileCode } from "lucide-react";
 import { type ReactNode } from "react";
 
 import type {
@@ -6,8 +6,9 @@ import type {
   LLMContextSection,
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
-import { Button, Card } from "@vellumai/design-library";
+import { Card } from "@vellumai/design-library";
 
+import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
 import { LlmCallErrorCard } from "@/domains/chat/inspector/components/llm-call-error-card";
 
 interface ResponseTabProps {
@@ -193,14 +194,7 @@ function SectionHeader({
           <MetadataChip label={section.kindLabel} />
         </div>
       </div>
-      <Button
-        variant="ghost"
-        size="compact"
-        iconOnly
-        leftIcon={<Copy size={14} aria-hidden />}
-        aria-label="Copy section content"
-        onClick={() => void navigator.clipboard.writeText(section.copyText)}
-      />
+      <CopyButton text={section.copyText} ariaLabel="Copy section content" />
     </div>
   );
 }

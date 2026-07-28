@@ -12,11 +12,13 @@
  * `ChatBody` itself.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ChatBodyProps } from "@/domains/chat/components/chat-body";
+import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 
 // Stub child components that require browser APIs or complex hooks.
 // NOTE: Do NOT mock chat-scroll-area itself — that leaks across test
@@ -56,21 +58,29 @@ mock.module("@vellumai/design-library", () => ({
   Button: ({
     children,
     iconOnly,
+    leftIcon: _leftIcon,
+    variant: _variant,
+    size: _size,
     ...props
   }: {
     children?: ReactNode;
     iconOnly?: ReactNode;
+    leftIcon?: ReactNode;
+    variant?: string;
+    size?: string;
   } & ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button {...props}>{iconOnly ?? children}</button>
   ),
   Notice: ({
     children,
     actions,
+    tone,
   }: {
     children?: ReactNode;
     actions?: ReactNode;
+    tone?: string;
   }) => (
-    <div data-testid="notice">
+    <div data-testid="notice" data-tone={tone}>
       {children}
       {actions ? <div data-testid="notice-actions">{actions}</div> : null}
     </div>
@@ -98,6 +108,9 @@ mock.module("@vellumai/design-library", () => ({
     }) => <div {...props}>{children}</div>,
   },
   ResizablePanel: () => <div data-testid="resizable-panel" />,
+  ScrollShadow: ({ children }: { children?: ReactNode }) => (
+    <div>{children}</div>
+  ),
   Typography: ({ children }: { children?: ReactNode }) => (
     <span>{children}</span>
   ),
@@ -138,7 +151,6 @@ function baseProps(
       transcriptProps: { messages: [], onScrollToMessage: noop } as never,
     },
     composerSlot: <div data-testid="composer">COMPOSER</div>,
-    onStopGenerating: noop,
     dragHandlers: {
       onDragEnter: noopDrag,
       onDragOver: noopDrag,
@@ -152,7 +164,6 @@ function baseProps(
     onDismissRefreshFeedback: noop,
     onRetryRefresh: noop,
     genericChatError: null,
-    isChannelReadonly: false,
     ...overrides,
   };
 }
@@ -227,6 +238,140 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
     );
     expect(html).toContain("BANNER_CONTENT");
   });
+
+  test("reserves the measured bottom banner height", async () => {
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let measuredHeight = 137;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      if (this.querySelector('[data-testid="banner"]')) {
+        return {
+          bottom: measuredHeight,
+          height: measuredHeight,
+          left: 0,
+          right: 0,
+          top: 0,
+          width: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        };
+      }
+      return originalGetBoundingClientRect.call(this);
+    };
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as typeof ResizeObserver;
+
+    try {
+      const { container } = render(
+        <ChatBody
+          {...baseProps({
+            bannerSlot: <div data-testid="banner">BANNER_CONTENT</div>,
+          })}
+        />,
+      );
+      await waitFor(() => {
+        expect(container.innerHTML).toContain("padding-bottom: 137px");
+      });
+
+      measuredHeight = 164;
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver);
+      });
+      await waitFor(() => {
+        expect(container.innerHTML).toContain("padding-bottom: 164px");
+      });
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+      globalThis.ResizeObserver = originalResizeObserver;
+      cleanup();
+    }
+  });
+});
+
+describe("ChatBody — banner-visibility store mirroring", () => {
+  // The shared store must reflect the banner actually being MOUNTED
+  // (bannerSlot provided AND not on the empty state), not merely a
+  // candidate slot existing — a sidebar tip hides itself while the store
+  // reports a visible banner. Count-based register/unregister keeps
+  // concurrent instances (main chat + app-editing side panel) from
+  // clobbering each other.
+  const bannerSlot = <div data-testid="banner">BANNER_CONTENT</div>;
+  const visible = () =>
+    useBannerVisibilityStore.getState().visibleBannerCount > 0;
+
+  beforeEach(() => {
+    useBannerVisibilityStore.setState({ visibleBannerCount: 0 });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("registers while the banner overlay is mounted, unregisters on unmount", () => {
+    const { unmount } = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    expect(visible()).toBe(true);
+
+    unmount();
+    expect(visible()).toBe(false);
+  });
+
+  test("does NOT register on the empty state even when bannerSlot is provided", () => {
+    render(<ChatBody {...withEmptyState({ bannerSlot })} />);
+    expect(visible()).toBe(false);
+  });
+
+  test("does NOT register without a bannerSlot (side panel passes undefined)", () => {
+    render(<ChatBody {...baseProps({ variant: "side-panel" })} />);
+    expect(visible()).toBe(false);
+  });
+
+  test("empty→active transition flips the store as the banner mounts/unmounts", () => {
+    const { rerender } = render(
+      <ChatBody {...withEmptyState({ bannerSlot })} />,
+    );
+    expect(visible()).toBe(false);
+
+    rerender(<ChatBody {...baseProps({ bannerSlot })} />);
+    expect(visible()).toBe(true);
+
+    rerender(<ChatBody {...withEmptyState({ bannerSlot })} />);
+    expect(visible()).toBe(false);
+  });
+
+  test("a bannerless second instance does not clobber the first's visibility", () => {
+    const main = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    const sidePanel = render(
+      <ChatBody {...baseProps({ variant: "side-panel" })} />,
+    );
+    expect(visible()).toBe(true);
+
+    sidePanel.unmount();
+    expect(visible()).toBe(true);
+
+    main.unmount();
+    expect(visible()).toBe(false);
+  });
+
+  test("stays visible until every banner-rendering instance unmounts", () => {
+    const first = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    const second = render(<ChatBody {...baseProps({ bannerSlot })} />);
+    expect(useBannerVisibilityStore.getState().visibleBannerCount).toBe(2);
+
+    first.unmount();
+    expect(visible()).toBe(true);
+
+    second.unmount();
+    expect(visible()).toBe(false);
+  });
 });
 
 describe("ChatBody — startersSlot rendering", () => {
@@ -252,35 +397,108 @@ describe("ChatBody — startersSlot rendering", () => {
 
 });
 
-describe("ChatBody — read-only cancellation", () => {
-  test("renders the read-only banner without a stop control while idle", () => {
+describe("ChatBody — pluginPillsSlot rendering", () => {
+  test("renders pluginPillsSlot between the composer and the starters", () => {
     const html = renderToStaticMarkup(
       <ChatBody
-        {...baseProps({
-          isChannelReadonly: true,
+        {...withEmptyState({
+          pluginPillsSlot: <div data-testid="plugins">PLUGIN_PILLS</div>,
+          startersSlot: <div data-testid="starters">STARTER_CHIPS</div>,
         })}
       />,
     );
-
-    expect(html).toContain("Read-only conversation");
-    expect(html).not.toContain('aria-label="Stop generating"');
-    expect(html).not.toContain("COMPOSER");
+    expect(html).toContain("PLUGIN_PILLS");
+    // Order: composer, then plugin pills, then starters.
+    expect(html.indexOf("COMPOSER")).toBeLessThan(
+      html.indexOf("PLUGIN_PILLS"),
+    );
+    expect(html.indexOf("PLUGIN_PILLS")).toBeLessThan(
+      html.indexOf("STARTER_CHIPS"),
+    );
   });
 
-  test("renders the stop control for an active read-only turn", () => {
+  test("omits plugin pills when pluginPillsSlot is undefined", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...withEmptyState()} />,
+    );
+    expect(html).not.toContain("PLUGIN_PILLS");
+  });
+});
+
+describe("ChatBody — active-process overlays slot", () => {
+  // The orchestrator builds the registry-driven row (subagents → acp runs →
+  // workflows → background tasks) and passes it as a single node; ChatBody
+  // only positions it in the top-center overlay (and gates it on the empty
+  // state). Ordering across kinds is owned by the registry, not ChatBody.
+  const activeProcessOverlaysSlot = (
+    <div data-testid="active-process-overlays">ACTIVE_PROCESSES</div>
+  );
+
+  test("renders the slot top-center when scrolled up and slot is provided", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
-          isChannelReadonly: true,
-          canStopGenerating: true,
+          showScrollToLatest: true,
+          activeProcessOverlaysSlot,
         })}
       />,
     );
+    expect(html).toContain("ACTIVE_PROCESSES");
+  });
 
-    expect(html).toContain("Read-only conversation");
-    expect(html).toContain('aria-label="Stop generating"');
-    expect(html).toContain('title="Stop generation"');
-    expect(html).not.toContain("COMPOSER");
+  test("renders the slot even when pinned (showScrollToLatest false) — always-on while running", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: false,
+          activeProcessOverlaysSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("ACTIVE_PROCESSES");
+  });
+
+  test("does NOT render the slot on the empty state", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...withEmptyState({
+          showScrollToLatest: true,
+          activeProcessOverlaysSlot,
+        })}
+      />,
+    );
+    expect(html).not.toContain("ACTIVE_PROCESSES");
+  });
+
+  test("does NOT render the overlay row when the slot is undefined", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody {...baseProps({ showScrollToLatest: true })} />,
+    );
+    expect(html).not.toContain("ACTIVE_PROCESSES");
+  });
+
+  test("Go-to-Newest bottom overlay still renders alongside the slot (no regression)", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          showScrollToLatest: true,
+          activeProcessOverlaysSlot,
+        })}
+      />,
+    );
+    expect(html).toContain("SCROLL_TO_LATEST");
+    expect(html).toContain("ACTIVE_PROCESSES");
+  });
+});
+
+describe("ChatBody — composer always renders", () => {
+  // Channel-origin (Slack/Email/etc.) conversations render the standard
+  // composer, with no read-only banner replacing it.
+  test("renders the composer and no read-only banner", () => {
+    const html = renderToStaticMarkup(<ChatBody {...baseProps()} />);
+
+    expect(html).toContain("COMPOSER");
+    expect(html).not.toContain("Read-only conversation");
   });
 });
 
@@ -325,6 +543,23 @@ describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
 
     expect(html).toContain("Go to Doctor");
     expect(html).toContain("Dismiss");
+  });
+
+  test("renders warning-tone generic notices as status banners", () => {
+    const html = renderToStaticMarkup(
+      <ChatBody
+        {...baseProps({
+          genericChatError: {
+            message: "Memory is temporarily unavailable.",
+            tone: "warning",
+          },
+          onDismissChatError: () => {},
+        })}
+      />,
+    );
+
+    expect(html).toContain("Memory is temporarily unavailable.");
+    expect(html).toContain('data-tone="warning"');
   });
 
   test("does NOT render the Dismiss button when onDismissChatError is omitted", () => {

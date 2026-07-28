@@ -7,36 +7,56 @@
  *     supplants the generic recall/remember nudge).
  *   - `now-md` fires unchanged (workspace state, independent of PKB).
  *
- * Mocks `getConfig` at the module level so each test can flip the effective
- * gate state without standing up a full config stack. Mocks the PKB hybrid
- * search so the reminder-with-hints branch can resolve deterministically
- * when called.
+ * Seeds `memory.v2.enabled` into the workspace config (and mirrors it in the
+ * mocked plugin config accessor) so each test can flip the effective gate
+ * state. Mocks the PKB hybrid search so the reminder-with-hints branch can
+ * resolve deterministically when called.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-let v2Active = false;
+import { setConfig } from "./helpers/set-config.js";
 
-const realLoader = await import("../config/loader.js");
+let memoryState: {
+  enabled?: boolean;
+  v2: { enabled: boolean };
+  v3?: { live?: boolean };
+} = { v2: { enabled: false } };
 
-mock.module("../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => ({
-    memory: {
-      v2: { enabled: v2Active },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
+/**
+ * Set the memory gate state: seeds the workspace config for real (covering
+ * any loader-based readers) and drives the mocked plugin accessor below.
+ */
+function setMemoryState(state: typeof memoryState): void {
+  memoryState = state;
+  setConfig("memory", {
+    ...state,
+    retrieval: { scratchpadInjection: { enabled: true } },
+  });
+}
+
+function setV2Active(enabled: boolean): void {
+  setMemoryState({ v2: { enabled } });
+}
+
+// The PKB silencing gate reads the plugin's own config accessor.
+mock.module("../plugins/defaults/memory/config.js", () => ({
+  getMemoryConfig: () => ({
+    ...memoryState,
+    retrieval: { scratchpadInjection: { enabled: true } },
   }),
 }));
 
-mock.module("../memory/pkb/pkb-search.js", () => ({
+mock.module("../plugins/defaults/memory/v1/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => [],
 }));
 
 const { applyRuntimeInjections } =
   await import("../daemon/conversation-runtime-assembly.js");
-import { getPkbRoot } from "../memory/pkb/types.js";
+const { registerDefaultPluginInjectors } =
+  await import("../plugins/defaults/index.js");
+import { getPkbRoot } from "../plugins/defaults/memory/v1/pkb/types.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
@@ -70,7 +90,8 @@ describe("PKB injector v2 cutover behavior", () => {
   // `makeTurnContext()`, so seed a default auto-injected PKB file rather than
   // passing a flag.
   beforeEach(() => {
-    v2Active = false;
+    registerDefaultPluginInjectors();
+    setV2Active(false);
     mkdirSync(getPkbRoot(), { recursive: true });
     writeFileSync(
       join(getPkbRoot(), "INDEX.md"),
@@ -100,7 +121,7 @@ describe("PKB injector v2 cutover behavior", () => {
   });
 
   test("v2 active → pkb-context and pkb-reminder silenced; now-md still fires", async () => {
-    v2Active = true;
+    setV2Active(true);
     const result = await applyRuntimeInjections(RUN_MESSAGES, {
       ...makeTurnContext(),
     });
@@ -110,5 +131,27 @@ describe("PKB injector v2 cutover behavior", () => {
     expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
     expect(texts.some((t) => t.includes("<NOW.md"))).toBe(true);
     expect(texts).toContain("What next?");
+  });
+
+  test("v3 live with the v2 flag off → pkb-context and pkb-reminder silenced", async () => {
+    setMemoryState({ v2: { enabled: false }, v3: { live: true } });
+    const result = await applyRuntimeInjections(RUN_MESSAGES, {
+      ...makeTurnContext(),
+    });
+
+    const texts = tailTexts(result.messages);
+    expect(texts.some((t) => t.includes("<knowledge_base>"))).toBe(false);
+    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
+  });
+
+  test("memory disabled → pkb-context and pkb-reminder stay silenced even with no engine active", async () => {
+    setMemoryState({ enabled: false, v2: { enabled: false } });
+    const result = await applyRuntimeInjections(RUN_MESSAGES, {
+      ...makeTurnContext(),
+    });
+
+    const texts = tailTexts(result.messages);
+    expect(texts.some((t) => t.includes("<knowledge_base>"))).toBe(false);
+    expect(texts.some((t) => t.includes("<system_reminder>"))).toBe(false);
   });
 });

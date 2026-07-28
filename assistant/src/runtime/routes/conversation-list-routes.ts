@@ -10,27 +10,29 @@
 
 import { z } from "zod";
 
+import { CHANNEL_IDS } from "../../channels/types.js";
+import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
   markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import { isConversationProcessing } from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-attention-store.js";
+import { isConversationProcessing } from "../../persistence/conversation-crud.js";
 import {
   type ConversationRow,
   getDisplayMetaForConversations,
-} from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
   countConversations,
   listConversations,
   listPinnedConversations,
-} from "../../memory/conversation-queries.js";
-import type { ConversationType } from "../../memory/conversation-types.js";
-import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import { listGroups } from "../../memory/group-crud.js";
+} from "../../persistence/conversation-queries.js";
+import type { ConversationType } from "../../persistence/conversation-types.js";
+import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
+import { listGroups } from "../../persistence/group-crud.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -56,16 +58,7 @@ const log = getLogger("conversation-list-routes");
 // Response schemas
 // ---------------------------------------------------------------------------
 
-const channelIdSchema = z.enum([
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-]);
+const channelIdSchema = z.enum(CHANNEL_IDS);
 
 const assistantAttentionSchema = z.object({
   hasUnseenLatestAssistantMessage: z.boolean(),
@@ -84,35 +77,6 @@ const assistantAttentionSchema = z.object({
       "slack_callback",
     ])
     .optional(),
-});
-
-const slackThreadSchema = z.object({
-  channelId: z.string(),
-  threadTs: z.string(),
-  link: z
-    .object({
-      appUrl: z.string().optional(),
-      webUrl: z.string().optional(),
-    })
-    .optional(),
-});
-
-const slackChannelSchema = z.object({
-  channelId: z.string(),
-  name: z.string().optional(),
-  link: z.object({ webUrl: z.string() }).optional(),
-});
-
-const channelBindingSchema = z.object({
-  sourceChannel: z.string(),
-  externalChatId: z.string(),
-  externalChatName: z.string().optional(),
-  externalThreadId: z.string().optional(),
-  externalUserId: z.string().nullable(),
-  displayName: z.string().nullable(),
-  username: z.string().nullable(),
-  slackThread: slackThreadSchema.optional(),
-  slackChannel: slackChannelSchema.optional(),
 });
 
 const forkParentSchema = z.object({
@@ -145,6 +109,12 @@ export const conversationSummarySchema = z.object({
    */
   surfacedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
+  /**
+   * Plugin-id list scoping this chat to a subset of installed plugins.
+   * Absent when there is no per-chat restriction (default: all enabled
+   * plugins); an explicit `[]` means the user cleared all optional plugins.
+   */
+  enabledPlugins: z.array(z.string()).nullable().optional(),
   /**
    * True when the agent loop is currently mid-turn for this conversation.
    * Mirrors the in-memory `Conversation.isProcessing()` flag on the daemon
@@ -475,15 +445,7 @@ export const ROUTES: RouteDefinition[] = [
           "Filter by origin channel. When provided, only conversations with this exact origin_channel value are returned. Omit to include all channels.",
         schema: {
           type: "string",
-          enum: [
-            "slack",
-            "telegram",
-            "whatsapp",
-            "email",
-            "a2a",
-            "vellum",
-            "phone",
-          ],
+          enum: [...CHANNEL_IDS],
         },
       },
     ],

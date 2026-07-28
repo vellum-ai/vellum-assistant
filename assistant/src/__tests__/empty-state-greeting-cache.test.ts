@@ -14,17 +14,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const checkpointStore = new Map<string, string>();
 
-mock.module("../memory/checkpoints.js", () => ({
+mock.module("../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
   setMemoryCheckpoint: (key: string, value: string) => {
     checkpointStore.set(key, value);
   },
-}));
-
-let cacheTtlMs = 4 * 60 * 60 * 1000;
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ ui: { emptyStateGreetingCacheTtlMs: cacheTtlMs } }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -35,11 +29,17 @@ import {
   getCachedEmptyStateGreeting,
   setCachedEmptyStateGreeting,
 } from "../runtime/routes/empty-state-greeting-cache.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed the cache TTL into the real workspace config. */
+function setCacheTtlMs(ttlMs: number): void {
+  setConfig("ui", { emptyStateGreetingCacheTtlMs: ttlMs });
+}
 
 const TIMESTAMP_KEY = "empty_state:greeting:cached_at";
 
 beforeEach(() => {
-  cacheTtlMs = 4 * 60 * 60 * 1000;
+  setCacheTtlMs(4 * 60 * 60 * 1000);
 });
 
 afterEach(() => {
@@ -54,6 +54,15 @@ describe("empty-state greeting cache", () => {
   test("round-trips set then get within the TTL", () => {
     setCachedEmptyStateGreeting("hey there");
     expect(getCachedEmptyStateGreeting()).toBe("hey there");
+  });
+
+  test("keeps cached greetings separate by timezone scope", () => {
+    setCachedEmptyStateGreeting("hey eastern", "America/New_York");
+    setCachedEmptyStateGreeting("hey central", "America/Chicago");
+
+    expect(getCachedEmptyStateGreeting("America/New_York")).toBe("hey eastern");
+    expect(getCachedEmptyStateGreeting("America/Chicago")).toBe("hey central");
+    expect(getCachedEmptyStateGreeting("Europe/Skopje")).toBeNull();
   });
 
   test("returns null once the TTL is exceeded", () => {
@@ -75,7 +84,7 @@ describe("empty-state greeting cache", () => {
   });
 
   test("TTL of 0 disables caching: writes are skipped and reads miss", () => {
-    cacheTtlMs = 0;
+    setCacheTtlMs(0);
     setCachedEmptyStateGreeting("should not persist");
     expect(checkpointStore.size).toBe(0);
     expect(getCachedEmptyStateGreeting()).toBeNull();
@@ -83,7 +92,7 @@ describe("empty-state greeting cache", () => {
 
   test("TTL of 0 ignores a value cached while caching was enabled", () => {
     setCachedEmptyStateGreeting("cached while on");
-    cacheTtlMs = 0;
+    setCacheTtlMs(0);
     expect(getCachedEmptyStateGreeting()).toBeNull();
   });
 

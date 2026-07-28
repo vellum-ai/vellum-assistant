@@ -5,43 +5,46 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { PostCompactContext } from "@vellumai/plugin-api";
 import { eq } from "drizzle-orm";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
-// `true`) makes the PKB injector go silent — force it off here so the v1
-// injection chain assertions stay meaningful.
-const realLoaderForAssemblyTest = await import("../config/loader.js");
-const realGetConfigForAssemblyTest = realLoaderForAssemblyTest.getConfig;
+// `true`) makes the PKB injector go silent — seed it off in the real workspace
+// config so the v1 injection chain assertions stay meaningful. The Slack
+// suites below need a bot user id, and the timezone-resolution suite re-seeds
+// `ui` per test via `seedUiTimezones`.
+setConfig("memory", { v2: { enabled: false } });
+setConfig("slack", { botUserId: "U_BOT" });
+
 // Per-test overrides for `ui.userTimezone` / `ui.detectedTimezone` so the
 // config self-resolution inside `applyRuntimeInjections` can be exercised.
-let assemblyConfiguredUserTimezone: string | null | undefined;
-let assemblyDetectedTimezone: string | null | undefined;
-mock.module("../config/loader.js", () => ({
-  ...realLoaderForAssemblyTest,
-  getConfig: () => {
-    const real = realGetConfigForAssemblyTest();
-    return {
-      ...real,
-      ui: {
-        ...real.ui,
-        userTimezone:
-          assemblyConfiguredUserTimezone ?? real.ui?.userTimezone ?? null,
-        detectedTimezone:
-          assemblyDetectedTimezone ?? real.ui?.detectedTimezone ?? null,
-      },
-      memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
-      slack: { ...real.slack, botUserId: "U_BOT" },
-    };
+function seedUiTimezones(ui: {
+  userTimezone?: string;
+  detectedTimezone?: string;
+}): void {
+  setConfig("ui", ui);
+}
+
+const realMemoryConfigForAssemblyTest =
+  await import("../plugins/defaults/memory/config.js");
+const realGetMemoryConfigForAssemblyTest =
+  realMemoryConfigForAssemblyTest.getMemoryConfig;
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); mirror the v2-disabled override there.
+mock.module("../plugins/defaults/memory/config.js", () => ({
+  getMemoryConfig: () => {
+    const real = realGetMemoryConfigForAssemblyTest();
+    return { ...real, v2: { ...real.v2, enabled: false } };
   },
 }));
 
-// `resolveTurnInboundActorContext` reads INFO (contact notes / interaction
-// count) via a local contactId join. Stub the join so the actor-context tests
-// can stage it without standing up the contacts schema.
+// `resolveTurnInboundActorContext` reads the INFO `notes` field via a local
+// contactId join (interaction count now comes from the gateway verdict). Stub
+// the join so the actor-context tests can stage it without standing up the
+// contacts schema.
 const realContactStoreForAssemblyTest =
   await import("../contacts/contact-store.js");
-let contactInfoById: Record<
-  string,
-  { notes: string | null; interactionCount: number }
-> = {};
+let contactInfoById: Record<string, { notes: string | null }> = {};
 mock.module("../contacts/contact-store.js", () => ({
   ...realContactStoreForAssemblyTest,
   findContactInfoById: (contactId: string) =>
@@ -51,9 +54,8 @@ mock.module("../contacts/contact-store.js", () => ({
 // `resolveTurnInboundActorContext` must NOT re-resolve ACL via the actor-trust
 // resolver on the fresh-inbound path. Track calls so the tests can assert it
 // is never invoked.
-const realActorTrustResolverForAssemblyTest = await import(
-  "../runtime/actor-trust-resolver.js"
-);
+const realActorTrustResolverForAssemblyTest =
+  await import("../runtime/actor-trust-resolver.js");
 let resolveActorTrustCalls = 0;
 mock.module("../runtime/actor-trust-resolver.js", () => ({
   ...realActorTrustResolverForAssemblyTest,
@@ -76,9 +78,11 @@ let pkbSearchResults: Array<{
   hybridScore?: number;
 }> = [];
 let pkbSearchThrows: Error | null = null;
-mock.module("../memory/pkb/pkb-search.js", () => ({
+mock.module("../plugins/defaults/memory/v1/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
-    if (pkbSearchThrows) throw pkbSearchThrows;
+    if (pkbSearchThrows) {
+      throw pkbSearchThrows;
+    }
     return pkbSearchResults;
   },
 }));
@@ -101,6 +105,7 @@ mock.module("../daemon/date-context.js", () => ({
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { LLMSchema } from "../config/schemas/llm.js";
+import { REFUSAL_FALLBACK_TEXT } from "../context/refusal-quarantine.js";
 import {
   clearConversations,
   setConversation,
@@ -115,6 +120,7 @@ import {
   assembleSlackChronologicalMessages,
   buildSubagentStatusBlock,
   getSlackCompactionWatermarkForPrefix,
+  getSlackWatermarkAdvanceForRowPrefix,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   isGroupChatType,
@@ -132,23 +138,24 @@ import {
 } from "../daemon/conversation-runtime-assembly.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import type { MessageRow } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { getPkbRoot } from "../memory/pkb/types.js";
-import { conversations, messages } from "../memory/schema.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
+import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
+import { getPkbRoot } from "../plugins/defaults/memory/v1/pkb/types.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
-} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+} from "../plugins/defaults/turn-context/unified-turn-context.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -159,6 +166,12 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 // reading the live conversation's persisted message rows, so the schema must
 // exist before any Slack-channel assembly test runs.
 await initializeDb();
+
+// Populate the injector registry with the default plugins' injectors the way
+// bootstrap does in production, so the `applyRuntimeInjections` suites below
+// walk a non-empty chain. Registered at module load (before any describe runs)
+// because the chain-driving tests span multiple `describe` blocks.
+registerDefaultPluginInjectors();
 
 // The pkb-reminder injector derives PKB-active state from the workspace itself
 // — `readPkbContext()` returning content behind the personal-memory trust gate
@@ -359,6 +372,33 @@ describe("resolveChannelCapabilities", () => {
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
+  });
+
+  test("supportsInlineOptions is true only for inline-button channels", () => {
+    // Drives rich approval delivery (and, next, channel-native questions).
+    // Same membership as the retired RICH_APPROVAL_CHANNELS set — a channel can
+    // render inline buttons yet have no dynamic UI.
+    expect(resolveChannelCapabilities("telegram").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("whatsapp").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("slack").supportsInlineOptions).toBe(
+      true,
+    );
+    expect(resolveChannelCapabilities("email").supportsInlineOptions).toBe(
+      false,
+    );
+    expect(resolveChannelCapabilities("phone").supportsInlineOptions).toBe(
+      false,
+    );
+    expect(
+      resolveChannelCapabilities(undefined, "macos").supportsInlineOptions,
+    ).toBe(false);
+    expect(
+      resolveChannelCapabilities("unknown-thing").supportsInlineOptions,
+    ).toBe(false);
   });
 
   test("propagates chatType when provided", () => {
@@ -1098,7 +1138,14 @@ describe("applyRuntimeInjections — injection mode", () => {
       requestId: "reinject-req",
       conversationId: "injection-mode-conv",
       isNonInteractive: false,
-      modelProfileKey: null,
+      modelProfileKey: "balanced",
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+      broadcast: () => {},
     };
     await postCompact(postCompactCtx);
     const result = postCompactCtx.history;
@@ -1586,15 +1633,13 @@ describe("resolveTurnInboundActorContext", () => {
   });
 
   /**
-   * INFO fields (contact notes, interaction count) are joined locally by the
-   * verdict-stamped contact ID, not re-resolved through the ACL store.
+   * The INFO `notes` field is joined locally by the verdict-stamped contact ID,
+   * while the interaction count is gateway-owned and carried on the verdict
+   * (never re-resolved through the ACL store or the local aggregation).
    */
-  test("populates INFO via the local contactId join", () => {
-    // GIVEN a contact whose INFO is available by id
-    contactInfoById["contact-42"] = {
-      notes: "prefers async updates",
-      interactionCount: 7,
-    };
+  test("notes come from the local join; interaction count from the verdict", () => {
+    // GIVEN a contact whose notes are available by id
+    contactInfoById["contact-42"] = { notes: "prefers async updates" };
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
@@ -1603,16 +1648,40 @@ describe("resolveTurnInboundActorContext", () => {
       requesterContactId: "contact-42",
       memberStatus: "active",
       memberPolicy: "allow",
+      // Gateway-owned interaction telemetry, stamped from the trust verdict.
+      requesterInteractionCount: 7,
     };
 
     // WHEN the inbound actor context is resolved
     const actorContext = resolveTurnInboundActorContext(trustContext);
 
-    // THEN INFO comes from the local join and ACL stays verdict-derived
+    // THEN notes come from the local join, the count from the verdict, and ACL
+    // stays verdict-derived
     expect(actorContext?.contactNotes).toBe("prefers async updates");
     expect(actorContext?.contactInteractionCount).toBe(7);
     expect(actorContext?.memberStatus).toBe("active");
     expect(resolveActorTrustCalls).toBe(0);
+  });
+
+  /**
+   * A verdict without member telemetry (unknown sender) leaves the interaction
+   * count undefined rather than reviving a local assistant-DB read.
+   */
+  test("interaction count is undefined when the verdict carries none", () => {
+    contactInfoById["contact-99"] = { notes: "some note" };
+    const trustContext: TrustContext = {
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "tg-999",
+      requesterChatId: "chat-9",
+      requesterContactId: "contact-99",
+      // No requesterInteractionCount stamped.
+    };
+
+    const actorContext = resolveTurnInboundActorContext(trustContext);
+
+    expect(actorContext?.contactNotes).toBe("some note");
+    expect(actorContext?.contactInteractionCount).toBeUndefined();
   });
 });
 
@@ -1622,16 +1691,16 @@ describe("resolveTurnInboundActorContext", () => {
 
 describe("resolveTurnModelProfileLabel", () => {
   /**
-   * A null key means the active profile is unchanged since the last notified
-   * one, so there is no `model_profile` line to render this turn.
+   * A null notice key means there is no `model_profile` line to render this
+   * turn.
    */
-  test("returns null when the profile key is null", () => {
-    // GIVEN a turn whose profile is unchanged since the last notification
+  test("returns null when the profile notice key is null", () => {
+    // GIVEN a turn without a profile notice to render
     const llm = LLMSchema.parse({
       default: { provider: "anthropic", model: "claude-sonnet-4-7" },
     });
 
-    // WHEN the label is resolved for a null key
+    // WHEN the label is resolved for a null notice key
     const label = resolveTurnModelProfileLabel(null, "mainAgent", llm);
 
     // THEN there is no profile line to inject
@@ -2242,8 +2311,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 
 describe("applyRuntimeInjections timezone resolution", () => {
   afterEach(() => {
-    assemblyConfiguredUserTimezone = undefined;
-    assemblyDetectedTimezone = undefined;
+    seedUiTimezones({});
     clearConversations();
   });
 
@@ -2287,10 +2355,11 @@ describe("applyRuntimeInjections timezone resolution", () => {
      * the device-timezone fallback used when the client reports none.
      */
     // GIVEN the guardian has configured a user timezone in config
-    assemblyConfiguredUserTimezone = "America/New_York";
-
     // AND a different server-detected timezone is configured
-    assemblyDetectedTimezone = "America/Los_Angeles";
+    seedUiTimezones({
+      userTimezone: "America/New_York",
+      detectedTimezone: "America/Los_Angeles",
+    });
 
     // AND the turn's frozen snapshot carries no client timezone (so the
     // detected timezone is the device-timezone fallback)
@@ -2314,8 +2383,10 @@ describe("applyRuntimeInjections timezone resolution", () => {
      * config-sourced detected-timezone fallback.
      */
     // GIVEN the configured user timezone and a detected fallback in config
-    assemblyConfiguredUserTimezone = "America/New_York";
-    assemblyDetectedTimezone = "America/Denver";
+    seedUiTimezones({
+      userTimezone: "America/New_York",
+      detectedTimezone: "America/Denver",
+    });
 
     // AND the turn's frozen snapshot carries a client timezone
     seedTemporalSnapshot("America/Los_Angeles");
@@ -2337,7 +2408,7 @@ describe("applyRuntimeInjections timezone resolution", () => {
      * configured user timezone matches the snapshot's client timezone.
      */
     // GIVEN the configured user timezone matches the client timezone
-    assemblyConfiguredUserTimezone = "America/New_York";
+    seedUiTimezones({ userTimezone: "America/New_York" });
 
     // AND the turn's frozen snapshot carries the matching client timezone
     seedTemporalSnapshot("America/New_York");
@@ -2612,6 +2683,22 @@ describe("applyRuntimeInjections — subagent status", () => {
     content: [{ type: "text", text: "user message" }],
   };
 
+  // The `<active_subagents>` block is sourced from the live conversation
+  // (Conversation.getSubagentChildren delegates to the manager), so register
+  // a fallback fake carrying that delegation for the seeded children to
+  // surface.
+  beforeEach(() => {
+    setConversation(FALLBACK_CONVERSATION_ID, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      getSubagentChildren: () =>
+        getSubagentManager().getChildrenOf(FALLBACK_CONVERSATION_ID),
+    } as never);
+  });
+
   afterEach(() => {
     clearSeededSubagents();
     clearConversations();
@@ -2735,7 +2822,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   const pkbRoot = getPkbRoot();
 
   // The pkb-reminder injector reads the dense/sparse PKB query pair off the
-  // conversation's live graph handle (the memory-retrieval hook records it
+  // conversation's live graph handle (the memory plugin's hook records it
   // there during retrieval), not from the injection options. Register a handle
   // for the fallback conversation id `applyRuntimeInjections` synthesizes and
   // seed it with a query vector so the hint-search branch runs.
@@ -3145,15 +3232,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const outer: Record<string, unknown> = {
       ...(opts.extraOuterMetadata ?? {}),
     };
-    if (opts.slackMeta) outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    if (opts.slackMeta) {
+      outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    }
     return {
       id: opts.id,
       conversationId: "conv-1",
       role: "user",
-      content: JSON.stringify([{ type: "text", text: opts.text }]),
+      content: [{ type: "text", text: opts.text }],
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
       clientMessageId: null,
+      finalized: 1,
     };
   }
 
@@ -3164,15 +3254,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     slackMeta?: SlackMessageMetadata;
   }): MessageRow {
     const outer: Record<string, unknown> = {};
-    if (opts.slackMeta) outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    if (opts.slackMeta) {
+      outer.slackMeta = writeSlackMetadata(opts.slackMeta);
+    }
     return {
       id: opts.id,
       conversationId: "conv-1",
       role: "assistant",
-      content: JSON.stringify([{ type: "text", text: opts.text }]),
+      content: [{ type: "text", text: opts.text }],
       createdAt: opts.createdAt,
       metadata: Object.keys(outer).length > 0 ? JSON.stringify(outer) : null,
       clientMessageId: null,
+      finalized: 1,
     };
   }
 
@@ -3212,7 +3305,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     return messages.map((m) => {
       for (let i = m.content.length - 1; i >= 0; i--) {
         const block = m.content[i];
-        if (block.type === "text") return block.text;
+        if (block.type === "text") {
+          return block.text;
+        }
       }
       return "";
     });
@@ -3974,6 +4069,51 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(getSlackCompactionWatermarkForPrefix(result, 1)).toBe(T2);
   });
 
+  // A legacy kept-tail row carries no `channelTs`, so the guard must fall back
+  // to `createdAt/1000` — as the projection filter does — or it advances past a
+  // row the filter then drops while the summary never covered it: silent loss.
+  describe("getSlackWatermarkAdvanceForRowPrefix — legacy kept rows", () => {
+    test("skips the advance when a legacy kept row sits at or before the candidate", () => {
+      const rows: MessageRow[] = [
+        userRow({
+          id: "summarized-prefix",
+          createdAt: 1700000030_000,
+          text: "summarized prefix",
+          slackMeta: buildSlackMeta({ channelTs: T2, displayName: "carol" }),
+        }),
+        // No slackMeta → legacy row; createdAt/1000 = 1700000020 <= T2, so
+        // advancing to T2 would drop it from the projection uncovered.
+        userRow({
+          id: "legacy-kept-tail",
+          createdAt: 1700000020_000,
+          text: "legacy kept tail",
+        }),
+      ];
+
+      expect(getSlackWatermarkAdvanceForRowPrefix(rows, 1, null)).toBeNull();
+    });
+
+    test("advances when a legacy kept row sits strictly after the candidate", () => {
+      const rows: MessageRow[] = [
+        userRow({
+          id: "summarized-prefix",
+          createdAt: 1700000000_000,
+          text: "summarized prefix",
+          slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+        }),
+        // No slackMeta → legacy row; createdAt/1000 = 1700000050 > T0, so the
+        // projection keeps it and the advance is safe.
+        userRow({
+          id: "legacy-kept-tail-after",
+          createdAt: 1700000050_000,
+          text: "legacy kept tail after",
+        }),
+      ];
+
+      expect(getSlackWatermarkAdvanceForRowPrefix(rows, 1, null)).toBe(T0);
+    });
+  });
+
   test("active-thread focus filters pre-watermark and legacy compacted rows", () => {
     const caps: ChannelCapabilities = {
       channel: "slack",
@@ -4167,7 +4307,10 @@ describe("Slack channel chronological rendering — multi-thread", () => {
             id: r.id,
             conversationId: "runtime-assembly-fallback",
             role: r.role,
-            content: r.content,
+            content:
+              typeof r.content === "string"
+                ? r.content
+                : JSON.stringify(r.content),
             createdAt: r.createdAt,
             metadata: r.metadata,
           })),
@@ -4762,7 +4905,9 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
 
   function envelope(meta: SlackMessageMetadata | null): string {
     const outer: Record<string, unknown> = {};
-    if (meta) outer.slackMeta = writeSlackMetadata(meta);
+    if (meta) {
+      outer.slackMeta = writeSlackMetadata(meta);
+    }
     return JSON.stringify(outer);
   }
 
@@ -5160,6 +5305,59 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result).not.toBeNull();
     expect(result!).toContain("Lone reply");
     expect(result!).toContain("<active_thread>");
+  });
+
+  test("drops a previously-refused exchange from the focus block", () => {
+    // A refusal persisted inside the active thread (the flagged prompt plus the
+    // canned apology the empty-response plugin rewrote the turn into) must not
+    // survive into the `<active_thread>` block. The block is appended to the
+    // user tail, so a surviving refusal line would let the safety classifier
+    // re-refuse every turn — the same dead-end quarantined off Slack.
+    const FLAGGED_TS = "1700000010.000002";
+    const REFUSAL_TS = "1700000011.000003";
+    const BENIGN_TS = "1700000020.000004";
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      buildRow(
+        "user",
+        "disallowed question",
+        2_000,
+        buildMeta({
+          channelTs: FLAGGED_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+      buildRow(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        2_100,
+        buildMeta({ channelTs: REFUSAL_TS, threadTs: PARENT_TS }),
+      ),
+      buildRow(
+        "user",
+        "back to normal",
+        3_000,
+        buildMeta({
+          channelTs: BENIGN_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    // Surrounding benign turns survive …
+    expect(result!).toContain("Parent");
+    expect(result!).toContain("back to normal");
+    // … but the refusal and the prompt that tripped it are gone.
+    expect(result!).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(result!).not.toContain("disallowed question");
   });
 });
 
@@ -5997,6 +6195,353 @@ describe("assembleSlackChronologicalMessages", () => {
         },
       ],
     });
+  });
+
+  test("quarantines a previously-refused exchange from the transcript", () => {
+    // A safety-classifier refusal persisted in Slack history — the flagged
+    // prompt plus the canned apology the empty-response plugin rewrote the turn
+    // into — must not be replayed to the model. Left in, the classifier
+    // re-refuses every turn, the poisoned dead-end the plugin's turn-start
+    // sweep prevents off Slack. The whole exchange is excised here so it never
+    // reaches the model request.
+    const TS_14_30 = "1699972200.000400"; // 14:30 UTC
+    const meta = (channelTs: string): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs,
+      eventKind: "message",
+      displayName: "@alice",
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row("user", "hi assistant", MS_14_25, metadataEnvelope(meta(TS_14_25))),
+      row(
+        "user",
+        "disallowed question",
+        MS_14_26,
+        metadataEnvelope(meta(TS_14_26)),
+      ),
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        MS_14_28,
+        metadataEnvelope(meta(TS_14_28)),
+      ),
+      row("user", "back to normal", MS_14_30, metadataEnvelope(meta(TS_14_30))),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    const serialized = JSON.stringify(result);
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … while the benign turns on either side survive.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
+  });
+
+  test("quarantines the refused exchange across an interleaved sibling thread", () => {
+    // Multi-party channel: @alice's flagged prompt roots a thread, the
+    // assistant's refusal fallback replies inside it (`threadTs` = the prompt's
+    // ts), and @bob posts in a different thread in between. Chronological
+    // adjacency would pair the fallback with @bob's unrelated post — dropping
+    // it and stranding the actual refused prompt, which then re-trips the
+    // classifier every turn. Thread provenance pairs the fallback with @alice's
+    // prompt instead and leaves @bob's post in place.
+    const CHANNEL_ID = "C0MULTI01";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const T_HI = "1699971900.000100";
+    const T_PROMPT = "1699972000.000200"; // roots @alice's thread
+    const T_BOB = "1699972030.000300"; // sibling-thread post, interleaved
+    const T_FALLBACK = "1699972060.000400"; // assistant refusal, in @alice's thread
+    const T_LATER = "1699972200.000500";
+    const meta = (
+      channelTs: string,
+      displayName: string,
+      threadTs?: string,
+    ): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: CHANNEL_ID,
+      channelTs,
+      ...(threadTs ? { threadTs } : {}),
+      eventKind: "message",
+      displayName,
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "hi assistant",
+        1699971900_000,
+        metadataEnvelope(meta(T_HI, "@alice")),
+      ),
+      row(
+        "user",
+        "disallowed question",
+        1699972000_000,
+        metadataEnvelope(meta(T_PROMPT, "@alice")),
+      ),
+      row(
+        "user",
+        "what's for lunch",
+        1699972030_000,
+        metadataEnvelope(meta(T_BOB, "@bob")),
+      ),
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        1699972060_000,
+        metadataEnvelope(meta(T_FALLBACK, "@assistant", T_PROMPT)),
+      ),
+      row(
+        "user",
+        "back to normal",
+        1699972200_000,
+        metadataEnvelope(meta(T_LATER, "@alice")),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    const serialized = JSON.stringify(result);
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … the interleaved sibling-thread post from another user is untouched …
+    expect(serialized).toContain("what's for lunch");
+    // … as are the benign turns on either side.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
+  });
+
+  test("quarantines a threaded refusal that followed a tool call, leaving no orphan tool churn", () => {
+    // @alice's flagged prompt roots a thread; the assistant posts an interim
+    // "let me check" reply carrying a `tool_use` (Slack-visible, so it keys to
+    // @alice's thread), the tool runs (a synthetic `tool_result` row with NO
+    // Slack provenance — it keys `null`), and the refusal fallback lands back
+    // in @alice's thread. @bob posts in a sibling thread in between.
+    //
+    // Thread-scoped pairing drops the prompt/fallback and the Slack-visible
+    // `tool_use`, but a naive walk skips the `null`-keyed synthetic
+    // `tool_result` as "another thread". Orphan-tool pruning already ran during
+    // rendering, so that stranded `tool_result` — now missing its `tool_use` —
+    // would ship to the provider and hard-fail the request. Null-keyed tool
+    // churn must be treated as part of the refused exchange and dropped.
+    const CHANNEL_ID = "C0MULTI02";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const T_HI = "1699971900.000100";
+    const T_PROMPT = "1699972000.000200"; // roots @alice's thread
+    const T_TOOLUSE = "1699972010.000250"; // assistant interim + tool_use, in @alice's thread
+    const T_BOB = "1699972020.000300"; // sibling-thread post, interleaved
+    const T_FALLBACK = "1699972060.000400"; // assistant refusal, in @alice's thread
+    const T_LATER = "1699972200.000500";
+    const meta = (
+      channelTs: string,
+      displayName: string,
+      threadTs?: string,
+    ): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: CHANNEL_ID,
+      channelTs,
+      ...(threadTs ? { threadTs } : {}),
+      eventKind: "message",
+      displayName,
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "hi assistant",
+        1699971900_000,
+        metadataEnvelope(meta(T_HI, "@alice")),
+      ),
+      row(
+        "user",
+        "disallowed question",
+        1699972000_000,
+        metadataEnvelope(meta(T_PROMPT, "@alice")),
+      ),
+      // Assistant interim reply + tool_use — Slack-visible, threaded under the
+      // prompt, so it keys to @alice's thread.
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "let me check" },
+          { type: "tool_use", id: "tu_ref", name: "search", input: { q: "x" } },
+        ]),
+        createdAt: 1699972010_000,
+        metadata: metadataEnvelope(meta(T_TOOLUSE, "@assistant", T_PROMPT)),
+      },
+      row(
+        "user",
+        "what's for lunch",
+        1699972020_000,
+        metadataEnvelope(meta(T_BOB, "@bob")),
+      ),
+      // Synthetic tool_result — NOT sent to Slack, so no slackMeta (keys null).
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu_ref", content: "result" },
+        ]),
+        createdAt: 1699972030_000,
+        metadata: metadataEnvelope(null),
+      },
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        1699972060_000,
+        metadataEnvelope(meta(T_FALLBACK, "@assistant", T_PROMPT)),
+      ),
+      row(
+        "user",
+        "back to normal",
+        1699972200_000,
+        metadataEnvelope(meta(T_LATER, "@alice")),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    expect(result).not.toBeNull();
+    const blocks = result!.flatMap((m) => m.content);
+    // No tool churn from the refused turn survives — neither the orphaned
+    // tool_result nor its (now dropped) tool_use.
+    expect(blocks.some((b) => b.type === "tool_result")).toBe(false);
+    expect(blocks.some((b) => b.type === "tool_use")).toBe(false);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("tu_ref");
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … the interleaved sibling-thread post from another user is untouched …
+    expect(serialized).toContain("what's for lunch");
+    // … as are the benign turns on either side.
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
+  });
+
+  test("keeps a sibling thread's tool pair interleaved inside a refused exchange", () => {
+    // @alice's flagged prompt roots her thread and the refusal fallback lands
+    // back in it. In between, @bob's own thread runs a tool call: the assistant
+    // posts a Slack-visible interim + `tool_use` (keyed to @bob's thread) and
+    // the tool returns a synthetic `tool_result` with no Slack provenance (keys
+    // `null`).
+    //
+    // The null-keyed result must be tied back to its @bob `tool_use` and kept —
+    // dropping it as refused-exchange churn would orphan the sibling `tool_use`
+    // the walk-back leaves in place, and orphan-tool pruning already ran during
+    // rendering, so that half-pair would ship to the provider and hard-fail.
+    const CHANNEL_ID = "C0MULTI03";
+    const SLACK_CAPS_CHANNEL: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    const T_HI = "1699971900.000100";
+    const T_PROMPT = "1699972000.000200"; // roots @alice's thread (refused)
+    const T_BOB_PROMPT = "1699972010.000250"; // roots @bob's sibling thread
+    const T_BOB_TOOLUSE = "1699972020.000300"; // assistant interim + tool_use, @bob's thread
+    const T_FALLBACK = "1699972060.000400"; // assistant refusal, in @alice's thread
+    const T_LATER = "1699972200.000500";
+    const meta = (
+      channelTs: string,
+      displayName: string,
+      threadTs?: string,
+    ): SlackMessageMetadata => ({
+      source: "slack",
+      channelId: CHANNEL_ID,
+      channelTs,
+      ...(threadTs ? { threadTs } : {}),
+      eventKind: "message",
+      displayName,
+    });
+    const rows: SlackTranscriptInputRow[] = [
+      row(
+        "user",
+        "hi assistant",
+        1699971900_000,
+        metadataEnvelope(meta(T_HI, "@alice")),
+      ),
+      row(
+        "user",
+        "disallowed question",
+        1699972000_000,
+        metadataEnvelope(meta(T_PROMPT, "@alice")),
+      ),
+      // @bob opens a sibling thread with a request that runs a tool.
+      row(
+        "user",
+        "bob needs help",
+        1699972010_000,
+        metadataEnvelope(meta(T_BOB_PROMPT, "@bob")),
+      ),
+      // Assistant interim reply + tool_use for @bob — Slack-visible, threaded
+      // under @bob's prompt, so it keys to @bob's thread.
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "checking for bob" },
+          { type: "tool_use", id: "tu_sib", name: "search", input: { q: "y" } },
+        ]),
+        createdAt: 1699972020_000,
+        metadata: metadataEnvelope(
+          meta(T_BOB_TOOLUSE, "@assistant", T_BOB_PROMPT),
+        ),
+      },
+      // @bob's synthetic tool_result — NOT sent to Slack, so no slackMeta.
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu_sib", content: "for bob" },
+        ]),
+        createdAt: 1699972030_000,
+        metadata: metadataEnvelope(null),
+      },
+      row(
+        "assistant",
+        REFUSAL_FALLBACK_TEXT,
+        1699972060_000,
+        metadataEnvelope(meta(T_FALLBACK, "@assistant", T_PROMPT)),
+      ),
+      row(
+        "user",
+        "back to normal",
+        1699972200_000,
+        metadataEnvelope(meta(T_LATER, "@alice")),
+      ),
+    ];
+
+    const result = assembleSlackChronologicalMessages(rows, SLACK_CAPS_CHANNEL);
+    expect(result).not.toBeNull();
+    const blocks = result!.flatMap((m) => m.content);
+    // @bob's tool pair survives intact — both halves, same id, no orphan.
+    const toolUseIds = blocks.flatMap((b) =>
+      b.type === "tool_use" ? [b.id] : [],
+    );
+    const toolResultIds = blocks.flatMap((b) =>
+      b.type === "tool_result" ? [b.tool_use_id] : [],
+    );
+    expect(toolUseIds).toEqual(["tu_sib"]);
+    expect(toolResultIds).toEqual(["tu_sib"]);
+    const serialized = JSON.stringify(result);
+    // The refusal and the prompt that tripped it are both gone …
+    expect(serialized).not.toContain(REFUSAL_FALLBACK_TEXT);
+    expect(serialized).not.toContain("disallowed question");
+    // … @bob's whole sibling exchange and the benign turns are untouched.
+    expect(serialized).toContain("bob needs help");
+    expect(serialized).toContain("checking for bob");
+    expect(serialized).toContain("hi assistant");
+    expect(serialized).toContain("back to normal");
   });
 });
 

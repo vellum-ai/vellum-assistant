@@ -42,7 +42,7 @@ References:
 Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) (Safari sheet) via a `NativeAuth` Capacitor plugin — see [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) and the Swift side at [`clients/ios/App/App/NativeAuthPlugin.swift`](../../../clients/ios/App/App/NativeAuthPlugin.swift).
 
 - **Protected (app) routes**: route protection middleware (see [`CONVENTIONS.md` § Route protection via middleware](./CONVENTIONS.md#route-protection-via-middleware)) redirects unauthenticated users to `/account/login?returnTo=…`. Individual pages should **not** render inline sign-in gates. Return `null` when `!isLoggedIn` and let the middleware handle the redirect. The branded login page (`/account/login`) renders a native login form (inside [`NativeSplash`](../src/components/native-splash.tsx)) on Capacitor iOS and a web login form on web.
-- **iOS login — no `providerHint`**: the iOS login form must use a single "Sign in" button with **no `providerHint`**. Do NOT add individual provider buttons or pass `providerHint` from the iOS login screen — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). The `providerHint` / `loginHint` parameters remain in the helper API for web and other use cases but must not be used from the iOS login entry point.
+- **iOS login — single AuthKit button**: the iOS login form must use a single "Sign in" button that hands off to WorkOS AuthKit. Do NOT add individual provider buttons (Google/Apple/etc.) or otherwise pin the flow to a specific provider — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). AuthKit hosts the provider selection, so the app never names a provider itself.
 - **Pre-fill identity-derived inputs from the auth claim**: when the platform / IdP returns identity claims on signup (Apple SIWA `given_name`/`family_name`, Google `given_name`/`family_name`, etc.), pre-fill any user-facing input that asks for that identity (e.g. "Your name") from the claim instead of forcing the user to retype it — [Apple Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Apple HIG: Sign in with Apple](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) treat asking again as a violation. The field stays editable so users can pick a preferred nickname.
 - **Sign-in actions outside the app shell**: wrap sign-in links in a shared component that renders a native `startAuthFlow()` button on Capacitor iOS and a router `<Link>` on web — never a plain `<a href="/account/login">`, which on iOS would navigate the WKWebView away from the running SPA.
 - **Platform detection in JSX**: use a `useIsNativePlatform()` hook (which returns `false` during the first paint and settles to the real value on mount) — not the bare `isNativePlatform()` function — to avoid render flicker and hydration mismatches in any SSR/prerender path. If the hook doesn't exist yet at the call site, add it next to [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts).
@@ -150,6 +150,37 @@ References:
 - MDN — [Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
 - WHATWG SSE spec — [comments and dispatch](https://html.spec.whatwg.org/multipage/server-sent-events.html#dispatchMessage)
 - MDN — [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController)
+
+---
+
+## Full-duplex TTS must render through a MediaStream track
+
+WebKit owns the shared `AVAudioSession` used by `getUserMedia()` in a
+`WKWebView`: it selects a play-and-record category and voice-processing mode,
+and it creates a `VoiceProcessingIO` capture unit when echo cancellation is
+requested. Do not add a Capacitor plugin that reconfigures or reactivates that
+session around microphone capture. Changing the active session underneath
+WebKit can leave its live capture unit detached from the microphone.
+
+Direct `AudioContext.destination` playback is not supplied to WebKit's capture
+unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route
+full-duplex TTS into a `MediaStreamAudioDestinationNode` and play that stream
+through an `HTMLAudioElement`. WebKit routes default-device MediaStream-track
+playback through the same voice-processing unit and can use it as the echo
+reference. `LiveVoiceAudioPlayer` is the canonical implementation.
+
+Start the media element from the same user gesture that prewarms the
+`AudioContext`, before awaiting readiness preflight or any other asynchronous
+work. On teardown, pause it, clear `srcObject`, and stop every track owned by
+the destination stream. Automatic reconnects must reuse the already-started
+player and MediaStream element: creating a replacement from a backoff timer
+loses the original user activation and can make `play()` fail.
+
+References:
+
+- WebKit — [`MediaSessionManagerCocoa` selects the capture audio-session category and mode](https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebCore/platform/audio/cocoa/MediaSessionManagerCocoa.mm#L174-L218)
+- WebKit — [`CoreAudioCaptureUnit` selects `VoiceProcessingIO` for echo cancellation](https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebCore/platform/mediastream/cocoa/CoreAudioCaptureUnit.cpp#L75-L87)
+- WebKit — [MediaStream-track playback is rendered through the active capture unit](https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebKit/GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp#L228-L292)
 
 ---
 

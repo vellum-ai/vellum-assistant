@@ -10,6 +10,8 @@ import { cleanup, renderHook } from "@testing-library/react";
 
 import {
   computeWorkflowCardData,
+  selectWorkflowAgentAvatarSeeds,
+  useWorkflowAgentAvatarSeeds,
   useWorkflowCardData,
 } from "@/domains/chat/hooks/use-workflow-card-data";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -153,36 +155,69 @@ describe("computeWorkflowCardData — leaf mapping", () => {
 // ---------------------------------------------------------------------------
 
 describe("computeWorkflowCardData — current step title/info", () => {
-  test("phase drives the header when set", () => {
+  test("title is always the workflow name; phase rides the secondary line", () => {
     const data = computeWorkflowCardData(
       makeEntry({
+        label: "Research workflow",
         phase: "Planning",
         summary: "breaking down the goal",
         leaves: [{ seq: 0, label: "leaf", status: "running" }],
       }),
     );
-    expect(data.currentStepTitle).toBe("Planning");
-    expect(data.currentStepInfo).toBe("breaking down the goal");
+    expect(data.currentStepTitle).toBe("Research workflow");
+    expect(data.currentStepInfo).toBe("Planning");
   });
 
-  test("falls back to the latest leaf when no phase is set", () => {
+  test("the latest leaf's prompt rides the secondary line when no phase is set", () => {
     const data = computeWorkflowCardData(
       makeEntry({
+        label: "Research workflow",
         leaves: [
           { seq: 0, label: "First", status: "completed" },
           { seq: 1, label: "Latest", status: "running", promptSummary: "go" },
         ],
       }),
     );
-    expect(data.currentStepTitle).toBe("Latest");
+    expect(data.currentStepTitle).toBe("Research workflow");
     expect(data.currentStepInfo).toBe("go");
   });
 
-  test("falls back to the run label when there are no leaves or phase", () => {
+  test("a latest leaf with no prompt falls back to its label on the secondary line", () => {
+    const data = computeWorkflowCardData(
+      makeEntry({
+        label: "Research workflow",
+        leaves: [{ seq: 1, label: "Latest", status: "running" }],
+      }),
+    );
+    expect(data.currentStepTitle).toBe("Research workflow");
+    expect(data.currentStepInfo).toBe("Latest");
+  });
+
+  test("an unlabeled latest leaf no longer leaks 'Leaf <seq>' into the title", () => {
+    // Regression: the synthesis leaf carries no label, so the header used to
+    // fall back to `Leaf <seq>` ("Leaf 6") instead of the workflow's name.
+    const data = computeWorkflowCardData(
+      makeEntry({
+        label: "nba-all-teams",
+        leaves: [
+          { seq: 6, status: "running", promptSummary: "Compile the report" },
+        ],
+      }),
+    );
+    expect(data.currentStepTitle).toBe("nba-all-teams");
+    expect(data.currentStepInfo).toBe("Compile the report");
+  });
+
+  test("uses the run label as the title with no leaves or phase", () => {
     const data = computeWorkflowCardData(
       makeEntry({ label: "Research workflow" }),
     );
     expect(data.currentStepTitle).toBe("Research workflow");
+  });
+
+  test("falls back to 'Workflow' when the run has no label", () => {
+    const data = computeWorkflowCardData(makeEntry({ label: undefined }));
+    expect(data.currentStepTitle).toBe("Workflow");
   });
 
   test("surfaces the log message as the secondary line with no phase or leaves", () => {
@@ -191,6 +226,36 @@ describe("computeWorkflowCardData — current step title/info", () => {
     );
     expect(data.currentStepTitle).toBe("Research workflow");
     expect(data.currentStepInfo).toBe("reading sources");
+  });
+
+  test("a terminal run prefers the final summary over a stale phase", () => {
+    // completeRun() leaves the last live phase set, so a finished card must
+    // surface the outcome (summary) instead of "Synthesizing…".
+    const data = computeWorkflowCardData(
+      makeEntry({
+        status: "completed",
+        label: "Research workflow",
+        phase: "Synthesizing",
+        summary: "Compiled all six divisions",
+        leaves: [
+          { seq: 0, label: "leaf", status: "completed", promptSummary: "go" },
+        ],
+      }),
+    );
+    expect(data.currentStepTitle).toBe("Research workflow");
+    expect(data.currentStepInfo).toBe("Compiled all six divisions");
+  });
+
+  test("a terminal run with no summary falls back to the log message, not the phase", () => {
+    const data = computeWorkflowCardData(
+      makeEntry({
+        status: "failed",
+        label: "Research workflow",
+        phase: "Synthesizing",
+        message: "hit an error",
+      }),
+    );
+    expect(data.currentStepInfo).toBe("hit an error");
   });
 });
 
@@ -286,5 +351,90 @@ describe("useWorkflowCardData — hydration wiring", () => {
     expect(spy).not.toHaveBeenCalled();
 
     useWorkflowStore.setState({ hydrateRunIfNeeded: realHydrate });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectWorkflowAgentAvatarSeeds — stable seed derivation
+// ---------------------------------------------------------------------------
+
+describe("selectWorkflowAgentAvatarSeeds", () => {
+  test("returns [] when the run has no leaves and no spawned agents", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(makeEntry({ runId: "wf" }));
+    expect(seeds).toEqual([]);
+  });
+
+  test("seeds a single leaf", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({ runId: "wf", leaves: [{ seq: 0, status: "running" }] }),
+    );
+    expect(seeds).toEqual(["wf:0"]);
+  });
+
+  test("seeds two leaves in ascending seq order", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({
+        runId: "wf",
+        leaves: [
+          { seq: 1, status: "completed" },
+          { seq: 0, status: "running" },
+        ],
+      }),
+    );
+    expect(seeds).toEqual(["wf:0", "wf:1"]);
+  });
+
+  test("caps at three seeds when more than three leaves exist", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({
+        runId: "wf",
+        leaves: [
+          { seq: 0, status: "running" },
+          { seq: 1, status: "running" },
+          { seq: 2, status: "running" },
+          { seq: 3, status: "running" },
+          { seq: 4, status: "running" },
+        ],
+      }),
+    );
+    expect(seeds).toEqual(["wf:0", "wf:1", "wf:2"]);
+  });
+
+  test("synthesizes index seeds when leaves are empty but agentsSpawned > 0", () => {
+    const seeds = selectWorkflowAgentAvatarSeeds(
+      makeEntry({ runId: "wf", agentsSpawned: 5 }),
+    );
+    expect(seeds).toEqual(["wf:0", "wf:1", "wf:2"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useWorkflowAgentAvatarSeeds — store wiring
+// ---------------------------------------------------------------------------
+
+describe("useWorkflowAgentAvatarSeeds", () => {
+  afterEach(() => {
+    cleanup();
+    useWorkflowStore.getState().reset();
+  });
+
+  test("returns [] for an unknown runId", () => {
+    const { result } = renderHook(() =>
+      useWorkflowAgentAvatarSeeds("wf-unknown"),
+    );
+    expect(result.current).toEqual([]);
+  });
+
+  test("returns a referentially stable array across renders when the entry is unchanged", () => {
+    useWorkflowStore.getState().startRun({ runId: "wf-stable", timestamp: NOW });
+    useWorkflowStore.getState().leafStarted({ runId: "wf-stable", seq: 0 });
+
+    const { result, rerender } = renderHook(() =>
+      useWorkflowAgentAvatarSeeds("wf-stable"),
+    );
+    const first = result.current;
+    rerender();
+    // Same store entry ref → useMemo returns the same array (no churn).
+    expect(result.current).toBe(first);
   });
 });

@@ -13,7 +13,7 @@
  *
  * Storage-error handling matches the pattern in
  * `@/domains/onboarding/prefs` (e.g. `readSelectedVersion`) and
- * `@/utils/onboarding-cleanup`: every read/write is wrapped in `try/catch` so a
+ * `@/lib/consent/consent-persistence`: every read/write is wrapped in `try/catch` so a
  * disabled or quota-exceeded `sessionStorage` degrades to "no pending
  * context" instead of throwing into the caller.
  */
@@ -49,10 +49,25 @@ export interface PreChatOnboardingContext {
   cohort?: string;
   /** Auto-send this message on first load instead of waiting for user input. */
   initialMessage?: string;
+  /**
+   * When true, the auto-sent `initialMessage` is sent hidden: it drives the
+   * assistant's first reply but renders no user bubble, so the chat opens as a
+   * proactive greeting in the persona the user just configured. Used by the
+   * research-onboarding "Let's chat" handoff.
+   */
+  initialMessageHidden?: boolean;
   /** Bootstrap template filename for the daemon to use. */
   bootstrapTemplate?: string;
   /** Skills to eagerly load. */
   skills?: string[];
+  /**
+   * Research findings the user explicitly KEPT on the results screen
+   * (removed/rejected claims excluded). The daemon writes them into the
+   * persona's onboarding section so the first greeting — which is barred
+   * from recall/file reads — can still reference something real about the
+   * user.
+   */
+  researchFindings?: string[];
   /**
    * Explicit title for the conversation minted on the first message. When set,
    * the daemon persists it as a user-set title (never overwritten by the
@@ -266,6 +281,12 @@ function isPreChatOnboardingContext(
     return false;
   }
   if (candidate.initialMessage !== undefined && typeof candidate.initialMessage !== "string") {
+    return false;
+  }
+  if (
+    candidate.initialMessageHidden !== undefined &&
+    typeof candidate.initialMessageHidden !== "boolean"
+  ) {
     return false;
   }
   if (candidate.bootstrapTemplate !== undefined && typeof candidate.bootstrapTemplate !== "string") {

@@ -10,7 +10,7 @@
  * imports inlined for gateway self-containment.
  */
 
-// ── Risk level enum (inlined from skill-host-contracts) ──────────────────────
+// ── Risk level enum ──────────────────────────────────────────────────────────
 
 export enum RiskLevel {
   Low = "low",
@@ -36,7 +36,7 @@ export type Risk = "low" | "medium" | "high" | "unknown";
  */
 export type RegistryRisk = "low" | "medium" | "high";
 
-// ── Allowlist option (inlined from skill-host-contracts) ─────────────────────
+// ── Allowlist option ─────────────────────────────────────────────────────────
 
 export interface AllowlistOption {
   label: string;

@@ -120,6 +120,11 @@ if [ -n "$CHANGED_FILES" ]; then
     # --- TypeScript type check for assistant/ ---
     # The pre-commit hook skips tsc in worktrees to keep commits fast (~20s cold).
     # Pre-push is the right place to catch cross-file type errors before they hit CI.
+    # Invoke the `typecheck` script (not `tsc` directly) so its `pretypecheck`
+    # step regenerates the gitignored bundled copies (e.g. bundled-marketplace.json,
+    # statically imported by the offline plugin catalog) first — otherwise a fresh
+    # worktree that never ran `bun install` would fail to resolve them and block
+    # the push with a spurious error.
     ASSISTANT_TS_CHANGED=0
     while IFS= read -r file; do
         if [[ "$file" == assistant/*.ts ]] || [[ "$file" == assistant/*.tsx ]]; then
@@ -129,30 +134,10 @@ if [ -n "$CHANGED_FILES" ]; then
     done <<< "$CHANGED_FILES"
 
     if [ $ASSISTANT_TS_CHANGED -eq 1 ]; then
-        # assistant/src/daemon/external-skills-bootstrap.ts statically imports
-        # skills/meet-join/register.ts, so `tsc --noEmit` in assistant/ follows
-        # the import and type-checks the skill. The skill's own imports
-        # (`@vellumai/skill-host-contracts`, `zod`) resolve via
-        # skills/meet-join/node_modules — which the shared worktree script does
-        # not symlink (its find runs at -maxdepth 2, but skills/meet-join lives
-        # at depth 3). Self-heal by installing on first run so worktrees don't
-        # produce false-positive type errors.
-        for skill_dir in "${REPO_ROOT}"/skills/*/; do
-            [ -f "${skill_dir}package.json" ] || continue
-            [ -d "${skill_dir}node_modules" ] && continue
-            skill_name="$(basename "$skill_dir")"
-            echo "  Installing skills/${skill_name}/ dependencies (missing node_modules)..."
-            _debug_log "skills/${skill_name}: bun install start"
-            (cd "$skill_dir" && "$BUN" install --frozen-lockfile >/dev/null 2>&1) || {
-                echo -e "  ${YELLOW}⚠️  bun install failed in skills/${skill_name}/ — tsc may produce false positives${NC}"
-            }
-            _debug_log "skills/${skill_name}: bun install done"
-        done
-
         echo ""
         echo "🔍 Type-checking assistant/..."
         _debug_log "tsc --noEmit start"
-        if ! (cd "${REPO_ROOT}/assistant" && "$BUN" x tsc --noEmit) 2>&1; then
+        if ! (cd "${REPO_ROOT}/assistant" && "$BUN" run typecheck) 2>&1; then
             echo ""
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}TypeScript type errors in assistant/ — push blocked${NC}"

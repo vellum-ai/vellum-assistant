@@ -96,7 +96,7 @@ export function processInboundResult(
     return { ok: true, rejected: true };
   }
 
-  if (result.verificationIntercepted) {
+  if (result.verificationIntercepted || result.inviteIntercepted) {
     return { ok: true, rejected: false };
   }
 
@@ -114,4 +114,26 @@ export function processInboundResult(
  */
 export function isNewCommand(text: string): boolean {
   return text.trim().toLowerCase() === "/new";
+}
+
+/**
+ * Pending reply from a gateway verification/invite intercept, for channels
+ * where the gateway couldn't deliver it via a replyCallbackUrl (email). The
+ * `flag` names which intercept fired, for the webhook's JSON response.
+ */
+export function interceptedReply(
+  result: InboundResult,
+):
+  | { text: string; flag: "verificationIntercepted" | "inviteIntercepted" }
+  | undefined {
+  if (result.verificationIntercepted && result.verificationReplyText) {
+    return {
+      text: result.verificationReplyText,
+      flag: "verificationIntercepted",
+    };
+  }
+  if (result.inviteIntercepted && result.inviteReplyText) {
+    return { text: result.inviteReplyText, flag: "inviteIntercepted" };
+  }
+  return undefined;
 }

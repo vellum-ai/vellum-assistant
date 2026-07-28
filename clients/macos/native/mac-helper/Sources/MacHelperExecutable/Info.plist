@@ -13,8 +13,15 @@
     -->
     <key>CFBundleIdentifier</key>
     <string>__HELPER_BUNDLE_ID__</string>
+    <!--
+      The executable filename is what System Settings → Privacy & Security shows
+      for this helper: it is spawned directly (not via LaunchServices), so TCC
+      attributes its grants by executable path and renders the binary's filename,
+      ignoring CFBundleName/CFBundleDisplayName. build-mac-helper.sh names the
+      binary per environment; this must match it or codesign rejects the bundle.
+    -->
     <key>CFBundleExecutable</key>
-    <string>vellum-mac-helper</string>
+    <string>__HELPER_EXEC_NAME__</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <!-- User-facing name + icon in System Settings → Privacy & Security. -->

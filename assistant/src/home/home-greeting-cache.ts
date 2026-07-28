@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
+} from "../persistence/checkpoints.js";
 import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 

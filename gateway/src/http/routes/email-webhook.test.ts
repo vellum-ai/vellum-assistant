@@ -6,12 +6,28 @@ import { credentialKey } from "../../credential-key.js";
 
 // --- Mocks ----------------------------------------------------------------
 
+type MockInboundResult = {
+  forwarded: boolean;
+  rejected: boolean;
+  verificationIntercepted?: boolean;
+  verificationReplyText?: string;
+  inviteIntercepted?: boolean;
+  inviteReplyText?: string;
+};
+
 const handleInboundMock = mock(
   (_config: GatewayConfig, _normalized: unknown, _options?: unknown) =>
-    Promise.resolve({ forwarded: true, rejected: false }),
+    Promise.resolve<MockInboundResult>({ forwarded: true, rejected: false }),
 );
 
 const resetConversationMock = mock(() => Promise.resolve());
+
+class MockAttachmentValidationError extends Error {}
+
+let uploadCounter = 0;
+const uploadAttachmentMock = mock(() =>
+  Promise.resolve({ id: `att-${++uploadCounter}` }),
+);
 
 mock.module("../../handlers/handle-inbound.js", () => ({
   handleInbound: handleInboundMock,
@@ -19,8 +35,8 @@ mock.module("../../handlers/handle-inbound.js", () => ({
 
 mock.module("../../runtime/client.js", () => ({
   resetConversation: resetConversationMock,
-  uploadAttachment: mock(() => Promise.resolve({ id: "att-1" })),
-  AttachmentValidationError: class extends Error {},
+  uploadAttachment: uploadAttachmentMock,
+  AttachmentValidationError: MockAttachmentValidationError,
   CircuitBreakerOpenError: class extends Error {},
 }));
 
@@ -73,6 +89,7 @@ function makeEmailPayload(overrides?: {
   references?: string;
   conversationId?: string;
   timestamp?: string;
+  attachments?: unknown;
 }) {
   return JSON.stringify({
     from: overrides?.from ?? "sender@example.com",
@@ -88,6 +105,9 @@ function makeEmailPayload(overrides?: {
     references: overrides?.references,
     conversationId: overrides?.conversationId ?? "conv-abc",
     timestamp: overrides?.timestamp ?? "2026-04-03T01:00:00.000Z",
+    ...(overrides?.attachments !== undefined
+      ? { attachments: overrides.attachments }
+      : {}),
   });
 }
 
@@ -121,6 +141,11 @@ describe("email-webhook", () => {
   beforeEach(() => {
     handleInboundMock.mockClear();
     handleInboundMock.mockResolvedValue({ forwarded: true, rejected: false });
+    uploadCounter = 0;
+    uploadAttachmentMock.mockClear();
+    uploadAttachmentMock.mockImplementation(() =>
+      Promise.resolve({ id: `att-${++uploadCounter}` }),
+    );
   });
 
   it("rejects non-POST requests with 405", async () => {
@@ -358,6 +383,70 @@ describe("email-webhook", () => {
     expect(status).toBe(false);
   });
 
+  // Intercept response-shape pins. The platform email relay
+  // (vellum-assistant-platform django/app/email/views.py) gates only on
+  // `denied` in the gateway body and returns everything else verbatim — it
+  // reads neither intercept flag nor `replyText`. The flags name which
+  // intercept fired; keep both shapes stable for relay-side consumers.
+  it("returns { ok, verificationIntercepted, replyText } for a verification intercept", async () => {
+    handleInboundMock.mockResolvedValue({
+      forwarded: false,
+      rejected: false,
+      verificationIntercepted: true,
+      verificationReplyText: "You're verified!",
+    });
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<verification-intercept@example.com>",
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      verificationIntercepted: true,
+      replyText: "You're verified!",
+    });
+  });
+
+  it("returns { ok, inviteIntercepted, replyText } for an invite intercept", async () => {
+    handleInboundMock.mockResolvedValue({
+      forwarded: false,
+      rejected: false,
+      inviteIntercepted: true,
+      inviteReplyText: "Invite redeemed — welcome!",
+    });
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<invite-intercept@example.com>",
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      inviteIntercepted: true,
+      replyText: "Invite redeemed — welcome!",
+    });
+  });
+
+  it("marks the event as processed after an intercept (no reprocessing on retry)", async () => {
+    handleInboundMock.mockResolvedValue({
+      forwarded: false,
+      rejected: false,
+      inviteIntercepted: true,
+      inviteReplyText: "Invite redeemed — welcome!",
+    });
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<intercept-dedup@example.com>",
+    });
+    await handler(postRequest(body));
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+
+    const res2 = await handler(postRequest(body));
+    expect(res2.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+  });
+
   it("returns 403 (not 409) when cache miss resolves on force-refresh but signature is invalid", async () => {
     // Simulate: initial cache miss, force-refresh returns real secret,
     // but signature doesn't match. Should be 403 (not 409 "not configured").
@@ -388,5 +477,105 @@ describe("email-webhook", () => {
     const res = await handler(req);
     // This was the stale variable bug — it used to return 409 here
     expect(res.status).toBe(403);
+  });
+
+  it("uploads inline attachments and forwards their ids to the runtime", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<with-attachment@example.com>",
+      attachments: [
+        {
+          filename: "receipt.pdf",
+          contentType: "application/pdf",
+          size: 5,
+          content: Buffer.from("hello").toString("base64"),
+        },
+      ],
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+
+    expect(uploadAttachmentMock).toHaveBeenCalledTimes(1);
+    const uploadArg = (uploadAttachmentMock.mock.calls[0] as unknown[])[1] as {
+      filename: string;
+      mimeType: string;
+      data: string;
+    };
+    expect(uploadArg.filename).toBe("receipt.pdf");
+    expect(uploadArg.mimeType).toBe("application/pdf");
+
+    const options = handleInboundMock.mock.calls[0][2] as {
+      attachmentIds?: string[];
+    };
+    expect(options.attachmentIds).toEqual(["att-1"]);
+  });
+
+  it("forwards without attachmentIds when no attachments are present", async () => {
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({ messageId: "<no-attachment@example.com>" });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+    expect(uploadAttachmentMock).not.toHaveBeenCalled();
+    const options = handleInboundMock.mock.calls[0][2] as {
+      attachmentIds?: string[];
+    };
+    expect(options.attachmentIds).toBeUndefined();
+  });
+
+  it("notes validation-rejected attachments in the message content", async () => {
+    uploadAttachmentMock.mockImplementationOnce(() =>
+      Promise.reject(new MockAttachmentValidationError("unsupported type")),
+    );
+    const { handler } = createEmailWebhookHandler(baseConfig, makeCaches());
+    const body = makeEmailPayload({
+      messageId: "<rejected-attachment@example.com>",
+      attachments: [
+        {
+          filename: "malware.exe",
+          contentType: "application/octet-stream",
+          size: 5,
+          content: Buffer.from("hello").toString("base64"),
+        },
+      ],
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(200);
+
+    const event = handleInboundMock.mock.calls[0][1] as {
+      message: { content: string };
+    };
+    expect(event.message.content).toContain('"malware.exe"');
+    const options = handleInboundMock.mock.calls[0][2] as {
+      attachmentIds?: string[];
+    };
+    expect(options.attachmentIds).toBeUndefined();
+  });
+
+  it("returns 500 and unreserves the dedup key on transient upload failure", async () => {
+    uploadAttachmentMock.mockImplementation(() =>
+      Promise.reject(new Error("runtime 503")),
+    );
+    const { handler, dedupCache } = createEmailWebhookHandler(
+      baseConfig,
+      makeCaches(),
+    );
+    const body = makeEmailPayload({
+      messageId: "<transient-upload-fail@example.com>",
+      attachments: [
+        {
+          filename: "receipt.pdf",
+          contentType: "application/pdf",
+          size: 5,
+          content: Buffer.from("hello").toString("base64"),
+        },
+      ],
+    });
+    const res = await handler(postRequest(body));
+    expect(res.status).toBe(500);
+    expect(handleInboundMock).not.toHaveBeenCalled();
+    // Unreserved so the platform's retry delivery can be processed.
+    expect(dedupCache.reserve("<transient-upload-fail@example.com>")).toBe(
+      true,
+    );
   });
 });

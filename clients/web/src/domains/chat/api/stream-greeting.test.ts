@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+let mockEffectiveTimezone = "Europe/Skopje";
+mock.module("@/utils/effective-timezone", () => ({
+  getEffectiveTimezone: () => mockEffectiveTimezone,
+}));
+
 // Controllable stub for the daemon client's POST. Captures the args and
 // returns whatever the current test sets up.
 let postArgs: unknown = null;
-let postImpl: () => Promise<{ data: unknown; response: Response }> = async () => ({
+let postImpl: () => Promise<{
+  data: unknown;
+  response: Response;
+}> = async () => ({
   data: null,
   response: new Response(null, { status: 200 }),
 });
@@ -23,7 +31,9 @@ function sseStream(frames: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   return new ReadableStream({
     start(controller) {
-      for (const frame of frames) controller.enqueue(encoder.encode(frame));
+      for (const frame of frames) {
+        controller.enqueue(encoder.encode(frame));
+      }
       controller.close();
     },
   });
@@ -36,12 +46,17 @@ const COMPLETE_FRAME = "event: btw_complete\ndata: {}\n\n";
 
 afterEach(() => {
   postArgs = null;
+  mockEffectiveTimezone = "Europe/Skopje";
 });
 
 describe("streamEmptyStateGreeting", () => {
   test("accumulates deltas and resolves with the full greeting", async () => {
     postImpl = async () => ({
-      data: sseStream([deltaFrame("hey "), deltaFrame("there"), COMPLETE_FRAME]),
+      data: sseStream([
+        deltaFrame("hey "),
+        deltaFrame("there"),
+        COMPLETE_FRAME,
+      ]),
       response: new Response(null, { status: 200 }),
     });
 
@@ -74,6 +89,21 @@ describe("streamEmptyStateGreeting", () => {
     expect(args.body.conversationKey).toBe("greeting");
     expect(args.body.content.length).toBeGreaterThan(0);
     expect(args.parseAs).toBe("stream");
+  });
+
+  test("includes the live effective timezone on the greeting request", async () => {
+    mockEffectiveTimezone = "America/New_York";
+    postImpl = async () => ({
+      data: sseStream([deltaFrame("yo"), COMPLETE_FRAME]),
+      response: new Response(null, { status: 200 }),
+    });
+
+    await streamEmptyStateGreeting({ assistantId: "asst-1" });
+
+    const args = postArgs as {
+      body: { clientTimezone?: string };
+    };
+    expect(args.body.clientTimezone).toBe("America/New_York");
   });
 
   test("rejects on a btw_error event", async () => {

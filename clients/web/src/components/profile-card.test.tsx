@@ -160,7 +160,7 @@ describe("ProfileCard", () => {
   test("renders the section title and subtitle", () => {
     const html = renderToStaticMarkup(<ProfileCard />);
     expect(html).toContain("Profile");
-    expect(html).toContain("public handle");
+    expect(html).toContain("account details");
   });
 
   test("shows a loading placeholder before fetchMe resolves", () => {

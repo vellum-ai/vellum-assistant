@@ -6,7 +6,7 @@ When the app needs server-side persistence, custom API logic, or workspace file 
 
 ## Handler file convention
 
-Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). Handlers receive two arguments: the standard Web API `Request` and an optional `context` object with runtime singletons.
+Each handler file exports named functions for the HTTP methods it supports (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`). Handlers take the standard Web API `Request`. To reach daemon capabilities (publishing events, running a conversation turn), import them from `@vellumai/plugin-api` — that is the supported way, and it works identically in-process and in the route-host subprocess.
 
 ```
 {workspaceDir}/routes/
@@ -76,29 +76,34 @@ const createRes = await window.vellum.fetch("/v1/x/items", {
 if (!createRes.ok) throw new Error(`HTTP ${createRes.status}`);
 ```
 
-## Runtime context
+### Typing `window.vellum`
 
-Every handler receives a frozen `context` object as its second argument. This provides access to daemon singletons that are otherwise unreachable from dynamically imported route modules.
+Don't hand-declare `window.vellum` in a local `vellum.d.ts`. If the app depends on `@vellumai/plugin-api`, the `window.vellum` global is typed for you — add a one-line reference in a `.d.ts` (or entry file):
 
 ```typescript
-export async function POST(request: Request, context): Promise<Response> {
-  // context.assistantEventHub — publish events to connected SSE clients
-  // context.assistantId       — the daemon's logical assistant ID ("self")
-}
+/// <reference types="@vellumai/plugin-api/app" />
 ```
+
+Equivalently, add `"@vellumai/plugin-api/app"` to `compilerOptions.types` in `tsconfig.json`. Both are types-only — do **not** `import` from `@vellumai/plugin-api` to get the global; a runtime bare import isn't supported for sandboxed apps. If you want to name a type, use `import type { VellumAppBridge } from "@vellumai/plugin-api/app"`.
+
+## Reaching daemon capabilities (`@vellumai/plugin-api`)
+
+To reach a daemon capability from a handler, import it from `@vellumai/plugin-api`. These imports work the same way in-process and in the route-host subprocess.
 
 ### Publishing events to the client
 
-Use `context.assistantEventHub` to push real-time events to connected desktop/mobile clients. This is how route handlers can trigger client-side navigation, update UI, or deliver notifications.
+Use `publishEvent` to push a real-time event to connected desktop/mobile clients. This is how a route triggers client-side navigation, updates UI, or delivers a notification.
 
 ```typescript
 // routes/open-conversation.ts
-export async function POST(request: Request, context): Promise<Response> {
+import { publishEvent } from "@vellumai/plugin-api";
+
+export async function POST(request: Request): Promise<Response> {
   const { conversationId } = await request.json();
 
-  await context.assistantEventHub.publish({
+  await publishEvent({
     id: crypto.randomUUID(),
-    assistantId: context.assistantId,
+    assistantId: "self",
     conversationId,
     emittedAt: new Date().toISOString(),
     message: { type: "open_conversation", conversationId },
@@ -108,9 +113,33 @@ export async function POST(request: Request, context): Promise<Response> {
 }
 ```
 
-The context object is **immutable** — attempting to reassign its properties will throw in strict mode (ESM). This prevents user route handlers from accidentally corrupting shared state.
+`publishEvent` rejects daemon-to-client host-proxy control events (`host_*`); everything else — including your own `sync_changed` invalidation tags — flows to subscribed clients.
 
-Legacy handlers that only accept `(request)` continue to work — the context is passed positionally but ignored if the handler doesn't declare the parameter.
+### Posting into a conversation
+
+Use `runConversationTurn` to surface an inbound event as a real assistant turn — the way a webhook receiver, a scheduled job, or a device callback turns "your deploy finished" or "payment received" into a message the assistant actually responds to (not just a client-side event).
+
+```typescript
+// routes/deploy-webhook.ts — an external CI system POSTs here when a build finishes
+import { runConversationTurn } from "@vellumai/plugin-api";
+
+export async function POST(request: Request): Promise<Response> {
+  const { conversationId, status } = await request.json();
+
+  await runConversationTurn({
+    conversationId,
+    content: [{ type: "text", text: `Your deploy finished: ${status}.` }],
+  });
+
+  return Response.json({ ok: true });
+}
+```
+
+Omit `conversationId` to start a fresh conversation (the new id is returned). If the conversation is mid-turn the message is queued and runs when the current turn finishes.
+
+### Deprecated: the `context` argument
+
+Older routes were written with a second `context` argument (`context.assistantEventHub.publish(...)`, `context.conversations.postMessage(...)`). That argument still works in-process but is **deprecated** and will be removed — it isn't available in the route-host subprocess, and its use is tracked so remaining callers can be migrated. Port these to the `@vellumai/plugin-api` imports above: `context.assistantEventHub.publish` → `publishEvent`, `context.conversations.postMessage(id, text)` → `runConversationTurn({ conversationId: id, content: [{ type: "text", text }] })`.
 
 ## Key rules
 

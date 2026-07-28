@@ -1,24 +1,13 @@
+import {
+  type ChoiceOption,
+  type ChoiceSurfaceData,
+  ChoiceSurfaceDataSchema,
+} from "@vellumai/assistant-api";
 import { Check, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import type { Surface } from "@/domains/chat/types/types";
-
-interface ChoiceOption {
-  id: string;
-  title: string;
-  description?: string;
-  recommended?: boolean;
-  data?: Record<string, unknown>;
-}
-
-interface ChoiceSurfaceData {
-  description?: string;
-  options?: ChoiceOption[];
-  selectionMode?: "single" | "multiple";
-  commitOnSelect?: boolean;
-  submitLabel?: string;
-}
 
 interface ChoiceSurfaceProps {
   surface: Surface;
@@ -29,13 +18,13 @@ interface ChoiceSurfaceProps {
   ) => void;
 }
 
-const EMPTY_OPTIONS: ChoiceOption[] = [];
-
 function buildInitialSelectedIds(
   selectionMode: ChoiceSurfaceData["selectionMode"],
   options: ChoiceOption[],
 ): Set<string> {
-  if (selectionMode !== "multiple") return new Set();
+  if (selectionMode !== "multiple") {
+    return new Set();
+  }
   return new Set(
     options
       .filter((option) => option.recommended === true)
@@ -56,9 +45,17 @@ function buildChoicePayload(option: ChoiceOption): Record<string, unknown> {
 }
 
 export function ChoiceSurface({ surface, onAction }: ChoiceSurfaceProps) {
-  const data = surface.data as ChoiceSurfaceData;
-  const options = data.options ?? EMPTY_OPTIONS;
-  const selectionMode = data.selectionMode ?? "single";
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (tolerant, so a real payload never fails to parse) rather than an
+  // unchecked cast or a re-declared local interface.
+  const data = useMemo<ChoiceSurfaceData>(() => {
+    const parsed = ChoiceSurfaceDataSchema.safeParse(surface.data);
+    return parsed.success
+      ? parsed.data
+      : { options: [], selectionMode: "single" };
+  }, [surface.data]);
+  const options = data.options;
+  const selectionMode = data.selectionMode;
   const commitOnSelect =
     selectionMode === "single" ? data.commitOnSelect !== false : false;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() =>
@@ -72,7 +69,9 @@ export function ChoiceSurface({ surface, onAction }: ChoiceSurfaceProps) {
   );
 
   const submitOption = async (option: ChoiceOption) => {
-    if (submitting) return;
+    if (submitting) {
+      return;
+    }
     setSubmitting(option.id);
     try {
       await onAction(surface.surfaceId, option.id, buildChoicePayload(option));
@@ -107,7 +106,9 @@ export function ChoiceSurface({ surface, onAction }: ChoiceSurfaceProps) {
   };
 
   const handleSubmit = async () => {
-    if (selectedOptions.length === 0 || submitting) return;
+    if (selectedOptions.length === 0 || submitting) {
+      return;
+    }
     setSubmitting("submit");
     try {
       await onAction(surface.surfaceId, "submit", {

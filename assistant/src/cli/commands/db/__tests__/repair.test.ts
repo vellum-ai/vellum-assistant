@@ -192,6 +192,9 @@ describe("assistant db repair — healthy DB", () => {
   });
 });
 
+// Integrity-checking the corrupt seed (including the malformed-image throw
+// path) plus the follow-on backfill step can exceed bun's 5s per-test
+// default on a loaded machine, so each gets a 30s ceiling.
 describe("assistant db repair — corrupt DB", () => {
   test("integrity check surfaces corruption and exits 1", async () => {
     seedCorruptDb();
@@ -212,7 +215,7 @@ describe("assistant db repair — corrupt DB", () => {
     // backfill itself runs against an empty conversations dir and reports
     // "nothing to backfill", so the summary is `1 ok, 1 failed`.
     expect(stdout).toMatch(/Done\. 2 steps ran: 1 ok, 1 failed/);
-  });
+  }, 30_000);
 
   test("--json carries the full error list from integrity-check", async () => {
     seedCorruptDb();
@@ -225,7 +228,7 @@ describe("assistant db repair — corrupt DB", () => {
     expect(Array.isArray(parsed.steps[0].result.data.errors)).toBe(true);
     expect(parsed.steps[0].result.data.errors.length).toBeGreaterThan(0);
     expect(parsed.errorCount).toBe(1);
-  });
+  }, 30_000);
 });
 
 describe("assistant db repair — DB missing", () => {
@@ -432,8 +435,9 @@ async function initSchema(): Promise<void> {
   // to already exist (production-wise, the daemon creates it). Touching the
   // global init triggers schema creation against the env-isolated path.
   const { getDb, getSqliteFrom } =
-    await import("../../../../memory/db-connection.js");
-  const { clearStoredDb } = await import("../../../../memory/db-singleton.js");
+    await import("../../../../persistence/db-connection.js");
+  const { clearStoredDb } =
+    await import("../../../../persistence/db-singleton.js");
   // Drop any connections a prior test (or test file) left open against a
   // now-deleted workspace, so init below opens fresh handles — main and the
   // dedicated logs/memory connections — at THIS test's workspace.
@@ -441,7 +445,7 @@ async function initSchema(): Promise<void> {
   clearStoredDb("logs");
   clearStoredDb("memory");
 
-  const { initializeDb } = await import("../../../../memory/db-init.js");
+  const { initializeDb } = await import("../../../../persistence/db-init.js");
   await initializeDb();
   // Close the singletons so backfill can open its own handle without
   // collision. WAL allows concurrent handles but cleaner ownership avoids

@@ -1,5 +1,10 @@
 #!/usr/bin/env bun
 
+import { join } from "path";
+import { readFileSync } from "node:fs";
+
+import { resolveConfigDir } from "@vellumai/local-mode";
+
 import cliPkg from "../package.json";
 import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
@@ -157,6 +162,56 @@ function applyNoColorFlags(argv: string[]): void {
 }
 
 /**
+ * Load env vars from the vellum config dotenv file into `process.env` so
+ * that `vellum hatch` forwards provider API keys to containers and other
+ * commands have access to them.
+ *
+ * Reads `$XDG_CONFIG_HOME/vellum{-env}/.env` — the same config directory
+ * the CLI uses for guardian tokens and environment state. The file is
+ * written by remote-hatch scripts and can be user-managed.
+ *
+ * Existing `process.env` values take precedence (standard dotenv convention).
+ * Only KEY=VALUE lines are parsed. Lines starting with # are comments.
+ * Values may be quoted with single or double quotes.
+ */
+function loadConfigDotenv(): void {
+  const configDir = resolveConfigDir(process.env);
+  const envPath = join(configDir, ".env");
+
+  let content: string;
+  try {
+    content = readFileSync(envPath, "utf-8");
+  } catch {
+    return;
+  }
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex === -1) continue;
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (!key) continue;
+
+    // Existing env vars take precedence (dotenv convention).
+    if (process.env[key] !== undefined) continue;
+
+    let value = trimmed.slice(eqIndex + 1).trim();
+    // Strip surrounding quotes.
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
+}
+
+/**
  * If a running assistant is detected, launch the TUI client and return true.
  * Otherwise return false so the caller can fall back to help text.
  */
@@ -181,6 +236,10 @@ async function tryLaunchClient(): Promise<boolean> {
 }
 
 async function main() {
+  // Load $XDG_CONFIG_HOME/vellum/.env before any command runs so
+  // provider API keys and other config are available to hatch, exec, etc.
+  loadConfigDotenv();
+
   const args = process.argv.slice(2);
 
   // Must run before any command or terminal-capabilities usage

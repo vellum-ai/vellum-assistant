@@ -35,6 +35,31 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
+  test("blockquotes render as universal inset quote blocks", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> This is quoted.\n\nReply text.",
+      }),
+    );
+
+    expect(html).toContain("rounded-md");
+    expect(html).toContain("bg-[var(--surface-sunken)]");
+    expect(html).toContain("mx-0");
+    expect(html).toContain("flex");
+    expect(html).toContain("gap-3");
+    // The accent bar stretches with the quote so multi-line quotes get a
+    // full-height rule, not a fixed-height pill floating mid-quote.
+    expect(html).toContain("self-stretch");
+    expect(html).not.toContain("h-5");
+    expect(html).toContain("w-0.5");
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("min-w-0");
+    expect(html).toContain("flex-1");
+    expect(html).toContain("text-[var(--content-secondary)]");
+    expect(html).not.toContain("text-stone-600");
+    expect(html).not.toContain("italic");
+  });
+
   test("ordered list beginning at a non-1 number preserves its start", () => {
     // A terse "3." answer is parsed as a one-item ordered list starting at 3.
     // Without forwarding `start`, the <ol> defaults to 1 and renders "1.".
@@ -82,35 +107,60 @@ describe("MarkdownMessage", () => {
     expect(html).toContain('<li value="1"');
   });
 
-  test("tables render with the body-small typography token", () => {
+  test("tables render with the small prose typography token", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "| a | b |\n| - | - |\n| 1 | 2 |",
       }),
     );
 
-    expect(html).toContain("text-body-small-default");
+    // The prose token (real leading), not the single-line label token —
+    // cell content wraps, and the label token's line-height:1 collapses
+    // wrapped lines onto each other.
+    expect(html).toContain("text-body-small-lighter");
+    expect(html).not.toContain("text-body-small-default");
   });
 
   test("inline code in table cells wraps with preserved spacing and breathing room", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
-        content: "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
+        content:
+          "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
       }),
     );
 
     // Both <td> and <th> let inline code wrap while preserving its spacing.
-    // leading-relaxed is load-bearing: the body-small token sets line-height:1,
-    // which clips the padded inline-code background once it wraps onto a second
-    // line.
     const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
     const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
     for (const match of [...tdMatches, ...thMatches]) {
       expect(match).toContain("whitespace-pre-wrap");
-      expect(match).toContain("leading-relaxed");
     }
-    // Code elements inside cells are still inline code (not block).
-    expect(html).toContain("<code");
+    // Code elements inside cells are still inline code (not block), and carry
+    // the small prose token so the padded chip background stays inside its
+    // own line box once it wraps in a cell.
+    const cellCodeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(cellCodeTag).toContain("text-body-small-lighter");
+  });
+
+  test("inline code and blockquotes use the small prose token so chips never overlap prose", () => {
+    // The body-small *label* token bakes line-height:1 into its utility. A
+    // quote's wrapped prose would get 12px line boxes while a padded
+    // inline-code chip paints ~18px tall — chips from one line would cover
+    // the lines above and below. Both the quote block and the chip must use
+    // the small *prose* token (real leading) instead.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> Set `backup.enabled` to `false` in the config file.",
+      }),
+    );
+
+    const blockquoteTag = html.match(/<blockquote[^>]*>/)?.[0] ?? "";
+    expect(blockquoteTag).toContain("text-body-small-lighter");
+    expect(blockquoteTag).not.toContain("text-body-small-default");
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(codeTag).toContain("text-body-small-lighter");
+    expect(codeTag).not.toContain("text-body-small-default");
   });
 
   test("forwards a supplied className onto the wrapper", () => {
@@ -175,6 +225,34 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("const a = 1\nconst b = 2");
     expect(html).not.toContain("const a = 1  \n");
     expect(html.match(/<code[\s\S]*?<\/code>/)?.[0]).not.toContain("<br");
+  });
+
+  test("fenced code renders a single scroll container — pre scrolls, code does not", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "```sql\nSELECT 1;\n```",
+      }),
+    );
+
+    const preTag = html.match(/<pre[^>]*>/)?.[0] ?? "";
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(preTag).toContain("overflow-auto");
+    expect(preTag).toContain("max-height:400px");
+    expect(codeTag).toContain("w-max");
+    expect(codeTag).toContain("min-w-full");
+    expect(codeTag).not.toContain("overflow-");
+  });
+
+  test("inline code renders a chip with no scroll container", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "an `x` value" }),
+    );
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(codeTag).toContain("rounded bg-stone-100 px-1 py-0.5");
+    expect(codeTag).not.toContain("overflow-");
   });
 
   test("hardLineBreaks does not break table parsing", () => {
@@ -263,6 +341,34 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("$500K+");
   });
 
+  test("bare amounts with a trailing + are not mangled into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content:
+          'the $50+ "always-present" tier funds the *launch* year — the tier at $10-15 is the *destination*.',
+      }),
+    );
+
+    // "$50+" must not open a math span that closes on the escaped "$10-15",
+    // which would leak the escape backslash and swallow the emphasis.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$50+");
+    expect(html).toContain("$10-15");
+    expect(html).toMatch(/<em[^>]*>launch<\/em>/);
+    expect(html).toMatch(/<em[^>]*>destination<\/em>/);
+    expect(html).not.toContain("\\$");
+  });
+
+  test("bare arithmetic with a + still renders as math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "The sum $1+1$ is math.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+  });
+
   test("legitimate inline math still renders via KaTeX", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
@@ -335,8 +441,18 @@ describe("MarkdownMessage", () => {
   });
 
   test("custom linkComponent replaces the default link renderer", () => {
-    function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
-      return <a href={href} data-custom="true">{children}</a>;
+    function CustomLink({
+      href,
+      children,
+    }: {
+      href?: string;
+      children?: React.ReactNode;
+    }) {
+      return (
+        <a href={href} data-custom="true">
+          {children}
+        </a>
+      );
     }
 
     const html = renderToStaticMarkup(

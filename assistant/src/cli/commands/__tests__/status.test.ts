@@ -51,6 +51,12 @@ mock.module("../../../util/platform.js", () => ({
   getWorkspaceDirDisplay: () => "~/.vellum/workspace",
 }));
 
+// Fixed installed CLI version so drift-vs-match is deterministic.
+const INSTALLED_CLI_VERSION = "9.9.9";
+mock.module("../../../version.js", () => ({
+  APP_VERSION: INSTALLED_CLI_VERSION,
+}));
+
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
@@ -182,13 +188,13 @@ describe("status command — daemon unreachable (ENOENT/ECONNREFUSED)", () => {
     expect(stdout).toContain("Assistant: running");
   });
 
-  test("does not print version or memory when daemon is unreachable", async () => {
+  test("prints the installed CLI version but no runtime health when unreachable", async () => {
     mockResponse = { ok: false, error: DAEMON_UNREACHABLE_ERROR };
     socketExists = false;
 
     const { stdout, stderr } = await runStatusCommand();
 
-    expect(stdout + stderr).not.toContain("Version");
+    expect(stdout).toContain(`CLI Version: ${INSTALLED_CLI_VERSION}`);
     expect(stdout + stderr).not.toContain("Memory");
   });
 });
@@ -242,8 +248,42 @@ describe("status command — daemon up", () => {
     const { stdout, stderr } = await runStatusCommand();
     const combined = stdout + stderr;
 
+    expect(combined).toContain("Assistant Version");
     expect(combined).toContain("1.2.3");
     expect(combined).toContain("100");
     expect(combined).toContain("500");
+  });
+
+  test("flags the runtime as stale when it differs from the installed CLI", async () => {
+    mockResponse = {
+      ok: true,
+      result: {
+        version: "1.2.3",
+        memory: { currentMb: 100, maxMb: 500 },
+        disk: null,
+      },
+    };
+
+    const { stdout } = await runStatusCommand();
+
+    expect(stdout).toContain(
+      `1.2.3 (stale — restart to run ${INSTALLED_CLI_VERSION})`,
+    );
+  });
+
+  test("shows a bare version with no stale note when versions match", async () => {
+    mockResponse = {
+      ok: true,
+      result: {
+        version: INSTALLED_CLI_VERSION,
+        memory: { currentMb: 100, maxMb: 500 },
+        disk: null,
+      },
+    };
+
+    const { stdout } = await runStatusCommand();
+
+    expect(stdout).toContain(`Assistant Version  ${INSTALLED_CLI_VERSION}`);
+    expect(stdout).not.toContain("stale");
   });
 });

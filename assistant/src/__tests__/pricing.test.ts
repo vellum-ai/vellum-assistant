@@ -91,6 +91,36 @@ describe("resolvePricing", () => {
       }
     });
 
+    test("bills GPT-5.6 cache writes at the catalog write rate", () => {
+      // Total prompt tokens (150k) stay under the 272k tier threshold.
+      const result = resolvePricingForUsage("openai", "gpt-5.6-sol", {
+        directInputTokens: 50_000,
+        outputTokens: 0,
+        cacheCreationInputTokens: 50_000,
+        cacheReadInputTokens: 50_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      // 0.05M x $5 direct + 0.05M x $6.25 write + 0.05M x $0.5 read
+      expect(result.estimatedCostUsd).toBeCloseTo(0.25 + 0.3125 + 0.025, 10);
+    });
+
+    test("bills GPT-5.6 cache writes at the tier write rate above 272k", () => {
+      const result = resolvePricingForUsage("openai", "gpt-5.6-sol", {
+        directInputTokens: 500_000,
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 500_000,
+        cacheReadInputTokens: 1_000_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      // Tier rates: 0.5M x $10 direct + 0.5M x $12.5 write + 1M x $1 read
+      // + 1M x $45 output.
+      expect(result.estimatedCostUsd).toBeCloseTo(5 + 6.25 + 1 + 45, 10);
+    });
+
     test("uses OpenAI short-context tiers through 272k prompt tokens", () => {
       const result = resolvePricingForUsage("openai", "gpt-5.4", {
         directInputTokens: 272_000,
@@ -785,12 +815,27 @@ describe("Anthropic models on OpenRouter", () => {
   test("prices non-Anthropic OpenRouter model from catalog", () => {
     const result = resolvePricing(
       "openrouter",
-      "x-ai/grok-4.20-beta",
+      "x-ai/grok-4.20",
       1_000_000,
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(3 + 15);
+    expect(result.estimatedCostUsd).toBe(1.25 + 2.5);
+  });
+
+  test("bills OpenRouter GPT-5.6 cache writes at the catalog write rate", () => {
+    // Total prompt tokens (150k) stay under the 272k tier threshold.
+    const result = resolvePricingForUsage("openrouter", "openai/gpt-5.6-luna", {
+      directInputTokens: 50_000,
+      outputTokens: 0,
+      cacheCreationInputTokens: 50_000,
+      cacheReadInputTokens: 50_000,
+      anthropicCacheCreation: null,
+    });
+
+    expect(result.pricingStatus).toBe("priced");
+    // 0.05M x $1 direct + 0.05M x $1.25 write + 0.05M x $0.1 read
+    expect(result.estimatedCostUsd).toBeCloseTo(0.05 + 0.0625 + 0.005, 10);
   });
 
   test("returns unpriced for unknown non-Anthropic OpenRouter model", () => {
@@ -876,6 +921,65 @@ describe("Anthropic models on OpenRouter", () => {
   });
 });
 
+describe("Anthropic models on the Vercel AI Gateway", () => {
+  test("prices anthropic/claude-opus-4.6 at Opus 4.6 rates", () => {
+    const result = resolvePricing(
+      "vercel-ai-gateway",
+      "anthropic/claude-opus-4.6",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("prices bare claude-opus-4-6 slug returned unprefixed", () => {
+    const result = resolvePricing(
+      "vercel-ai-gateway",
+      "claude-opus-4-6-20260205",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("returns unpriced for unknown anthropic model on the gateway", () => {
+    const result = resolvePricing(
+      "vercel-ai-gateway",
+      "anthropic/claude-neptune-99",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("unpriced");
+    expect(result.estimatedCostUsd).toBeNull();
+  });
+
+  test("applies Anthropic cache discounts for prompt-cache reads via the gateway", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    };
+    const gateway = resolvePricingForUsage(
+      "vercel-ai-gateway",
+      "anthropic/claude-opus-4.6",
+      usage,
+    );
+    const direct = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
+
+    expect(gateway.pricingStatus).toBe("priced");
+    expect(gateway.estimatedCostUsd).toBeCloseTo(5 * 0.1, 10);
+    expect(gateway.estimatedCostUsd).toBe(direct.estimatedCostUsd);
+  });
+});
+
 describe("usesAnthropicPricingRules", () => {
   test("returns true for direct Anthropic", () => {
     expect(usesAnthropicPricingRules("anthropic", "claude-opus-4-6")).toBe(
@@ -897,6 +1001,30 @@ describe("usesAnthropicPricingRules", () => {
 
   test("returns false for non-Anthropic OpenRouter models", () => {
     expect(usesAnthropicPricingRules("openrouter", "x-ai/grok-4")).toBe(false);
+  });
+
+  test("returns true for anthropic/* on the Vercel AI Gateway", () => {
+    expect(
+      usesAnthropicPricingRules(
+        "vercel-ai-gateway",
+        "anthropic/claude-sonnet-4.6",
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true for bare claude-* slug on the Vercel AI Gateway", () => {
+    expect(
+      usesAnthropicPricingRules(
+        "vercel-ai-gateway",
+        "claude-opus-4-5-20250929",
+      ),
+    ).toBe(true);
+  });
+
+  test("returns false for non-Anthropic Vercel AI Gateway models", () => {
+    expect(usesAnthropicPricingRules("vercel-ai-gateway", "x-ai/grok-4")).toBe(
+      false,
+    );
   });
 
   test("returns false for other providers", () => {

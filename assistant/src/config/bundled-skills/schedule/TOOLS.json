@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "schedule_create",
-      "description": "Create a scheduled automation. Always provide a concise description of what the schedule does and why. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" - use task_list_add for those requests instead.",
+      "description": "Create a scheduled automation. Always provide a concise description of what the schedule does and why. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\").",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -32,7 +32,7 @@
           },
           "timezone": {
             "type": "string",
-            "description": "IANA timezone (e.g. \"America/Los_Angeles\"). Defaults to system timezone if omitted."
+            "description": "IANA timezone (e.g. \"America/Los_Angeles\"). Defaults to your configured/detected timezone; the assistant's own clock only if unknown."
           },
           "message": {
             "type": "string",
@@ -111,6 +111,10 @@
           "inference_profile": {
             "type": "string",
             "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use, e.g. to run a heavy task on a cheaper model. When omitted, runs use the default mainAgent model selection. Must name a configured profile."
+          },
+          "group": {
+            "type": "string",
+            "description": "Sidebar group (name or id) that conversations created by this schedule's runs are filed into, instead of the default Scheduled section. Must reference an existing group. Create one first with conversation_group_create (conversation-groups skill) if needed."
           }
         },
         "required": ["name", "description"]
@@ -120,7 +124,7 @@
     },
     {
       "name": "schedule_list",
-      "description": "List scheduled automations (recurring cron/RRULE schedules and one-time scheduled events), or show details and recent runs for a specific one. For the user's task queue, use task_list_show instead.",
+      "description": "List scheduled automations (recurring cron/RRULE schedules and one-time scheduled events), or show details and recent runs for a specific one.",
       "category": "schedule",
       "risk": "low",
       "input_schema": {
@@ -230,6 +234,10 @@
           "inference_profile": {
             "type": ["string", "null"],
             "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use. Pass null to clear the override and revert to the default mainAgent model selection. Must name a configured profile."
+          },
+          "group": {
+            "type": ["string", "null"],
+            "description": "Sidebar group (name or id) that conversations created by future runs are filed into. Pass null to revert to the default Scheduled section. Existing conversations stay where they are; move them with conversation_move_to_group if asked."
           }
         },
         "required": ["job_id"]

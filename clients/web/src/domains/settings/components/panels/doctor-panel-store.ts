@@ -47,6 +47,12 @@ export interface DoctorPanelState {
 
   /** Tracks which assistant owns the current store state. */
   lastAssistantId: string | null;
+
+  /** Latest Redis stream event ID that can be used to resume the Doctor stream. */
+  latestReplayableSourceEventId: string | null;
+
+  /** Redis stream event IDs already folded into the active Doctor transcript. */
+  processedSourceEventIds: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +83,9 @@ export interface DoctorPanelActions {
 
   setStreamingEntryId: (id: string | null) => void;
   setEntries: (entries: ChatEntry[]) => void;
+  resetReplayState: () => void;
+  seedReplayState: (sourceEventIds: string[], latestSourceEventId: string | null) => void;
+  recordReplayableSourceEventId: (sourceEventId: string) => boolean;
 }
 
 export type DoctorPanelStore = DoctorPanelState & DoctorPanelActions;
@@ -90,6 +99,7 @@ export type DoctorPanelStore = DoctorPanelState & DoctorPanelActions;
 // ---------------------------------------------------------------------------
 
 export interface DoctorPanelContext {
+  getEntries: () => ChatEntry[];
   updateEntries: (updater: (entries: ChatEntry[]) => ChatEntry[]) => void;
   setThinking: (v: boolean) => void;
   setPendingApproval: (v: boolean) => void;
@@ -118,6 +128,8 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   streamingEntryId: null,
   entryCounter: 0,
   lastAssistantId: null,
+  latestReplayableSourceEventId: null,
+  processedSourceEventIds: new Set(),
 
   // Actions
   nextId: () => {
@@ -145,6 +157,8 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       pendingBackup: false,
       thinking: false,
       streamingEntryId: null,
+      latestReplayableSourceEventId: null,
+      processedSourceEventIds: new Set(),
     });
   },
 
@@ -160,6 +174,8 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       historyDismissed: false,
       streamingEntryId: null,
       entryCounter: 0,
+      latestReplayableSourceEventId: null,
+      processedSourceEventIds: new Set(),
     });
   },
 
@@ -175,6 +191,8 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       historyDismissed: true,
       streamingEntryId: null,
       entryCounter: 0,
+      latestReplayableSourceEventId: null,
+      processedSourceEventIds: new Set(),
     });
   },
 
@@ -187,6 +205,31 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   setHistoryDismissed: (v) => set({ historyDismissed: v }),
   setStreamingEntryId: (id) => set({ streamingEntryId: id }),
   setEntries: (entries) => set({ entries }),
+  resetReplayState: () => {
+    set({
+      latestReplayableSourceEventId: null,
+      processedSourceEventIds: new Set(),
+    });
+  },
+  seedReplayState: (sourceEventIds, latestSourceEventId) => {
+    set({
+      latestReplayableSourceEventId: latestSourceEventId,
+      processedSourceEventIds: new Set(sourceEventIds),
+    });
+  },
+  recordReplayableSourceEventId: (sourceEventId) => {
+    const processedSourceEventIds = get().processedSourceEventIds;
+    if (processedSourceEventIds.has(sourceEventId)) {
+      return false;
+    }
+    set({
+      latestReplayableSourceEventId: sourceEventId,
+      processedSourceEventIds: new Set(processedSourceEventIds).add(
+        sourceEventId,
+      ),
+    });
+    return true;
+  },
 }));
 
 export const useDoctorPanelStore = createSelectors(useDoctorPanelStoreBase);

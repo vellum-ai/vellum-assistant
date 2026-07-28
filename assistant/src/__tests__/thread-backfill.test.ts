@@ -28,13 +28,6 @@ import {
 // into other test files (e.g. backfill.test.ts) that import the same module.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -98,15 +91,10 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../config/loader.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type ChannelCapabilities,
   loadSlackChronologicalContext,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { MessageRow } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { recordInbound } from "../memory/delivery-crud.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
@@ -114,6 +102,11 @@ import {
   readSlackMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { recordInbound } from "../persistence/delivery-crud.js";
+import { base64Source } from "../providers/media-resolve.js";
 import type { Message } from "../providers/types.js";
 import {
   _backfillTriggerCache,
@@ -121,6 +114,7 @@ import {
 } from "../runtime/routes/inbound-message-handler.js";
 import {
   handleChannelInbound,
+  seedContactChannel,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 
@@ -1010,7 +1004,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(textBlock?.text).toBe("uploaded the diagram");
     expect(textBlock?.text).not.toContain("<external_content");
     expect(imageBlock?.source.media_type).toBe("image/png");
-    expect(imageBlock?.source.data).toBe(imageBase64);
+    expect(base64Source(imageBlock!.source).data).toBe(imageBase64);
 
     const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
       loader: readMessageRowsByConversation,
@@ -1902,7 +1896,7 @@ function resetHttpState(): void {
 }
 
 function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: HTTP_SLACK_USER_ID,
     externalChatId: chatId,
@@ -1913,7 +1907,7 @@ function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
 }
 
 function seedHttpGuardianMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: HTTP_SLACK_USER_ID,
     externalChatId: chatId,

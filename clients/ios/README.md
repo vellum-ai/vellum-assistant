@@ -305,9 +305,26 @@ bun run ios:setup
 copy in `clients/ios/App/App/public/`) and then `xcodegen generate` to refresh
 `App.xcodeproj/`. All three of those output paths are gitignored.
 
-### Point at a local Next.js instead of `dev-assistant`
+### Point at a different server (self-hosted origin or local dev)
 
-Temporarily edit `capacitor.config.ts`:
+**HTTPS origin (self-hosted assistant, or any valid-TLS host):** set
+`VELLUM_SERVER_URL` when syncing. It overrides the environment-derived
+Vellum Cloud URL and is baked into `server.url` the same way:
+
+```bash
+cd clients/web
+VELLUM_SERVER_URL=https://your-host.ts.net bunx cap sync ios
+```
+
+Then rebuild in Xcode. The value must be a valid `https:` URL — `cap sync`
+fails loudly otherwise, because iOS App Transport Security requires valid
+TLS and `server.cleartext` stays `false`. Nothing to edit or revert: resync
+without the variable (e.g. `bun run ios:setup`) to return to the environment
+default.
+
+**Plain-HTTP local dev (e.g. a local Next.js on your LAN):** ATS blocks
+cleartext HTTP and `VELLUM_SERVER_URL` is https-only, so this path still
+requires temporarily editing `capacitor.config.ts`:
 
 ```ts
 server: {

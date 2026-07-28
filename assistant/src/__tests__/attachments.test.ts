@@ -2,9 +2,86 @@ import { describe, expect, test } from "bun:test";
 
 import {
   attachmentsToContentBlocks,
+  attachmentsToReferenceBlocks,
   enrichMessageWithSourcePaths,
 } from "../agent/attachments.js";
 import { createUserMessage } from "../agent/message-types.js";
+
+// ---------------------------------------------------------------------------
+// attachmentsToReferenceBlocks
+// ---------------------------------------------------------------------------
+
+describe("attachmentsToReferenceBlocks", () => {
+  test("builds an image workspace_ref with dimension hints, no base64", () => {
+    const blocks = attachmentsToReferenceBlocks([
+      {
+        attachmentId: "att-1",
+        filename: "photo.png",
+        mimeType: "image/png",
+        sizeBytes: 1234,
+        width: 800,
+        height: 600,
+      },
+    ]);
+
+    expect(blocks).toEqual([
+      {
+        type: "image",
+        source: {
+          type: "workspace_ref",
+          media_type: "image/png",
+          attachmentId: "att-1",
+          sizeBytes: 1234,
+          width: 800,
+          height: 600,
+        },
+      },
+    ]);
+    // The large blob never appears in the persisted block.
+    expect(JSON.stringify(blocks)).not.toContain("data");
+  });
+
+  test("builds a file workspace_ref with filename and extracted text", () => {
+    const blocks = attachmentsToReferenceBlocks([
+      {
+        attachmentId: "att-2",
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 42,
+        extractedText: "hello",
+      },
+    ]);
+
+    expect(blocks).toEqual([
+      {
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "application/pdf",
+          attachmentId: "att-2",
+          sizeBytes: 42,
+          filename: "report.pdf",
+        },
+        extracted_text: "hello",
+      },
+    ]);
+  });
+
+  test("omits image dimension hints when unknown", () => {
+    const [block] = attachmentsToReferenceBlocks([
+      {
+        attachmentId: "att-3",
+        filename: "photo.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+      },
+    ]);
+    const source = (block as unknown as { source: Record<string, unknown> })
+      .source;
+    expect("width" in source).toBe(false);
+    expect("height" in source).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // attachmentsToContentBlocks
@@ -253,5 +330,58 @@ describe("enrichMessageWithSourcePaths", () => {
     expect(enriched.content).toHaveLength(4);
     const annotation = enriched.content[3] as { type: "text"; text: string };
     expect(annotation.text).toBe("[Attached image source: /path/to/a.jpg]");
+  });
+
+  test("annotates non-image attachments that have storedPath", () => {
+    const attachments = [
+      {
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        data: "pdfdata",
+        filePath: "/staging/123-report.pdf",
+        storedPath: "/conv/attachments/report-2.pdf",
+      },
+    ];
+    const original = createUserMessage("review my edits", attachments);
+    const enriched = enrichMessageWithSourcePaths(original, attachments);
+
+    expect(enriched).not.toBe(original);
+    // text + file = 2 blocks; enriched adds 1 annotation = 3
+    expect(enriched.content).toHaveLength(3);
+    const annotation = enriched.content[2] as { type: "text"; text: string };
+    expect(annotation.type).toBe("text");
+    expect(annotation.text).toBe(
+      '[Attachment "report.pdf" is stored at: /conv/attachments/report-2.pdf]',
+    );
+  });
+
+  test("emits image source lines before stored path lines in one block", () => {
+    const attachments = [
+      {
+        filename: "data.csv",
+        mimeType: "text/csv",
+        data: "csvdata",
+        storedPath: "/conv/attachments/data-2.csv",
+      },
+      {
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "img",
+        filePath: "/Users/me/Desktop/photo.jpg",
+        storedPath: "/conv/attachments/photo.jpg",
+      },
+    ];
+    const original = createUserMessage("compare", attachments);
+    const enriched = enrichMessageWithSourcePaths(original, attachments);
+
+    const annotation = enriched.content.at(-1) as {
+      type: "text";
+      text: string;
+    };
+    expect(annotation.text).toBe(
+      "[Attached image source: /Users/me/Desktop/photo.jpg]\n" +
+        '[Attachment "data.csv" is stored at: /conv/attachments/data-2.csv]\n' +
+        '[Attachment "photo.jpg" is stored at: /conv/attachments/photo.jpg]',
+    );
   });
 });

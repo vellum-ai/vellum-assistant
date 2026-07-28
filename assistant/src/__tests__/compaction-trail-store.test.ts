@@ -8,37 +8,19 @@
  * asserts the right subset comes back.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, getLogsDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { createConversation } from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getCompactionLogsBetween,
   getRequestLogMetaById,
   recordRequestLog,
-} from "../memory/llm-request-log-store.js";
-import { llmRequestLogs } from "../memory/schema.js";
+} from "../persistence/llm-request-log-store.js";
+import { llmRequestLogs } from "../persistence/schema/index.js";
 
 await initializeDb();
 
@@ -60,6 +42,7 @@ function insertLogAt(
   callSite: "mainAgent" | "compactionAgent" | null,
   requestPayload = "{}",
 ): string {
+  // Logging is enabled in these tests, so the write always returns an id.
   const id = recordRequestLog(
     conversationId,
     requestPayload,
@@ -67,7 +50,7 @@ function insertLogAt(
     undefined,
     "anthropic",
     callSite ?? undefined,
-  );
+  )!;
   // Use the Drizzle update builder rather than `db.run("UPDATE … ?")` —
   // the drizzle wrapper doesn't accept positional parameters the same
   // way `bun:sqlite` does, and a silent no-op there manifests as zero

@@ -6,19 +6,21 @@ metadata:
   vellum:
     display-name: "App Builder"
     category: "development"
+    includes: ["frontend-design"]
     activation-hints:
       - "User asks to build a dashboard, tracker, calculator, data visualization, chart, simple landing page, or slide deck for their own use"
       - "User asks to visualize something, make a chart, or build an artifact — build a real persistent app here, never a ui_show dynamic_page"
       - "User asks to change, fix, restyle, or extend an app they already built in the sandbox — open it and iterate"
+      - "User asks to open, show, or pull up an app they already built — this skill provides app_list + app_open even when nothing needs editing"
     avoid-when:
       - "User wants a complex app, a multi-user app, or something to publish, deploy, or hand off to others — route to a local project folder + coding agent instead (see Scope)"
 ---
 
 You build small, personal visual tools — dashboards, trackers, calculators, data visualizations, simple landing pages, and slide decks. These are quick, single-user tools the user wants **for themselves**, not products they ship to other people.
 
-Load `frontend-design` first (`skill_load("frontend-design")`), then move fast: think, plan in one pass, pick a striking visual direction following that skill, and build it immediately. Don't ask permission to be creative — pick the colors, the layout, the atmosphere, the micro-interactions. Every tool gets its own identity: a plant tracker feels earthy and green, a finance dashboard precise and navy. They should feel designed, not generated.
+Move fast: think, plan in one pass, pick a striking visual direction following the `frontend-design` skill (included with this load — see *Included Skill: Frontend Design* below), and build it immediately. Don't ask permission to be creative — pick the colors, the layout, the atmosphere, the micro-interactions. Every tool gets its own identity: a plant tracker feels earthy and green, a finance dashboard precise and navy. They should feel designed, not generated.
 
-**Design quality is delegated to the `frontend-design` skill. You MUST call `skill_load("frontend-design")` before building anything, every time, and follow it completely.** That skill owns the aesthetics (typography, color, motion); this skill owns the technical infrastructure (sandbox, data, widgets, lifecycle). Skipping the load gives generic, templated UI, which is a failed build.
+**Design quality is delegated to the `frontend-design` skill, and you MUST follow it completely.** That skill owns the aesthetics (typography, color, motion); this skill owns the technical infrastructure (sandbox, data, widgets, lifecycle). Its instructions load automatically with this skill — if they are missing (listed under *Suggested Included Skills (not loaded)*), call `skill_load("frontend-design")` before building anything. Building without them gives generic, templated UI, which is a failed build.
 
 ---
 
@@ -64,7 +66,7 @@ Apps live under `/workspace/data/apps/`:
 
 Metadata fields: `id`, `name`, `description`, `icon`, `schemaJson`, `createdAt`, `updatedAt`, `formatVersion`, `dirName`. Records: `{ "id", "appId", "data": {...}, "createdAt", "updatedAt" }` — the system auto-adds everything but `data`.
 
-All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html` or `pages/` — those are legacy.
+Every app is multi-file TSX (`formatVersion: 2`). Never write a root-level `index.html` or `pages/` — all source lives under `src/`.
 
 ⚠️ Correct source path is `/workspace/data/apps/<slug>/src/`. Never `/workspace/apps/`.
 
@@ -72,9 +74,9 @@ All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html`
 
 ## Responsive & design system
 
-Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries an `interface:` field: `ios` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone").
+Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries a `client_os:` field (the OS the user is on): `ios`/`android` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone"). (The sibling `interface:` field is the transport surface — always `web` for the apps — so key layout off `client_os`, not `interface`.)
 
-**Universal baseline — every build, regardless of interface:**
+**Universal baseline — every build, regardless of client_os:**
 - Viewport meta: `width=device-width, initial-scale=1, viewport-fit=cover`. Never `user-scalable=no` (blocks accessibility zoom).
 - Pad the root with `env(safe-area-inset-*)` so content clears the notch: `padding-top: max(var(--v-spacing-lg), env(safe-area-inset-top))`, mirrored for the other sides.
 - Full-height containers use `100dvh`, not `100vh`.
@@ -82,7 +84,7 @@ Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block
 - Interactive elements ≥44×44pt (`.v-button` already complies; custom controls set `min-height: 44px`). Gate hover behind `@media (hover: hover)`.
 - Fluid widths only — `%`, `fr`, `minmax`, `clamp()`, never fixed `px` on containers. Size chart containers in `vw`/`%`. At narrow widths, collapse tables into stacked label-value cards.
 
-**Mobile-first extras (`interface: ios`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
+**Mobile-first extras (`client_os: ios` / `android`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
 
 Full detail when reachable: `{baseDir}/references/RESPONSIVE.md`.
 
@@ -178,15 +180,17 @@ render(<App />, document.getElementById("app")!);
 2. **`file_write`** each real file, one per tool call, overwriting the placeholders and adding components.
 3. **`app_refresh`** ONCE at the end to compile.
 
+**Actually write the files.** Source code in reasoning/thinking is invisible to the app sandbox and is not a file write. Put every real file body in an `app_create.source_files`, `file_write`, `file_edit`, or `app_update.source_files` tool call, then verify the files exist before `app_refresh` when there is any doubt.
+
 **Allowed packages** (esbuild-resolved, no CDN): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`. For icons, write inline `<svg>` markup directly — no icon package is bundled.
 
 **Constraints:** Preact not React. No CDN imports. No external fonts/images (system fonts, inline CSS/SVG). Responsive only, no fixed-pixel widths. The WebView blocks navigation — `href` and form `action` don't work.
 
 ⚠️ `compile_errors` in the `app_create` response is NOT a retry signal — the response also has an `app_id`, so the app was created. Proceed. Calling `app_create` again makes a duplicate.
 
-#### `app_create` accepts EXACTLY these 7 keys — nothing else
+#### `app_create` accepts EXACTLY these 6 keys — nothing else
 
-`name` (optional — defaults to the `preview` title, else "New App"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`, `change_summary`.
+`name` (optional — defaults to the `preview` title, else "New App"), `description`, `schema_json`, `source_files`, `preview`, `auto_open`.
 
 Anything else fails with `Invalid input for tool "app_create": Unknown parameter "X"`. The retired keys models still reach for:
 
@@ -210,7 +214,7 @@ app_create({                         app_create({
                                       })
 ```
 
-**Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing). `change_summary` — conventional commit message.
+**Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing).
 
 ### 4 — Compile
 
@@ -268,7 +272,30 @@ useEffect(() => {
 }, []);
 ```
 
-**Writing a route handler.** Routes are `.ts`/`.js` files in `{workspaceDir}/routes/`, served at `/v1/x/<filename>` (`routes/items.ts` → `/v1/x/items`; `routes/bar/index.ts` → `/v1/x/bar`). Write them with `file_write` **before** `app_refresh`. Each exports named functions per HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`), receiving the Web `Request` and an optional `context`. Full Node API access (`fs`, `path`, `crypto`), 30s timeout, hot-reloaded on change. No `[id].ts` dynamic segments — use query params.
+**Bundled media — `window.vellum.asset(path)`.** For binary assets too big to inline (images, audio, short video, custom fonts), bundle the file under the app directory with `file_write` and load it at runtime via `window.vellum.asset("assets/intro.mp4")`, which resolves to a `blob:` URL the sandbox can use directly. Don't reach for giant base64 data-URIs.
+
+```tsx
+const [src, setSrc] = useState("");
+useEffect(() => {
+  window.vellum.asset("assets/intro.mp4").then(setSrc).catch(() => notifyError("Couldn't load media"));
+}, []);
+return src ? <video src={src} controls /> : null;
+```
+
+Paths are validated server-side (no traversal, no `records/`); the file is served only from this app's own directory.
+
+**Live updates — `window.vellum.subscribe({ tags }, cb)`.** Instead of polling on a timer, subscribe to your own invalidation tags and refresh when the data actually changes. After a route mutates data it publishes a `sync_changed` event (`import { publishEvent } from "@vellumai/plugin-api"`, then `publishEvent({ …, message: { type: "sync_changed", tags: ["my-app:items"] } })`); the app subscribes to that tag and re-fetches when it fires. Returns an unsubscribe function — call it on cleanup. Only your own custom tags are delivered (host namespaces like `conversation:`/`assistant:` are never forwarded), and the payload is just the changed tags — re-fetch through `window.vellum.fetch` for the data.
+
+```tsx
+useEffect(() => {
+  const off = window.vellum.subscribe({ tags: ["my-app:items"] }, () => {
+    void loadItems(); // re-fetch on change — no polling
+  });
+  return off;
+}, []);
+```
+
+**Writing a route handler.** Routes are `.ts`/`.js` files in `{workspaceDir}/routes/`, served at `/v1/x/<filename>` (`routes/items.ts` → `/v1/x/items`; `routes/bar/index.ts` → `/v1/x/bar`). Write them with `file_write` **before** `app_refresh`. Each exports named functions per HTTP method (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`), receiving the Web `Request`. Full Node API access (`fs`, `path`, `crypto`), 30s timeout, hot-reloaded on change. No `[id].ts` dynamic segments — use query params.
 
 ```typescript
 // routes/items.ts
@@ -287,7 +314,7 @@ export async function POST(req: Request): Promise<Response> {
 }
 ```
 
-The optional `context` arg exposes daemon singletons — e.g. `context.assistantEventHub.publish({...})` to push real-time events to connected clients (UI updates, navigation, notifications). It's immutable. Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
+To reach daemon capabilities, import from `@vellumai/plugin-api` — `publishEvent({...})` to push real-time events to connected clients (UI updates, navigation, notifications), or `runConversationTurn({...})` to post an inbound event into a conversation as a real assistant turn. (An older `context` second argument still works in-process but is deprecated — prefer these imports.) Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
 
 **Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic.
 

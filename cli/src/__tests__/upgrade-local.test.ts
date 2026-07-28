@@ -119,6 +119,7 @@ const startGatewayMock = mock<typeof local.startGateway>(
 const stopLocalProcessesMock = mock<typeof local.stopLocalProcesses>(
   async () => {},
 );
+const startCesMock = mock<typeof local.startCes>(async () => {});
 
 mock.module("../lib/local.js", () => ({
   ...realLocal,
@@ -127,6 +128,7 @@ mock.module("../lib/local.js", () => ({
   startLocalDaemon: startLocalDaemonMock,
   startGateway: startGatewayMock,
   stopLocalProcesses: stopLocalProcessesMock,
+  startCes: startCesMock,
 }));
 
 const loopbackSafeFetchMock = mock<typeof loopbackFetch.loopbackSafeFetch>(
@@ -256,6 +258,8 @@ beforeEach(() => {
   startGatewayMock.mockResolvedValue("http://127.0.0.1:7830");
   stopLocalProcessesMock.mockReset();
   stopLocalProcessesMock.mockResolvedValue(undefined);
+  startCesMock.mockReset();
+  startCesMock.mockResolvedValue(undefined);
   loopbackSafeFetchMock.mockReset();
   loopbackSafeFetchMock.mockResolvedValue({
     ok: true,

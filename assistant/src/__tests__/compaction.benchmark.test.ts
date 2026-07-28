@@ -9,27 +9,23 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // The compactor reads the conversation's image attachments from the DB to
 // build its manifest; with no images these return empty.
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: () => [],
 }));
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
   getAttachmentContent: () => null,
 }));
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
 }));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, Provider } from "../providers/types.js";
@@ -103,7 +99,7 @@ function makeLongMessages(turns: number): Message[] {
 
 function makeConfig() {
   return {
-    ...DEFAULT_CONFIG.llm.default.contextWindow,
+    ...resolveCallSiteConfig("mainAgent", DEFAULT_CONFIG.llm).contextWindow,
     maxInputTokens: 6000,
     targetBudgetRatio: 0.4,
     compactThreshold: 0.6,

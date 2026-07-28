@@ -1,9 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
+import { type Socket } from "node:net";
 import { testSecurityDir, testWorkspaceDir } from "./test-preload.js";
+
+import { connectClient, sendRequest } from "./helpers/ipc-newline-client.js";
 
 const protectedDir = testSecurityDir;
 const featureFlagStorePath = join(protectedDir, "feature-flags.json");
@@ -89,49 +90,6 @@ const { resetEnvOverridesCache } =
   await import("../feature-flag-env-overrides.js");
 const { GatewayIpcServer } = await import("../ipc/server.js");
 const { featureFlagRoutes } = await import("../ipc/feature-flag-handlers.js");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Connect a raw TCP client to the IPC socket, returning a Socket. */
-function connectClient(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const client = createConnection(path, () => resolve(client));
-    client.on("error", reject);
-  });
-}
-
-/** Send a JSON-RPC-style request and wait for the response. */
-function sendRequest(
-  client: Socket,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<{ id: string; result?: unknown; error?: string }> {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(4).toString("hex");
-    let buffer = "";
-
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const newlineIdx = buffer.indexOf("\n");
-      if (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        client.off("data", onData);
-        try {
-          resolve(JSON.parse(line));
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
-
-    client.on("data", onData);
-    const msg = JSON.stringify({ id, method, params });
-    client.write(msg + "\n");
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Tests

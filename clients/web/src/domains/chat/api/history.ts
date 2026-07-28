@@ -17,11 +17,16 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { getSeqGeneration } from "@/lib/streaming/reconnect-cursor";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
-import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
+import {
+  toBackgroundTaskEntryFromCompletion,
+  type RuntimeSubagentNotification,
+} from "@/domains/chat/api/messages";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 
 export type { PaginatedHistoryResult };
 
@@ -41,6 +46,8 @@ function parsePaginatedResponse(
   // non-notification assistant message (the message that spawned the
   // subagent). This mirrors macOS HistoryReconstructionService.
   const subagentNotifications: RuntimeSubagentNotification[] = [];
+  // Completion records re-seed completed inline cards across daemon restarts.
+  const backgroundToolCompletions: BackgroundTaskEntry[] = [];
   let lastAssistantMessageId: string | undefined;
   for (let i = 0; i < rows.length; i++) {
     const m = rows[i];
@@ -55,12 +62,18 @@ function parsePaginatedResponse(
         parentMessageId: lastAssistantMessageId,
       });
     }
+    if (m.backgroundToolCompletion) {
+      backgroundToolCompletions.push(
+        toBackgroundTaskEntryFromCompletion(m.backgroundToolCompletion),
+      );
+    }
   }
 
   const hasMore = body?.hasMore ?? false;
   const oldestTimestamp = body?.oldestTimestamp ?? null;
   const oldestMessageId = body?.oldestMessageId || null;
   const seq = body?.seq ?? null;
+  const processing = body?.processing;
 
   return {
     messages,
@@ -68,6 +81,8 @@ function parsePaginatedResponse(
     oldestTimestamp,
     oldestMessageId,
     seq,
+    processing,
+    backgroundToolCompletions,
     ...(subagentNotifications.length > 0 ? { subagentNotifications } : {}),
   };
 }
@@ -76,6 +91,12 @@ async function fetchPaginatedHistory(
   assistantId: string,
   query: HistoryQuery,
 ): Promise<PaginatedHistoryResult> {
+  // Capture the seq generation at request-ISSUE time: if the daemon's counter
+  // resets while this fetch is in flight, the watermark it returns belongs to
+  // the abandoned generation. Stamping the page with the issue-time generation
+  // lets the snapshot-anchor frontier be tagged accordingly (see
+  // `use-conversation-history`), so the stale-frontier guard can clear it.
+  const seqGeneration = getSeqGeneration();
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
@@ -97,7 +118,10 @@ async function fetchPaginatedHistory(
     throw new ApiError(response.status, message);
   }
 
-  const result = parsePaginatedResponse(data);
+  const result: PaginatedHistoryResult = {
+    ...parsePaginatedResponse(data),
+    seqGeneration,
+  };
   recordDiagnostic("history_page_fetch", {
     assistantId,
     query,

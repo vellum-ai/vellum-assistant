@@ -6,6 +6,10 @@ import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
+  isAnthropicDelegatingGateway,
+  isAnthropicModel,
+} from "./anthropic-gateway-shared.js";
+import {
   buildProviderAdapter,
   createAdapterFromConnection,
 } from "./inference/adapter-factory.js";
@@ -13,6 +17,7 @@ import {
 // Per-connection provider cache (mix-and-match support)
 // ---------------------------------------------------------------------------
 import type { ProviderConnection } from "./inference/auth.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "./inference/auth.js";
 import { resolveAuth } from "./inference/resolve-auth.js";
 import { isModelInCatalog, PROVIDER_CATALOG } from "./model-catalog.js";
 import { getProviderDefaultModel } from "./model-intents.js";
@@ -30,14 +35,42 @@ const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 const NATIVE_WEB_SEARCH_PROVIDER_IDS = new Set(["anthropic", "openai"]);
 
-/** Per-connection provider cache, keyed by connection name and model. */
-const connectionProviders = new Map<string, Provider>();
+/**
+ * A cached per-connection provider and the wall-clock time it goes stale.
+ *
+ * The credential store is the source of truth for a connection's API key; a
+ * resolved provider bakes that key into its auth headers and is only a cache of
+ * it. `expiresAt` bounds how long a cached provider is trusted before the key
+ * is re-read from the store, so a credential rotated out-of-band (e.g. the
+ * platform reprovisioning the assistant API key) is picked up on its own — in
+ * every process that holds this cache, with no cross-process invalidation.
+ */
+interface CachedConnectionProvider {
+  provider: Provider;
+  expiresAt: number;
+}
+
+/**
+ * How long a resolved per-connection provider is served from cache before it is
+ * re-resolved from the credential store. Bounds credential staleness in any
+ * process holding the cache (the daemon and each sidecar worker) to this
+ * window. Kept short enough that a rotated key self-heals quickly, long enough
+ * that repeated resolutions within a burst still reuse one adapter.
+ */
+const CONNECTION_PROVIDER_CACHE_TTL_MS = 60_000;
+
+/** Per-connection provider cache, keyed by connection name, effective provider, and model. */
+const connectionProviders = new Map<string, CachedConnectionProvider>();
 
 function getConnectionProviderCacheKey(
   connection: ProviderConnection,
   model: string,
+  effectiveProvider: string,
 ): string {
-  return `${connection.name}\u0000${model}`;
+  // `effectiveProvider` differs from `connection.provider` only for the
+  // provider-agnostic Vellum-managed connection, where one connection name
+  // serves multiple upstreams — include it so those entries don't collide.
+  return `${connection.name}\u0000${effectiveProvider}\u0000${model}`;
 }
 
 function registerProvider(name: string, provider: Provider): void {
@@ -66,12 +99,10 @@ export interface ProvidersConfig {
   services: {
     inference: Record<string, never>;
     "image-generation": {
-      mode: "managed" | "your-own";
       provider: string;
       model: string;
     };
     "web-search": {
-      mode: "managed" | "your-own";
       provider: string;
     };
   };
@@ -112,13 +143,13 @@ export function isNativeWebSearchCapableProvider(
   if (NATIVE_WEB_SEARCH_PROVIDER_IDS.has(providerName)) {
     return true;
   }
-  if (providerName === "openrouter" && model.startsWith("anthropic/")) {
+  if (isAnthropicDelegatingGateway(providerName) && isAnthropicModel(model)) {
     return true;
   }
   return false;
 }
 
-function shouldUseNativeWebSearch(
+export function shouldUseNativeWebSearch(
   config: ProvidersConfig,
   providerName: string,
   model: string,
@@ -192,11 +223,15 @@ export async function initializeProviders(
     if (isKeyless) {
       const key = await getProviderKeyAsync(entry.id);
       const isConfiguredMainAgent = mainAgentProvider === entry.id;
-      if (!key && !isConfiguredMainAgent) continue;
+      if (!key && !isConfiguredMainAgent) {
+        continue;
+      }
       apiKey = key ?? "";
     } else {
       const creds = await resolveProviderCredentials(entry.id);
-      if (!creds) continue;
+      if (!creds) {
+        continue;
+      }
       apiKey = creds.apiKey;
       baseURL = creds.baseURL;
       source = creds.source;
@@ -234,6 +269,8 @@ export async function initializeProviders(
     );
     routingSources.set(entry.id, source);
   }
+
+  log.info({ providerCount: providers.size }, "Providers initialized");
 }
 
 // ---------------------------------------------------------------------------
@@ -243,9 +280,12 @@ export async function initializeProviders(
 /**
  * Resolve a provider instance for a named `provider_connection`.
  *
- * Results are cached in `connectionProviders` for the lifetime of the
- * current `initializeProviders` invocation (cleared on next boot). This
- * prevents redundant vault reads for repeated calls to the same connection.
+ * Results are cached in `connectionProviders` to avoid redundant vault reads
+ * for repeated calls to the same connection. A cached provider bakes in the
+ * credential it resolved, so each entry carries a TTL
+ * ({@link CONNECTION_PROVIDER_CACHE_TTL_MS}): once it expires the credential is
+ * re-read from the store, bounding how long an out-of-band key rotation stays
+ * stale. Entries are also cleared eagerly on connection mutations and boot.
  *
  * Returns null when:
  *   - The connection doesn't exist in the DB
@@ -255,14 +295,37 @@ export async function initializeProviders(
 export async function resolveProviderFromConnection(
   connection: ProviderConnection,
   config: ProvidersConfig,
-  opts: { model?: string } = {},
+  opts: { model?: string; providerOverride?: string } = {},
 ): Promise<Provider | null> {
-  const model = opts.model ?? resolveModel(config, connection.provider);
-  const cacheKey = getConnectionProviderCacheKey(connection, model);
+  // The provider-agnostic Vellum-managed connection carries only the `vellum`
+  // sentinel on its row, so callers pass the resolved profile's provider here.
+  // For every other connection this is `undefined` and the effective provider
+  // is the connection's own — no behavior change.
+  const effectiveProvider = opts.providerOverride ?? connection.provider;
+  // Routing identities must be translated to a real upstream before this
+  // point (resolveRoutingIdentity in connection-resolution) — an identity
+  // reaching adapter construction would silently yield no adapter and the
+  // retry wire-normalization keys off real adapter provider names.
+  if (ROUTING_IDENTITY_PROVIDERS.has(effectiveProvider)) {
+    throw new Error(
+      `resolveProviderFromConnection received unresolved routing identity "${effectiveProvider}" — translate to a real upstream before adapter construction`,
+    );
+  }
+  const model = opts.model ?? resolveModel(config, effectiveProvider);
+  const cacheKey = getConnectionProviderCacheKey(
+    connection,
+    model,
+    effectiveProvider,
+  );
   const cached = connectionProviders.get(cacheKey);
-  if (cached) return cached;
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.provider;
+  }
+  // A stale entry is a miss: fall through to re-resolve. The credential is
+  // re-read from the store below, so a key rotated since the entry was cached
+  // is picked up here rather than served stale forever.
 
-  const authResult = await resolveAuth(connection.auth, connection.provider, {
+  const authResult = await resolveAuth(connection.auth, effectiveProvider, {
     baseUrl: connection.baseUrl,
   });
   if (!authResult.ok) {
@@ -291,7 +354,7 @@ export async function resolveProviderFromConnection(
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
   const useNativeWebSearch = shouldUseNativeWebSearch(
     config,
-    connection.provider,
+    effectiveProvider,
     model,
   );
 
@@ -302,11 +365,15 @@ export async function resolveProviderFromConnection(
       model,
       streamTimeoutMs,
       useNativeWebSearch,
+      provider: effectiveProvider,
     },
   );
 
   if (provider) {
-    connectionProviders.set(cacheKey, provider);
+    connectionProviders.set(cacheKey, {
+      provider,
+      expiresAt: Date.now() + CONNECTION_PROVIDER_CACHE_TTL_MS,
+    });
   }
 
   return provider;

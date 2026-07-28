@@ -12,26 +12,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600 },
-    sandbox: {
-      enabled: false,
-      backend: "native",
-      docker: {
-        image: "vellum-sandbox:latest",
-        shell: "bash",
-        cpus: 1,
-        memoryMb: 512,
-        pidsLimit: 256,
-        network: "none",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 mock.module("../tools/network/script-proxy/index.js", () => ({
   getOrStartSession: mock(() =>
     Promise.resolve({ session: { id: "mock-session" } }),
@@ -80,6 +60,7 @@ const mockIsBackgroundToolLimitReached = mock(() => false);
 mock.module("../tools/background-tool-registry.js", () => ({
   registerBackgroundTool: mockRegisterBackgroundTool,
   removeBackgroundTool: mockRemoveBackgroundTool,
+  recordCompletedBackgroundTool: () => {},
   generateBackgroundToolId: mockGenerateBackgroundToolId,
   isBackgroundToolLimitReached: mockIsBackgroundToolLimitReached,
   MAX_BACKGROUND_TOOLS: 20,
@@ -188,6 +169,10 @@ describe("bash tool background mode", () => {
     // Command stdout is fenced as untrusted output, not inlined in the hint.
     expect(wakeCall.untrustedOutput?.content).toContain("bg_output_12345");
     expect(wakeCall.untrustedOutput?.source).toBe("tool_result");
+    // Durable completion record stamped onto the persisted wake.
+    expect(wakeCall.backgroundToolCompletion?.id).toBe("bg-test1234");
+    expect(wakeCall.backgroundToolCompletion?.status).toBe("completed");
+    expect(wakeCall.backgroundToolCompletion?.exitCode).toBe(0);
   });
 
   test("failing background process delivers an error hint via wake", async () => {
@@ -209,6 +194,35 @@ describe("bash tool background mode", () => {
     expect(wakeCall.hint).toContain("bg-test1234");
     // The command fails with exit code 1, so the hint should reflect failure
     expect(wakeCall.hint).toContain("exit=1");
+    expect(wakeCall.backgroundToolCompletion?.id).toBe("bg-test1234");
+    expect(wakeCall.backgroundToolCompletion?.status).toBe("failed");
+    expect(wakeCall.backgroundToolCompletion?.exitCode).toBe(1);
+  });
+
+  test("cancelled background process wakes with the cancellation, not a completed result", async () => {
+    await shellTool.execute(
+      { command: "sleep 30", activity: "test", background: true },
+      baseContext,
+    );
+
+    // User presses Stop: cancel aborts the run and kills the process.
+    const registered = mockRegisterBackgroundTool.mock
+      .calls[0]![0] as BackgroundTool;
+    registered.cancel();
+
+    await waitForWake(mockWakeAgentForOpportunity);
+
+    const wakeCall = mockWakeAgentForOpportunity.mock
+      .calls[0]![0] as WakeOptions;
+    // The wake must reflect the cancellation, not the generic "completed"
+    // framing + SIGKILL-failed output the assistant used to receive — so it
+    // matches the recorded/broadcast status and the inline card.
+    expect(wakeCall.hint).toContain("bg-test1234");
+    expect(wakeCall.hint).toContain("cancelled");
+    expect(wakeCall.hint).not.toContain("completed");
+    expect(wakeCall.untrustedOutput?.content).toContain("cancelled");
+    expect(wakeCall.backgroundToolCompletion?.id).toBe("bg-test1234");
+    expect(wakeCall.backgroundToolCompletion?.status).toBe("cancelled");
   });
 
   test("foreground mode still works when background is not set", async () => {

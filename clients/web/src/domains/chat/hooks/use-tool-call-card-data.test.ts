@@ -82,7 +82,7 @@ describe("computeToolCallCardData — step kinds", () => {
       info: "echo hello",
       activity: "",
       riskLevel: undefined,
-      iconName: "code",
+      iconName: "terminal",
       toolCallId: "tc-1",
       status: "completed",
     });
@@ -294,9 +294,9 @@ describe("computeToolCallCardData — state transitions", () => {
 
 describe("computeToolCallCardData — subagent_spawn filtering", () => {
   test("a subagent_spawn-only group produces zero steps", () => {
-    // Inline `SubagentInlineProgressCard` renders the spawned subagent
-    // at the transcript level — surfacing a step inside the unified card
-    // would render the spawn twice.
+    // The subagent descriptor's `InlineProcessCard` renders the spawned
+    // subagent at the transcript level — surfacing a step inside the unified
+    // card would render the spawn twice.
     const toolCalls = [
       makeToolCall({
         id: "tc-1",

@@ -5,6 +5,7 @@ import { BadRequestError } from "../runtime/routes/errors.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import {
   _clearRegistryForTesting,
+  recordCompletedBackgroundTool,
   registerBackgroundTool,
 } from "../tools/background-tool-registry.js";
 
@@ -45,13 +46,83 @@ afterEach(() => {
 
 describe("background tool routes", () => {
   describe("GET /v1/background-tools (list)", () => {
-    test("returns empty array when no tools are registered", async () => {
+    test("returns empty arrays when no tools are registered", async () => {
       const route = findRoute("background_tool_list")!;
       const result = (await route.handler({})) as {
         tools: unknown[];
+        completed: unknown[];
       };
 
       expect(result.tools).toEqual([]);
+      expect(result.completed).toEqual([]);
+    });
+
+    test("returns recently-completed tools with terminal fields", async () => {
+      recordCompletedBackgroundTool({
+        id: "bg-done-1",
+        toolName: "bash",
+        conversationId: "conv-1",
+        command: "npm run build",
+        startedAt: 1700000000000,
+        status: "completed",
+        exitCode: 0,
+        output: "built",
+        completedAt: 1700000004200,
+      });
+
+      const route = findRoute("background_tool_list")!;
+      const result = (await route.handler({})) as {
+        tools: unknown[];
+        completed: Array<{
+          id: string;
+          status: string;
+          exitCode: number | null;
+          output: string;
+          completedAt: number;
+        }>;
+      };
+
+      expect(result.tools).toEqual([]);
+      expect(result.completed).toHaveLength(1);
+      expect(result.completed[0]).toMatchObject({
+        id: "bg-done-1",
+        status: "completed",
+        exitCode: 0,
+        output: "built",
+        completedAt: 1700000004200,
+      });
+    });
+
+    test("filters completed tools by conversationId", async () => {
+      recordCompletedBackgroundTool({
+        id: "bg-d1",
+        toolName: "bash",
+        conversationId: "conv-a",
+        command: "x",
+        startedAt: 1,
+        status: "completed",
+        exitCode: 0,
+        output: "",
+        completedAt: 2,
+      });
+      recordCompletedBackgroundTool({
+        id: "bg-d2",
+        toolName: "bash",
+        conversationId: "conv-b",
+        command: "x",
+        startedAt: 1,
+        status: "failed",
+        exitCode: 1,
+        output: "",
+        completedAt: 2,
+      });
+
+      const route = findRoute("background_tool_list")!;
+      const result = (await route.handler({
+        queryParams: { conversationId: "conv-a" },
+      })) as { completed: Array<{ id: string }> };
+
+      expect(result.completed.map((t) => t.id)).toEqual(["bg-d1"]);
     });
 
     test("returns registered tools with toolName field", async () => {

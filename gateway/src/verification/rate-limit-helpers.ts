@@ -1,18 +1,14 @@
 /**
  * Rate limiting helpers for gateway-owned verification.
  *
- * Gateway DB is the primary store; assistant DB gets best-effort dual-writes.
- * Uses atomic upserts (ON CONFLICT) to handle concurrent webhook deliveries.
+ * Gateway DB only. Uses atomic upserts (ON CONFLICT) to handle concurrent
+ * webhook deliveries.
  */
 
 import { and, eq, sql } from "drizzle-orm";
 
-import { assistantDbRun } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
 import { channelGuardianRateLimits as gwRateLimits } from "../db/schema.js";
-import { getLogger } from "../logger.js";
-
-const log = getLogger("verification-rate-limits");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -30,10 +26,6 @@ interface RateLimitRecord {
   attemptTimestampsJson: string;
   lockedUntil: number | null;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Read
@@ -134,37 +126,6 @@ export async function recordInvalidAttempt(
       END,
       updated_at = ${now}
   `);
-
-  // Read back for assistant DB dual-write
-  const updated = getRateLimit(channel, actorExternalUserId, actorChatId);
-  const timestampsJson = updated?.attemptTimestampsJson ?? singleTimestampJson;
-  const lockedUntil = updated?.lockedUntil ?? null;
-
-  // Assistant DB dual-write
-  try {
-    await assistantDbRun(
-      `INSERT INTO channel_guardian_rate_limits
-         (id, channel, actor_external_user_id, actor_chat_id,
-          attempt_timestamps_json, locked_until, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (channel, actor_external_user_id, actor_chat_id) DO UPDATE SET
-         attempt_timestamps_json = excluded.attempt_timestamps_json,
-         locked_until = excluded.locked_until,
-         updated_at = excluded.updated_at`,
-      [
-        crypto.randomUUID(),
-        channel,
-        actorExternalUserId,
-        actorChatId,
-        timestampsJson,
-        lockedUntil,
-        now,
-        now,
-      ],
-    );
-  } catch (err) {
-    log.warn({ err }, "Assistant DB rate limit dual-write failed (best-effort)");
-  }
 }
 
 export async function resetRateLimit(
@@ -189,17 +150,4 @@ export async function resetRateLimit(
       ),
     )
     .run();
-
-  try {
-    await assistantDbRun(
-      `UPDATE channel_guardian_rate_limits
-       SET attempt_timestamps_json = '[]', locked_until = NULL, updated_at = ?
-       WHERE channel = ?
-         AND actor_external_user_id = ?
-         AND actor_chat_id = ?`,
-      [now, channel, actorExternalUserId, actorChatId],
-    );
-  } catch (err) {
-    log.warn({ err }, "Assistant DB rate limit reset dual-write failed (best-effort)");
-  }
 }

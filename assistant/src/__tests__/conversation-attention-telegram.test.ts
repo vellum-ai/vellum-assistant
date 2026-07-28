@@ -14,14 +14,6 @@ mock.module("../daemon/conversation-store.js", () => ({
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock render to return the raw content as text
 mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({
@@ -31,15 +23,20 @@ mock.module("../daemon/handlers/shared.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { upsertContact } from "../contacts/contact-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
-import { resetTestTables } from "../memory/raw-query.js";
-import { attachments, conversationAttentionEvents } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryChannels from "../persistence/delivery-channels.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import {
+  attachments,
+  conversationAttentionEvents,
+} from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
 
@@ -55,7 +52,6 @@ function resetTables(): void {
   resetTestTables(
     "conversation_attention_events",
     "conversation_assistant_attention_state",
-    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",
@@ -69,16 +65,12 @@ function resetTables(): void {
 }
 
 function ensureTestContact(): void {
-  upsertContact({
+  seedContactChannel({
+    sourceChannel: "telegram",
+    externalUserId: "telegram-user-default",
     displayName: "Test User",
-    channels: [
-      {
-        type: "telegram",
-        address: "telegram-user-default",
-        status: "active",
-        policy: "allow",
-      },
-    ],
+    status: "active",
+    policy: "allow",
   });
 }
 

@@ -22,6 +22,7 @@ import {
   getHttpUrl,
   getSameOriginRoutePath,
   openOAuthUrlInPopup,
+  openUrlInPopupOrTab,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
 import { routes } from "@/utils/routes";
@@ -147,6 +148,37 @@ describe("oauth popup links", () => {
         ),
       ).toBe(false);
       expect(openUrlMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("openUrlInPopupOrTab", () => {
+    const oauthUrl =
+      "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=client-1&redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fcallback";
+
+    test("OAuth-shaped URLs open in the sized popup", () => {
+      const popup = { focus: mock(() => {}) } as unknown as Window;
+      const open = mock(() => popup);
+      setMockWindow({ open });
+
+      expect(openUrlInPopupOrTab(oauthUrl)).toBe(true);
+      expect(open).toHaveBeenCalledWith(oauthUrl, "_blank", "width=500,height=600");
+    });
+
+    test("non-OAuth URLs open in a new tab", () => {
+      const popup = { focus: mock(() => {}) } as unknown as Window;
+      const open = mock(() => popup);
+      setMockWindow({ open });
+
+      expect(openUrlInPopupOrTab("https://example.com/docs")).toBe(true);
+      expect(open).toHaveBeenCalledWith("https://example.com/docs", "_blank");
+    });
+
+    test("returns false when the browser blocks the open", () => {
+      const open = mock(() => null);
+      setMockWindow({ open });
+
+      expect(openUrlInPopupOrTab(oauthUrl)).toBe(false);
+      expect(openUrlInPopupOrTab("https://example.com/docs")).toBe(false);
     });
   });
 });

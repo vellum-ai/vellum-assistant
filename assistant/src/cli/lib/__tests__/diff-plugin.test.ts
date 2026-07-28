@@ -18,11 +18,8 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { diffPlugin, PluginDiffUnavailableError } from "../diff-plugin.js";
-import {
-  type FetchLike,
-  type GitRunner,
-  PluginNotFoundError,
-} from "../install-from-github.js";
+import type { FetchLike } from "../fetch-like.js";
+import { type GitRunner, PluginNotFoundError } from "../install-from-github.js";
 import { PluginNotInstalledError } from "../uninstall-plugin.js";
 
 const SHA_A = "a".repeat(40);

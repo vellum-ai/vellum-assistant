@@ -7,24 +7,9 @@ const updateConversationUsageCalls: Array<{
   estimatedCost: number;
 }> = [];
 
-let mockLlmConfig = createMockLlmConfig();
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-  }),
-}));
-
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateConversationUsage: (
     conversationId: string,
     inputTokens: number,
@@ -42,70 +27,42 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 import { recordUsage } from "../daemon/conversation-usage.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { listUsageEvents } from "../memory/llm-usage-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
+import { setConfig } from "./helpers/set-config.js";
 
 await initializeDb();
 
-function createMockLlmConfig() {
-  return {
-    default: {
-      provider: "anthropic" as const,
-      model: "claude-opus-4-6",
-      maxTokens: 64_000,
-      effort: "max" as const,
-      speed: "standard" as const,
-      verbosity: "medium" as const,
-      temperature: null,
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 200_000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-        overflowRecovery: {
-          enabled: true,
-          safetyMarginRatio: 0.05,
-          maxAttempts: 3,
-          interactiveLatestTurnCompression: "summarize" as const,
-          nonInteractiveLatestTurnCompression: "truncate" as const,
-        },
-      },
-      openrouter: { only: [] },
+// The attribution assertions resolve profiles/call sites through the real
+// workspace config, so seed the fixtures the tests reference.
+setConfig("llm", {
+  profiles: {
+    conversationProfile: {
+      provider: "openai",
+      model: "gpt-4o",
     },
-    profiles: {
-      conversationProfile: {
-        provider: "openai" as const,
-        model: "gpt-4o",
-      },
-      summaryProfile: {
-        provider: "anthropic" as const,
-        model: "claude-haiku-3",
-      },
+    summaryProfile: {
+      provider: "anthropic",
+      model: "claude-haiku-3",
     },
-    profileOrder: [],
-    callSites: {
-      conversationSummarization: {
-        profile: "summaryProfile",
-      },
+  },
+  callSites: {
+    conversationSummarization: {
+      profile: "summaryProfile",
     },
-    activeProfile: undefined,
-    pricingOverrides: [],
-  };
-}
+  },
+});
 
 describe("recordUsage", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     updateConversationUsageCalls.length = 0;
-    mockLlmConfig = createMockLlmConfig();
   });
 
   test("applies fast mode pricing when any response has speed: fast", () => {
@@ -400,9 +357,11 @@ describe("recordUsage", () => {
       undefined,
       1,
       undefined,
+      // No override profile: an override wins selection at every call site
+      // (covered by the main-agent test above), so attribution lands on the
+      // call-site rung only when the turn carries no override.
       {
         callSite: "conversationSummarization",
-        overrideProfile: "conversationProfile",
       },
     );
 
@@ -463,5 +422,32 @@ describe("recordUsage", () => {
       inferenceProfile: null,
       inferenceProfileSource: "default",
     });
+  });
+
+  test("NaN token counts never reach persistence and a poisoned total self-heals", () => {
+    const usageStats = {
+      inputTokens: Number.NaN,
+      outputTokens: 5,
+      estimatedCost: Number.NaN,
+    };
+
+    recordUsage(
+      {
+        conversationId: "conv-nan-1",
+        providerName: "anthropic",
+        usageStats,
+      },
+      Number.NaN,
+      10,
+      "claude-opus-4-6",
+      () => {},
+      "main_agent",
+    );
+
+    expect(updateConversationUsageCalls).toHaveLength(1);
+    const call = updateConversationUsageCalls[0];
+    expect(call.inputTokens).toBe(0);
+    expect(call.outputTokens).toBe(15);
+    expect(Number.isFinite(call.estimatedCost)).toBe(true);
   });
 });

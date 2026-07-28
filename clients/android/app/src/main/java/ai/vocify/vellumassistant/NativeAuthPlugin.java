@@ -94,7 +94,6 @@ public class NativeAuthPlugin extends Plugin {
                     WorkOSAuth.codeChallenge(nextFlow.codeVerifier),
                     nextFlow.state,
                     call.getString("loginHint"),
-                    call.getString("providerHint"),
                     call.getString("intent")
                 );
                 launchAuthBrowser(nextFlow, authorizeUri);

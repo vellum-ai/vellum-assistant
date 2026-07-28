@@ -11,7 +11,8 @@
 
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { CHATGPT_SUBSCRIPTION_CONNECTION_NAME } from "../../providers/inference/auth.js";
 import {
   createConnection,
   getConnection,
@@ -45,7 +46,7 @@ const OPENAI_OAUTH_CONFIG: OAuth2Config = {
 };
 
 const REDIRECT_URI = "http://localhost:1455/auth/callback";
-const CONNECTION_NAME = "chatgpt-subscription";
+const CONNECTION_NAME = CHATGPT_SUBSCRIPTION_CONNECTION_NAME;
 
 // ---------------------------------------------------------------------------
 // Module-level PKCE state storage
@@ -87,9 +88,7 @@ async function handleStartAuth(_args: RouteHandlerArgs) {
     response_type: "code",
     client_id: OPENAI_OAUTH_CONFIG.clientId,
     redirect_uri: REDIRECT_URI,
-    scope: OPENAI_OAUTH_CONFIG.scopes.join(
-      OPENAI_OAUTH_CONFIG.scopeSeparator,
-    ),
+    scope: OPENAI_OAUTH_CONFIG.scopes.join(OPENAI_OAUTH_CONFIG.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -148,10 +147,7 @@ async function handleExchange(args: RouteHandlerArgs) {
 
   if (tokens.expiresIn) {
     const expiresAt = Math.floor(Date.now() / 1000 + tokens.expiresIn);
-    await setSecureKeyAsync(
-      "credential/chatgpt/expires_at",
-      String(expiresAt),
-    );
+    await setSecureKeyAsync("credential/chatgpt/expires_at", String(expiresAt));
   }
 
   // Upsert provider connection

@@ -10,33 +10,48 @@
 
 import { z } from "zod";
 
-import { getConfigReadOnly } from "../../config/loader.js";
-import { getDb } from "../../memory/db-connection.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import {
+  getDefaultProviderFromConfig,
+  resolveDefaultConnectionName,
+} from "../../config/default-provider-resolution.js";
+import { getIsPlatform } from "../../config/env-registry.js";
+import { getConfigReadOnly } from "../../config/loader.js";
+import { getDb } from "../../persistence/db-connection.js";
+import {
+  type Auth,
   AuthSchema,
   type ConnectionModel,
   ConnectionModelSchema,
   ConnectionProviderSchema,
+  deriveAuthForProvider,
   ProviderConnectionSchema,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
 } from "../../providers/inference/auth.js";
 import {
   createConnection,
   deleteConnection,
   getConnection,
+  LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
   MANAGED_CONNECTION_NAMES,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   updateConnection,
 } from "../../providers/inference/connections.js";
+import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
+import { credentialKey } from "../../security/credential-key.js";
+import { deleteSecureKeyAsync } from "../../security/secure-keys.js";
 import {
   isPrivateOrLocalHost,
   resolveHostAddresses,
   resolveRequestAddress,
 } from "../../tools/network/url-safety.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("routes/inference-provider-connections");
 
 // ---------------------------------------------------------------------------
 // Shared Zod schema for the ProviderConnection response shape
@@ -97,30 +112,37 @@ async function parseCustomProviderFields(
           throw new BadRequestError(`Invalid base_url: must be an http(s) URL`);
         }
       } catch (err) {
-        if (err instanceof BadRequestError) throw err;
+        if (err instanceof BadRequestError) {
+          throw err;
+        }
         throw new BadRequestError(
           `Invalid base_url: must be a valid http(s) URL`,
         );
       }
 
-      // SSRF protection: reject private IPs, localhost, cloud metadata endpoints.
-      const hostname = parsed.hostname;
-      if (isPrivateOrLocalHost(hostname)) {
-        throw new BadRequestError(
-          `Invalid base_url: must not point to a private or local network address.`,
-        );
-      }
+      // SSRF protection: reject private IPs, localhost, cloud metadata
+      // endpoints — but only for platform-hosted daemons where the container
+      // runs on Vellum infrastructure. Self-hosted daemons run on the user's
+      // own machine, so localhost/private addresses are the expected target
+      // (e.g. LM Studio, vLLM, text-generation-webui).
+      if (getIsPlatform()) {
+        const hostname = parsed.hostname;
+        if (isPrivateOrLocalHost(hostname)) {
+          throw new BadRequestError(
+            `Invalid base_url: must not point to a private or local network address.`,
+          );
+        }
 
-      // DNS resolution check: hostname may resolve to a private IP.
-      const resolved = await resolveRequestAddress(
-        hostname,
-        resolveHostAddresses,
-        /* allowPrivateNetwork */ false,
-      );
-      if (resolved.blockedAddress) {
-        throw new BadRequestError(
-          `Invalid base_url: hostname resolves to a private network address.`,
+        const resolved = await resolveRequestAddress(
+          hostname,
+          resolveHostAddresses,
+          /* allowPrivateNetwork */ false,
         );
+        if (resolved.blockedAddress) {
+          throw new BadRequestError(
+            `Invalid base_url: hostname resolves to a private network address.`,
+          );
+        }
       }
 
       out.baseUrl = raw;
@@ -147,6 +169,28 @@ async function parseCustomProviderFields(
   return out;
 }
 
+/**
+ * Derive the auth object for a body that omits `auth`, from the provider and
+ * the optional top-level `credential` field. Throws the 400s for the cases
+ * the derivation can't express: a malformed credential, or a provider that
+ * needs an API key when none was supplied.
+ */
+function deriveConnectionAuth(provider: string, credential: unknown): Auth {
+  if (
+    credential !== undefined &&
+    (typeof credential !== "string" || credential.length === 0)
+  ) {
+    throw new BadRequestError("credential must be a non-empty string");
+  }
+  const derived = deriveAuthForProvider(provider, credential);
+  if (!derived) {
+    throw new BadRequestError(
+      `Provider "${provider}" requires an API key. Pass "credential" (a vault credential key) or an explicit "auth" object.`,
+    );
+  }
+  return derived;
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -156,19 +200,74 @@ function handleListConnections({ queryParams = {} }: RouteHandlerArgs) {
   const connections = listConnections(
     getDb(),
     provider ? { provider } : undefined,
-  );
+  ).filter((c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name));
   return { connections };
 }
 
 function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
   const { name } = pathParams;
-  if (!name) throw new BadRequestError("name is required");
+  if (!name) {
+    throw new BadRequestError("name is required");
+  }
 
   const conn = getConnection(getDb(), name);
-  if (!conn) throw new NotFoundError(`Connection "${name}" not found.`);
+  if (!conn) {
+    throw new NotFoundError(`Connection "${name}" not found.`);
+  }
 
   return conn;
 }
+
+/**
+ * Custom providers share the flat provider list with built-ins, so their
+ * display identity (label, falling back to name) must not collide with a
+ * built-in provider's id or display name, nor with another custom
+ * provider's identity. Enforced daemon-side: every client (web, CLI, API)
+ * goes through these routes.
+ */
+function assertValidCustomProviderIdentity(
+  provider: string,
+  labelRaw: unknown,
+  selfName: string,
+): void {
+  if (provider !== "openai-compatible") {
+    return;
+  }
+  // The display identity is the label, falling back to the name — a
+  // label-less row named "openai" impersonates a built-in just as well as
+  // a labeled one.
+  const label = typeof labelRaw === "string" ? labelRaw.trim() : "";
+  const identity = label || selfName;
+  const lower = identity.toLowerCase();
+  if (RESERVED_PROVIDER_IDENTITIES.has(lower)) {
+    throw new BadRequestError(
+      `Invalid ${label ? "label" : "name"}: "${identity}" belongs to a built-in provider. Pick another name.`,
+    );
+  }
+  const duplicate = listConnections(getDb(), {
+    provider: "openai-compatible",
+  }).find(
+    (c) =>
+      c.name !== selfName &&
+      (c.label?.trim() || c.name).toLowerCase() === lower,
+  );
+  if (duplicate) {
+    throw new BadRequestError(
+      `Invalid ${label ? "label" : "name"}: a custom provider named "${identity}" already exists.`,
+    );
+  }
+}
+
+/** Built-in provider ids, display names, and routing identities, lowercased. */
+const RESERVED_PROVIDER_IDENTITIES = new Set<string>([
+  ...PROVIDER_CATALOG.flatMap((p) => [
+    p.id.toLowerCase(),
+    p.displayName.toLowerCase(),
+  ]),
+  "vellum",
+  "chatgpt",
+  "chatgpt subscription",
+]);
 
 async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   const name = body.name;
@@ -185,7 +284,9 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
       `Invalid provider "${String(provider)}". Valid: ${VALID_CONNECTION_PROVIDERS.join(", ")}`,
     );
   }
-  const authResult = AuthSchema.safeParse(auth);
+  const authResult = AuthSchema.safeParse(
+    auth ?? deriveConnectionAuth(providerResult.data, body.credential),
+  );
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
@@ -194,14 +295,21 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   if (
     labelRaw !== undefined &&
     labelRaw !== null &&
-    (typeof labelRaw !== "string" || labelRaw.length === 0)
+    (typeof labelRaw !== "string" || labelRaw.trim().length === 0)
   ) {
     throw new BadRequestError(
-      `Invalid label: must be a non-empty string or null`,
+      `Invalid label: must be a non-blank string or null`,
     );
   }
 
-  const customFields = await parseCustomProviderFields(body, providerResult.data);
+  const customFields = await parseCustomProviderFields(
+    body,
+    providerResult.data,
+  );
+
+  // Same event-loop turn as the write: no await separates this check from
+  // createConnection, so concurrent requests cannot both pass it.
+  assertValidCustomProviderIdentity(providerResult.data, labelRaw, name);
 
   const result = createConnection(getDb(), {
     name,
@@ -224,12 +332,12 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     }
     if (result.error.code === "base_url_required") {
       throw new BadRequestError(
-        "base_url is required for openai-compatible connections.",
+        "base_url is required for openai-compatible providers.",
       );
     }
     if (result.error.code === "models_required") {
       throw new BadRequestError(
-        "At least one model is required for openai-compatible connections.",
+        "At least one model is required for openai-compatible providers.",
       );
     }
     throw new BadRequestError("Invalid auth configuration.");
@@ -243,12 +351,36 @@ async function handleUpdateConnection({
   body = {},
 }: RouteHandlerArgs) {
   const { name } = pathParams;
-  if (!name) throw new BadRequestError("name is required");
+  if (!name) {
+    throw new BadRequestError("name is required");
+  }
 
   const existing = getConnection(getDb(), name);
-  if (!existing) throw new NotFoundError(`Connection "${name}" not found.`);
+  if (!existing) {
+    throw new NotFoundError(`Connection "${name}" not found.`);
+  }
 
-  const auth = body.auth;
+  // `auth` is optional: an explicit object wins; a bare `credential` rotates
+  // the key by re-deriving from the provider; omitting both leaves the stored
+  // auth untouched (so label-only edits never disturb e.g. an
+  // oauth_subscription connection).
+  if (
+    body.auth === undefined &&
+    body.credential !== undefined &&
+    existing.auth.type === "oauth_subscription"
+  ) {
+    // Derivation would silently flip the auth type to api_key. Rotating a
+    // subscription token goes through the ChatGPT sign-in routes; switching
+    // to key auth requires an explicit `auth` object.
+    throw new BadRequestError(
+      `Connection "${name}" uses subscription auth, which "credential" cannot rotate. Re-run the ChatGPT sign-in flow, or pass an explicit "auth" object to switch auth types.`,
+    );
+  }
+  const auth =
+    body.auth ??
+    (body.credential !== undefined
+      ? deriveConnectionAuth(existing.provider, body.credential)
+      : existing.auth);
   const authResult = AuthSchema.safeParse(auth);
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
@@ -258,13 +390,12 @@ async function handleUpdateConnection({
   if (
     labelRaw !== undefined &&
     labelRaw !== null &&
-    (typeof labelRaw !== "string" || labelRaw.length === 0)
+    (typeof labelRaw !== "string" || labelRaw.trim().length === 0)
   ) {
     throw new BadRequestError(
-      `Invalid label: must be a non-empty string or null`,
+      `Invalid label: must be a non-blank string or null`,
     );
   }
-
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
   // `seedCanonicalConnections` would revert any other value on next restart;
   // reject the write here so the surprise loop never happens. Label remains
@@ -280,6 +411,20 @@ async function handleUpdateConnection({
 
   const customFields = await parseCustomProviderFields(body, existing.provider);
 
+  // Only a CHANGED label is validated: keeping a stored label — whatever it
+  // is — must never block unrelated edits (key rotation, models).
+  // Labels compare trimmed, the same normalization the identity check
+  // applies, so a stored padded label resent trimmed is not a change.
+  // Checked in the same event-loop turn as the write so concurrent requests
+  // cannot both pass.
+  const labelChanging =
+    labelRaw !== undefined &&
+    (typeof labelRaw === "string" ? labelRaw.trim() : "") !==
+      (existing.label ?? "").trim();
+  if (labelChanging) {
+    assertValidCustomProviderIdentity(existing.provider, labelRaw, name);
+  }
+
   const result = updateConnection(getDb(), name, {
     auth: authResult.data,
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
@@ -292,12 +437,12 @@ async function handleUpdateConnection({
     }
     if (result.error.code === "base_url_required") {
       throw new BadRequestError(
-        "base_url is required for openai-compatible connections.",
+        "base_url is required for openai-compatible providers.",
       );
     }
     if (result.error.code === "models_required") {
       throw new BadRequestError(
-        "At least one model is required for openai-compatible connections.",
+        "At least one model is required for openai-compatible providers.",
       );
     }
     throw new BadRequestError("Invalid auth configuration.");
@@ -306,11 +451,13 @@ async function handleUpdateConnection({
   return result.connection;
 }
 
-function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
+async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   const { name } = pathParams;
-  if (!name) throw new BadRequestError("name is required");
+  if (!name) {
+    throw new BadRequestError("name is required");
+  }
 
-  // Existence check first so a stale `llm.default.provider_connection`
+  // Existence check first so a stale profile `provider_connection`
   // reference to a missing connection returns 404 (not 409).
   const existing = getConnection(getDb(), name);
   if (!existing) {
@@ -330,19 +477,46 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
 
   const config = getConfigReadOnly();
 
-  // llm.default carries provider_connection (LLMConfigBase).
-  if (
-    (config.llm?.default as Record<string, unknown> | undefined)
-      ?.provider_connection === name
-  ) {
-    throw new ConflictError(
-      `Connection "${name}" is referenced by llm.default. Update llm.default.provider_connection before deleting.`,
-      { referencedBy: ["llm.default"] },
-    );
+  // llm.defaultProvider: guards both the resolved connection name (explicit
+  // `connectionName` or the `<provider>-personal` convention) and the case
+  // where the convention name is dangling but this is the last remaining
+  // connection for the default's provider — resolution treats a dangling
+  // default as an explainable error; this guard keeps UI deletes from
+  // orphaning it silently. The last-connection fallback only applies to
+  // convention resolution: an explicit `connectionName` pins exactly one row
+  // (protected above), so unrelated same-provider rows stay deletable. Legacy
+  // managed rows are excluded from the count for the same reason the list
+  // route hides them — they aren't user-manageable connections.
+  const dp = getDefaultProviderFromConfig(config);
+  if (dp) {
+    if (name === resolveDefaultConnectionName(dp)) {
+      throw new ConflictError(
+        `Connection "${name}" is referenced by llm.defaultProvider. Update llm.defaultProvider before deleting.`,
+        { referencedBy: ["llm.defaultProvider"] },
+      );
+    }
+    if (
+      !dp.connectionName &&
+      existing.provider === dp.provider &&
+      listConnections(getDb(), { provider: dp.provider }).filter(
+        (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
+      ).length === 1
+    ) {
+      throw new ConflictError(
+        `Connection "${name}" is the only connection for provider "${dp.provider}", which llm.defaultProvider depends on. Update llm.defaultProvider or add another connection for provider "${dp.provider}" before deleting.`,
+        { referencedBy: ["llm.defaultProvider"] },
+      );
+    }
   }
 
-  // llm.profiles.*: only ProfileEntry has provider_connection.
-  const profiles = config.llm?.profiles ?? {};
+  // llm.profiles.*: only ProfileEntry has provider_connection. Resolved
+  // provider-aware so the scan sees the same bodies the runtime resolver
+  // produces: on a BYO install the default profiles carry the
+  // `provider_connection` they actually dispatch through. Today every name
+  // the defaults can stamp is also caught by the `llm.defaultProvider` guard
+  // above; this keeps the scan a faithful backstop rather than one that
+  // silently skips the defaults.
+  const profiles = getEffectiveProfilesForProvider(config.llm?.profiles, dp);
   const referencingProfiles = Object.entries(profiles)
     .filter(
       ([, p]) => (p as Record<string, unknown>).provider_connection === name,
@@ -364,6 +538,27 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       );
     }
     throw new BadRequestError("Delete failed.");
+  }
+
+  // A per-connection credential slot is owned by exactly this row, so the
+  // delete removes it too. Provider-keyed and custom refs stay: they can be
+  // shared across rows. Awaited so the response orders after the vault
+  // delete — a client that deletes, recreates the name, and saves a new key
+  // must never have that key erased by a still-in-flight deletion. Failures
+  // are logged, never surfaced: a vault outage leaves an orphaned secret,
+  // not a failed delete (the timeout on vault calls bounds the wait).
+  if (
+    existing.auth.type === "api_key" &&
+    existing.auth.credential === credentialKey(name, "api_key")
+  ) {
+    try {
+      await deleteSecureKeyAsync(existing.auth.credential);
+    } catch (err) {
+      log.warn(
+        { err, connection: name, credential: existing.auth.credential },
+        "Failed to delete the connection's credential slot — secret orphaned in the vault",
+      );
+    }
   }
 
   return { ok: true as const };
@@ -424,12 +619,13 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create a provider connection",
     description:
-      "Create a new named provider connection. Fails with 409 if a connection with this name already exists.",
+      "Create a new named provider connection. When auth is omitted it is derived from the provider (keyless providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if a connection with this name already exists.",
     tags: ["inference"],
     requestBody: z.object({
       name: z.string().min(1),
       provider: ConnectionProviderSchema,
-      auth: AuthSchema,
+      auth: AuthSchema.optional(),
+      credential: z.string().min(1).optional(),
       label: z.string().min(1).optional(),
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
@@ -452,11 +648,12 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider. For managed connections (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.",
+      "Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth; passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({
-      auth: AuthSchema,
+      auth: AuthSchema.optional(),
+      credential: z.string().min(1).optional(),
       label: z.string().min(1).nullable().optional(),
       base_url: z.string().url().nullable().optional(),
       models: z.array(ConnectionModelSchema).nullable().optional(),
@@ -481,7 +678,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete a provider connection",
     description:
-      "Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed, gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",
+      "Delete a provider connection. Fails with 400 for the Vellum-managed connection (vellum) which is re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     responseBody: z.object({ ok: z.literal(true) }),

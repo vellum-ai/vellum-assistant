@@ -7,25 +7,12 @@
  */
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getAssistantDomain: () => "vellum.me",
 }));
 
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   attachmentMetadataSchema,
   ROUTES,
@@ -35,6 +22,13 @@ import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 const SMALL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+// Non-image bytes: storage normalization sniffs image magic bytes and
+// overrides a disagreeing declared MIME, so a declared-MIME assertion needs a
+// payload that doesn't sniff as an image.
+const FAKE_VIDEO_BASE64 = Buffer.from("fake matroska payload").toString(
+  "base64",
+);
 
 const uploadRoute = ROUTES.find((r) => r.operationId === "attachment_upload")!;
 
@@ -55,9 +49,11 @@ function makeUploadArgs(
 }
 
 describe("attachment upload — trustedSource flag", () => {
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     // Each test uploads a fresh attachment with unique filename; no per-test
@@ -70,7 +66,7 @@ describe("attachment upload — trustedSource flag", () => {
         {
           filename: "clip.mkv",
           mimeType: "video/x-matroska",
-          data: SMALL_PNG_BASE64,
+          data: FAKE_VIDEO_BASE64,
           trustedSource: true,
         },
         "svc_gateway",

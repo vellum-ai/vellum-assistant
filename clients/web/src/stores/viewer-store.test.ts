@@ -3,6 +3,7 @@ import { beforeEach, describe, it, expect } from "bun:test";
 import {
   isAppNotFoundError,
   useViewerStore,
+  type ActivityStepsPayload,
   type ToolDetailPayload,
 } from "@/stores/viewer-store";
 
@@ -227,6 +228,206 @@ describe("closeSubagentDetail", () => {
 });
 
 // ---------------------------------------------------------------------------
+// ACP run detail
+// ---------------------------------------------------------------------------
+
+describe("openAcpRunDetail", () => {
+  it("saves current view and switches to acp-run-detail", () => {
+    getState().openAcpRunDetail("acp-1");
+    const state = getState();
+    expect(state.mainView).toBe("acp-run-detail");
+    expect(state.activeAcpRunId).toBe("acp-1");
+    expect(state.viewBeforeAcpRunDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeAcpRunDetail when already in acp-run-detail", () => {
+    useViewerStore.setState({
+      mainView: "acp-run-detail",
+      viewBeforeAcpRunDetail: "app",
+      activeAcpRunId: "acp-1",
+    });
+    getState().openAcpRunDetail("acp-2");
+    const state = getState();
+    expect(state.viewBeforeAcpRunDetail).toBe("app");
+    expect(state.activeAcpRunId).toBe("acp-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openAcpRunDetail("acp-1");
+    expect(getState().viewBeforeAcpRunDetail).toBe("app");
+  });
+});
+
+describe("closeAcpRunDetail", () => {
+  it("restores viewBeforeAcpRunDetail and clears activeAcpRunId", () => {
+    useViewerStore.setState({
+      mainView: "acp-run-detail",
+      viewBeforeAcpRunDetail: "chat",
+      activeAcpRunId: "acp-1",
+    });
+    getState().closeAcpRunDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAcpRunId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "acp-run-detail",
+      viewBeforeAcpRunDetail: "app",
+      activeAcpRunId: "acp-1",
+    });
+    getState().closeAcpRunDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAcpRunId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Background task detail
+// ---------------------------------------------------------------------------
+
+describe("openBackgroundTaskDetail", () => {
+  it("saves current view and switches to background-task-detail", () => {
+    getState().openBackgroundTaskDetail("bg-x");
+    const state = getState();
+    expect(state.mainView).toBe("background-task-detail");
+    expect(state.activeBackgroundTaskId).toBe("bg-x");
+    expect(state.viewBeforeBackgroundTaskDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeBackgroundTaskDetail when already in background-task-detail", () => {
+    useViewerStore.setState({
+      mainView: "background-task-detail",
+      viewBeforeBackgroundTaskDetail: "app",
+      activeBackgroundTaskId: "bg-1",
+    });
+    getState().openBackgroundTaskDetail("bg-2");
+    const state = getState();
+    expect(state.viewBeforeBackgroundTaskDetail).toBe("app");
+    expect(state.activeBackgroundTaskId).toBe("bg-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openBackgroundTaskDetail("bg-1");
+    expect(getState().viewBeforeBackgroundTaskDetail).toBe("app");
+  });
+});
+
+describe("closeBackgroundTaskDetail", () => {
+  it("restores viewBeforeBackgroundTaskDetail and clears activeBackgroundTaskId", () => {
+    useViewerStore.setState({
+      mainView: "background-task-detail",
+      viewBeforeBackgroundTaskDetail: "chat",
+      activeBackgroundTaskId: "bg-1",
+    });
+    getState().closeBackgroundTaskDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeBackgroundTaskId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "background-task-detail",
+      viewBeforeBackgroundTaskDetail: "app",
+      activeBackgroundTaskId: "bg-1",
+    });
+    getState().closeBackgroundTaskDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeBackgroundTaskId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Skill detail
+// ---------------------------------------------------------------------------
+
+describe("openSkillDetail", () => {
+  it("saves current view and switches to skill-detail", () => {
+    getState().openSkillDetail("skill-1");
+    const state = getState();
+    expect(state.mainView).toBe("skill-detail");
+    expect(state.activeSkillDetailId).toBe("skill-1");
+    expect(state.viewBeforeSkillDetail).toBe("chat");
+  });
+
+  it("preserves existing viewBeforeSkillDetail when already in skill-detail", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "app",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().openSkillDetail("skill-2");
+    const state = getState();
+    expect(state.viewBeforeSkillDetail).toBe("app");
+    expect(state.activeSkillDetailId).toBe("skill-2");
+  });
+
+  it("saves non-chat view correctly", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openSkillDetail("skill-1");
+    expect(getState().viewBeforeSkillDetail).toBe("app");
+  });
+
+  it("does not overwrite a real prior view with a transient one when opened over tool-detail", () => {
+    useViewerStore.setState({
+      mainView: "tool-detail",
+      viewBeforeSkillDetail: "app",
+      activeToolDetail: SAMPLE_TOOL,
+    });
+    getState().openSkillDetail("skill-1");
+    const state = getState();
+    expect(state.mainView).toBe("skill-detail");
+    expect(state.viewBeforeSkillDetail).toBe("app");
+  });
+});
+
+describe("closeSkillDetail", () => {
+  it("restores viewBeforeSkillDetail and clears activeSkillDetailId", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "chat",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().closeSkillDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeSkillDetailId).toBeNull();
+  });
+
+  it("restores a non-chat view", () => {
+    useViewerStore.setState({
+      mainView: "skill-detail",
+      viewBeforeSkillDetail: "app",
+      activeSkillDetailId: "skill-1",
+    });
+    getState().closeSkillDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeSkillDetailId).toBeNull();
+  });
+
+  it("unwinds stacked panels one layer at a time (skill-detail over tool-detail)", () => {
+    // Mirrors the Escape flow: each panel keeps its own viewBefore*, so
+    // closing skill-detail restores its saved non-overlay view, and closing
+    // tool-detail afterwards restores the view it saved — the stack never
+    // dead-ends inside an overlay.
+    getState().openToolDetail(SAMPLE_TOOL);
+    getState().openSkillDetail("skill-1");
+    getState().closeSkillDetail();
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeSkillDetailId).toBeNull();
+    getState().closeToolDetail();
+    expect(getState().mainView).toBe("chat");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workflow detail
 // ---------------------------------------------------------------------------
 
@@ -281,6 +482,91 @@ describe("closeWorkflowDetail", () => {
     const state = getState();
     expect(state.mainView).toBe("app");
     expect(state.activeWorkflowRunId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Process-detail routing facade
+// ---------------------------------------------------------------------------
+
+describe("openProcessDetail", () => {
+  it("routes 'subagent' to openSubagentDetail", () => {
+    getState().openProcessDetail({ kind: "subagent", id: "sa-1" });
+    const state = getState();
+    expect(state.mainView).toBe("subagent-detail");
+    expect(state.activeSubagentId).toBe("sa-1");
+  });
+
+  it("routes 'workflow' to openWorkflowDetail", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+    const state = getState();
+    expect(state.mainView).toBe("workflow-detail");
+    expect(state.activeWorkflowRunId).toBe("run-1");
+  });
+
+  it("routes 'acp-run' to openAcpRunDetail", () => {
+    getState().openProcessDetail({ kind: "acp-run", id: "acp-1" });
+    const state = getState();
+    expect(state.mainView).toBe("acp-run-detail");
+    expect(state.activeAcpRunId).toBe("acp-1");
+  });
+
+  it("routes 'background-task' to openBackgroundTaskDetail", () => {
+    getState().openProcessDetail({ kind: "background-task", id: "bg-1" });
+    const state = getState();
+    expect(state.mainView).toBe("background-task-detail");
+    expect(state.activeBackgroundTaskId).toBe("bg-1");
+  });
+});
+
+describe("closeActiveDetail", () => {
+  it("closes an open subagent-detail and restores the prior view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openProcessDetail({ kind: "subagent", id: "sa-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeSubagentId).toBeNull();
+  });
+
+  it("closes an open workflow-detail and restores the prior view", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeWorkflowRunId).toBeNull();
+  });
+
+  it("closes an open acp-run-detail and restores the prior view", () => {
+    getState().openProcessDetail({ kind: "acp-run", id: "acp-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAcpRunId).toBeNull();
+  });
+
+  it("closes an open background-task-detail and restores the prior view", () => {
+    getState().openProcessDetail({ kind: "background-task", id: "bg-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeBackgroundTaskId).toBeNull();
+  });
+
+  it("is a no-op when no process-detail view is open", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-1");
+  });
+
+  it("does not close tool-detail (out of scope for the process facade)", () => {
+    getState().openToolDetail(SAMPLE_TOOL);
+    getState().closeActiveDetail();
+    const state = getState();
+    expect(state.mainView).toBe("tool-detail");
+    expect(state.activeToolDetail).toBe(SAMPLE_TOOL);
   });
 });
 
@@ -413,6 +699,64 @@ describe("closeToolDetail", () => {
     const state = getState();
     expect(state.mainView).toBe("chat");
     expect(state.activeToolDetail).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Activity steps panel
+// ---------------------------------------------------------------------------
+
+const SAMPLE_STEPS: ActivityStepsPayload = {
+  messageId: "m1",
+  groupIndex: 0,
+  items: [],
+  toolCalls: [],
+};
+
+describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
+  it("opens the panel with the payload and records the prior view", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    const state = getState();
+    expect(state.mainView).toBe("activity-steps");
+    expect(state.activeActivitySteps).toBe(SAMPLE_STEPS);
+    expect(state.viewBeforeActivitySteps).toBe("chat");
+  });
+
+  it("toggle closes the panel when targeting the SAME (message, group)", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    getState().toggleActivitySteps({ ...SAMPLE_STEPS });
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeActivitySteps).toBeNull();
+  });
+
+  it("toggle switches to a DIFFERENT group instead of closing", () => {
+    getState().openActivitySteps(SAMPLE_STEPS);
+    getState().toggleActivitySteps({ ...SAMPLE_STEPS, groupIndex: 2 });
+    const state = getState();
+    expect(state.mainView).toBe("activity-steps");
+    expect(state.activeActivitySteps?.groupIndex).toBe(2);
+  });
+
+  it("identity-less payloads match on the first tool-call id", () => {
+    const a: ActivityStepsPayload = {
+      items: [],
+      toolCalls: [{ id: "tc-1", name: "bash", input: {} }],
+    };
+    getState().openActivitySteps(a);
+    getState().toggleActivitySteps({
+      items: [],
+      toolCalls: [{ id: "tc-1", name: "bash", input: {} }],
+    });
+    expect(getState().mainView).toBe("chat");
+  });
+
+  it("close restores a non-chat prior view", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openActivitySteps(SAMPLE_STEPS);
+    expect(getState().viewBeforeActivitySteps).toBe("app");
+    getState().closeActivitySteps();
+    expect(getState().mainView).toBe("app");
   });
 });
 

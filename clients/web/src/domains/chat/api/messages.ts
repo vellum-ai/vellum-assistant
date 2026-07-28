@@ -9,6 +9,7 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import type {
+  BackgroundToolCompletion,
   ConversationContentBlock,
   ConversationMessage,
   ConversationMessageToolCall,
@@ -17,6 +18,7 @@ import type {
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import {
   attachmentsPost,
   messagesGet,
@@ -25,6 +27,7 @@ import {
   messagesQueuedByIdDelete,
 } from "@/generated/daemon/sdk.gen";
 import type {
+  MessagesGetData,
   MessagesGetResponse,
   MessagesPostData,
 } from "@/generated/daemon/types.gen";
@@ -37,9 +40,7 @@ import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-pr
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
-
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 120_000;
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /**
  * Subagent notification as carried by the web. The wire shape
@@ -55,48 +56,26 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
   parentMessageId?: string;
 }
 
-export async function pollForResponse(
-  assistantId: string,
-  userMessageId: string,
-  conversationId: string,
-): Promise<ConversationMessage | null> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-
-  while (Date.now() < deadline) {
-    const { data, error, response } = await messagesGet({
-      path: { assistant_id: assistantId },
-      query: { conversationId },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to poll for messages");
-
-    if (!response.ok) {
-      const msg = extractErrorMessage(
-        error,
-        response,
-        "Failed to poll for messages",
-      );
-      throw new Error(msg);
-    }
-
-    const messages = data?.messages ?? [];
-
-    // Only consider assistant messages that appear after our sent user
-    // message in the list, establishing a causal boundary so delayed
-    // replies from earlier sends cannot be mis-associated.
-    const userMsgIndex = messages.findIndex((m) => m.id === userMessageId);
-    if (userMsgIndex >= 0) {
-      const afterSend = messages.slice(userMsgIndex + 1);
-      const reply = afterSend.find((m) => m.role === "assistant");
-      if (reply) {
-        return reply;
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-
-  return null;
+/**
+ * Project a history message's `backgroundToolCompletion` wire record onto the
+ * `BackgroundTaskEntry` the viewer store seeds from. The `id` is preserved
+ * exactly: web background-card detection keys off the spawning tool result's
+ * `bg-…` id, so the seeded entry's id must equal the completion's id.
+ */
+export function toBackgroundTaskEntryFromCompletion(
+  c: BackgroundToolCompletion,
+): BackgroundTaskEntry {
+  return {
+    id: c.id,
+    toolName: c.toolName,
+    conversationId: c.conversationId,
+    command: c.command,
+    startedAt: c.startedAt,
+    status: c.status,
+    exitCode: c.exitCode,
+    output: c.output,
+    completedAt: c.completedAt,
+  };
 }
 
 /**
@@ -298,6 +277,16 @@ export async function getChatHistory(
 }
 
 /**
+ * Default page size for reconciliation/seq snapshot fetches. The silent-stall
+ * watchdog and post-send seq probes only ever inspect the conversation tail
+ * (the current turn and any newly-appended rows) plus the snapshot `seq`, so
+ * pulling the latest page is sufficient — and avoids re-downloading the entire
+ * conversation, which on a long chat is a large payload fetched alongside the
+ * paginated history query that already loads the same tail.
+ */
+export const RECONCILE_LATEST_PAGE_LIMIT = 50;
+
+/**
  * Fetch the server's authoritative `/messages` snapshot for a conversation.
  * Used for post-stream reconciliation to ensure local state matches the
  * backend even if events were dropped or the stream was interrupted.
@@ -307,14 +296,26 @@ export async function getChatHistory(
  * read `messages` directly and use `seq` for the seq-aware reconcile, which
  * compares it against the live applied frontier. `seq` is absent on daemons
  * that predate the seq-on-snapshot contract.
+ *
+ * Pass `latestPageLimit` to fetch only the newest page (`page=latest`) instead
+ * of the full conversation. Reconciliation and seq probes use this: they only
+ * read the tail and `seq`, both of which the `page=latest` response carries
+ * (the daemon emits `seq`/`processing` on the paginated path identically to the
+ * full-snapshot path). Omit it — as the inspector does — to download every
+ * message, which the inspector genuinely needs to enumerate the conversation.
  */
 export async function fetchConversationMessages(
   assistantId: string,
   conversationId: string,
+  options?: { latestPageLimit?: number },
 ): Promise<MessagesGetResponse | undefined> {
+  const query: NonNullable<MessagesGetData["query"]> =
+    options?.latestPageLimit != null
+      ? { conversationId, page: "latest", limit: options.latestPageLimit }
+      : { conversationId };
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
-    query: { conversationId },
+    query,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to fetch conversation messages");
@@ -352,7 +353,15 @@ export type PostMessageResult =
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
 export type UploadAttachmentResult =
-  | { ok: true; id: string }
+  | {
+      ok: true;
+      id: string;
+      /** Stored metadata — may differ from the uploaded file when the
+       *  assistant normalizes the format (e.g. HEIC stored as JPEG). */
+      filename?: string;
+      mimeType?: string;
+      sizeBytes?: number;
+    }
   | { ok: false; status: number; error: { detail?: string } };
 
 /**
@@ -398,14 +407,41 @@ export async function uploadChatAttachment(
       error: { detail: "Upload response did not include an attachment id." },
     };
   }
-  return { ok: true, id };
+  return {
+    ok: true,
+    id,
+    ...(typeof data.filename === "string" ? { filename: data.filename } : {}),
+    ...(typeof data.mimeType === "string" ? { mimeType: data.mimeType } : {}),
+    ...(typeof data.sizeBytes === "number" ? { sizeBytes: data.sizeBytes } : {}),
+  };
 }
+
+/**
+ * Optional fields for {@link postChatMessage}.
+ *
+ * The wire-bound fields are Picked from the generated request body so they
+ * can never drift from the daemon's schema; `onboarding` stays the domain
+ * type because it is normalized (`normalizePreChatOnboardingContext`) before
+ * it reaches the wire.
+ */
+export type PostChatMessageOptions = Pick<
+  MessagesPostData["body"],
+  | "attachmentIds"
+  | "clientMessageId"
+  | "inferenceProfile"
+  | "enabledPlugins"
+  | "hidden"
+  | "bypassSecretCheck"
+> & {
+  /** PreChat onboarding context — see the `postChatMessage` docs. */
+  onboarding?: PreChatOnboardingContext;
+};
 
 /**
  * Send a user message without polling for the response.
  * Returns the assistant/conversation IDs needed to subscribe to events.
  *
- * The optional `onboarding` parameter carries PreChat onboarding context that
+ * The optional `onboarding` field carries PreChat onboarding context that
  * should be attached only to the FIRST message after PreChat completion. Callers
  * are responsible for the consume-once semantics: include `onboarding` on the
  * initial post and omit it on every subsequent message in the conversation.
@@ -418,19 +454,25 @@ export async function uploadChatAttachment(
  *     `undefined`). Empty strings ARE preserved on the wire — Swift's
  *     `if let` semantics in `MessageClient.swift` accept any non-nil value
  *     including `""`, so producers that intend to omit the field should
- *     pass `undefined` explicitly. The current caller (`PreChatFlow`)
- *     trims-or-undefined before calling, so the empty-string path is
- *     latent today; if it ever fires, the daemon sees the empty string.
+ *     pass `undefined` explicitly. Current callers trim-or-undefined
+ *     before calling, so the empty-string path is latent today; if it
+ *     ever fires, the daemon sees the empty string.
  */
 export async function postChatMessage(
   assistantId: string,
   conversationId: string | null,
   content: string,
-  attachmentIds: string[] = [],
-  onboarding?: PreChatOnboardingContext,
-  clientMessageId?: string,
-  inferenceProfile?: string | null,
+  options: PostChatMessageOptions = {},
 ): Promise<PostMessageResult> {
+  const {
+    attachmentIds = [],
+    onboarding,
+    clientMessageId,
+    inferenceProfile,
+    enabledPlugins,
+    hidden,
+    bypassSecretCheck,
+  } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
   // create-or-lookup). See `lib/backwards-compat/conversation-id-wire-field.ts`.
@@ -449,7 +491,13 @@ export async function postChatMessage(
   const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
-    interface: "vellum",
+    // `interface` is the transport surface, not the OS: the web/iOS/macOS apps
+    // all run this same web renderer, so the transport is always "web". The
+    // daemon keys host-proxy/transport capability off this value, so it must
+    // NOT carry the OS. The real platform travels in `clientOs` below and only
+    // feeds the assistant's per-turn `client_os` context.
+    interface: "web",
+    clientOs: detectClientOs(),
   };
   // Read the effective timezone LIVE at send time (not from cached state) so
   // every message carries the user's current zone, keeping the assistant's
@@ -481,6 +529,29 @@ export async function postChatMessage(
   // otherwise so the conversation inherits the global default profile.
   if (inferenceProfile) {
     body.inferenceProfile = inferenceProfile;
+  }
+  // Per-chat plugin selection for the conversation this message mints — the
+  // user picked an explicit plugin set in the composer before sending. The
+  // daemon persists it as the conversation's enabled-plugin set. Omitted when
+  // `null`/`undefined` so the conversation inherits the default set. The caller
+  // gates attachment on daemon support + an explicit selection (see
+  // `use-send-message.ts`); an empty array is a valid "no plugins" selection.
+  if (enabledPlugins != null) {
+    body.enabledPlugins = enabledPlugins;
+  }
+  // Persist the message but suppress it from the transcript (it still drives
+  // the turn LLM-side). Used for client-initiated machine signals the user
+  // never typed: the research-onboarding "Let's chat" greeting kickoff and
+  // the channel-setup wizard close/hand-off notifications.
+  if (hidden) {
+    body.hidden = true;
+  }
+  // Single-use override for the daemon's `secret_blocked` ingress guard,
+  // set only when the user explicitly confirmed a client-side blocked send
+  // (the composer's "Send anyway" action). Applies to this message alone —
+  // never persisted, and omitted from every ordinary send.
+  if (bypassSecretCheck) {
+    body.bypassSecretCheck = true;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)
@@ -518,6 +589,8 @@ export async function postChatMessage(
       onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
     if (normalizedOnboarding.skills !== undefined)
       onboardingDict.skills = normalizedOnboarding.skills;
+    if (normalizedOnboarding.researchFindings !== undefined)
+      onboardingDict.researchFindings = normalizedOnboarding.researchFindings;
     if (normalizedOnboarding.title !== undefined)
       onboardingDict.title = normalizedOnboarding.title;
     body.onboarding = onboardingDict;
@@ -647,24 +720,40 @@ export async function postChatMessage(
   };
 }
 
+function queuedMessageHeaders(conversationId: string) {
+  return { "X-Vellum-Conversation-Id": conversationId };
+}
+
 /**
  * Steer the assistant to a queued message by aborting the current
  * generation and promoting the message to the head of the queue.
  */
+export type SteerQueuedMessageResult =
+  | "steered"
+  | "not_steerable"
+  | "request_failed";
+
 export async function steerToMessage(
   assistantId: string,
   conversationId: string,
   requestId: string,
-): Promise<boolean> {
+): Promise<SteerQueuedMessageResult> {
   try {
     const { response } = await messagesQueuedByIdSteerPost({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
-    return response?.ok ?? false;
+    if (response?.ok) {
+      return "steered";
+    }
+    if (response?.status === 404) {
+      return "not_steerable";
+    }
+    return "request_failed";
   } catch {
-    return false;
+    return "request_failed";
   }
 }
 
@@ -682,6 +771,7 @@ export async function deleteQueuedMessage(
     const { response } = await messagesQueuedByIdDelete({
       path: { assistant_id: assistantId, id: requestId },
       query: { conversationId },
+      headers: queuedMessageHeaders(conversationId),
       throwOnError: false,
     });
     return response?.ok ?? false;

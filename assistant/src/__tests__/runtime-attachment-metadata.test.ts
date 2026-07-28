@@ -10,24 +10,6 @@ import {
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
 // The inbound handler imports processMessage directly — stub it so it doesn't
 // attempt to spin up an LLM turn. The background dispatch is fire-and-forget;
 // tests only assert on the synchronous HTTP response.
@@ -44,21 +26,28 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => undefined,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
 import {
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
-import * as conversationStore from "../memory/conversation-crud.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
-import { resetTestTables } from "../memory/raw-query.js";
+} from "../persistence/attachments-store.js";
+import * as conversationStore from "../persistence/conversation-crud.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryChannels from "../persistence/delivery-channels.js";
+import { resetTestTables } from "../persistence/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
-import { resolveLocalTrustVerdict } from "./helpers/channel-test-adapter.js";
+import {
+  resolveLocalTrustVerdict,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
+import { setConfig } from "./helpers/set-config.js";
+
+// Tests call addMessage without skipIndexing — keep memory indexing off so no
+// background memory work runs against the test DB.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 await initializeDb();
 
@@ -251,16 +240,12 @@ describe("WhatsApp channel ingress attachment resolution", () => {
   }
 
   function ensureWhatsAppContact(): void {
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "whatsapp",
+      externalUserId: WHATSAPP_USER_ID,
       displayName: "WhatsApp Test User",
-      channels: [
-        {
-          type: "whatsapp",
-          address: WHATSAPP_USER_ID,
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
   }
 

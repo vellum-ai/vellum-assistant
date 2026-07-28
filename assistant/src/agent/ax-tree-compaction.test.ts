@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  compactAxTreeHistory,
+  escapeAxTreeContent,
+} from "../context/outbound-sanitize.js";
 import type { Message } from "../providers/types.js";
-import { compactAxTreeHistory, escapeAxTreeContent } from "./loop.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -16,69 +16,53 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toMatch(/^_ Lines starting with _/);
     });
 
-    test("contains identity section", () => {
+    test("anchors identity in the pre-chat personality and demands staying in character", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("identity");
-      expect(lower).toContain("colleague");
+      expect(lower).toContain("pre-chat");
+      expect(lower).toContain("in character");
     });
 
-    test("gathers user context", () => {
+    test("opens in character with a move drawn from workspace files", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("work role");
-      expect(lower).toContain("goals");
-      expect(lower).toContain("tools");
+      expect(lower).toContain("you start the conversation");
+      expect(lower).toContain("workspace files");
+    });
+
+    test("is engaging, inquisitive, and brief", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("follow-up question");
+      expect(lower).toContain("short");
+    });
+
+    test("does the task then keeps learning about the user", () => {
+      const lower = bootstrap.toLowerCase();
+      expect(lower).toContain("just do it");
+      expect(lower).toContain("keep learning about them");
     });
 
     test("contains cleanup instructions with deletion", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("wrap up");
       expect(lower).toContain("delete");
       expect(lower).toContain("bootstrap.md");
     });
 
-    test("handles declined fields", () => {
+    test("offers assistant migration from an existing ChatGPT/Claude", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("declined");
-    });
-
-    test("instructs saving to IDENTITY.md, SOUL.md, and user persona file via file_edit", () => {
-      expect(bootstrap).toContain("IDENTITY.md");
-      expect(bootstrap).toContain("SOUL.md");
-      expect(bootstrap).toContain("{{userSlug}}.md");
-      expect(bootstrap).toContain("file_edit");
-    });
-
-    test("contains core principle", () => {
-      expect(bootstrap).toContain("earns its keep");
-    });
-
-    test("contains opening move with onboarding context", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("onboarding");
-      expect(lower).toContain("json");
-      expect(lower).toContain("context");
-    });
-
-    test("contains tone matching guidance", () => {
-      const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("match");
-      expect(lower).toContain("energy");
-    });
-
-    test("is one-shot", () => {
-      expect(bootstrap).toContain("One-shot");
-    });
-
-    test("offers assistant migration during low-signal first openings", () => {
-      expect(bootstrap).toContain("## Assistant migration");
-      expect(bootstrap).toContain("onboarding self-introduction");
-      expect(bootstrap).toContain("treat it as the real first user turn");
-      expect(bootstrap).toContain(
-        "If the first real user turn is only a greeting",
-      );
-      expect(bootstrap).toContain("that first response is the natural opening");
+      expect(lower).toContain("chatgpt");
+      expect(lower).toContain("claude");
       expect(bootstrap).toContain("assistant-migration");
-      expect(bootstrap).toContain("do not load or activate");
+    });
+
+    test("does not instruct workspace identity-file writes", () => {
+      expect(bootstrap).not.toContain("file_edit");
+      expect(bootstrap).not.toContain("file_write");
+      expect(bootstrap).not.toMatch(/write .*to SOUL\.md/i);
+      expect(bootstrap).not.toMatch(/\{\{userSlug\}\}\.md/);
+    });
+
+    test("does not split users into conversation-first and task-first paths", () => {
+      expect(bootstrap).not.toMatch(/Path A/);
+      expect(bootstrap).not.toMatch(/Path B/);
     });
 
     test("does not contain personality quiz references", () => {

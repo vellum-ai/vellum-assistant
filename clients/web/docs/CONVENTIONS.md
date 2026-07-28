@@ -85,8 +85,8 @@ structured data (`ChatHeaderSupplements`) that `ChatLayout` renders
 directly. This keeps conversation-action callbacks in `ChatLayout`
 (which owns `useConversationActions`) instead of duplicating them in
 `ActiveChatView`. The supplements carry only the few chat-specific
-values the header menu needs (fork, analyze, inspect callbacks, slack
-label, `hasPersistedMessage`).
+values the header menu needs (fork, inspect callbacks, slack
+label, the channel source-link href, `hasPersistedMessage`).
 
 A Zustand store rather than outlet context because `ActiveAssistantGate`
 sits between `ChatLayout` and gated routes — outlet context value
@@ -441,6 +441,16 @@ conversations (Slack, email, Telegram) have keys like
    for external channel adapters; web-originated traffic uses
    `conversationId`.
 
+### Don't duplicate logic — one source of truth
+
+When the same logic (a derivation, formatter, guard, fetch sequence, or
+handler) appears in more than one place, extract it into a single named
+function/hook/util that every caller imports. Copy-pasted logic drifts —
+a bug fixed in one copy survives in the others — so extract on the
+**second** occurrence, share behavior rather than just types, and delete
+the originals in the same PR. Where the extracted code lives follows the
+decision rule below.
+
 ### Top-level shared directories
 
 Code used across multiple domains lives in top-level shared
@@ -621,6 +631,12 @@ multi-prop wiring, conditional rendering beyond a one-liner) should be
 extracted into a named component. Trivial inline JSX (a single element,
 a static label) stays inline.
 
+An extracted component is a named component, and a named component lives
+in its own file — see [STYLE_GUIDE — One component per file](./STYLE_GUIDE.md#one-component-per-file).
+Don't append a second component as an extra export on its parent;
+co-locating is a deliberate, rare exception for a trivial helper private
+to its sibling.
+
 Reference: [React — Thinking in React: break the UI into a component hierarchy](https://react.dev/learn/thinking-in-react#step-1-break-the-ui-into-a-component-hierarchy)
 
 ### Stabilize external callbacks with refs
@@ -651,6 +667,49 @@ ships as stable.
 References:
 - [React — useRef caveats: "Do not write or read ref.current during rendering"](https://react.dev/reference/react/useRef#caveats)
 - [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
+
+### Keep decorative animation out of the commit stream
+
+A timer or `requestAnimationFrame` loop that only changes how something
+*looks* — a wobble, a pulse, a shimmer, a cursor blink — must not drive
+React state. Prefer CSS, and when the value has to be computed in JS,
+write it to the node through a ref instead:
+
+```ts
+// Good — the DOM changes, React does not re-render
+const pathRef = useRef<SVGPathElement | null>(null);
+useEffect(() => {
+  const timer = setInterval(() => {
+    pathRef.current?.setAttribute("d", nextFrame());
+  }, 150);
+  return () => clearInterval(timer);
+}, []);
+
+// Avoid — a decorative frame counter in state
+const [frame, setFrame] = useState(0);
+useEffect(() => {
+  const timer = setInterval(() => setFrame((f) => f + 1), 150);
+  return () => clearInterval(timer);
+}, []);
+```
+
+This is not micro-optimization. React increments an internal counter on
+every commit that finishes with an ordinary update already queued, and
+throws `Maximum update depth exceeded` once fifty-one land back to back —
+no render loop required, just enough independent updaters overlapping. A
+streaming conversation already runs several (the transcript snapshot, the
+smooth-text reveal, scroll classification, query notifications); a
+decorative animation that adds one more per visible instance, for the
+whole length of a turn, is what tipped that over in production
+(LUM-2859).
+
+When a component drives `d`/`transform`/`style` imperatively, the value
+it renders must stay constant across re-renders — React only patches
+attributes whose props changed, and a changing prop would clobber the
+imperative write.
+
+Reference: `lib/commit-pressure.ts` — the probe that measures this
+traffic and attaches it to error-185 Sentry events.
 
 ---
 
@@ -898,6 +957,20 @@ calls with hardcoded backend prefixes unless the generated client
 cannot support the use case (e.g. SSE/streaming endpoints that need
 custom `EventSource` handling). If bypassing, add a comment explaining
 why.
+
+### API transport: no raw `fetch` of `/v1` paths
+
+A raw `fetch("/v1/...")` (including template literals and
+`window.fetch`/`globalThis.fetch`) bypasses the generated client's
+auth interceptors — the request ships without the session token /
+CSRF headers and fails silently against authenticated deployments.
+An ESLint rule (`no-restricted-syntax` in `eslint.config.mjs`,
+`rawApiFetchRules`) blocks these call forms everywhere in `src/`.
+
+Always call the generated SDK function for the endpoint instead. If
+the endpoint has no generated function or type, it is missing from
+`platform.yaml` — tag it with `PLATFORM_API_CLIENT_EXTENSION` in the
+platform repo and regenerate, rather than hand-rolling the request.
 
 ### Generated types are the source of truth
 

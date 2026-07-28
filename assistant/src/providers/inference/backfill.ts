@@ -3,7 +3,7 @@
  * `provider` + `source` model to the new `provider_connection` model.
  *
  * Walks three locations in `llm.*` on every boot:
- *   - `llm.default`           — the base profile every dispatch falls back on
+ *   - `llm.default`           — the legacy raw base blob still present in older configs
  *   - `llm.profiles.*`        — named alternate profiles (fast/balanced/...)
  *   - `llm.callSites.*`       — per-call-site overrides with bare `provider`
  *
@@ -17,21 +17,26 @@
  * default profile and on any legacy bare-`provider` callsite override.
  */
 
+import { MANAGED_PROFILE_NAMES } from "../../config/default-profile-catalog.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { DrizzleDb } from "../../memory/db-connection.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
+import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
+import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
+import {
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  ROUTING_IDENTITY_PROVIDERS,
+} from "./auth.js";
 import {
   createConnection,
   getConnection,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  listConnections,
   seedCanonicalConnections,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./connections.js";
 
 const log = getLogger("provider-connections-backfill");
-
-// Providers that support the managed (platform) auth type.
-const MANAGED_PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
 
 /**
  * Seed canonical provider_connections and backfill any legacy config locations
@@ -54,14 +59,19 @@ export function runProviderConnectionsBackfill(db: DrizzleDb): void {
     seedCanonicalConnections(db);
     backfillConfigProfiles(db);
   } catch (err) {
-    log.error({ err }, "provider_connections backfill failed — will retry on next boot");
+    log.error(
+      { err },
+      "provider_connections backfill failed — will retry on next boot",
+    );
   }
 }
 
 function backfillConfigProfiles(db: DrizzleDb): void {
   const raw = loadRawConfig();
   const llm = raw.llm as Record<string, unknown> | undefined;
-  if (!llm) return;
+  if (!llm) {
+    return;
+  }
 
   const isPlatform =
     process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
@@ -72,7 +82,9 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   // 1. The default profile — every dispatch path's terminal fallback.
   const defaultProfile = llm.default as Record<string, unknown> | undefined;
   if (defaultProfile && typeof defaultProfile === "object") {
-    if (ensureProviderConnection(defaultProfile, "<llm.default>", db, globalMode)) {
+    if (
+      ensureProviderConnection(defaultProfile, "<llm.default>", db, globalMode)
+    ) {
       llm.default = defaultProfile;
       changed = true;
     }
@@ -83,13 +95,17 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   if (profiles && typeof profiles === "object") {
     for (const [profileName, profileVal] of Object.entries(profiles)) {
       const profile = profileVal as Record<string, unknown>;
-      if (!profile || typeof profile !== "object") continue;
+      if (!profile || typeof profile !== "object") {
+        continue;
+      }
       if (ensureProviderConnection(profile, profileName, db, globalMode)) {
         profiles[profileName] = profile;
         changed = true;
       }
     }
-    if (changed) llm.profiles = profiles;
+    if (changed) {
+      llm.profiles = profiles;
+    }
   }
 
   // 3. Per-call-site overrides. Only legacy entries with a bare `provider`
@@ -99,11 +115,15 @@ function backfillConfigProfiles(db: DrizzleDb): void {
   if (callSites && typeof callSites === "object") {
     for (const [callSiteName, callSiteVal] of Object.entries(callSites)) {
       const callSite = callSiteVal as Record<string, unknown>;
-      if (!callSite || typeof callSite !== "object") continue;
+      if (!callSite || typeof callSite !== "object") {
+        continue;
+      }
       // Only touch overrides that explicitly set `provider` — the typical
       // case is `{profile: "fast"}`, which has no provider and inherits
       // through `resolveCallSiteConfig` deep-merge.
-      if (callSite.provider == null) continue;
+      if (callSite.provider == null) {
+        continue;
+      }
       if (
         ensureProviderConnection(
           callSite,
@@ -116,7 +136,9 @@ function backfillConfigProfiles(db: DrizzleDb): void {
         changed = true;
       }
     }
-    if (changed) llm.callSites = callSites;
+    if (changed) {
+      llm.callSites = callSites;
+    }
   }
 
   if (changed) {
@@ -147,12 +169,15 @@ function ensureProviderConnection(
   // `provider_connection: ""` would otherwise skip backfill and then hard-throw
   // at runtime. Self-heal those alongside null/undefined.
   const existing = entry.provider_connection;
-  const hasValid =
-    typeof existing === "string" && existing.trim() !== "";
-  if (hasValid) return false;
+  const hasValid = typeof existing === "string" && existing.trim() !== "";
+  if (hasValid) {
+    return false;
+  }
 
   const provider = entry.provider as string | undefined;
-  if (!provider) return false;
+  if (!provider) {
+    return false;
+  }
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
     log.warn(
@@ -162,10 +187,53 @@ function ensureProviderConnection(
     return false;
   }
 
+  // Routing identities carry their target in the provider value itself —
+  // dispatch resolves the row per-request (vellum via the model's managed
+  // upstream, chatgpt via the subscription row). Stamping a provider-keyed
+  // row here would misroute them.
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    return false;
+  }
+
   let connectionName: string;
 
-  if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
-    connectionName = `${provider}-managed`;
+  // For user-owned entries, an existing connection for the entry's provider
+  // wins over the mode-derived default. Only user-brought connections can
+  // match — the canonical `vellum` row carries the `vellum` sentinel
+  // provider, never a concrete upstream. Without this, the managed branch
+  // would silently switch a connection-less BYOK-intent profile onto the
+  // billed managed connection, and the your-own branch would create a
+  // parallel `-personal` row (pointing at an empty credential slot) when a
+  // custom-named connection already exists.
+  //
+  // Managed-owned entries are excluded: a managed preset must stay on the
+  // platform-managed route, not start dispatching against a key the user
+  // brought for their own profiles. Managed-owned means `source: "managed"`
+  // or a canonical managed name without an explicit `source: "user"` —
+  // legacy seeders wrote canonical entries source-less, and only an explicit
+  // user source marks a shadow the user took ownership of (mirrors
+  // workspace migration 109). `entryLabel` is the profile name for the
+  // `llm.profiles.*` walk; the other walks pass bracketed labels that never
+  // collide with canonical names.
+  const isManagedOwned =
+    entry.source === "managed" ||
+    (entry.source !== "user" && MANAGED_PROFILE_NAMES.has(entryLabel));
+  const entryModel = typeof entry.model === "string" ? entry.model : undefined;
+  const existingForProvider = isManagedOwned
+    ? undefined
+    : listConnections(db, { provider }).find((c) =>
+        isConnectionCompatibleWithModel(c, entryModel),
+      );
+  if (existingForProvider) {
+    connectionName = existingForProvider.name;
+  } else if (
+    globalMode === "managed" &&
+    MANAGED_ROUTABLE_PROVIDERS.has(provider)
+  ) {
+    // All managed-routable providers share the single provider-agnostic
+    // `vellum` connection; the upstream is recovered per-request from the
+    // profile's `provider` field.
+    connectionName = VELLUM_MANAGED_CONNECTION_NAME;
   } else {
     // "your-own" path (or provider not managed-supported): ensure a
     // personal connection exists. Ollama is keyless, so it gets

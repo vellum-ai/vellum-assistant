@@ -64,7 +64,9 @@ async function runCommand(
     registerSchedulesCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
   }
@@ -107,6 +109,7 @@ describe("schedules command", () => {
       "cancel",
       "delete",
       "execute",
+      "worker",
     ]);
   });
 });
@@ -468,6 +471,136 @@ describe("schedules runs", () => {
     expect(logLines.join("\n")).toContain("conversation-1");
   });
 
+  test("renders a COST column with the shared variable-precision USD format", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        runs: [
+          {
+            id: "run-1",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            estimatedCostUsd: 0.0123,
+            createdAt: 1_778_799_000_000,
+          },
+          {
+            id: "run-subcent",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            estimatedCostUsd: 0.0042,
+            createdAt: 1_778_799_000_000,
+          },
+        ],
+      },
+    };
+
+    const { exitCode } = await runCommand(["schedules", "runs", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    const output = logLines.join("\n");
+    expect(output).toContain("COST");
+    // Matches usage totals/daily/breakdown: 2dp at a cent or more, 6dp sub-cent.
+    expect(output).toContain("$0.01");
+    expect(output).toContain("$0.004200");
+  });
+
+  test("renders — for zero or unpriced run cost", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        runs: [
+          {
+            id: "run-zero",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            estimatedCostUsd: 0,
+            createdAt: 1_778_799_000_000,
+          },
+          {
+            id: "run-unpriced",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            createdAt: 1_778_799_000_000,
+          },
+        ],
+      },
+    };
+
+    const { exitCode } = await runCommand(["schedules", "runs", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    const output = logLines.join("\n");
+    expect(output).toContain("COST");
+    expect(output).not.toContain("$");
+    const runZeroLine = logLines.find((line) => line.includes("run-zero"));
+    const runUnpricedLine = logLines.find((line) =>
+      line.includes("run-unpriced"),
+    );
+    expect(runZeroLine).toContain("—");
+    expect(runUnpricedLine).toContain("—");
+  });
+
+  test("includes estimatedCostUsd in --json output", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        runs: [
+          {
+            id: "run-1",
+            jobId: "schedule-1",
+            status: "ok",
+            startedAt: 1_778_799_000_000,
+            finishedAt: 1_778_799_002_500,
+            durationMs: 2_500,
+            output: "done",
+            error: null,
+            conversationId: "conversation-1",
+            estimatedCostUsd: 0.0123,
+            createdAt: 1_778_799_000_000,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "runs",
+      "schedule-1",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      runs: [
+        expect.objectContaining({ id: "run-1", estimatedCostUsd: 0.0123 }),
+      ],
+    });
+  });
+
   test("formats run durations into human-friendly units", async () => {
     const durations = [
       { ms: 450, expected: "450ms" },
@@ -670,33 +803,31 @@ describe("schedules create", () => {
     mockIpcResult = {
       ok: true,
       result: {
-        schedules: [
-          {
-            id: "new-schedule-id",
-            name: "Heartbeat",
-            enabled: true,
-            syntax: "cron",
-            expression: "*/30 * * * *",
-            cronExpression: "*/30 * * * *",
-            timezone: null,
-            message: "run heartbeat",
-            script: null,
-            nextRunAt: 1_778_800_000_000,
-            lastRunAt: null,
-            lastStatus: null,
-            retryCount: 0,
-            maxRetries: 3,
-            retryBackoffMs: 60_000,
-            description: "Checks service heartbeat",
-            cadenceDescription: "Every 30 minutes",
-            mode: "execute",
-            status: "active",
-            routingIntent: "all_channels",
-            reuseConversation: false,
-            wakeConversationId: null,
-            isOneShot: false,
-          },
-        ],
+        schedule: {
+          id: "new-schedule-id",
+          name: "Heartbeat",
+          enabled: true,
+          syntax: "cron",
+          expression: "*/30 * * * *",
+          cronExpression: "*/30 * * * *",
+          timezone: null,
+          message: "run heartbeat",
+          script: null,
+          nextRunAt: 1_778_800_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+          retryCount: 0,
+          maxRetries: 3,
+          retryBackoffMs: 60_000,
+          description: "Checks service heartbeat",
+          cadenceDescription: "Every 30 minutes",
+          mode: "execute",
+          status: "active",
+          routingIntent: "all_channels",
+          reuseConversation: false,
+          wakeConversationId: null,
+          isOneShot: false,
+        },
       },
     };
 
@@ -715,13 +846,11 @@ describe("schedules create", () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
-      schedules: [
-        expect.objectContaining({
-          id: "new-schedule-id",
-          description: "Checks service heartbeat",
-          cadenceDescription: "Every 30 minutes",
-        }),
-      ],
+      schedule: expect.objectContaining({
+        id: "new-schedule-id",
+        description: "Checks service heartbeat",
+        cadenceDescription: "Every 30 minutes",
+      }),
     });
     expect(logLines).toEqual([]);
   });
@@ -747,6 +876,58 @@ describe("schedules create", () => {
     expect(exitCode).toBe(10);
     expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
     expect(errorLines).toEqual([]);
+  });
+
+  test("creates a script-mode schedule with --mode script --script", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "GitHub watcher",
+      "--mode",
+      "script",
+      "--script",
+      'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "Polls GitHub notifications",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "createSchedule",
+        params: {
+          body: {
+            name: "GitHub watcher",
+            expression: "*/15 * * * *",
+            description: "Polls GitHub notifications",
+            enabled: true,
+            mode: "script",
+            script:
+              'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
+          },
+        },
+      },
+    ]);
+  });
+
+  test("exits 1 when --mode script is missing --script", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Broken",
+      "--mode",
+      "script",
+      "--expression",
+      "*/15 * * * *",
+      "--description",
+      "no script",
+    ]);
+
+    expect(exitCode).toBe(1);
   });
 });
 

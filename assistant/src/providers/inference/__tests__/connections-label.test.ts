@@ -3,11 +3,11 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateCreateProviderConnections } from "../../../memory/migrations/243-provider-connections.js";
-import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations/244-provider-connection-status-label.js";
-import { migrateProviderConnectionBaseUrlAndModels } from "../../../memory/migrations/250-provider-connection-base-url-and-models.js";
-import { migrateDropProviderConnectionStatus } from "../../../memory/migrations/265-drop-provider-connection-status.js";
-import * as schema from "../../../memory/schema.js";
+import { migrateCreateProviderConnections } from "../../../persistence/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../../../persistence/migrations/244-provider-connection-status-label.js";
+import { migrateProviderConnectionBaseUrlAndModels } from "../../../persistence/migrations/250-provider-connection-base-url-and-models.js";
+import { migrateDropProviderConnectionStatus } from "../../../persistence/migrations/265-drop-provider-connection-status.js";
+import * as schema from "../../../persistence/schema/index.js";
 import {
   createConnection,
   getConnection,
@@ -97,16 +97,14 @@ describe("connection CRUD label defaults", () => {
 });
 
 describe("seedCanonicalConnections labels", () => {
-  test("first boot seeds default labels on all managed connections", () => {
+  test("first boot seeds the default label on the vellum connection", () => {
     const db = bootDb();
     seedCanonicalConnections(db);
 
     const conns = listConnections(db);
     const byName = Object.fromEntries(conns.map((c) => [c.name, c]));
 
-    expect(byName["anthropic-managed"]?.label).toBe("Anthropic");
-    expect(byName["openai-managed"]?.label).toBe("OpenAI");
-    expect(byName["gemini-managed"]?.label).toBe("Google Gemini");
+    expect(byName["vellum"]?.label).toBe("Vellum");
   });
 
   test("second boot preserves user-customized label", () => {
@@ -114,33 +112,16 @@ describe("seedCanonicalConnections labels", () => {
     seedCanonicalConnections(db);
 
     // User customizes the label.
-    updateConnection(db, "anthropic-managed", {
+    updateConnection(db, "vellum", {
       auth: { type: "platform" },
-      label: "Work Anthropic",
+      label: "Work Vellum",
     });
 
     // Reboot.
     seedCanonicalConnections(db);
 
-    const conn = getConnection(db, "anthropic-managed");
-    expect(conn?.label).toBe("Work Anthropic");
-  });
-
-  test("second boot backfills default label when existing row has null label", () => {
-    const db = bootDb();
-
-    // `bootDb()` runs migration 243 which already inserted the three
-    // canonical rows with `label=null` (the label column was added by 244
-    // and defaults NULL for pre-existing rows). This matches the state
-    // every pre-label install carries forward into the boot that ships
-    // the label seed.
-    const before = getConnection(db, "anthropic-managed");
-    expect(before?.label).toBeNull();
-
-    seedCanonicalConnections(db);
-
-    const after = getConnection(db, "anthropic-managed");
-    expect(after?.label).toBe("Anthropic");
+    const conn = getConnection(db, "vellum");
+    expect(conn?.label).toBe("Work Vellum");
   });
 
   test("backfill fills null label on subsequent boot", () => {
@@ -148,7 +129,7 @@ describe("seedCanonicalConnections labels", () => {
     seedCanonicalConnections(db);
 
     // User clears the label (PATCH label: null).
-    updateConnection(db, "openai-managed", {
+    updateConnection(db, "vellum", {
       auth: { type: "platform" },
       label: null,
     });
@@ -160,7 +141,7 @@ describe("seedCanonicalConnections labels", () => {
     // present for everyone.
     seedCanonicalConnections(db);
 
-    const conn = getConnection(db, "openai-managed");
-    expect(conn?.label).toBe("OpenAI");
+    const conn = getConnection(db, "vellum");
+    expect(conn?.label).toBe("Vellum");
   });
 });

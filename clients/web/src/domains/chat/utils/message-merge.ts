@@ -1,6 +1,9 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
-export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
+export function messagesEqual(
+  a: DisplayMessage[],
+  b: DisplayMessage[],
+): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const am = a[i]!;
@@ -9,12 +12,14 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       am.id !== bm.id ||
       am.role !== bm.role ||
       am.timestamp !== bm.timestamp ||
-      JSON.stringify(am.mergedMessageIds) !== JSON.stringify(bm.mergedMessageIds) ||
+      JSON.stringify(am.mergedMessageIds) !==
+        JSON.stringify(bm.mergedMessageIds) ||
       JSON.stringify(am.contentBlocks) !== JSON.stringify(bm.contentBlocks) ||
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
       JSON.stringify(am.textSegments) !== JSON.stringify(bm.textSegments) ||
       JSON.stringify(am.contentOrder) !== JSON.stringify(bm.contentOrder) ||
-      JSON.stringify(am.thinkingSegments) !== JSON.stringify(bm.thinkingSegments) ||
+      JSON.stringify(am.thinkingSegments) !==
+        JSON.stringify(bm.thinkingSegments) ||
       JSON.stringify(am.slackMessage) !== JSON.stringify(bm.slackMessage) ||
       JSON.stringify(am.toolCalls) !== JSON.stringify(bm.toolCalls) ||
       JSON.stringify(am.attachments) !== JSON.stringify(bm.attachments)
@@ -43,7 +48,11 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     const bmKeys = Object.keys(bm).filter((k) => !knownKeys.has(k));
     if (amKeys.length !== bmKeys.length) return false;
     for (const key of new Set([...amKeys, ...bmKeys])) {
-      if (JSON.stringify((am as unknown as Record<string, unknown>)[key]) !== JSON.stringify((bm as unknown as Record<string, unknown>)[key])) return false;
+      if (
+        JSON.stringify((am as unknown as Record<string, unknown>)[key]) !==
+        JSON.stringify((bm as unknown as Record<string, unknown>)[key])
+      )
+        return false;
     }
   }
   return true;
@@ -156,11 +165,18 @@ function canFoldAdjacentAssistant(
   // snapshot reconcile's optimistic echo-swap needs them to stay
   // standalone until the server snapshot lands.
   if (survivor.isOptimistic || donor.isOptimistic) return false;
-  // Subagent notification rows are state-reconstruction metadata that
+  // Subagent / ACP notification rows are state-reconstruction metadata that
   // `build-items.ts` filters out of the rendered transcript — folding
   // them into a real assistant turn would either lose the flag or
   // suppress the merged turn entirely.
-  if (survivor.isSubagentNotification || donor.isSubagentNotification) {
+  if (
+    survivor.isSubagentNotification ||
+    donor.isSubagentNotification ||
+    survivor.isAcpNotification ||
+    donor.isAcpNotification ||
+    survivor.isBackgroundEventNotification ||
+    donor.isBackgroundEventNotification
+  ) {
     return false;
   }
   return true;

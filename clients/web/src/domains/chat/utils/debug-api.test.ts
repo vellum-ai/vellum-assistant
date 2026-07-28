@@ -24,7 +24,6 @@ import {
   type TurnState,
 } from "@/domains/chat/turn-store";
 import type { UIContext } from "@/domains/chat/turn-selectors";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 import {
@@ -235,7 +234,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
         key: "msg-a",
         message: fakeDisplayMessage({ id: "msg-a" }),
       },
-      { kind: "thinking", key: "thinking", label: "Processing" },
+      { kind: "thinking", key: "thinking", active: true, label: "Processing" },
     ];
     const api = createChatDebugApi(
       makeRefs({
@@ -263,7 +262,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
         key: "pc-1",
         requestId: "req-2",
       },
-      { kind: "thinking", key: "thinking" },
+      { kind: "thinking", key: "thinking", active: true },
     ];
     const api = createChatDebugApi(
       makeRefs({
@@ -521,7 +520,7 @@ describe("createChatDebugApi.thinkingIndicator", () => {
 // ---------------------------------------------------------------------------
 
 describe("createChatDebugApi.streamingRing", () => {
-  test("streamingRing is lit by isStreaming while the assistant is thinking", () => {
+  test("streamingRing shows isAssistantBusy true while the assistant is thinking", () => {
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -533,13 +532,10 @@ describe("createChatDebugApi.streamingRing", () => {
 
     const ring = api.streamingRing();
 
-    expect(ring.visible).toBe(true);
-    expect(ring.isStreaming).toBe(true);
-    expect(ring.isProcessing).toBe(false);
-    expect(ring.litBy).toEqual(["isStreaming"]);
+    expect(ring.isAssistantBusy).toBe(true);
   });
 
-  test("streamingRing is hidden once the turn is idle and nothing is processing", () => {
+  test("streamingRing shows isAssistantBusy false once the turn is idle", () => {
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -551,15 +547,13 @@ describe("createChatDebugApi.streamingRing", () => {
 
     const ring = api.streamingRing();
 
-    expect(ring.visible).toBe(false);
-    expect(ring.litBy).toEqual([]);
+    expect(ring.isAssistantBusy).toBe(false);
   });
 
-  test("streamingRing stays lit by isProcessing when the cached snapshot is stale after the turn ends", () => {
+  test("streamingRing shows isAssistantBusy true when the cached snapshot is stale after the turn ends", () => {
     // The hang case: the local turn is terminal (idle, complete) but the
-    // cached `conversation.isProcessing` snapshot is still true, so the ring's
-    // `isProcessing` gate keeps it visible. `litBy: ["isProcessing"]` plus a
-    // terminal `done` is the signature of a stale-snapshot stuck ring.
+    // cached `conversation.isProcessing` snapshot is still true, so
+    // `isAssistantBusy` keeps the ring visible.
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -574,10 +568,8 @@ describe("createChatDebugApi.streamingRing", () => {
     const ring = api.streamingRing();
 
     expect(snapshot.done.terminal).toBe(true);
-    expect(ring.visible).toBe(true);
-    expect(ring.isStreaming).toBe(false);
-    expect(ring.isProcessing).toBe(true);
-    expect(ring.litBy).toEqual(["isProcessing"]);
+    expect(ring.isAssistantBusy).toBe(true);
+    expect(ring.activeConversationIsProcessing).toBe(true);
   });
 });
 
@@ -1006,12 +998,20 @@ describe("createChatDebugApi.getScrollState", () => {
       scrollHeight: 1000,
       clientHeight: 100,
     });
-    // Non-empty conversation so classifyScrollPosition treats the
-    // near-top position as load-older-eligible.
-    useChatSessionStore.setState({ messages: [fakeDisplayMessage()] });
     const api = createChatDebugApi(
       makeRefs({
         transcriptRef: { current: makeTranscriptHandle(el) },
+        // Non-empty rendered transcript so classifyScrollPosition treats the
+        // near-top position as load-older-eligible.
+        transcriptItemsRef: {
+          current: [
+            {
+              kind: "message",
+              key: "a",
+              message: fakeDisplayMessage({ id: "a" }),
+            },
+          ],
+        } as MutableRefObject<TranscriptItem[]>,
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),
     );
@@ -1059,22 +1059,34 @@ describe("createChatDebugApi.getScrollState", () => {
     expect(state.diagnosis).toContain("Already loading older");
   });
 
-  test("itemCount comes from chat session store messages", () => {
+  test("itemCount comes from the rendered transcript items", () => {
     const el = makeScrollElement({
       scrollTop: 500,
       scrollHeight: 1000,
       clientHeight: 100,
     });
-    useChatSessionStore.setState({
-      messages: [
-        fakeDisplayMessage({ id: "a" }),
-        fakeDisplayMessage({ id: "b" }),
-        fakeDisplayMessage({ id: "c" }),
-      ],
-    });
     const api = createChatDebugApi(
       makeRefs({
         transcriptRef: { current: makeTranscriptHandle(el) },
+        transcriptItemsRef: {
+          current: [
+            {
+              kind: "message",
+              key: "a",
+              message: fakeDisplayMessage({ id: "a" }),
+            },
+            {
+              kind: "message",
+              key: "b",
+              message: fakeDisplayMessage({ id: "b" }),
+            },
+            {
+              kind: "message",
+              key: "c",
+              message: fakeDisplayMessage({ id: "c" }),
+            },
+          ],
+        } as MutableRefObject<TranscriptItem[]>,
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),
     );

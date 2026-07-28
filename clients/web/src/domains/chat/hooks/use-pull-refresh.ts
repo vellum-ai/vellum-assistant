@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { RefreshOutcome } from "@/domains/chat/transcript/transcript";
 
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
 
@@ -54,6 +54,15 @@ export function usePullRefresh({
   const [refreshFeedback, setRefreshFeedback] = useState<RefreshOutcome | null>(null);
   const abortRef = useRef(false);
 
+  // Mirror the rendered transcript count into a ref so the async refresh handler
+  // can sample it before and after the refetch without re-creating the callback
+  // on every change.
+  const transcript = useTranscriptMessages();
+  const transcriptCountRef = useRef(transcript.length);
+  useEffect(() => {
+    transcriptCountRef.current = transcript.length;
+  }, [transcript.length]);
+
   // Resolve post-mount to keep SSR/hydration HTML in sync — the gesture
   // mounts a spinner element when enabled, so the initial render must
   // match the server's "false" assumption.
@@ -69,7 +78,7 @@ export function usePullRefresh({
     }
 
     abortRef.current = false;
-    const beforeCount = useChatSessionStore.getState().messages.length;
+    const beforeCount = transcriptCountRef.current;
 
     // Also refresh the conversation list.
     onRefreshEpoch();
@@ -84,19 +93,18 @@ export function usePullRefresh({
 
     try {
       // invalidateQueries returns a promise that resolves when all active
-      // queries matching the filter are refetched. The data-apply effect
-      // in useConversationHistory runs synchronously in the same React
-      // commit cycle, so messagesRef is updated by the time we check.
+      // queries matching the filter are refetched. After yielding one frame
+      // for React to commit, the transcript ref reflects the refetched cache.
       await Promise.race([invalidateHistory(), timeout]);
 
-      // Yield one frame to let React commit the data-apply effect.
+      // Yield one frame to let React commit the refetched history.
       await new Promise((r) => requestAnimationFrame(r));
 
       if (abortRef.current) {
         return { kind: "no-change" };
       }
 
-      const afterCount = useChatSessionStore.getState().messages.length;
+      const afterCount = transcriptCountRef.current;
       const delta = afterCount - beforeCount;
       const outcome: RefreshOutcome =
         delta > 0

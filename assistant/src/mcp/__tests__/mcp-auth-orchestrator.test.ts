@@ -68,13 +68,10 @@ mock.module("../../daemon/mcp-reload-service.js", () => ({
 
 mock.module("../../config/env-registry.js", () => ({
   getIsContainerized: () => false,
-}));
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  getWorkspaceDirOverride: () => undefined,
+  // Imported by the real util/logger.js; ESM named-import validation
+  // requires it even though the silent test logger never calls it.
+  getDebugStdoutLogs: () => false,
 }));
 
 // Create a fake UnauthorizedError class that the orchestrator's instanceof check

@@ -17,7 +17,11 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-cancellation
  */
 
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 import {
@@ -28,6 +32,7 @@ import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 
 // ---------------------------------------------------------------------------
 // Query key
@@ -46,6 +51,42 @@ export function conversationHistoryQueryKey(
   ] as const;
 }
 
+// Subagent notifications across all loaded pages, oldest-first. Hydration reads
+// this rather than only the latest page, so a subagent whose notification is in
+// an older page still gets a store entry (otherwise it shows an avatar badge
+// with no inline row — e.g. a subagent aborted early in a long conversation).
+export function aggregateSubagentNotifications(
+  pages: readonly PaginatedHistoryResult[] | undefined,
+): NonNullable<PaginatedHistoryResult["subagentNotifications"]> | undefined {
+  if (!pages?.length) return undefined;
+  const acc: NonNullable<PaginatedHistoryResult["subagentNotifications"]> = [];
+  for (let i = pages.length - 1; i >= 0; i--) {
+    const ns = pages[i]?.subagentNotifications;
+    if (ns?.length) acc.push(...ns);
+  }
+  return acc.length > 0 ? acc : undefined;
+}
+
+// Background-task completions across all loaded pages, oldest-first. Seeding
+// reads this rather than only the latest page so a card that completed in an
+// older page still gets re-seeded into the store after a daemon restart.
+// Dedupe is unnecessary — the store's `seedFromHistory` is idempotent — so we
+// just preserve first-seen (oldest-first) order.
+export function aggregateBackgroundToolCompletions(
+  pages: readonly PaginatedHistoryResult[] | undefined,
+): BackgroundTaskEntry[] | undefined {
+  if (!pages?.length) return undefined;
+  const acc: BackgroundTaskEntry[] = [];
+  for (let i = pages.length - 1; i >= 0; i--) {
+    const cs = pages[i]?.backgroundToolCompletions;
+    if (cs?.length) acc.push(...cs);
+  }
+  return acc.length > 0 ? acc : undefined;
+}
+
+/** The shape `useInfiniteQuery` stores under a conversation-history key. */
+export type HistoryCache = InfiniteData<PaginatedHistoryResult>;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -59,8 +100,14 @@ interface UseHistoryPaginationParams {
 export interface HistoryPaginationResult {
   /** Flattened messages from all loaded pages, oldest first. */
   messages: DisplayMessage[];
-  /** The latest (newest) page result — carries subagent notifications. */
+  /** The latest (newest) page result. */
   latestPage: PaginatedHistoryResult | undefined;
+  /** Subagent notifications aggregated across all loaded pages, oldest-first. */
+  subagentNotifications:
+    | NonNullable<PaginatedHistoryResult["subagentNotifications"]>
+    | undefined;
+  /** Background-task completions aggregated across all loaded pages, oldest-first. */
+  backgroundToolCompletions: BackgroundTaskEntry[] | undefined;
   /** First-time load with no cached data available. */
   isLoading: boolean;
   /** At least one successful fetch has completed. */
@@ -175,6 +222,16 @@ export function useHistoryPagination({
     return mergeAdjacentAssistantMessages(flattened);
   }, [query.data]);
 
+  const subagentNotifications = useMemo(
+    () => aggregateSubagentNotifications(query.data?.pages),
+    [query.data],
+  );
+
+  const backgroundToolCompletions = useMemo(
+    () => aggregateBackgroundToolCompletions(query.data?.pages),
+    [query.data],
+  );
+
   const latestPage = query.data?.pages[0];
   const oldestPage = query.data?.pages[query.data.pages.length - 1];
 
@@ -195,6 +252,8 @@ export function useHistoryPagination({
   return {
     messages,
     latestPage,
+    subagentNotifications,
+    backgroundToolCompletions,
     isLoading: query.isLoading,
     isSuccess: query.isSuccess,
     isError: query.isError,

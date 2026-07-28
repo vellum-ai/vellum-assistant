@@ -169,3 +169,14 @@ export function getMcpServerManager(): McpServerManager {
   }
   return instance;
 }
+
+/**
+ * Stop the MCP server manager singleton (disconnect all servers) if one was
+ * created. No-op when no manager exists — e.g. no MCP servers were ever
+ * configured — so shutdown callers don't need to gate on configuration. Acts on
+ * the live singleton, so it also stops servers added at runtime via MCP reload.
+ */
+export async function stopMcpServerManager(): Promise<void> {
+  if (!instance) return;
+  await instance.stop();
+}

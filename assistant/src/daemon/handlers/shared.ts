@@ -1,3 +1,7 @@
+import {
+  neutralizeRedactedSentinels,
+  SENTINEL_REDACTION_VERSION,
+} from "@vellumai/service-contracts/redacted-credential";
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -9,16 +13,24 @@ import type {
 import { ConfirmationDecisionSchema } from "../../api/responses/conversation-message.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
-import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
+import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
+import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
+import type { ConversationCreateType } from "../../persistence/conversation-types.js";
+import { resolveMediaSourceData } from "../../providers/media-resolve.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
+import type { MediaSource } from "../../providers/types.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { getLogger } from "../../util/logger.js";
+import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
+import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
+import { findConversation } from "../conversation-registry.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
-import type { TrustContext } from "../trust-context.js";
+import type { TrustContext } from "../trust-context-types.js";
 
 const log = getLogger("handlers");
 
@@ -87,6 +99,26 @@ export interface RenderedHistoryContent {
 }
 
 /**
+ * One entry from Slack's `app_context` — an object the sender had open in
+ * Slack when they sent the message. `value` is an id string for the channel /
+ * canvas / list entity types and an object for `slack#/types/message_context`,
+ * which points at a specific message. Mirrors `sourceMetadata.appContext` on
+ * the gateway inbound contract; the values arrive unvalidated, so every
+ * consumer shape-checks before use.
+ */
+export interface SlackAppContextEntity {
+  type: string;
+  value: string | { messageTs?: string; channelId?: string };
+  teamId?: string;
+  enterpriseId?: string;
+}
+
+/** The sender's active Slack context for a single inbound message. */
+export interface SlackAppContext {
+  entities: SlackAppContextEntity[];
+}
+
+/**
  * Slack-specific metadata extracted at the inbound HTTP boundary and threaded
  * through to user-message persistence so the row can be tagged with a
  * `slackMeta` envelope for the chronological renderer.
@@ -104,6 +136,8 @@ export interface SlackInboundMessageMetadata {
   displayName?: string;
   /** Canonical Slack external user id for the sender, when available. */
   actorExternalUserId?: string;
+  /** Slack team id the sender belongs to — the `recipient_team_id` for channel streaming. */
+  actorTeamId?: string;
   /** Raw Slack profile timezone for the sender, when supplied. */
   actorTimezone?: string;
   /** Compact Slack profile timezone label for the sender, when supplied. */
@@ -116,6 +150,15 @@ export interface SlackInboundMessageMetadata {
   timestampTimezoneLabel?: string;
   /** Compact timezone label appended to the rendered speaker name. */
   speakerTimezoneLabel?: string;
+  /**
+   * What the sender had open in Slack when they sent this message. Carried
+   * here so it lands on the stored ingress payload alongside the rest of
+   * `slackInbound`, letting the retry sweep render a replayed turn with the
+   * same context the live turn saw. Not projected into `slackMeta`: the
+   * context is baked into the message content at ingress, so the transcript
+   * renderer already has it.
+   */
+  appContext?: SlackAppContext;
 }
 
 /**
@@ -133,6 +176,14 @@ export interface ConversationCreateOptions {
    * task permissions do not leak into later turns on a reused conversation.
    */
   taskRunId?: string;
+  /**
+   * Skip persisting a `conversations` row for this call. The in-memory
+   * {@link Conversation} is still built and hydrated from whatever rows
+   * already exist, but no sidebar-visible row is created — used by ephemeral
+   * side-chains (e.g. the empty-state greeting) whose contract persists
+   * nothing. Per-call only: never merged into stored conversation metadata.
+   */
+  ephemeral?: boolean;
   /** Normalized auth context for the conversation. */
   authContext?: AuthContext;
   /** Whether this turn can block on interactive approval prompts. */
@@ -147,8 +198,7 @@ export interface ConversationCreateOptions {
 
   /**
    * Optional explicit model override (provider/model string) for this
-   * conversation's agent loop. Used by the auto-analyze loop to pin the
-   * analysis agent to a specific model.
+   * conversation's agent loop.
    */
   modelOverride?: string;
   /**
@@ -172,6 +222,13 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /**
+   * Conversation type for newly created conversations. When omitted,
+   * defaults to `"standard"` (visible in the sidebar). Set to
+   * `"background"` for plugin-driven conversations that should not
+   * appear in the sidebar's Recents grouping.
+   */
+  conversationType?: ConversationCreateType;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -179,14 +236,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function formatBytes(sizeBytes: number): string {
-  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
   const kb = sizeBytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
 function clampAttachmentText(text: string): string {
-  if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) return text;
+  if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) {
+    return text;
+  }
   return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
 }
 
@@ -209,17 +272,15 @@ function extractFileBlockMetadata(
       source && typeof source.filename === "string"
         ? source.filename
         : "attachment",
-    sizeBytes:
-      source && typeof source.data === "string"
-        ? estimateBase64Bytes(source.data)
-        : 0,
+    sizeBytes: estimateBase64Bytes(source),
   };
 }
 
 /**
  * Build the positional attachment reference for a `file` content block:
- * filename/mime/size from the block's source plus the persisted
- * `_attachmentId` when present (user-uploaded files).
+ * filename/mime/size from the block's source plus its attachment id. Reference
+ * blocks carry the id on `source.attachmentId`; legacy base64 blocks carry it
+ * on the top-level `_attachmentId`.
  */
 function fileBlockToAttachmentRef(
   block: Record<string, unknown>,
@@ -230,8 +291,15 @@ function fileBlockToAttachmentRef(
     mimeType: meta.mediaType,
     sizeBytes: meta.sizeBytes,
   };
-  if (typeof block._attachmentId === "string" && block._attachmentId) {
-    ref.attachmentId = block._attachmentId;
+  const source = isRecord(block.source) ? block.source : null;
+  const attachmentId =
+    source && typeof source.attachmentId === "string" && source.attachmentId
+      ? source.attachmentId
+      : typeof block._attachmentId === "string" && block._attachmentId
+        ? block._attachmentId
+        : null;
+  if (attachmentId) {
+    ref.attachmentId = attachmentId;
   }
   return ref;
 }
@@ -245,10 +313,14 @@ function fileBlockToAttachmentRef(
 export function collectAttachmentRefs(
   content: unknown,
 ): HistoryAttachmentRef[] {
-  if (!Array.isArray(content)) return [];
+  if (!Array.isArray(content)) {
+    return [];
+  }
   const refs: HistoryAttachmentRef[] = [];
   for (const block of content) {
-    if (!isRecord(block) || block.type !== "file") continue;
+    if (!isRecord(block) || block.type !== "file") {
+      continue;
+    }
     refs.push(fileBlockToAttachmentRef(block, extractFileBlockMetadata(block)));
   }
   return refs;
@@ -262,8 +334,9 @@ function renderFileBlockForHistory(
     `[File attachment] ${meta.filename}`,
     `type=${meta.mediaType}`,
   ];
-  if (meta.sizeBytes > 0)
+  if (meta.sizeBytes > 0) {
     summaryParts.push(`size=${formatBytes(meta.sizeBytes)}`);
+  }
 
   const extractedText =
     typeof block.extracted_text === "string" ? block.extracted_text.trim() : "";
@@ -291,6 +364,10 @@ export function renderHistoryContent(
     } else {
       text = unwrapExternalContentForDisplay(String(content));
     }
+    // Raw-string rows predate the block-shaped persist path entirely, so
+    // they can never carry the `_redactionVersion` rider — always run the
+    // sentinel forgery guard (see the rider check in the block walk below).
+    text = neutralizeRedactedSentinels(text);
     return {
       text,
       toolCalls: [],
@@ -327,29 +404,6 @@ export function renderHistoryContent(
   // attachment-ref order; otherwise the file block contributes no block.
   const contentBlocks: ConversationContentBlock[] = [];
   let currentTextBlock: { type: "text"; text: string } | null = null;
-
-  function joinWithSpacing(parts: string[]): string {
-    let result = parts[0] ?? "";
-    for (let i = 1; i < parts.length; i++) {
-      const prev = result[result.length - 1];
-      const next = parts[i][0];
-      // Only insert a space when neither side already has whitespace
-      if (
-        prev &&
-        next &&
-        prev !== " " &&
-        prev !== "\n" &&
-        prev !== "\t" &&
-        next !== " " &&
-        next !== "\n" &&
-        next !== "\t"
-      ) {
-        result += " ";
-      }
-      result += parts[i];
-    }
-    return result;
-  }
 
   function finalizeSegment(): void {
     if (hasOpenSegment) {
@@ -393,7 +447,9 @@ export function renderHistoryContent(
   }
 
   for (const block of content) {
-    if (!isRecord(block) || typeof block.type !== "string") continue;
+    if (!isRecord(block) || typeof block.type !== "string") {
+      continue;
+    }
 
     // Collect ui_surface blocks for inclusion in history
     if (block.type === "ui_surface") {
@@ -431,27 +487,48 @@ export function renderHistoryContent(
         ConversationContentBlock,
         { type: "thinking" }
       > = { type: "thinking", thinking: block.thinking };
-      if (typeof block._startedAt === "number")
+      if (typeof block._startedAt === "number") {
         thinkingBlock.startedAt = block._startedAt;
-      if (typeof block._completedAt === "number")
+      }
+      if (typeof block._completedAt === "number") {
         thinkingBlock.completedAt = block._completedAt;
+      }
       contentBlocks.push(thinkingBlock);
       continue;
     }
 
     if (block.type === "text" && typeof block.text === "string") {
-      const displayText = unwrapExternalContentForDisplay(block.text);
+      // Forgery guard for pre-feature history: blocks persisted before the
+      // chat-credential sentinel work never had sentinel-shaped strings
+      // neutralized at write, so a forged `〔redacted:…〕` in an old row could
+      // manufacture a reveal chip on a chip-enabled client surface. Blocks
+      // written by the neutralization-aware persist path carry the
+      // `_redactionVersion` rider (internal, never shipped on the wire) and
+      // pass through verbatim — their surviving sentinels are
+      // redactor-authored. Everything else is neutralized here at the read
+      // boundary, the same belt-and-suspenders posture as the
+      // `<no_response/>` and placeholder-sentinel strips below.
+      const rawText =
+        typeof block._redactionVersion === "number" &&
+        block._redactionVersion >= SENTINEL_REDACTION_VERSION
+          ? block.text
+          : neutralizeRedactedSentinels(block.text);
+      const displayText = unwrapExternalContentForDisplay(rawText);
       // Skip empty/whitespace-only text blocks. During streaming the client
       // discards empty text deltas (guard !text.isEmpty), so including them
       // here produces a contentOrder that differs from the live streaming
       // path — e.g. empty segments between consecutive tool_use blocks that
       // break tool-call grouping in the UI.
-      if (displayText.trim().length === 0) continue;
+      if (displayText.trim().length === 0) {
+        continue;
+      }
       // Drop Anthropic provider placeholder sentinels. These are injected
       // into outbound API requests to preserve role alternation and must
       // never be rendered to users. Belt-and-suspenders with the persist-
       // time filter in cleanAssistantContent and migration 222.
-      if (isPlaceholderSentinelText(displayText)) continue;
+      if (isPlaceholderSentinelText(displayText)) {
+        continue;
+      }
       textParts.push(displayText);
       // A ui_surface card's plain-text fallback (flagged `_surfaceFallback` by
       // the approval-card builder) is represented by the adjacent surface for
@@ -459,7 +536,9 @@ export function renderHistoryContent(
       // search, channel replies, non-surface clients) but don't emit it as a
       // text segment or content block, or those clients would render the card
       // AND its fallback text.
-      if (block._surfaceFallback === true) continue;
+      if (block._surfaceFallback === true) {
+        continue;
+      }
       ensureSegment();
       currentSegmentParts.push(displayText);
       seenText = true;
@@ -492,61 +571,84 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
-      if (id) entry.id = id;
+      if (id) {
+        entry.id = id;
+      }
       // Extract persisted timing/confirmation metadata
-      if (typeof block._startedAt === "number")
+      if (typeof block._startedAt === "number") {
         entry.startedAt = block._startedAt;
-      if (typeof block._completedAt === "number")
+      }
+      if (typeof block._previewStartedAt === "number") {
+        entry.previewStartedAt = block._previewStartedAt;
+      }
+      if (typeof block._completedAt === "number") {
         entry.completedAt = block._completedAt;
+      }
       const confirmationDecision = ConfirmationDecisionSchema.safeParse(
         block._confirmationDecision,
       );
       if (confirmationDecision.success) {
         entry.confirmationDecision = confirmationDecision.data;
       }
-      if (typeof block._confirmationLabel === "string")
+      if (typeof block._confirmationLabel === "string") {
         entry.confirmationLabel = block._confirmationLabel;
-      if (typeof block._riskLevel === "string")
+      }
+      if (typeof block._riskLevel === "string") {
         entry.riskLevel = block._riskLevel;
-      if (typeof block._riskReason === "string")
+      }
+      if (typeof block._riskReason === "string") {
         entry.riskReason = block._riskReason;
-      if (typeof block._matchedTrustRuleId === "string")
+      }
+      if (typeof block._matchedTrustRuleId === "string") {
         entry.matchedTrustRuleId = block._matchedTrustRuleId;
-      if (typeof block._autoApproved === "boolean")
+      }
+      if (typeof block._autoApproved === "boolean") {
         entry.autoApproved = block._autoApproved;
-      if (typeof block._approvalMode === "string")
+      }
+      if (typeof block._approvalMode === "string") {
         entry.approvalMode = block._approvalMode;
-      if (typeof block._approvalReason === "string")
+      }
+      if (typeof block._approvalReason === "string") {
         entry.approvalReason = block._approvalReason;
-      if (typeof block._riskThreshold === "string")
+      }
+      if (typeof block._riskThreshold === "string") {
         entry.riskThreshold = block._riskThreshold;
+      }
       // Read back the 3 risk-option arrays persisted by
       // `annotatePersistedAssistantMessage`. Validate the array shape only
       // — element shapes are best-effort (we trust our own writer).
-      if (Array.isArray(block._riskScopeOptions))
+      if (Array.isArray(block._riskScopeOptions)) {
         entry.riskScopeOptions =
           block._riskScopeOptions as HistoryToolCall["riskScopeOptions"];
-      if (Array.isArray(block._riskAllowlistOptions))
+      }
+      if (Array.isArray(block._riskAllowlistOptions)) {
         entry.riskAllowlistOptions =
           block._riskAllowlistOptions as HistoryToolCall["riskAllowlistOptions"];
-      if (Array.isArray(block._riskDirectoryScopeOptions))
+      }
+      if (Array.isArray(block._riskDirectoryScopeOptions)) {
         entry.riskDirectoryScopeOptions =
           block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
+      }
       // Read back tool activity (web_search / web_fetch) persisted by
       // `annotatePersistedAssistantMessage` so the activity card survives a
       // history reopen instead of degrading to the plain result text.
-      if (isRecord(block._activityMetadata))
+      if (isRecord(block._activityMetadata)) {
         entry.activityMetadata =
           block._activityMetadata as HistoryToolCall["activityMetadata"];
+      }
       toolCalls.push(entry);
-      if (id) pendingToolUses.set(id, entry);
+      if (id) {
+        pendingToolUses.set(id, entry);
+      }
       contentOrder.push(`tool:${toolCalls.length - 1}`);
       // Same `entry` reference the block carries: a later tool_result pairs its
       // output onto `entry`, so the content block reflects it automatically.
       contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
-        if (!seenText) toolCallsBeforeText = true;
+        if (!seenText) {
+          toolCallsBeforeText = true;
+        }
       }
       continue;
     }
@@ -558,19 +660,26 @@ export function renderHistoryContent(
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
-      if (id) entry.id = id;
+      if (id) {
+        entry.id = id;
+      }
       // Native server tools (Anthropic web_search) persist their activity on
       // the server_tool_use block, so read it back here too.
-      if (isRecord(block._activityMetadata))
+      if (isRecord(block._activityMetadata)) {
         entry.activityMetadata =
           block._activityMetadata as HistoryToolCall["activityMetadata"];
+      }
       toolCalls.push(entry);
-      if (id) pendingToolUses.set(id, entry);
+      if (id) {
+        pendingToolUses.set(id, entry);
+      }
       contentOrder.push(`tool:${toolCalls.length - 1}`);
       contentBlocks.push({ type: "tool_use", toolCall: entry });
       if (!seenToolUse) {
         seenToolUse = true;
-        if (!seenText) toolCallsBeforeText = true;
+        if (!seenText) {
+          toolCallsBeforeText = true;
+        }
       }
       continue;
     }
@@ -616,19 +725,25 @@ export function renderHistoryContent(
       const resultContent =
         typeof block.content === "string" ? block.content : "";
       const isError = block.is_error === true;
-      // Extract base64 image data from persisted contentBlocks (e.g. browser_screenshot, image generation)
+      // Extract image data from persisted contentBlocks (e.g. browser_screenshot,
+      // image generation). Referenced media (a workspace_ref source) emits its
+      // attachment id so clients fetch the bytes by id on render instead of
+      // inlining base64 into the history wire; legacy inline base64 sources are
+      // resolved and carried as base64. A given image goes to exactly one list.
       const imageDataList: string[] = [];
+      const imageAttachmentIds: string[] = [];
       if (Array.isArray(block.contentBlocks)) {
         for (const cb of block.contentBlocks) {
-          if (
-            isRecord(cb) &&
-            cb.type === "image" &&
-            isRecord(cb.source) &&
-            typeof (cb.source as Record<string, unknown>).data === "string"
-          ) {
-            imageDataList.push(
-              (cb.source as Record<string, unknown>).data as string,
-            );
+          if (isRecord(cb) && cb.type === "image" && isRecord(cb.source)) {
+            const source = cb.source as unknown as MediaSource;
+            if (source.type === "workspace_ref" && source.attachmentId) {
+              imageAttachmentIds.push(source.attachmentId);
+              continue;
+            }
+            const resolved = resolveMediaSourceData(source);
+            if (resolved) {
+              imageDataList.push(resolved.data);
+            }
           }
         }
       }
@@ -636,9 +751,19 @@ export function renderHistoryContent(
       if (matched) {
         matched.result = resultContent;
         matched.isError = isError;
+        // Carry the persisted error classification onto the history row so a
+        // client can re-derive an error-specific surface after a reload (e.g.
+        // `acp_claude_oauth_missing` re-raising the inline Connect card),
+        // rather than it living only on the live `tool_result` event.
+        if (typeof block.errorCode === "string") {
+          matched.errorCode = block.errorCode;
+        }
         if (imageDataList.length > 0) {
           matched.imageData = imageDataList[0];
           matched.imageDataList = imageDataList;
+        }
+        if (imageAttachmentIds.length > 0) {
+          matched.imageAttachmentIds = imageAttachmentIds;
         }
       }
       // Orphan tool_result with no matching tool_use — drop it. Synthesizing
@@ -702,6 +827,66 @@ export function renderHistoryContent(
   };
 }
 
+/** Parameters shared by the standalone secret prompt and its link fallback. */
+interface StandaloneSecretParams {
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+  injectionTemplates?: CredentialInjectionTemplate[];
+  conversationId?: string;
+}
+
+/**
+ * Fallback for channels without secure input: mint a one-time collection link
+ * via the gateway (flag-gated there) and return it on the result so the
+ * caller can relay it. The credential policy travels on the gateway row
+ * (`policyJson`) and is applied together with the value at redemption —
+ * nothing is stored or mutated until the recipient submits. When minting is
+ * unavailable (flag off, no public ingress URL, gateway unreachable) the
+ * plain `unsupported_channel` failure stands.
+ */
+async function mintCollectionLinkFallback(
+  params: StandaloneSecretParams,
+): Promise<SecretPromptResult> {
+  const policy = {
+    usageDescription: params.purpose,
+    allowedTools: params.allowedTools,
+    allowedDomains: params.allowedDomains,
+    injectionTemplates: params.injectionTemplates,
+  };
+  const hasPolicy = Object.values(policy).some((v) => v !== undefined);
+
+  const result = (await gatewayIpcCall("create_credential_request", {
+    service: params.service,
+    field: params.field,
+    label: params.label,
+    ...(hasPolicy ? { policyJson: JSON.stringify(policy) } : {}),
+  })) as
+    | { ok: true; url: string; expiresAt: number }
+    | { ok: false; error: string }
+    | undefined;
+
+  if (result?.ok) {
+    log.info(
+      { service: params.service, field: params.field },
+      "Secret prompt unsupported on channel — minted a one-time collection link",
+    );
+    return {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+      collectionUrl: result.url,
+      collectionExpiresAt: result.expiresAt,
+    };
+  }
+  return { value: null, delivery: "store", error: "unsupported_channel" };
+}
+
 /**
  * Send a `secret_request` to the client and wait for the response, outside of a
  * conversation context (e.g. from IPC routes like credentials/prompt).
@@ -711,25 +896,24 @@ export function renderHistoryContent(
  * resolves the prompt generically. When a `conversationId` is supplied (the CLI
  * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
  * scoped to that conversation so clients deliver it; otherwise it is
- * conversation-less.
+ * conversation-less. When that conversation's channel cannot render dynamic UI
+ * (e.g. slack, telegram), resolves immediately with `unsupported_channel` —
+ * carrying a one-time collection link when the gateway can mint one — instead
+ * of broadcasting a request that can only time out.
  */
-export function requestSecretStandalone(params: {
-  service: string;
-  field: string;
-  label: string;
-  description?: string;
-  placeholder?: string;
-  purpose?: string;
-  allowedTools?: string[];
-  allowedDomains?: string[];
-  conversationId?: string;
-}): Promise<SecretPromptResult> {
+export function requestSecretStandalone(
+  params: StandaloneSecretParams,
+): Promise<SecretPromptResult> {
+  const conversation = findConversation(params.conversationId);
+  if (conversation && !conversationSupportsDynamicUi(conversation)) {
+    return mintCollectionLinkFallback(params);
+  }
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingInteractions.resolve(requestId, "cancelled");
-      resolve({ value: null, delivery: "store" });
+      resolve({ value: null, delivery: "store", reason: "timed_out" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingInteractions.register(requestId, {
       conversationId: params.conversationId,
@@ -761,13 +945,17 @@ export function ensureSkillEntry(
   raw: Record<string, unknown>,
   name: string,
 ): Record<string, unknown> {
-  if (!isRecord(raw.skills) || Array.isArray(raw.skills)) raw.skills = {};
+  if (!isRecord(raw.skills) || Array.isArray(raw.skills)) {
+    raw.skills = {};
+  }
   const skills = raw.skills as Record<string, unknown>;
-  if (!isRecord(skills.entries) || Array.isArray(skills.entries))
+  if (!isRecord(skills.entries) || Array.isArray(skills.entries)) {
     skills.entries = {};
+  }
   const entries = skills.entries as Record<string, unknown>;
-  if (!isRecord(entries[name]) || Array.isArray(entries[name]))
+  if (!isRecord(entries[name]) || Array.isArray(entries[name])) {
     entries[name] = {};
+  }
   return entries[name] as Record<string, unknown>;
 }
 
@@ -802,18 +990,26 @@ function comparePreRelease(a: string, b: string): number {
   const pb = b.split(".");
   const len = Math.max(pa.length, pb.length);
   for (let i = 0; i < len; i++) {
-    if (i >= pa.length) return -1; // a has fewer fields → a < b
-    if (i >= pb.length) return 1;
+    if (i >= pa.length) {
+      return -1;
+    } // a has fewer fields → a < b
+    if (i >= pb.length) {
+      return 1;
+    }
     const aIsNum = /^\d+$/.test(pa[i]);
     const bIsNum = /^\d+$/.test(pb[i]);
     if (aIsNum && bIsNum) {
       const diff = Number(pa[i]) - Number(pb[i]);
-      if (diff !== 0) return diff;
+      if (diff !== 0) {
+        return diff;
+      }
     } else if (aIsNum !== bIsNum) {
       return aIsNum ? -1 : 1; // numeric < non-numeric per §11.4.4
     } else {
       const cmp = (pa[i] ?? "").localeCompare(pb[i] ?? "");
-      if (cmp !== 0) return cmp;
+      if (cmp !== 0) {
+        return cmp;
+      }
     }
   }
   return 0;
@@ -831,11 +1027,19 @@ export function compareSemver(a: string, b: string): number {
   const pb = parseSemverParts(b);
   for (let i = 0; i < 3; i++) {
     const diff = pa.nums[i] - pb.nums[i];
-    if (diff !== 0) return diff;
+    if (diff !== 0) {
+      return diff;
+    }
   }
   // Same major.minor.patch — compare pre-release
-  if (pa.pre === null && pb.pre === null) return 0;
-  if (pa.pre !== null && pb.pre === null) return -1; // pre-release < release
-  if (pa.pre === null && pb.pre !== null) return 1;
+  if (pa.pre === null && pb.pre === null) {
+    return 0;
+  }
+  if (pa.pre !== null && pb.pre === null) {
+    return -1;
+  } // pre-release < release
+  if (pa.pre === null && pb.pre !== null) {
+    return 1;
+  }
   return comparePreRelease(pa.pre!, pb.pre!);
 }

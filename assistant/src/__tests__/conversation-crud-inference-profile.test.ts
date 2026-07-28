@@ -1,10 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   createConversation,
@@ -12,9 +6,9 @@ import {
   resolveOverrideProfile,
   setConversationInferenceProfile,
   setConversationInferenceProfileSession,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 describe("setConversationInferenceProfile", () => {

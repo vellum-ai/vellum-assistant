@@ -36,6 +36,18 @@ export const SIZE_LABEL: Record<MachineSizeEnum, string> = {
   extra_large: "Extra Large",
 };
 
+/**
+ * Display labels for the Pro machine tiers, keyed by `MachineTierEnum`
+ * ("medium" | "large" | "xl"). A static map so casing is stable regardless of
+ * what the API returns; unknown tiers read as `undefined` — callers fall back
+ * to a server-provided label or the raw tier string.
+ */
+export const MACHINE_TIER_LABEL: Record<string, string> = {
+  medium: "Medium",
+  large: "Large",
+  xl: "XL",
+};
+
 // Descriptions reflect the cpu_limit / memory_limit from
 // `MACHINE_SIZE_RESOURCE_PRESETS` in `django/app/domain_models/constants.py`,
 // rounded to integers where the underlying value is a whole number of cores

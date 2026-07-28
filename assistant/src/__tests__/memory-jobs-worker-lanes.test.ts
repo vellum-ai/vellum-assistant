@@ -11,21 +11,28 @@
  * jobs alongside fast jobs and asserts that every fast job completes before
  * any slow job's promise resolves — proving the lanes are truly independent.
  */
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
-import type { AssistantConfig } from "../config/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
-// ── Mocks (must precede imports of tested module) ──────────────────
+// beforeAll runs initializeDb(), which can exceed bun's 5s default hook
+// timeout when the CI runner is saturated (one bun process per test file,
+// workers = CPU count). Raise the file-level default so DB setup isn't
+// killed mid-flight. Each test file runs in its own process, so this
+// doesn't leak.
+setDefaultTimeout(30_000);
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+// ── Config seed (before the tested module reads config) ────────────
 
 // Per-lane caps: 1 slow slot (so only 1 of the 5 enqueued slow jobs runs in
 // this tick) and a generous fast cap so every fast job both gets claimed
@@ -33,26 +40,20 @@ mock.module("../util/logger.js", () => ({
 // claimed jobs without lane awareness and ran them through a single
 // workerConcurrency-sized pool — would pin its slots on the first claimed
 // slow jobs and force the fast jobs to queue behind a 200ms LLM call.
-const TEST_CONFIG: AssistantConfig = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    enabled: true,
-    jobs: {
-      ...DEFAULT_CONFIG.memory.jobs,
-      slowLlmConcurrency: 1,
-      fastConcurrency: 5,
-      embedConcurrency: 1,
-      workerConcurrency: 2,
-    },
+// `memory.v2.enabled` is off so v1 is the active memory tier: the slow-lane
+// job here is `graph_consolidate`, whose handler completes v1 graph rows as
+// a no-op while concept-page memory is active — this test needs it to
+// genuinely run.
+// Everything else (including `memory.enabled: true`) is the schema default.
+setConfig("memory", {
+  v2: { enabled: false },
+  jobs: {
+    slowLlmConcurrency: 1,
+    fastConcurrency: 5,
+    embedConcurrency: 1,
+    workerConcurrency: 2,
   },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => TEST_CONFIG,
-  loadConfig: () => TEST_CONFIG,
-  invalidateConfigCache: () => {},
-}));
+});
 
 // ── Track timestamps so we can assert ordering ─────────────────────
 
@@ -67,7 +68,7 @@ const completions: CompletionRecord[] = [];
 // job completes before any slow job — a single 200ms window is plenty.
 const SLOW_DELAY_MS = 200;
 
-mock.module("../memory/graph/consolidation.js", () => ({
+mock.module("../plugins/defaults/memory/v1/graph/consolidation.js", () => ({
   runConsolidation: async (
     scopeId: string,
   ): Promise<{
@@ -87,7 +88,7 @@ mock.module("../memory/graph/consolidation.js", () => ({
 
 // Fast-lane handler: resolves on the next microtask. The test fires this
 // many times in parallel; nothing should block.
-mock.module("../memory/v2/backfill-jobs.js", () => ({
+mock.module("../plugins/defaults/memory/v2/backfill-jobs.js", () => ({
   memoryV2ActivationRecomputeJob: async (job: {
     payload: { scopeId?: string };
   }): Promise<number> => {
@@ -99,6 +100,9 @@ mock.module("../memory/v2/backfill-jobs.js", () => ({
     return 0;
   },
   memoryV2MigrateJob: async (): Promise<void> => {},
+}));
+
+mock.module("../plugins/defaults/memory/substrate/reembed-job.js", () => ({
   memoryV2ReembedJob: async (): Promise<void> => {},
 }));
 
@@ -106,19 +110,21 @@ mock.module("../memory/v2/backfill-jobs.js", () => ({
 // in transitively through jobs-worker's eager imports. These aren't strictly
 // required if the host machine can resolve them, but mocking them keeps the
 // test hermetic and fast under `bun test`.
-mock.module("../memory/db-maintenance.js", () => ({
+mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: () => {},
 }));
 
-import { getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
-import { runMemoryJobsOnce } from "../memory/jobs-worker.js";
-import { _resetQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
-import { memoryJobs } from "../memory/schema.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { _resetQdrantBreaker } from "../persistence/embeddings/qdrant-circuit-breaker.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
+import { memoryJobs } from "../persistence/schema/index.js";
+import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
+import { runMemoryJobsOnce } from "../plugins/defaults/memory/jobs-worker.js";
 
 describe("memory jobs worker lane scheduling", () => {
   beforeAll(async () => {
+    registerMemoryPluginJobHandlers();
     await initializeDb();
   });
 

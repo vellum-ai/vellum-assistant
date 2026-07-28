@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { getConversation } from "../../memory/conversation-crud.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import {
   cancelSchedule,
   createSchedule,
@@ -16,6 +16,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -63,8 +64,10 @@ const DeferCancelParams = z.object({
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
-  const { conversationId, hint, delaySeconds, fireAt, name } =
-    DeferCreateParams.parse(body);
+  const { conversationId, hint, delaySeconds, fireAt, name } = parseBody(
+    DeferCreateParams,
+    body,
+  );
 
   const conversation = getConversation(conversationId);
   if (!conversation) {
@@ -94,7 +97,7 @@ async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const job = createSchedule({
+  const job = await createSchedule({
     name: name ?? "Deferred wake",
     message: hint,
     mode: "wake",
@@ -113,7 +116,7 @@ async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
 }
 
 async function handleDeferList({ body = {} }: RouteHandlerArgs) {
-  const { conversationId } = DeferListParams.parse(body);
+  const { conversationId } = parseBody(DeferListParams, body);
 
   const jobs = listSchedules({
     mode: "wake",
@@ -138,14 +141,14 @@ async function handleDeferList({ body = {} }: RouteHandlerArgs) {
 }
 
 async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
-  const { id, all, conversationId } = DeferCancelParams.parse(body);
+  const { id, all, conversationId } = parseBody(DeferCancelParams, body);
 
   if (id) {
     const job = getSchedule(id);
     if (!job || job.mode !== "wake" || job.createdBy !== "defer") {
       return { cancelled: 0, error: "Not a deferred wake" };
     }
-    const ok = cancelSchedule(id);
+    const ok = await cancelSchedule(id);
     return { cancelled: ok ? 1 : 0 };
   }
 
@@ -159,7 +162,7 @@ async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
     let count = 0;
     for (const j of jobs) {
       if (j.status === "active" || j.status === "firing") {
-        if (cancelSchedule(j.id)) count++;
+        if (await cancelSchedule(j.id)) count++;
       }
     }
     return { cancelled: count };

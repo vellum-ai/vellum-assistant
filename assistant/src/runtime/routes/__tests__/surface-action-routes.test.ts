@@ -66,8 +66,9 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
+// Member ACL rides on memberRecord via the member-verdict cache; no local
+// contact here.
 mock.module("../../../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (_channelType: string) => null,
   findContactByAddress: () => null,
 }));
 
@@ -108,11 +109,16 @@ mock.module("../../../daemon/conversation-store.js", () => ({
   },
 }));
 
-mock.module("../../../memory/raw-query.js", () => ({
-  rawGet: (sql: string, ...params: unknown[]) => {
+mock.module("../../../persistence/raw-query.js", () => ({
+  rawGet: (_label: string, sql: string, ...params: unknown[]) => {
     rawGetCalls.push({ sql, params });
     return rawGetReturn;
   },
+  // Consumed by the resolver module's persisted-history fallback
+  // (`findPersistedSurfaceState`); the action routes never reach it, but
+  // the mocked module must still provide every export the resolver
+  // imports or the import itself fails.
+  rawAll: () => [],
 }));
 
 // Mock guardian-action-service to cut off its deep transitive dependency chain.

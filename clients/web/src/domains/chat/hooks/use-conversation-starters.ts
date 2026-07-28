@@ -22,7 +22,6 @@ const STALE_TIME_MS = 60_000;
 const POLL_INTERVAL_MS = 3_000;
 
 const DEFAULT_OFFSET = 0;
-const DEFAULT_SCOPE_ID = "default";
 
 function shouldPoll(
   status: ConversationStartersStatus | undefined,
@@ -58,7 +57,6 @@ export function useConversationStarters(
       query: {
         limit: MAX_CONVERSATION_STARTER_CHIPS,
         offset: DEFAULT_OFFSET,
-        scope_id: DEFAULT_SCOPE_ID,
       },
     }),
     enabled,

@@ -1,6 +1,7 @@
+import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
-import { updateConversationUsage } from "../memory/conversation-crud.js";
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { updateConversationUsage } from "../persistence/conversation-crud.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import type { UsageActor } from "../usage/actors.js";
 import { resolveUsageAttribution } from "../usage/attribution.js";
 import { extractRawUsage } from "../usage/pricing.js";
@@ -16,7 +17,7 @@ import {
   resolvePricingForUsageWithOverrides,
   usesAnthropicPricingRules,
 } from "../util/pricing.js";
-import type { ServerMessage, UsageStats } from "./message-protocol.js";
+import type { UsageStats } from "./message-protocol.js";
 
 const log = getLogger("conversation-usage");
 
@@ -27,12 +28,12 @@ export interface UsageContext {
 }
 
 function normalizeTokenCount(value: number | null | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value)) {return 0;}
   return Math.max(value, 0);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value == null) return null;
+  if (typeof value !== "object" || value == null) {return null;}
   return value as Record<string, unknown>;
 }
 
@@ -42,7 +43,7 @@ function extractAnthropicCacheCreationFromResponse(
   const rawResponse = asRecord(response);
   const usage = asRecord(rawResponse?.usage);
   const cacheCreation = asRecord(usage?.cache_creation);
-  if (!cacheCreation) return null;
+  if (!cacheCreation) {return null;}
 
   return {
     ephemeral_5m_input_tokens: normalizeTokenCount(
@@ -64,7 +65,7 @@ function extractAnthropicCacheCreation(
 
   for (const response of responses) {
     const details = extractAnthropicCacheCreationFromResponse(response);
-    if (!details) continue;
+    if (!details) {continue;}
     foundDetails = true;
     ephemeral5mInputTokens += normalizeTokenCount(
       details.ephemeral_5m_input_tokens,
@@ -74,7 +75,7 @@ function extractAnthropicCacheCreation(
     );
   }
 
-  if (!foundDetails) return null;
+  if (!foundDetails) {return null;}
 
   return {
     ephemeral_5m_input_tokens: ephemeral5mInputTokens,
@@ -96,8 +97,8 @@ function extractAnthropicSpeed(
   for (const response of responses) {
     const rec = asRecord(response);
     const usage = asRecord(rec?.usage);
-    if (usage?.speed === "fast") return "fast";
-    if (usage?.speed === "standard") foundStandard = true;
+    if (usage?.speed === "fast") {return "fast";}
+    if (usage?.speed === "standard") {foundStandard = true;}
   }
   return foundStandard ? "standard" : null;
 }
@@ -143,7 +144,7 @@ function resolveAttribution(
     | null
     | undefined,
 ): UsageAttributionSnapshot | null {
-  if (attribution == null) return null;
+  if (attribution == null) {return null;}
   return isUsageAttributionSnapshot(attribution)
     ? attribution
     : resolveUsageAttribution(attribution);
@@ -154,7 +155,7 @@ export function recordUsage(
   inputTokens: number,
   outputTokens: number,
   model: string,
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: AssistantEvent) => void,
   actor: UsageActor,
   requestId: string | null = null,
   cacheCreationInputTokens = 0,
@@ -163,8 +164,9 @@ export function recordUsage(
   llmCallCount = 1,
   contextWindow?: { tokens: number; maxTokens: number },
   attribution?: UsageAttributionInput | UsageAttributionSnapshot | null,
+  cronRunId: string | null = null,
 ): void {
-  if (inputTokens <= 0 && outputTokens <= 0) return;
+  if (inputTokens <= 0 && outputTokens <= 0) {return;}
 
   const normalizedCacheCreationInputTokens = normalizeTokenCount(
     cacheCreationInputTokens,
@@ -199,9 +201,19 @@ export function recordUsage(
       ? pricing.estimatedCostUsd
       : 0;
 
-  ctx.usageStats.inputTokens += inputTokens;
-  ctx.usageStats.outputTokens += outputTokens;
-  ctx.usageStats.estimatedCost += estimatedCost;
+  // Normalize both sides: NaN passes the <=0 early-return above (NaN
+  // comparisons are false) and binds as NULL in SQLite, and normalizing the
+  // running total heals a counter already poisoned by a prior NaN.
+  ctx.usageStats.inputTokens =
+    normalizeTokenCount(ctx.usageStats.inputTokens) +
+    normalizeTokenCount(inputTokens);
+  ctx.usageStats.outputTokens =
+    normalizeTokenCount(ctx.usageStats.outputTokens) +
+    normalizeTokenCount(outputTokens);
+  ctx.usageStats.estimatedCost =
+    (Number.isFinite(ctx.usageStats.estimatedCost)
+      ? ctx.usageStats.estimatedCost
+      : 0) + estimatedCost;
 
   updateConversationUsage(
     ctx.conversationId,
@@ -241,6 +253,7 @@ export function recordUsage(
         rawUsage: extractRawUsage(rawResponse),
         conversationId: ctx.conversationId,
         runId: null,
+        cronRunId,
         requestId,
         llmCallCount,
         callSite: attributionSnapshot?.callSite ?? null,

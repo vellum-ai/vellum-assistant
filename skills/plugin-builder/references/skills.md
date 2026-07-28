@@ -14,15 +14,15 @@ The Assistant decides when to load a skill from its `description` and activation
 
 These are the fields the `SKILL.md` frontmatter can set. Only `name` and `description` are required; everything under `metadata` is optional and refines how the skill is presented and matched.
 
-| Field                              | Type       | Required | Description                                                                                                                                                        |
-| ---------------------------------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `name`                             | `string`   | Yes      | Skill identifier. Keep it stable, since the Assistant refers to the skill by this name when it loads it.                                                           |
-| `description`                      | `string`   | Yes      | What the skill does and when to use it. The Assistant matches against this to decide whether to load the skill, so write it for the model, not for a human reader. |
-| `metadata.emoji`                   | `string`   | No       | Glyph shown next to the skill in clients that render a skill list.                                                                                                 |
-| `metadata.vellum.display-name`     | `string`   | No       | Human-friendly label for the skill. Falls back to name when omitted.                                                                                               |
-| `metadata.vellum.activation-hints` | `string[]` | No       | Plain-language situations where the skill should activate. These sharpen the match beyond the description.                                                         |
-| `metadata.vellum.avoid-when`       | `string[]` | No       | Situations where the skill should not activate, used to keep it from firing on adjacent-but-wrong requests.                                                        |
-| `metadata.vellum.category`         | `string`   | No       | Grouping used when the skill is listed in a client. Defaults to "system".                                                                                          |
+| Field                              | Type       | Required | Description                                                                                                                                                                                                                                                                                    |
+| ---------------------------------- | ---------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                             | `string`   | Yes      | Skill display name used in skill lists and matching. The canonical identifier is the directory basename (the folder name under `skills/`), not this field. Keep them aligned to avoid confusion, but note that the runtime uses the directory name for deduplication and collision resolution. |
+| `description`                      | `string`   | Yes      | What the skill does and when to use it. The Assistant matches against this to decide whether to load the skill, so write it for the model, not for a human reader.                                                                                                                             |
+| `metadata.emoji`                   | `string`   | No       | Glyph shown next to the skill in clients that render a skill list.                                                                                                                                                                                                                             |
+| `metadata.vellum.display-name`     | `string`   | No       | Human-friendly label for the skill. Falls back to name when omitted.                                                                                                                                                                                                                           |
+| `metadata.vellum.activation-hints` | `string[]` | No       | Plain-language situations where the skill should activate. These sharpen the match beyond the description.                                                                                                                                                                                     |
+| `metadata.vellum.avoid-when`       | `string[]` | No       | Situations where the skill should not activate, used to keep it from firing on adjacent-but-wrong requests.                                                                                                                                                                                    |
+| `metadata.vellum.category`         | `string`   | No       | Grouping used when the skill is listed in a client. Defaults to "system".                                                                                                                                                                                                                      |
 
 ## Resolution order
 
@@ -45,9 +45,12 @@ plugins/my-plugin/
 └── skills/
     └── standup-notes/
         ├── SKILL.md        # Frontmatter + instructions (required)
+        ├── TOOLS.json      # Optional skill-scoped tool manifest
         ├── references/     # Optional docs the instructions cite
-        └── scripts/        # Optional helper scripts the skill runs
-            └── post_summary.ts
+        ├── scripts/        # Optional helper scripts the skill runs
+        │   └── post_summary.ts
+        └── tools/          # Executors for TOOLS.json entries
+            └── save_note.ts
 ```
 
 The `SKILL.md` itself is frontmatter plus the procedure the Assistant follows once the skill is active:
@@ -78,3 +81,45 @@ and Blockers.
 
 Keep each section to a few short bullet points.
 ```
+
+### Referencing scripts and reference files from the body
+
+The `scripts/` and `references/` directories are optional companions to `SKILL.md`. The body invokes them by relative path:
+
+- **Scripts:** Reference a script by its path relative to the skill directory. The assistant runs it via the `bash` tool when the instructions call for it. For example, a body that says "Run `scripts/post_summary.ts` to submit the summary" tells the assistant to execute `bun run scripts/post_summary.ts` from the skill directory.
+- **References:** Cite a reference file by relative path when the body needs to defer detail. For example, "See `references/api-fields.md` for the full field contract" tells the assistant to read that file when it needs the details, rather than inlining them in the body. This keeps the body short and loads the detail only when relevant.
+
+## Skill-scoped tools (`TOOLS.json`)
+
+A skill can carry real, schema-validated tools that exist only while the skill is active — unlike `tools/<name>.ts` plugin tools, which sit on every conversation's catalog on every turn (see [tools.md](tools.md)). Declare them in a `TOOLS.json` at the skill root:
+
+```json
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "save_note",
+      "description": "Persist a standup note. Write this for the model.",
+      "category": "productivity",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"]
+      },
+      "executor": "tools/save_note.ts",
+      "execution_target": "sandbox"
+    }
+  ]
+}
+```
+
+The executor is a module inside the skill directory exporting `run(input, context)` that returns `{ content: string, isError: boolean }`. It executes in the skill sandbox — a subprocess with a sanitized environment (`VELLUM_WORKSPACE_DIR` is available for locating plugin data) — so it must be self-contained: node stdlib only, no imports from outside the skill directory, no shared module state with hooks.
+
+Rules the host enforces:
+
+- **Sandbox only.** Plugin skills must declare `execution_target: "sandbox"`; `"host"` is refused for anything that is not a first-party bundled skill.
+- **One owner per tool name.** Registering the same tool name from two different skills throws. When several sibling skills need one tool, put it in a single carrier skill and list that skill in each sibling's `metadata.vellum.includes` — loading any parent projects the child's tools automatically.
+- **Dispatch via `skill_execute`.** The tools are not sent as top-level wire tools; `skill_load` renders their schemas into its output and the model calls them as `{"tool": "<name>", "input": {...}, "activity": "..."}` through `skill_execute`. Tools register when the skill activates and unregister when it deactivates, and execution is blocked if the skill directory changed since it was loaded (version-hash guard).
+
+The `admin-copilot` marketplace plugin's `admin-copilot-prefs` skill is the reference implementation.

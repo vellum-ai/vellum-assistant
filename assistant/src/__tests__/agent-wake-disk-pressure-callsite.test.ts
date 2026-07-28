@@ -20,14 +20,10 @@ import type {
 } from "../daemon/disk-pressure-policy.js";
 import type { Message } from "../providers/types.js";
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversationOverrideProfile: () => undefined,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ llm: {} }),
 }));
 
 mock.module("../config/llm-context-resolution.js", () => ({
@@ -84,6 +80,7 @@ function makeTarget(): Conversation {
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
+    waitForIdle: async () => !processing,
     setProcessing: (on: boolean) => {
       processing = on;
     },

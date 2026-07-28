@@ -136,7 +136,6 @@ function buildContext(
       trustClass: "guardian",
       guardianPrincipalId: "user-1",
     },
-    traceEmitter: { emit: () => {} },
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),

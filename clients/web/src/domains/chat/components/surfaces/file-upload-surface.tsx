@@ -2,20 +2,15 @@ import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useCallback, useRef, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
+import { FileUploadSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface FileUploadSurfaceData {
-  prompt: string;
-  acceptedTypes?: string[];
-  maxFiles?: number;
-  maxSizeBytes?: number;
-}
 
 interface FileUploadSurfaceProps {
   surface: Surface;
@@ -101,7 +96,12 @@ function readFileAsBase64(file: File): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps) {
-  const data = surface.data as unknown as FileUploadSurfaceData;
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (every field optional/coerced, so a real surface never fails to parse). The
+  // schema also coerces `acceptedTypes` to a string[], the shape this
+  // component's `.join`/`.some` calls require.
+  const parsed = FileUploadSurfaceDataSchema.safeParse(surface.data);
+  const data = parsed.success ? parsed.data : {};
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -266,7 +266,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
       )}
 
       <ChatMarkdownMessage
-        content={data.prompt}
+        content={data.prompt ?? ""}
         className="mb-3 text-body-medium-lighter text-[var(--content-strong)]"
       />
 
@@ -276,18 +276,20 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors ${
+        className={cn(
+          "flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors",
           isDragOver
             ? "border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)]"
-            : "border-[var(--border-element)] bg-[var(--surface-sunken)] hover:border-[var(--content-faint)]"
-        }`}
+            : "border-[var(--border-element)] bg-[var(--surface-sunken)] hover:border-[var(--content-faint)]",
+        )}
       >
         <Upload
-          className={`h-8 w-8 ${
+          className={cn(
+            "h-8 w-8",
             isDragOver
               ? "text-[var(--system-positive-strong)]"
-              : "text-[var(--content-faint)]"
-          }`}
+              : "text-[var(--content-faint)]",
+          )}
         />
         <p className="text-body-medium-lighter text-[var(--content-quiet)]">
           Drag and drop files here, or click to browse

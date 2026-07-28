@@ -21,6 +21,10 @@ describe("parseLockfile", () => {
           species: "vellum",
           hatchedAt: "2026-01-01T00:00:00.000Z",
           organizationId: "org_1",
+          platformAssistantId: "platform-assistant-1",
+          platformBaseUrl: "https://platform.example.com",
+          platformOrganizationId: "org_1",
+          ingressUrl: "https://tunnel.example.ts.net",
           resources: { gatewayPort: 7777, daemonPort: 7778 },
         },
       ],
@@ -183,6 +187,30 @@ describe("parseLockfile", () => {
     ]);
   });
 
+  test("keeps a well-typed ingressUrl and drops it when mistyped", () => {
+    // The tunnel-recorded public URL rides the entry so remote-web pairing
+    // surfaces can prefill it; a mistyped value is dropped, entry preserved.
+    const raw = {
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          ingressUrl: "https://tunnel.example.ts.net",
+        },
+        { assistantId: "asst_2", cloud: "local", ingressUrl: 7 }, // mistyped
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      {
+        assistantId: "asst_1",
+        cloud: "local",
+        ingressUrl: "https://tunnel.example.ts.net",
+      },
+      { assistantId: "asst_2", cloud: "local" },
+    ]);
+  });
+
   test("drops a resources object missing its numeric ports", () => {
     const raw = {
       assistants: [
@@ -274,13 +302,19 @@ describe("parseLockfile", () => {
     expect(parseLockfile(raw).assistants).toEqual([
       { assistantId: "gcp_1", cloud: "gcp", runtimeUrl: "https://a" },
       { assistantId: "ssh_1", cloud: "custom", runtimeUrl: "https://b" },
-      { assistantId: "local_1", cloud: "local", runtimeUrl: "http://localhost:7830" },
+      {
+        assistantId: "local_1",
+        cloud: "local",
+        runtimeUrl: "http://localhost:7830",
+      },
     ]);
   });
 
   test("prefers an explicit cloud over legacy remote markers", () => {
     const raw = {
-      assistants: [{ assistantId: "a", cloud: "vellum", project: "stale-proj" }],
+      assistants: [
+        { assistantId: "a", cloud: "vellum", project: "stale-proj" },
+      ],
       activeAssistant: null,
     };
     expect(parseLockfile(raw).assistants).toEqual([

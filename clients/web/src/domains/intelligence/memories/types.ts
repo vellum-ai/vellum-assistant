@@ -43,8 +43,6 @@ export interface MemoryItem {
 
   accessCount?: number | null;
   verificationState?: string | null;
-  scopeId?: string | null;
-  scopeLabel?: string | null;
   lastUsedAt?: number | null;
   supersedes?: string | null;
   supersededBy?: string | null;

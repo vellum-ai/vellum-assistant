@@ -4,7 +4,7 @@ import { basename, extname } from "node:path";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
-} from "../../../../memory/jobs-store.js";
+} from "../../../../persistence/jobs-store.js";
 import {
   computeFileHashStreaming,
   createProcessingStage,
@@ -12,7 +12,7 @@ import {
   type MediaType,
   registerMediaAsset,
   updateMediaAssetStatus,
-} from "../../../../memory/media-store.js";
+} from "../../../../persistence/media-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

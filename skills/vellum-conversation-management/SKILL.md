@@ -1,6 +1,6 @@
 ---
 name: vellum-conversation-management
-description: Manage conversation threads (rename, list, export, wipe)
+description: Manage conversation threads (rename, list, export)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💬"
@@ -39,12 +39,4 @@ Export a conversation as markdown or JSON:
 
 ```bash
 assistant conversations export [conversationId] [--format md|json] [-o file]
-```
-
-## Wiping
-
-Wipe a conversation and revert all memory changes it made:
-
-```bash
-assistant conversations wipe <conversationId> [--yes]
 ```

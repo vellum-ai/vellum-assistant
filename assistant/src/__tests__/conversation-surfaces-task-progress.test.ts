@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   createSurfaceMutex,
   type SurfaceConversationContext,
@@ -8,31 +9,25 @@ import {
 import type {
   CardSurfaceData,
   DynamicPageSurfaceData,
-  ServerMessage,
-  SurfaceData,
   SurfaceType,
   UiSurfaceShow,
-  UiSurfaceUpdate,
+  UISurfaceUpdateEvent,
 } from "../daemon/message-protocol.js";
 
 function makeContext(
-  sent: ServerMessage[] = [],
+  sent: AssistantEvent[] = [],
   channelCapabilities?: SurfaceConversationContext["channelCapabilities"],
 ): SurfaceConversationContext {
   return {
     conversationId: "session-1",
     channelCapabilities,
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -47,7 +42,7 @@ function makeContext(
 
 describe("task_progress surface compatibility", () => {
   test("blocks ui_show when channel lacks dynamic UI support", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "phone",
       supportsDynamicUi: false,
@@ -66,7 +61,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("blocks ui_update when channel lacks dynamic UI support", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "telegram",
       supportsDynamicUi: false,
@@ -85,7 +80,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("allows Slack ui_show for task_progress card when dynamic UI is otherwise disabled", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -106,14 +101,16 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
     expect((showMessage.data as CardSurfaceData).template).toBe(
       "task_progress",
     );
   });
 
   test("blocks Slack ui_show for non-task_progress card when dynamic UI is disabled", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -133,7 +130,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("blocks Slack ui_show when normalized card data is not task_progress", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -154,7 +151,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("blocks Slack ui_show for non-card task_progress input when dynamic UI is disabled", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -174,7 +171,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("ui_show maps legacy top-level task_progress fields into card data", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -197,7 +194,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
 
     const card = showMessage.data as CardSurfaceData;
     expect(card.template).toBe("task_progress");
@@ -209,7 +208,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("ui_show fills well-formed templateData for a stepless task_progress card", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -225,7 +224,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
 
     const card = showMessage.data as CardSurfaceData;
     expect(card.template).toBe("task_progress");
@@ -236,7 +237,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("ui_show coerces invalid status and malformed steps on a task_progress card", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -260,7 +261,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "card") return;
+    if (!showMessage || showMessage.surfaceType !== "card") {
+      return;
+    }
 
     const templateData = (showMessage.data as CardSurfaceData)
       .templateData as Record<string, unknown>;
@@ -276,7 +279,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("ui_show normalizes top-level dynamic_page fields into data", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -292,7 +295,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "dynamic_page") return;
+    if (!showMessage || showMessage.surfaceType !== "dynamic_page") {
+      return;
+    }
 
     const page = showMessage.data as DynamicPageSurfaceData;
     expect(page.html).toBe("<h1>Hello</h1>");
@@ -303,7 +308,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("ui_show supports file_upload surfaces directly", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -323,7 +328,9 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "file_upload") return;
+    if (!showMessage || showMessage.surfaceType !== "file_upload") {
+      return;
+    }
 
     expect(showMessage.title).toBe("Upload a receipt");
     expect(showMessage.data).toEqual({
@@ -336,8 +343,39 @@ describe("task_progress surface compatibility", () => {
     });
   });
 
+  test("ui_show file_upload normalizes a comma-joined acceptedTypes string", async () => {
+    const sent: AssistantEvent[] = [];
+    const ctx = makeContext(sent);
+
+    // The model may emit acceptedTypes as a comma-joined string; the renderer
+    // calls `.join`/`.some` on it, so the daemon hands the client a clean array.
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "file_upload",
+      title: "Upload a receipt",
+      data: {
+        prompt: "Share the receipt",
+        acceptedTypes: "image/*, application/pdf",
+      },
+    });
+
+    expect(result.isError).toBe(false);
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    );
+    expect(showMessage).toBeDefined();
+    if (!showMessage || showMessage.surfaceType !== "file_upload") {
+      return;
+    }
+
+    expect(showMessage.data.acceptedTypes).toEqual([
+      "image/*",
+      "application/pdf",
+    ]);
+  });
+
   test("ui_show dynamic_page uses data.html when properly nested", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -352,14 +390,16 @@ describe("task_progress surface compatibility", () => {
       (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
     );
     expect(showMessage).toBeDefined();
-    if (!showMessage || showMessage.surfaceType !== "dynamic_page") return;
+    if (!showMessage || showMessage.surfaceType !== "dynamic_page") {
+      return;
+    }
 
     const page = showMessage.data as DynamicPageSurfaceData;
     expect(page.html).toBe("<h1>Nested</h1>");
   });
 
   test("ui_update normalizes top-level task_progress fields into templateData", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const existingCard: CardSurfaceData = {
       title: "Ordering from DoorDash",
@@ -391,10 +431,12 @@ describe("task_progress surface compatibility", () => {
     expect(result.isError).toBe(false);
 
     const updateMessage = sent.find(
-      (msg): msg is UiSurfaceUpdate => msg.type === "ui_surface_update",
+      (msg): msg is UISurfaceUpdateEvent => msg.type === "ui_surface_update",
     );
     expect(updateMessage).toBeDefined();
-    if (!updateMessage) return;
+    if (!updateMessage) {
+      return;
+    }
 
     const updatedCard = updateMessage.data as CardSurfaceData &
       Record<string, unknown>;
@@ -406,7 +448,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("allows Slack ui_update for stored task_progress card when dynamic UI is disabled", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -428,17 +470,19 @@ describe("task_progress surface compatibility", () => {
 
     expect(result.isError).toBe(false);
     const updateMessage = sent.find(
-      (msg): msg is UiSurfaceUpdate => msg.type === "ui_surface_update",
+      (msg): msg is UISurfaceUpdateEvent => msg.type === "ui_surface_update",
     );
     expect(updateMessage).toBeDefined();
-    if (!updateMessage) return;
+    if (!updateMessage) {
+      return;
+    }
     const templateData = (updateMessage.data as CardSurfaceData)
       .templateData as Record<string, unknown>;
     expect(templateData.status).toBe("completed");
   });
 
   test("blocks Slack ui_update when stored surface is not a task_progress card", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -461,7 +505,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("blocks Slack ui_update that would convert a plain card to task_progress", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -487,7 +531,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("blocks Slack ui_update that would change task_progress card template", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -518,7 +562,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("blocks Slack ui_update when the surface is not already stored", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent, {
       channel: "slack",
       supportsDynamicUi: false,
@@ -537,7 +581,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("ui_show rejects new interactive surface when a non-dynamic_page pending surface exists", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Pre-populate a pending table surface (simulates a previously shown interactive surface)
@@ -559,7 +603,7 @@ describe("task_progress surface compatibility", () => {
   });
 
   test("ui_show allows new interactive surface when only dynamic_page surfaces are pending", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // dynamic_page pending entries should not block new interactive surfaces
@@ -578,16 +622,18 @@ describe("task_progress surface compatibility", () => {
 });
 
 describe("ui_show card content recovery", () => {
-  function shownCard(sent: ServerMessage[]): CardSurfaceData | undefined {
+  function shownCard(sent: AssistantEvent[]): CardSurfaceData | undefined {
     const show = sent.find(
       (m): m is UiSurfaceShow => m.type === "ui_surface_show",
     );
-    if (!show || show.surfaceType !== "card") return undefined;
+    if (!show || show.surfaceType !== "card") {
+      return undefined;
+    }
     return show.data;
   }
 
   test("recovers body from a copy_block-style `text` field", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -604,7 +650,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers body from a confirmation-style `message` field", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -616,7 +662,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers top-level subtitle and metadata into the card", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -632,7 +678,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("title-only card with actions renders with actions intact", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -653,7 +699,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("title-only card without actions renders without error", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -667,7 +713,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("card with body and actions is interactive", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -688,7 +734,7 @@ describe("ui_show card content recovery", () => {
   // ── Body alias recovery from cross-surface keys ────────────────────
 
   test("recovers body from choice/form-style `description` field", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -703,7 +749,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers body from work_result-style `summary` field", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -715,7 +761,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers body from confirmation-style `detail` field", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -727,7 +773,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers body from top-level `description`", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -741,7 +787,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("concatenates multiple body aliases when they co-occur", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -763,7 +809,7 @@ describe("ui_show card content recovery", () => {
   // ── Title alias recovery ────────────────────────────────────────────
 
   test("recovers title from `heading` alias", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -775,7 +821,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers title from `header` alias", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -789,7 +835,7 @@ describe("ui_show card content recovery", () => {
   // ── Subtitle alias recovery ─────────────────────────────────────────
 
   test("recovers subtitle from `subheading` alias", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -801,7 +847,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers subtitle from table-style `caption` alias", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -815,7 +861,7 @@ describe("ui_show card content recovery", () => {
   // ── Alias precedence ───────────────────────────────────────────────
 
   test("canonical `body` takes precedence over aliased `description`", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -827,7 +873,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("card with recovered `description` and actions keeps actions (has content)", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -846,7 +892,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("recovers actions nested inside data when top-level actions is absent", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -868,7 +914,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("top-level actions take precedence over data.actions", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -889,7 +935,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("genuinely empty card (no title, body, subtitle, metadata, template, or actions) is rejected", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {
@@ -903,7 +949,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("a card with a real body broadcasts unchanged", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -915,7 +961,7 @@ describe("ui_show card content recovery", () => {
   });
 
   test("a task_progress card with empty data broadcasts (template renders a shell)", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const result = await surfaceProxyResolver(ctx, "ui_show", {

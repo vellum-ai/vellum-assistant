@@ -132,13 +132,6 @@ describe('buildAuthorizeUrl', () => {
     expect(url.searchParams.get('login_hint')).toBe('user@example.com');
     expect(url.searchParams.get('screen_hint')).toBe('sign-up');
   });
-
-  test('honors a custom provider hint', () => {
-    const url = new URL(
-      buildAuthorizeUrl({ ...baseOptions, providerHint: 'GoogleOAuth' }),
-    );
-    expect(url.searchParams.get('provider')).toBe('GoogleOAuth');
-  });
 });
 
 // ── parseRedirectUrl ────────────────────────────────────────────────

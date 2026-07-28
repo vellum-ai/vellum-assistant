@@ -684,25 +684,26 @@ function discoverSkillDirectories(skillsDir: string): string[] {
 }
 
 /**
- * Whether `pluginDir` is a recognized installed plugin: it must carry a
- * parseable `package.json` whose `name` equals the directory name. This
- * mirrors the external plugin loader's recognition gate, which skips any
- * directory whose `manifest.name` does not match its directory name.
+ * Whether `pluginDir` carries a plugin manifest the runtime can load: a
+ * parseable `package.json` with a non-empty string `name`. This mirrors the
+ * external plugin loader (`buildPluginFromDir`), which builds a plugin from
+ * any such directory and derives the plugin's identity from `package.json`
+ * `name` — it imposes no match between that `name` and the directory name.
+ *
+ * The directory name is the install slug (a marketplace slug or a GitHub path
+ * leaf), which routinely differs from the plugin's own `package.json` `name`;
+ * requiring the two to match would silently drop the resident skills of every
+ * such plugin even though the runtime loads its hooks and tools fine.
  *
  * The caller is responsible for the missing-`package.json` case (it emits a
  * diagnostic warning); this function only judges a manifest that is present.
  */
-function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
+function hasLoadablePluginManifest(pluginDir: string): boolean {
   const manifestPath = join(pluginDir, "package.json");
   if (!existsSync(manifestPath)) return false;
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "name" in parsed &&
-      (parsed as { name: unknown }).name === dirName
-    );
+    parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
   } catch (err) {
     log.warn(
       { err, manifestPath },
@@ -710,12 +711,19 @@ function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
     );
     return false;
   }
+  return (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "name" in parsed &&
+    typeof (parsed as { name: unknown }).name === "string" &&
+    (parsed as { name: string }).name.length > 0
+  );
 }
 
 /**
  * Discover skills shipped on disk inside installed plugins. Each installed
  * plugin — a directory under `<workspaceDir>/plugins/` recognized by
- * {@link isRecognizedPluginDir} — may ship skills at `skills/<id>/SKILL.md`.
+ * {@link hasLoadablePluginManifest} — may ship skills at `skills/<id>/SKILL.md`.
  * Returned summaries are attributed to the owning plugin via their `owner`
  * descriptor (`{ kind: "plugin", id: <plugin dir name> }`).
  */
@@ -747,7 +755,7 @@ function discoverPluginResidentSkills(): SkillSummary[] {
     if (!existsSync(join(pluginDir, "package.json"))) {
       log.warn(
         { pluginDir },
-        "Plugin directory is missing package.json — skipping; its skills will not be available. Add a package.json whose `name` matches the directory.",
+        "Plugin directory is missing package.json — skipping; its skills will not be available. Add a package.json with a `name`.",
       );
       continue;
     }
@@ -757,13 +765,15 @@ function discoverPluginResidentSkills(): SkillSummary[] {
     // tools, so its resident skills must not be loadable either.
     if (existsSync(join(pluginDir, ".disabled"))) continue;
 
-    // Mirror the plugin loader's recognition gate: a directory is a real
-    // installed plugin only if its `package.json` `name` matches the directory.
-    // This rejects staging dirs and malformed/mismatched clones (e.g. an
-    // un-adapted `caveman-installer`) that the loader itself would skip, so the
-    // catalog never surfaces skills from a directory the runtime would refuse
-    // to load.
-    if (!isRecognizedPluginDir(pluginDir, entry.name)) continue;
+    // Mirror the plugin loader: a directory contributes its resident skills
+    // when it carries a loadable manifest (parseable `package.json` with a
+    // non-empty `name`). The manifest `name` need not equal the directory name
+    // — the loader imposes no such match — so a plugin installed under a
+    // marketplace slug or GitHub path leaf that differs from its `package.json`
+    // `name` still surfaces its skills, matching the hooks and tools the
+    // runtime already loads from it. A parseable manifest still rejects staging
+    // dirs and malformed clones the loader would itself refuse.
+    if (!hasLoadablePluginManifest(pluginDir)) continue;
 
     const skillsDir = join(pluginDir, "skills");
     if (!existsSync(skillsDir)) continue;
@@ -782,6 +792,32 @@ function discoverPluginResidentSkills(): SkillSummary[] {
 }
 
 // ─── Catalog loading ─────────────────────────────────────────────────────────
+
+/**
+ * Scope a list of skills to a conversation's per-chat plugin selection.
+ *
+ * `effectiveEnabledPluginSet` is the conversation's effective set as produced
+ * by `getEffectiveEnabledPluginSet`: `null` means there is no per-chat
+ * restriction, so the input is returned unchanged (all globally-enabled
+ * plugins apply). When a set is given, a plugin-contributed skill
+ * (`owner.kind === "plugin"`) survives only if its owning plugin id is in the
+ * set; non-plugin skills (bundled/managed/workspace/extra) are always retained.
+ *
+ * Pure: returns the same array reference when there is no restriction, and a
+ * filtered copy otherwise, so callers can pass a cached catalog without
+ * mutating the cache.
+ */
+export function filterSkillsByEnabledPlugins(
+  skills: SkillSummary[],
+  effectiveEnabledPluginSet: Set<string> | null,
+): SkillSummary[] {
+  if (effectiveEnabledPluginSet === null) return skills;
+  return skills.filter((skill) => {
+    const owner = skill.owner;
+    if (owner?.kind !== "plugin") return true;
+    return effectiveEnabledPluginSet.has(owner.id);
+  });
+}
 
 function skillSummaryFromDefinition(
   skill: SkillDefinition,

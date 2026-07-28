@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 
 import { cn } from "../utils/cn";
 import { usePortalContainer } from "../utils/portal-container";
+import { Tooltip } from "./tooltip";
 
 export interface DropdownMenuPosition {
   readonly left: number;
@@ -26,11 +27,19 @@ export interface DropdownMenuPosition {
 
 export type DropdownMenuAlign = "start" | "end";
 
+export type DropdownSize = "regular" | "compact";
+
 export interface DropdownOption<T extends string> {
   readonly value: T;
   readonly label: string;
   readonly icon?: ReactNode;
   readonly suffix?: ReactNode;
+  /**
+   * Optional hover/focus tooltip describing the option. When present, the
+   * option row is wrapped in a styled `Tooltip` (anchored to its right) so the
+   * meaning is discoverable without selecting. Only shows while the menu is open.
+   */
+  readonly tooltip?: ReactNode;
   /**
    * When true, the option renders dimmed and cannot be selected (by click,
    * keyboard, or hover-highlight). The option still occupies a row so the
@@ -45,6 +54,8 @@ export interface DropdownProps<T extends string> {
   readonly onChange: (value: T) => void;
   readonly placeholder?: string;
   readonly disabled?: boolean;
+  /** Trigger + option density. Defaults to `"regular"` (36px trigger). */
+  readonly size?: DropdownSize;
   readonly className?: string;
   readonly style?: CSSProperties;
   readonly id?: string;
@@ -70,12 +81,28 @@ export interface DropdownProps<T extends string> {
  * design tokens resolve correctly. Falls back to inline rendering when no
  * provider is mounted.
  */
+const TRIGGER_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "h-9 px-3 text-body-medium-lighter",
+  compact: "h-7 px-2.5 text-body-small-default",
+};
+
+const OPTION_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "px-3 py-2 text-body-medium-default",
+  compact: "px-2.5 py-1.5 text-body-small-default",
+};
+
+const CHEVRON_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "h-3.5 w-3.5",
+  compact: "h-3 w-3",
+};
+
 export function Dropdown<T extends string>({
   options,
   value,
   onChange,
   placeholder,
   disabled = false,
+  size = "regular",
   className,
   style,
   id,
@@ -311,7 +338,7 @@ export function Dropdown<T extends string>({
         const isSelected = option.value === value;
         const isDisabled = Boolean(option.disabled);
         const isHighlighted = !isDisabled && index === highlightedIndex;
-        return (
+        const optionRow = (
           <li
             key={option.value}
             id={`${triggerId}-option-${index}`}
@@ -329,7 +356,8 @@ export function Dropdown<T extends string>({
             }}
             onClick={() => selectOption(option)}
             className={cn(
-              "flex items-center gap-2 px-3 py-2 text-body-medium-default transition-colors",
+              "flex items-center gap-2 transition-colors",
+              OPTION_SIZE_CLASSES[size],
               isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
             )}
             style={{
@@ -351,7 +379,10 @@ export function Dropdown<T extends string>({
             <span className="flex min-w-0 flex-1 items-center gap-2">
               <span
                 className="min-w-0 flex-1 truncate"
-                title={option.label || undefined}
+                // Skip the native title when a styled tooltip is present — it
+                // would surface a second, redundant browser tooltip repeating
+                // the label. Truncation recovery still applies otherwise.
+                title={option.tooltip ? undefined : option.label || undefined}
               >
                 {option.label}
               </span>
@@ -367,6 +398,13 @@ export function Dropdown<T extends string>({
               />
             )}
           </li>
+        );
+        return option.tooltip ? (
+          <Tooltip key={option.value} content={option.tooltip} side="right">
+            {optionRow}
+          </Tooltip>
+        ) : (
+          optionRow
         );
       })}
     </ul>
@@ -399,7 +437,10 @@ export function Dropdown<T extends string>({
         data-state={isOpen ? "open" : "closed"}
         onClick={() => (isOpen ? close() : open())}
         onKeyDown={handleTriggerKeyDown}
-        className="flex h-9 w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 text-left text-body-medium-lighter transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60"
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] text-left transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60",
+          TRIGGER_SIZE_CLASSES[size],
+        )}
         style={{
           color: selectedOption
             ? "var(--content-default)"
@@ -427,7 +468,7 @@ export function Dropdown<T extends string>({
           )}
         </span>
         <ChevronDown
-          className="h-3.5 w-3.5 shrink-0"
+          className={cn("shrink-0", CHEVRON_SIZE_CLASSES[size])}
           style={{ color: "var(--content-tertiary)" }}
           aria-hidden
         />

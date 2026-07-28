@@ -255,6 +255,23 @@ describe("Button class output", () => {
     expect(html).toContain("w-6");
   });
 
+  test("link variant renders inline with no height, padding, or border-radius", () => {
+    const html = renderToStaticMarkup(<Button variant="link">Skip</Button>);
+    expect(html).toContain("[--vbtn-fg:var(--content-link)]");
+    expect(html).toContain("h-auto");
+    expect(html).toContain("p-0");
+    expect(html).toContain("rounded-none");
+    expect(html).toContain("hover:underline");
+    expect(html).not.toContain("h-8");
+    expect(html).not.toContain("px-2.5");
+  });
+
+  test("link variant inherits parent font size instead of applying its own", () => {
+    const html = renderToStaticMarkup(<Button variant="link">Link</Button>);
+    expect(html).toContain("text-[length:inherit]");
+    expect(html).toContain("leading-[inherit]");
+  });
+
   test("no raw hex colors appear in rendered output", () => {
     const html = renderToStaticMarkup(
       <div>
@@ -263,6 +280,7 @@ describe("Button class output", () => {
         <Button variant="danger">D</Button>
         <Button variant="dangerOutline">DO</Button>
         <Button variant="ghost">G</Button>
+        <Button variant="link">L</Button>
       </div>,
     );
     expect(html).not.toMatch(/#[0-9A-Fa-f]{6}\b/);

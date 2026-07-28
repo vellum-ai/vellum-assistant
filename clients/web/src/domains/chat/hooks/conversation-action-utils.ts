@@ -5,7 +5,7 @@
 
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
-import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { shouldReturnToBackground } from "@/domains/chat/utils/chat";
 
 /**
@@ -39,7 +39,9 @@ export function resolveUnpinGroupId(
 ): string {
   const stored = prePinGroupIds.get(conversation.conversationId);
   if (stored) return stored;
-  if (isSlackConversation(conversation)) return "system:all";
+  // Any external-channel conversation returns to its channel section
+  // (bucketed under `system:all`), mirroring the prior Slack-only behavior.
+  if (isChannelConversation(conversation)) return "system:all";
   if (shouldReturnToBackground(conversation)) return "system:background";
   if (conversation.conversationType === "scheduled") return "system:scheduled";
   if (conversation.conversationType === "background") return "system:background";

@@ -10,9 +10,9 @@
 /** Keys that are CLI-presentation concerns, not IPC params. */
 const CLI_ONLY_KEYS = new Set(["json", "verbose"]);
 
-export function optsToQueryParams(
-  opts: Record<string, unknown>,
-): { queryParams: Record<string, string> } {
+export function optsToQueryParams(opts: Record<string, unknown>): {
+  queryParams: Record<string, string>;
+} {
   const queryParams: Record<string, string> = {};
   for (const [k, v] of Object.entries(opts)) {
     if (CLI_ONLY_KEYS.has(k)) continue;

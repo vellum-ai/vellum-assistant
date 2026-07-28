@@ -27,6 +27,8 @@ import type {
     ProPlan,
     StorageTierEnum,
 } from "@/generated/api/types.gen";
+import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
+import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -228,11 +230,20 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           machine_tier: selectedMachineTier,
           storage_tier: selectedStorageTier,
           credit_tier: displayCreditTier,
+          return_target: checkoutReturnTarget(),
         },
       },
       {
         onSuccess: (data) => {
           if (data.checkout_url) {
+            // Stash the selection so the post-checkout provisioning screen
+            // can show the purchased upgrade before the webhook lands.
+            saveCheckoutIntent({
+              kind: "custom",
+              machineTier: selectedMachineTier,
+              storageTier: selectedStorageTier,
+              creditTier: displayCreditTier,
+            });
             void openUrl(data.checkout_url);
             return;
           }
@@ -545,7 +556,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                     Failed to load plans. Please try again later.
                   </Notice>
                 ) : (
-                  <div className="space-y-6">
+                  <div className="space-y-4 sm:space-y-6">
                     <div className="space-y-2 pb-2 pt-4 text-center">
                       <Typography as="p" variant="title-medium">
                         Your Assistant, Your Way

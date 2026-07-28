@@ -1,29 +1,13 @@
-import type { MouseEvent } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { openUrl } from "@/runtime/browser";
-import { isNativePlatform } from "@/runtime/native-auth";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { cn } from "@vellumai/design-library";
 
 interface HomeMarkdownContentProps {
   content: string;
   className?: string;
-}
-
-// On iOS WKWebView without a `WKUIDelegate createWebViewWith` implementation,
-// `target="_blank"` links silently do nothing — the webview won't open a new
-// "tab". Route through Capacitor's `SFSafariViewController` instead so the
-// user actually sees the destination. Web keeps the default new-tab behavior
-// (right-click → copy link still works because the `href` is preserved).
-function handleAnchorClick(
-  event: MouseEvent<HTMLAnchorElement>,
-  href: string | undefined,
-): void {
-  if (!href || !isNativePlatform()) return;
-  event.preventDefault();
-  void openUrl(href);
 }
 
 /**
@@ -53,7 +37,7 @@ const markdownComponents: Components = {
       style={{ color: "var(--content-link)" }}
       target="_blank"
       rel="noopener noreferrer"
-      onClick={(e) => handleAnchorClick(e, href)}
+      onClick={(e) => handleNativeAnchorClick(e, href)}
     >
       {children}
     </a>

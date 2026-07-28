@@ -113,6 +113,8 @@ export function useBackgroundConversationListQuery(
   conversations: Conversation[];
   isLoading: boolean;
   isPending: boolean;
+  isError: boolean;
+  refetch: () => void;
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
@@ -123,6 +125,10 @@ export function useBackgroundConversationListQuery(
     conversations: query.data ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
+    isError: query.isError,
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }
 
@@ -145,6 +151,8 @@ export function useScheduledConversationListQuery(
   conversations: Conversation[];
   isLoading: boolean;
   isPending: boolean;
+  isError: boolean;
+  refetch: () => void;
 } {
   const isOrgReady = useIsOrgReady();
   const query = useQuery({
@@ -155,6 +163,10 @@ export function useScheduledConversationListQuery(
     conversations: query.data ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
+    isError: query.isError,
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }
 

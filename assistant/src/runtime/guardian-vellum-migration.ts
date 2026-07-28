@@ -9,14 +9,14 @@
 
 import type { ChannelId } from "../channels/types.js";
 import {
-  findGuardianForChannel,
-  updateContactPrincipalAndChannel,
+  findContactByAddress,
+  repairChannelAddress,
 } from "../contacts/contact-store.js";
 import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import {
@@ -43,11 +43,8 @@ const log = getLogger("guardian-vellum-migration");
  *
  * Returns true if healing occurred, false otherwise.
  *
- * The gateway binding supplies the authoritative principal; the local
- * assistant-mirror row is repaired whenever it diverges from the JWT
- * principal — even when the gateway binding already matches — because the
- * /v1/messages trust path still resolves against the local mirror in this
- * plan. A stale mirror must be repaired or valid guardians stay `unknown`.
+ * Repairs only the local assistant-mirror row; the gateway-owned binding —
+ * which trust classification actually reads — is untouched.
  */
 export async function healGuardianBindingDrift(
   incomingPrincipalId: string,
@@ -62,28 +59,25 @@ export async function healGuardianBindingDrift(
   if (!guardian) return false;
 
   const currentPrincipalId = guardian.principalId;
+  // Only repair auto-generated principals — never overwrite a real one.
   if (!currentPrincipalId?.startsWith("vellum-principal-")) return false;
+  // No-op when the principal already matches the JWT principal.
+  if (currentPrincipalId === incomingPrincipalId) return false;
 
-  // Resolve the assistant-mirror row whose principal drives local trust.
-  const guardianResult = findGuardianForChannel("vellum");
-  if (!guardianResult) return false;
+  // Resolve the assistant-mirror row to repair so local trust resolution
+  // converges on the JWT principal. The gateway delivery supplies the guardian
+  // identity (channel + address) but not the local channel UUID write target,
+  // so resolve that locally by the guardian's vellum-channel address.
+  const localContact = findContactByAddress("vellum", guardian.address);
+  const localChannel = localContact?.channels.find((c) => c.type === "vellum");
+  if (!localContact || !localChannel) return false;
 
-  const localPrincipalId = guardianResult.contact.principalId;
-  // Only repair auto-generated local principals — never overwrite a real one.
-  if (!localPrincipalId?.startsWith("vellum-principal-")) return false;
-  // No-op when the local mirror already matches the JWT principal.
-  if (localPrincipalId === incomingPrincipalId) return false;
-
-  const updated = updateContactPrincipalAndChannel(
-    guardianResult.contact.id,
-    guardianResult.channel.id,
-    incomingPrincipalId,
-  );
+  const updated = repairChannelAddress(localChannel.id, incomingPrincipalId);
 
   if (!updated) {
     log.warn(
       {
-        oldPrincipalId: localPrincipalId,
+        oldPrincipalId: currentPrincipalId,
         newPrincipalId: incomingPrincipalId,
       },
       "Skipped guardian binding drift heal — address collision on contact_channels",
@@ -93,7 +87,7 @@ export async function healGuardianBindingDrift(
 
   log.info(
     {
-      oldPrincipalId: localPrincipalId,
+      oldPrincipalId: currentPrincipalId,
       newPrincipalId: incomingPrincipalId,
     },
     "Healed vellum guardian binding drift — updated local mirror principalId to match JWT actor",
@@ -103,8 +97,12 @@ export async function healGuardianBindingDrift(
 }
 
 /**
- * Re-resolve trust from the local mirror only for the narrow vellum-principal
- * reset-drift case; null when it isn't drift (caller keeps the gateway verdict).
+ * Detect the narrow vellum-principal reset-drift case, repair the local
+ * mirror to the incoming principal, and re-resolve trust; null when it isn't
+ * drift (caller keeps the gateway verdict). Re-resolution classifies against
+ * the gateway-owned guardian binding, so it recovers guardian trust only when
+ * that binding matches the incoming principal; gateway-side binding repair is
+ * deferred work.
  */
 export async function reResolveTrustOnResetDrift(
   incomingPrincipalId: string,

@@ -1,3 +1,7 @@
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("live-voice-metrics");
+
 export type LiveVoiceMetricsClock = () => number;
 
 export type LiveVoiceMetricsEvent =
@@ -5,14 +9,34 @@ export type LiveVoiceMetricsEvent =
   | "session_ready"
   | "turn_started"
   | "first_audio"
+  | "assistant_dispatch"
   | "first_partial"
+  | "vad_speech_start"
   | "ptt_release"
+  | "utterance_end"
+  | "endpoint_decision"
+  | "barge_in"
   | "final_transcript"
   | "first_assistant_delta"
+  | "ack_spoken"
+  | "progress_spoken"
   | "first_tts_audio"
   | "turn_completed"
   | "turn_cancelled"
   | "session_ended";
+
+// The endpoint outcome recorded for a silence boundary: the speculative
+// front-door leg either holds the utterance open or releases it to the turn.
+export type VoiceEndpointAction = "release" | "hold";
+
+// Semantic-endpointing decision on a silence boundary.
+interface LiveVoiceEndpointDecisionMark {
+  action: VoiceEndpointAction;
+  latencyMs: number;
+}
+
+// Which floor-holding ack actually spoke during a turn.
+export type LiveVoiceSpokenAckKind = "first_delta" | "tool_use";
 
 type LiveVoiceTurnStatus = "active" | "completed" | "cancelled";
 
@@ -32,12 +56,38 @@ interface LiveVoiceSessionMetrics {
   startToReadyMs: number | null;
 }
 
+// Marks captured before a turn opened in the collector (server-VAD overlap);
+// passed to startTurn to backfill the new turn's timestamps.
+export interface LiveVoiceTurnSeedMarks {
+  firstAudioAtMs?: number;
+  firstPartialAtMs?: number;
+  speechStartAtMs?: number;
+  utteranceEndAtMs?: number;
+  finalTranscriptAtMs?: number;
+}
+
+const SEEDABLE_MARK_FIELDS = [
+  "firstAudioAtMs",
+  "firstPartialAtMs",
+  "speechStartAtMs",
+  "utteranceEndAtMs",
+  "finalTranscriptAtMs",
+] as const satisfies ReadonlyArray<keyof LiveVoiceTurnSeedMarks>;
+
 interface LiveVoiceTurnTimestamps {
   startedAtMs: number;
   firstAudioAtMs: number | null;
   firstPartialAtMs: number | null;
+  speechStartAtMs: number | null;
   pttReleaseAtMs: number | null;
+  utteranceEndAtMs: number | null;
+  bargeInAtMs: number | null;
   finalTranscriptAtMs: number | null;
+  // First assistant-leg dispatch of the turn (first-wins across hold
+  // replays): the moment the felt-latency clock starts, unlike
+  // finalTranscriptAtMs which can predate the boundary by the caller's
+  // whole multi-segment utterance.
+  assistantDispatchAtMs: number | null;
   firstAssistantDeltaAtMs: number | null;
   firstTtsAudioAtMs: number | null;
   completedAtMs: number | null;
@@ -47,8 +97,17 @@ interface LiveVoiceTurnTimestamps {
 interface LiveVoiceTurnDurations {
   firstAudioToFirstPartialMs: number | null;
   pttReleaseToFinalTranscriptMs: number | null;
+  utteranceEndToFinalTranscriptMs: number | null;
   finalTranscriptToFirstAssistantDeltaMs: number | null;
+  // Dispatch-anchored versions of the two numbers above: what the leg (and
+  // the caller's ear) actually waited, immune to final-transcript anchor
+  // inflation on multi-segment utterances.
+  dispatchToFirstAssistantDeltaMs: number | null;
+  dispatchToFirstTtsAudioMs: number | null;
   firstAssistantDeltaToFirstTtsAudioMs: number | null;
+  // End-of-speech (utterance_end, or ptt_release in manual mode) to first
+  // TTS audio: the server-side turn round trip.
+  roundTripMs: number | null;
   totalTurnDurationMs: number | null;
 }
 
@@ -58,6 +117,13 @@ interface LiveVoiceTurnMetrics {
   cancellationReason: string | null;
   timestamps: LiveVoiceTurnTimestamps;
   durations: LiveVoiceTurnDurations;
+  // Present only when the semantic-endpointing decider was consulted for the
+  // turn / when an ack actually spoke / when a progress narration spoke, so
+  // turns that never touch the features carry no trace of them.
+  endpointHoldCount?: number;
+  endpointDecisionMaxLatencyMs?: number;
+  ackSpoken?: LiveVoiceSpokenAckKind;
+  progressUpdatesSpoken?: number;
 }
 
 interface LiveVoiceDurationSummary {
@@ -73,8 +139,10 @@ interface LiveVoiceMetricsSummary {
   durations: {
     firstAudioToFirstPartialMs: LiveVoiceDurationSummary;
     pttReleaseToFinalTranscriptMs: LiveVoiceDurationSummary;
+    utteranceEndToFinalTranscriptMs: LiveVoiceDurationSummary;
     finalTranscriptToFirstAssistantDeltaMs: LiveVoiceDurationSummary;
     firstAssistantDeltaToFirstTtsAudioMs: LiveVoiceDurationSummary;
+    roundTripMs: LiveVoiceDurationSummary;
     totalTurnDurationMs: LiveVoiceDurationSummary;
   };
 }
@@ -89,8 +157,20 @@ interface LiveVoiceMetricsSnapshot {
 interface LiveVoiceMetricsAggregateFields {
   sttMs: number | null;
   llmFirstDeltaMs: number | null;
+  // Dispatch-anchored felt latency: leg dispatch to first delta / first TTS
+  // audio, immune to the final-transcript anchor inflation llmFirstDeltaMs
+  // suffers on multi-segment utterances.
+  dispatchToFirstDeltaMs: number | null;
+  dispatchToFirstAudioMs: number | null;
   ttsFirstAudioMs: number | null;
+  roundTripMs: number | null;
   totalMs: number | null;
+  // Optional so metrics frames stay byte-identical when the front-model
+  // features never engaged (see the matching fields on LiveVoiceTurnMetrics).
+  endpointHoldCount?: number;
+  endpointDecisionMaxLatencyMs?: number;
+  ackSpoken?: LiveVoiceSpokenAckKind;
+  progressUpdatesSpoken?: number;
 }
 
 export interface LiveVoiceMetricsFrame {
@@ -107,6 +187,12 @@ interface MutableTurn {
   status: LiveVoiceTurnStatus;
   cancellationReason: string | null;
   timestamps: LiveVoiceTurnTimestamps;
+  endpointHoldCount: number;
+  // Doubles as the "decider was consulted" latch: null means no endpoint
+  // decision was ever recorded for the turn.
+  endpointDecisionMaxLatencyMs: number | null;
+  ackSpoken: LiveVoiceSpokenAckKind | null;
+  progressUpdatesSpoken: number;
 }
 
 const DEFAULT_RECENT_TURN_LIMIT = 50;
@@ -142,7 +228,10 @@ export class LiveVoiceMetricsCollector {
     return this.emit("session_ready");
   }
 
-  startTurn(turnId = this.createTurnId()): LiveVoiceTurnMetrics {
+  startTurn(
+    turnId = this.createTurnId(),
+    seedMarks: LiveVoiceTurnSeedMarks = {},
+  ): LiveVoiceTurnMetrics {
     if (this.activeTurn !== null) {
       this.cancelTurn("superseded");
     }
@@ -155,16 +244,46 @@ export class LiveVoiceMetricsCollector {
         startedAtMs: this.timestamp(),
         firstAudioAtMs: null,
         firstPartialAtMs: null,
+        speechStartAtMs: null,
         pttReleaseAtMs: null,
+        utteranceEndAtMs: null,
+        bargeInAtMs: null,
         finalTranscriptAtMs: null,
+        assistantDispatchAtMs: null,
         firstAssistantDeltaAtMs: null,
         firstTtsAudioAtMs: null,
         completedAtMs: null,
         cancelledAtMs: null,
       },
+      endpointHoldCount: 0,
+      endpointDecisionMaxLatencyMs: null,
+      ackSpoken: null,
+      progressUpdatesSpoken: 0,
     };
+    this.applySeedMarks(this.activeTurn, seedMarks);
     this.emit("turn_started", turnId);
     return snapshotTurn(this.activeTurn);
+  }
+
+  // Backfills marks stashed before this turn opened. Seeds never overwrite
+  // an existing mark (first timestamp wins) and are clamped to the turn's
+  // start timestamp; the earliest seed becomes the turn start so total
+  // durations cover the stashed span.
+  private applySeedMarks(
+    turn: MutableTurn,
+    seeds: LiveVoiceTurnSeedMarks,
+  ): void {
+    const startedAtMs = turn.timestamps.startedAtMs;
+    let earliestMs = startedAtMs;
+    for (const field of SEEDABLE_MARK_FIELDS) {
+      const value = seeds[field];
+      if (value === undefined || !Number.isFinite(value)) continue;
+      if (turn.timestamps[field] !== null) continue;
+      const seededMs = Math.min(value, startedAtMs);
+      turn.timestamps[field] = seededMs;
+      earliestMs = Math.min(earliestMs, seededMs);
+    }
+    turn.timestamps.startedAtMs = earliestMs;
   }
 
   markFirstAudio(turnId?: string): LiveVoiceMetricsFrame {
@@ -183,6 +302,14 @@ export class LiveVoiceMetricsCollector {
     return this.emit("first_partial", turn.turnId);
   }
 
+  markSpeechStart(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.speechStartAtMs === null) {
+      turn.timestamps.speechStartAtMs = this.timestamp();
+    }
+    return this.emit("vad_speech_start", turn.turnId);
+  }
+
   markPushToTalkRelease(turnId?: string): LiveVoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.pttReleaseAtMs === null) {
@@ -191,12 +318,75 @@ export class LiveVoiceMetricsCollector {
     return this.emit("ptt_release", turn.turnId);
   }
 
+  markUtteranceEnd(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.utteranceEndAtMs === null) {
+      turn.timestamps.utteranceEndAtMs = this.timestamp();
+    }
+    return this.emit("utterance_end", turn.turnId);
+  }
+
+  // Unlike the first-wins timestamp marks, every decision accumulates: holds
+  // bump the per-turn count and both outcomes feed the worst-latency figure.
+  markEndpointDecision(
+    turnId: string | undefined,
+    decision: LiveVoiceEndpointDecisionMark,
+  ): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (decision.action === "hold") {
+      turn.endpointHoldCount += 1;
+    }
+    const latencyMs = Number.isFinite(decision.latencyMs)
+      ? Math.max(0, decision.latencyMs)
+      : 0;
+    turn.endpointDecisionMaxLatencyMs = Math.max(
+      turn.endpointDecisionMaxLatencyMs ?? 0,
+      latencyMs,
+    );
+    return this.emit("endpoint_decision", turn.turnId);
+  }
+
+  markAckSpoken(
+    turnId: string | undefined,
+    kind: LiveVoiceSpokenAckKind,
+  ): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.ackSpoken === null) {
+      turn.ackSpoken = kind;
+    }
+    return this.emit("ack_spoken", turn.turnId);
+  }
+
+  // A counter, not a first-wins mark: every spoken progress narration bumps
+  // the per-turn count.
+  markProgressSpoken(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    turn.progressUpdatesSpoken += 1;
+    return this.emit("progress_spoken", turn.turnId);
+  }
+
+  markBargeIn(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.bargeInAtMs === null) {
+      turn.timestamps.bargeInAtMs = this.timestamp();
+    }
+    return this.emit("barge_in", turn.turnId);
+  }
+
   markFinalTranscript(turnId?: string): LiveVoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.finalTranscriptAtMs === null) {
       turn.timestamps.finalTranscriptAtMs = this.timestamp();
     }
     return this.emit("final_transcript", turn.turnId);
+  }
+
+  markAssistantDispatch(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.assistantDispatchAtMs === null) {
+      turn.timestamps.assistantDispatchAtMs = this.timestamp();
+    }
+    return this.emit("assistant_dispatch", turn.turnId);
   }
 
   markFirstAssistantDelta(turnId?: string): LiveVoiceMetricsFrame {
@@ -287,6 +477,26 @@ export class LiveVoiceMetricsCollector {
     while (this.recentTurns.length > this.recentTurnLimit) {
       this.recentTurns.shift();
     }
+    this.logFinishedTurn(turn);
+  }
+
+  // One structured line per finished turn so latency is greppable from
+  // daemon logs without a connected client.
+  private logFinishedTurn(turn: MutableTurn): void {
+    const finishReason =
+      turn.status === "completed"
+        ? "completed"
+        : (turn.cancellationReason ?? "cancelled");
+    log.info(
+      {
+        sessionId: this.sessionId,
+        conversationId: this.conversationId,
+        turnId: turn.turnId,
+        finishReason,
+        ...aggregateFieldsForTurn(snapshotTurn(turn)),
+      },
+      "Live voice turn latency",
+    );
   }
 
   private timestamp(): number {
@@ -334,16 +544,65 @@ export function getLiveVoiceMetricsAggregateFields(
     return {
       sttMs: null,
       llmFirstDeltaMs: null,
+      dispatchToFirstDeltaMs: null,
+      dispatchToFirstAudioMs: null,
       ttsFirstAudioMs: null,
+      roundTripMs: null,
       totalMs: null,
     };
   }
 
+  return aggregateFieldsForTurn(turn);
+}
+
+function aggregateFieldsForTurn(
+  turn: LiveVoiceTurnMetrics,
+): LiveVoiceMetricsAggregateFields {
   return {
-    sttMs: turn.durations.pttReleaseToFinalTranscriptMs,
+    // Manual mode stamps ptt_release; server-VAD sessions stamp utterance_end
+    // instead, so the VAD boundary plays the sttMs role there.
+    sttMs:
+      turn.durations.pttReleaseToFinalTranscriptMs ??
+      turn.durations.utteranceEndToFinalTranscriptMs,
     llmFirstDeltaMs: turn.durations.finalTranscriptToFirstAssistantDeltaMs,
+    dispatchToFirstDeltaMs: turn.durations.dispatchToFirstAssistantDeltaMs,
+    dispatchToFirstAudioMs: turn.durations.dispatchToFirstTtsAudioMs,
     ttsFirstAudioMs: turn.durations.firstAssistantDeltaToFirstTtsAudioMs,
+    roundTripMs: turn.durations.roundTripMs,
     totalMs: turn.durations.totalTurnDurationMs,
+    ...frontModelFields(turn),
+  };
+}
+
+// Shared optional front-model fields for turn snapshots and aggregate
+// frame fields: absent unless the endpoint decider was consulted / an ack
+// spoke / a progress narration spoke, so turns that never touch the
+// features are unchanged.
+function frontModelFields(
+  // Accepts both MutableTurn (null = unset) and snapshot (absent = unset).
+  turn: {
+    endpointHoldCount?: number | null;
+    endpointDecisionMaxLatencyMs?: number | null;
+    ackSpoken?: LiveVoiceSpokenAckKind | null;
+    progressUpdatesSpoken?: number | null;
+  },
+): Pick<
+  LiveVoiceTurnMetrics,
+  | "endpointHoldCount"
+  | "endpointDecisionMaxLatencyMs"
+  | "ackSpoken"
+  | "progressUpdatesSpoken"
+> {
+  const progressUpdatesSpoken = turn.progressUpdatesSpoken ?? 0;
+  return {
+    ...(turn.endpointDecisionMaxLatencyMs != null
+      ? {
+          endpointHoldCount: turn.endpointHoldCount ?? 0,
+          endpointDecisionMaxLatencyMs: turn.endpointDecisionMaxLatencyMs,
+        }
+      : {}),
+    ...(turn.ackSpoken != null ? { ackSpoken: turn.ackSpoken } : {}),
+    ...(progressUpdatesSpoken > 0 ? { progressUpdatesSpoken } : {}),
   };
 }
 
@@ -378,6 +637,10 @@ function cloneMutableTurn(turn: MutableTurn): MutableTurn {
     status: turn.status,
     cancellationReason: turn.cancellationReason,
     timestamps: { ...turn.timestamps },
+    endpointHoldCount: turn.endpointHoldCount,
+    endpointDecisionMaxLatencyMs: turn.endpointDecisionMaxLatencyMs,
+    ackSpoken: turn.ackSpoken,
+    progressUpdatesSpoken: turn.progressUpdatesSpoken,
   };
 }
 
@@ -388,6 +651,7 @@ function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
     status: turn.status,
     cancellationReason: turn.cancellationReason,
     timestamps,
+    ...frontModelFields(turn),
     durations: {
       firstAudioToFirstPartialMs: duration(
         timestamps.firstAudioAtMs,
@@ -397,12 +661,28 @@ function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
         timestamps.pttReleaseAtMs,
         timestamps.finalTranscriptAtMs,
       ),
+      utteranceEndToFinalTranscriptMs: duration(
+        timestamps.utteranceEndAtMs,
+        timestamps.finalTranscriptAtMs,
+      ),
       finalTranscriptToFirstAssistantDeltaMs: duration(
         timestamps.finalTranscriptAtMs,
         timestamps.firstAssistantDeltaAtMs,
       ),
+      dispatchToFirstAssistantDeltaMs: duration(
+        timestamps.assistantDispatchAtMs,
+        timestamps.firstAssistantDeltaAtMs,
+      ),
+      dispatchToFirstTtsAudioMs: duration(
+        timestamps.assistantDispatchAtMs,
+        timestamps.firstTtsAudioAtMs,
+      ),
       firstAssistantDeltaToFirstTtsAudioMs: duration(
         timestamps.firstAssistantDeltaAtMs,
+        timestamps.firstTtsAudioAtMs,
+      ),
+      roundTripMs: duration(
+        timestamps.utteranceEndAtMs ?? timestamps.pttReleaseAtMs,
         timestamps.firstTtsAudioAtMs,
       ),
       totalTurnDurationMs: duration(
@@ -430,11 +710,17 @@ function summarizeTurns(turns: MutableTurn[]): LiveVoiceMetricsSummary {
       pttReleaseToFinalTranscriptMs: summarizeDuration(
         durations.map((value) => value.pttReleaseToFinalTranscriptMs),
       ),
+      utteranceEndToFinalTranscriptMs: summarizeDuration(
+        durations.map((value) => value.utteranceEndToFinalTranscriptMs),
+      ),
       finalTranscriptToFirstAssistantDeltaMs: summarizeDuration(
         durations.map((value) => value.finalTranscriptToFirstAssistantDeltaMs),
       ),
       firstAssistantDeltaToFirstTtsAudioMs: summarizeDuration(
         durations.map((value) => value.firstAssistantDeltaToFirstTtsAudioMs),
+      ),
+      roundTripMs: summarizeDuration(
+        durations.map((value) => value.roundTripMs),
       ),
       totalTurnDurationMs: summarizeDuration(
         durations.map((value) => value.totalTurnDurationMs),

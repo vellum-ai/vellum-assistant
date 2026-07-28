@@ -32,4 +32,56 @@ describe("MessageHoverActions", () => {
 
     expect(html).toContain('title="Inspect"');
   });
+
+  test("renders summarize action when the callback is provided", () => {
+    const message: DisplayMessage = {
+      id: "m3",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} onSummarizeUpToHere={() => {}} />,
+    );
+
+    expect(html).toContain('title="Summarize up to here"');
+  });
+
+  test("omits summarize action when the callback is absent", () => {
+    const message: DisplayMessage = {
+      id: "m4",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(<MessageHoverActions message={message} />);
+
+    expect(html).not.toContain('title="Summarize up to here"');
+  });
+
+  test("renders retry action when the callback is provided", () => {
+    const message: DisplayMessage = {
+      id: "m5",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} onRetry={() => {}} />,
+    );
+
+    expect(html).toContain('title="Retry"');
+  });
+
+  test("omits retry action when the callback is absent", () => {
+    const message: DisplayMessage = {
+      id: "m6",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(<MessageHoverActions message={message} />);
+
+    expect(html).not.toContain('title="Retry"');
+  });
 });

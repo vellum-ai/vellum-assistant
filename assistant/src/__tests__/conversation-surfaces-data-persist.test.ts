@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
 const realEventHub = await import("../runtime/assistant-event-hub.js");
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   ...realEventHub,
-  broadcastMessage: (_msg: ServerMessage) => {},
+  broadcastMessage: (_msg: AssistantEvent) => {},
 }));
 
 // Mock the persistence layer the surface helpers reach into so we can
@@ -16,15 +16,15 @@ let getMessagesImpl: (conversationId: string) => Array<{
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: unknown;
   createdAt: number;
   metadata: string | null;
 }> = () => [];
 let updateMessageContentSpy: (id: string, content: string) => void = () => {};
 
-const realCrud = await import("../memory/conversation-crud.js");
+const realCrud = await import("../persistence/conversation-crud.js");
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   ...realCrud,
   getMessages: (conversationId: string) => getMessagesImpl(conversationId),
   updateMessageContent: (id: string, content: string) =>
@@ -53,20 +53,16 @@ import type {
   SurfaceType,
 } from "../daemon/message-protocol.js";
 
-function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
+function makeContext(sent: AssistantEvent[] = []): SurfaceConversationContext {
   return {
     conversationId: "conv-persist-1",
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -88,7 +84,9 @@ function seedRows(rows: Array<{ id: string; content: unknown }>): void {
       conversationId: "conv-persist-1",
       role: "assistant",
       content:
-        typeof r.content === "string" ? r.content : JSON.stringify(r.content),
+        typeof r.content === "string"
+          ? [{ type: "text", text: r.content }]
+          : r.content,
       createdAt: 0,
       metadata: null,
     }));
@@ -113,7 +111,7 @@ describe("ui_surface_update persistence", () => {
   });
 
   test("ui_update schedules a debounced DB write that lands within ~600ms", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Seed an existing in-memory surface and a persisted message that
@@ -166,7 +164,7 @@ describe("ui_surface_update persistence", () => {
   });
 
   test("multiple rapid updates collapse to a single DB write", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const surfaceId = "surface-debounced-2";
@@ -433,7 +431,7 @@ describe("ui_dismiss persisted-state convergence", () => {
   });
 
   test("passive dismiss drops the surface from the turn snapshot and strips the persisted block", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const surfaceId = "surface-dismiss-1";
     // A progress card the model marked `completed` while leaving step 4 spinning.
@@ -481,7 +479,7 @@ describe("ui_dismiss persisted-state convergence", () => {
   });
 
   test("dismiss cancels a pending debounced persist so a stale update cannot re-add the block", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
     const surfaceId = "surface-dismiss-2";
     const data: CardSurfaceData = {

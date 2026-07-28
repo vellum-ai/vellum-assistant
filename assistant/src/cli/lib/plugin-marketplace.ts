@@ -25,10 +25,7 @@
 
 import { z } from "zod";
 
-// Type-only import: keeps the dependency direction one-way at runtime
-// (install-from-github resolves sources *through* this module) while still
-// sharing the injected-`fetch` shape.
-import type { FetchLike } from "./install-from-github.js";
+import type { FetchLike } from "./fetch-like.js";
 
 /** Canonical location of the marketplace manifest. */
 const MARKETPLACE_SOURCE_OWNER = "vellum-ai";
@@ -62,7 +59,7 @@ const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
  */
 const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
-const githubSourceSchema = z.object({
+export const githubSourceSchema = z.object({
   /** Discriminator. Only GitHub sources are resolved today. */
   source: z.literal("github"),
   /** `owner/repo` of the external plugin repository. */
@@ -101,9 +98,22 @@ const marketplaceEntrySchema = z.object({
   category: z.string().optional(),
   homepage: z.string().optional(),
   license: z.string().optional(),
+  /**
+   * A single curated author/curator emoji shown as the plugin's icon (e.g. on
+   * the marketing catalog). Not a URL or file path — bounded to a short
+   * emoji-length string; a multi-code-point emoji (skin tone, ZWJ sequence)
+   * still fits comfortably under the cap.
+   */
+  icon: z
+    .string()
+    .refine(
+      (s) => [...s].length <= 8 && !/[/\\]|^https?:/i.test(s),
+      "expected a short emoji, not a URL or path",
+    )
+    .optional(),
 });
 
-const marketplaceManifestSchema = z.object({
+export const marketplaceManifestSchema = z.object({
   name: z.string(),
   owner: z
     .object({

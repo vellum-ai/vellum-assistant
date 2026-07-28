@@ -19,7 +19,7 @@
 
 import { readFile } from "node:fs/promises";
 
-import { resetDb } from "../memory/db-connection.js";
+import { resetDb } from "../persistence/db-connection.js";
 import type { PathResolver } from "../runtime/migrations/vbundle-import-analyzer.js";
 import {
   evaluateRuntimeCompatibility,

@@ -19,8 +19,6 @@ import type { AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
 // Snapshot the real `conversation-crud` exports before `mock.module()` below
 // replaces them. We use a synchronous CJS-style require (via `createRequire`)
 // because static `import` is hoisted above `mock.module()` calls — but bun's
@@ -34,64 +32,34 @@ import { makeMockLogger } from "./helpers/mock-logger.js";
 // module mocks).
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {
-        "quality-optimized": {
-          contextWindow: { maxInputTokens: 50000 },
-        },
-      },
-      callSites: {},
-      pricingOverrides: [],
+// Seed the workspace config for real: a named profile the tests pin as the
+// per-conversation override (complete shape — override-or-default semantics
+// skip profiles that don't carry their own provider+model) plus a short
+// turn-boundary commit wait so loop teardown stays fast.
+setConfig("llm", {
+  profiles: {
+    "quality-optimized": {
+      source: "user",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      contextWindow: { maxInputTokens: 50000 },
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
-    ui: {},
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+  },
+});
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
 
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
@@ -146,9 +114,9 @@ let mockConversationRow: {
   title: null,
 };
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
@@ -192,7 +160,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   rebuildConversationDiskViewFromDbState: () => {},
 }));
@@ -209,14 +177,10 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
-}));
-
-mock.module("../memory/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
 }));
 
 mock.module("../daemon/conversation-memory.js", () => ({
@@ -255,7 +219,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../agent/history-repair/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -352,7 +316,7 @@ mock.module("../memory/archive-store.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -451,8 +415,6 @@ function makeCtx(
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -465,20 +427,12 @@ function makeCtx(
     commandIntent: undefined,
     trustContext: undefined,
 
-    coreToolNames: new Set(),
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -502,7 +456,16 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: () => {},
+    drainQueue: (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
@@ -510,6 +473,7 @@ function makeCtx(
     }),
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
 
     graphMemory: {
@@ -556,11 +520,11 @@ afterAll(() => {
   // Restore real module mocks for downstream files; see the snapshot
   // block near the top of this file for why this is necessary.
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
@@ -667,5 +631,33 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
     expect(captured[0].resolvedMaxInputTokens).toBe(50000);
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
+  });
+});
+
+describe("runAgentLoopImpl — subagent call site default", () => {
+  test("a subagent conversation defaults to the subagentSpawn call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: true });
+
+    // No explicit callSite (mirrors the generic queue-drain path) — a subagent
+    // turn must still resolve as subagentSpawn, not mainAgent.
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("subagentSpawn");
+    }
+  });
+
+  test("a non-subagent conversation defaults to the mainAgent call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: false });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("mainAgent");
+    }
   });
 });

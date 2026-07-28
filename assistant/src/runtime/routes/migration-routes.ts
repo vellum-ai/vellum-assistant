@@ -23,16 +23,16 @@ import { z } from "zod";
 import { getPlatformAssistantId } from "../../config/env.js";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
-import { runAsyncSqlite } from "../../memory/db-async-query.js";
+import { runAsyncSqlite } from "../../persistence/db-async-query.js";
 import {
   getDb,
   getLogsSqlite,
   getMemorySqlite,
   getTelemetrySqlite,
   resetDb,
-} from "../../memory/db-connection.js";
-import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
-import { migrationSteps } from "../../memory/steps.js";
+} from "../../persistence/db-connection.js";
+import { validateMigrationState } from "../../persistence/migrations/validate-migration-state.js";
+import { migrationSteps } from "../../persistence/steps.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   bulkSetSecureKeysAsync,
@@ -106,15 +106,15 @@ const PLATFORM_CREDENTIAL_PREFIX = credentialKey("vellum", "");
 
 /**
  * Platform-identity fields that the managed runtime expects to see in CES.
- * Django's post-hatch provisioning populates the first four via
- * `POST /v1/secrets`; `platform_organization_id` and `platform_user_id` are
- * populated by the signed-in client after hatch (onboarding, teleport,
- * local→managed transfer) because Django has no signed-in user session to
- * resolve them. Either set of writes can race with the import — the CES
- * write survives (separate volume), but the metadata upsert may be
- * clobbered by the in-place clear / atomic swap. After every import we
- * reconcile metadata.json against CES so any field CES already holds a
- * value for gets a matching metadata entry.
+ * On a managed assistant the platform provisions these after hatch (most via
+ * `POST /v1/secrets`), including `platform_organization_id` and
+ * `platform_user_id`, which it resolves from the hatching user and
+ * organization. A signed-in client may additionally (re)assert some of them
+ * on teleport / local→managed transfer. Either set of writes can race with
+ * the import — the CES write survives (separate volume), but the metadata
+ * upsert may be clobbered by the in-place clear / atomic swap. After every
+ * import we reconcile metadata.json against CES so any field CES already holds
+ * a value for gets a matching metadata entry.
  */
 const VELLUM_PLATFORM_IDENTITY_FIELDS = [
   "platform_base_url",
@@ -171,7 +171,10 @@ const log = getLogger("migration-routes");
  * all the copy needs.
  */
 async function checkpointDbsForExport(): Promise<void> {
-  const mainResult = await runAsyncSqlite("PRAGMA wal_checkpoint(FULL)");
+  const mainResult = await runAsyncSqlite(
+    "PRAGMA wal_checkpoint(FULL)",
+    "export-checkpoint:wal-checkpoint-full",
+  );
   if (!mainResult.ok) {
     log.warn(
       { error: mainResult.error, backend: mainResult.backend, db: "main" },
@@ -259,10 +262,11 @@ async function resolveAssistantId(): Promise<string> {
  *     reflect "we couldn't read them" rather than "no secrets exist".
  *     Claiming a clean redaction in that case would be a lie.
  *
- * NOTE: a managed-mode bundle with `secrets_redacted: false` will fail
- * the validator's cross-field refine. That surfaces an existing
- * platform-side enforcement gap — the runtime emits the truthful value
- * and lets the schema flag it.
+ * Managed-mode exports never reach this with credentials: both export
+ * handlers skip credential collection entirely when `origin.mode` is
+ * "managed" (the validator's cross-field refine rejects a managed bundle
+ * with `secrets_redacted: false`, and teleport clients re-provision
+ * platform identity after a platform→local import).
  */
 export function computeSecretsRedacted(
   credentialCount: number,
@@ -366,38 +370,47 @@ export async function handleMigrationExport(
   let cleanup: (() => Promise<void>) | undefined;
 
   try {
-    // Read all stored credentials to include in the export bundle
-    const credentialList = await listSecureKeysAsync();
-    const credentials: Array<{ account: string; value: string }> = [];
-    // Track per-account read failures separately from the top-level LIST
-    // failure. A single skipped account means we cannot truthfully claim
-    // the bundle is fully redacted — we don't know what we missed.
-    let perAccountUnreachable = false;
-    if (credentialList.unreachable) {
-      log.warn(
-        "Credential store is unreachable — export will not include credentials",
-      );
-    } else {
-      for (const account of credentialList.accounts) {
-        const result = await getSecureKeyResultAsync(account);
-        if (result.unreachable) {
-          perAccountUnreachable = true;
-          log.warn(
-            { account },
-            "Credential store unreachable when reading credential — skipping",
-          );
-        } else if (result.value != null) {
-          credentials.push({ account, value: result.value });
+    const manifestInputs = await buildExportManifestInputs();
+
+    // Managed deployments never ship credentials in bundles — the manifest
+    // schema forbids it (`secrets_redacted` must be true when `origin.mode`
+    // is "managed"), and teleport clients re-provision platform identity
+    // after a platform→local import. Redact instead of emitting a bundle
+    // the importer is guaranteed to reject.
+    let credentials: Array<{ account: string; value: string }> = [];
+    let secretsRedacted = true;
+    if (manifestInputs.origin.mode !== "managed") {
+      // Read all stored credentials to include in the export bundle
+      const credentialList = await listSecureKeysAsync();
+      credentials = [];
+      // Track per-account read failures separately from the top-level LIST
+      // failure. A single skipped account means we cannot truthfully claim
+      // the bundle is fully redacted — we don't know what we missed.
+      let perAccountUnreachable = false;
+      if (credentialList.unreachable) {
+        log.warn(
+          "Credential store is unreachable — export will not include credentials",
+        );
+      } else {
+        for (const account of credentialList.accounts) {
+          const result = await getSecureKeyResultAsync(account);
+          if (result.unreachable) {
+            perAccountUnreachable = true;
+            log.warn(
+              { account },
+              "Credential store unreachable when reading credential — skipping",
+            );
+          } else if (result.value != null) {
+            credentials.push({ account, value: result.value });
+          }
         }
       }
+      secretsRedacted = computeSecretsRedacted(
+        credentials.length,
+        credentialList.unreachable,
+        perAccountUnreachable,
+      );
     }
-
-    const manifestInputs = await buildExportManifestInputs();
-    const secretsRedacted = computeSecretsRedacted(
-      credentials.length,
-      credentialList.unreachable,
-      perAccountUnreachable,
-    );
 
     const result = await streamExportVBundle({
       workspaceDir: getWorkspaceDir(),
@@ -548,7 +561,7 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   // ── 2. Validate the upload URL. Never log `parsed.data.upload_url`.
   const validated = validateGcsSignedUrl(
     parsed.data.upload_url,
-    urlValidatorOptions,
+    exportValidatorOptions(),
   );
   if (!validated.ok) {
     log.warn(
@@ -567,17 +580,6 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
     "migration export to GCS starting",
   );
 
-  // ── 3. Collect credentials up front. Fail closed → 500.
-  let collected: CollectedCredentials;
-  try {
-    collected = await collectExportCredentials();
-  } catch (err) {
-    log.error({ err }, "Failed to collect credentials for export-to-gcs");
-    throw new InternalError(
-      err instanceof Error ? err.message : "Failed to collect credentials",
-    );
-  }
-
   const uploadUrl = parsed.data.upload_url;
 
   // Compute the v1 manifest inputs once outside the async job runner so we
@@ -593,6 +595,30 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
         ? err.message
         : "Failed to assemble export manifest inputs",
     );
+  }
+
+  // ── 3. Collect credentials up front. Fail closed → 500. Managed
+  // deployments never ship credentials in bundles — the manifest schema
+  // forbids it (`secrets_redacted` must be true when `origin.mode` is
+  // "managed"), and teleport clients re-provision platform identity after
+  // a platform→local import — so redact instead of emitting a bundle the
+  // importer is guaranteed to reject.
+  let collected: CollectedCredentials;
+  if (manifestInputs.origin.mode === "managed") {
+    collected = {
+      credentials: [],
+      unreachable: false,
+      perAccountUnreachable: false,
+    };
+  } else {
+    try {
+      collected = await collectExportCredentials();
+    } catch (err) {
+      log.error({ err }, "Failed to collect credentials for export-to-gcs");
+      throw new InternalError(
+        err instanceof Error ? err.message : "Failed to collect credentials",
+      );
+    }
   }
 
   const secretsRedacted = computeSecretsRedacted(
@@ -1017,11 +1043,98 @@ function wasFetchBodyTornDown(stream: PassThrough): boolean {
 }
 
 /**
- * Test seam: the integration test needs to point the validator at a local
- * HTTP server fixture. Production callers never pass this — the default
- * keeps the validator strict (GCS host, HTTPS only, no explicit port).
+ * Test seam shared by the import AND export URL handlers. Defaults to
+ * `undefined`, which keeps the validator strict (GCS host, HTTPS only, no
+ * explicit port) — the only production configuration on a normal managed
+ * deployment. Tests override it via `_setUrlImportValidatorOptionsForTests`
+ * (e.g. to point the validator at a local HTTP server fixture).
+ *
+ * NOTE: this is intentionally NOT initialized from the environment. The
+ * `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env var is import-scoped and is
+ * applied only by `resolveImportValidatorOptions` — never on the export
+ * upload path, so a relaxed import allowlist can't widen where the
+ * assistant is willing to PUT a bundle (SSRF). Widening the export path is
+ * its own explicit operator opt-in via the separate
+ * `VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS` env var (local/minikube only,
+ * where the platform serves plain-http SigV4 URLs from SeaweedFS) — see
+ * `exportValidatorOptions`.
  */
 let urlValidatorOptions: ValidateGcsSignedUrlOptions | undefined;
+
+/**
+ * Parse the comma-separated `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS` env value
+ * into `ValidateGcsSignedUrlOptions`. Returns `undefined` when the value is
+ * absent or contains no non-empty host entries, so the validator falls back
+ * to its strict production default.
+ *
+ * Exported for unit testing of the env-parsing behavior.
+ */
+export function parseMigrationImportAllowedHostsEnv(
+  raw: string | undefined,
+): ValidateGcsSignedUrlOptions | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const allowedHosts = raw
+    .split(",")
+    .map((host) => host.trim())
+    .filter((host) => host.length > 0);
+  return allowedHosts.length > 0 ? { allowedHosts } : undefined;
+}
+
+/**
+ * Resolve the validator options for the IMPORT URL handlers only.
+ *
+ * Precedence: an explicit test override (when set) wins; otherwise the
+ * env-derived import allowlist from `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS`.
+ * The platform injects that env var only where the bundle is served over
+ * plain http from a non-GCS host — e.g. local/minikube, where the signed
+ * bundle URL points at `http://host.docker.internal/...`. Supplying a
+ * non-default allowlist intentionally relaxes the validator's scheme check
+ * to also accept `http:` (and skips the explicit-port check) for those
+ * explicitly-allowlisted hosts only; every other host still requires https.
+ *
+ * The export path deliberately does NOT call this — see `urlValidatorOptions`.
+ *
+ * Exported for unit testing.
+ */
+export function resolveImportValidatorOptions(
+  testOverride: ValidateGcsSignedUrlOptions | undefined,
+  rawEnv: string | undefined,
+): ValidateGcsSignedUrlOptions | undefined {
+  return testOverride ?? parseMigrationImportAllowedHostsEnv(rawEnv);
+}
+
+/**
+ * Effective validator options for the IMPORT URL handlers, combining the
+ * test seam with the import-only env allowlist.
+ */
+function importValidatorOptions(): ValidateGcsSignedUrlOptions | undefined {
+  return resolveImportValidatorOptions(
+    urlValidatorOptions,
+    process.env.VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS,
+  );
+}
+
+/**
+ * Effective validator options for the EXPORT (upload URL) handler,
+ * combining the test seam with the export-only env allowlist from
+ * `VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS`.
+ *
+ * Deliberately a separate env var from the import allowlist: the export
+ * path controls where the assistant will PUT a full workspace bundle, so
+ * widening it must be its own operator decision, never a side effect of
+ * relaxing imports. The platform injects it only where the signed upload
+ * URL is served over plain http from a non-GCS host (local/minikube
+ * SeaweedFS); it is unset in staging/prod, keeping the strict GCS-only
+ * default there.
+ */
+function exportValidatorOptions(): ValidateGcsSignedUrlOptions | undefined {
+  return resolveImportValidatorOptions(
+    urlValidatorOptions,
+    process.env.VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS,
+  );
+}
 
 /**
  * Test-only: override the allowed-host list used by the URL-body import
@@ -1134,7 +1247,7 @@ async function runGcsImport(
   _correlationId?: string,
 ): Promise<ImportSummary> {
   // ── 1. Validate the URL (defense-in-depth; never log the raw URL).
-  const validated = validateGcsSignedUrl(url, urlValidatorOptions);
+  const validated = validateGcsSignedUrl(url, importValidatorOptions());
   if (!validated.ok) {
     log.warn({ reason: validated.reason }, "Rejected migration import URL");
     throw new GcsImportError({
@@ -1564,7 +1677,7 @@ export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
 
   // Synchronously validate the GCS URL before consuming the single
   // in-flight import slot.
-  const validated = validateGcsSignedUrl(bundle_url, urlValidatorOptions);
+  const validated = validateGcsSignedUrl(bundle_url, importValidatorOptions());
   if (!validated.ok) {
     log.warn(
       { reason: validated.reason },
@@ -1603,6 +1716,114 @@ export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
 
 // ---------------------------------------------------------------------------
 // Shared helpers for raw-bytes and URL paths
+// ---------------------------------------------------------------------------
+// Preflight-from-GCS: dry-run analysis using a signed GCS download URL
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /v1/migrations/preflight-from-gcs
+ *
+ * Dry-run import analysis using a signed GCS download URL.  Fetches the
+ * bundle from GCS, validates it, and returns the same preflight report as
+ * /v1/migrations/import-preflight — without writing anything to disk.
+ *
+ * This allows the CLI to run `vellum teleport --dry-run` against local and
+ * docker targets (which do not have a direct-upload preflight path like the
+ * platform does) by reusing the same GCS-mediated bundle it would use for
+ * a real import.
+ *
+ * Auth: Requires settings.write scope.
+ */
+export async function handleMigrationPreflightFromGcs({
+  body,
+}: RouteHandlerArgs) {
+  const parsed = z.object({ bundle_url: z.string().url() }).safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      "Request body must be { bundle_url: string } with a valid URL",
+    );
+  }
+
+  const { bundle_url } = parsed.data;
+  const validated = validateGcsSignedUrl(bundle_url, importValidatorOptions());
+  if (!validated.ok) {
+    log.warn(
+      { reason: validated.reason },
+      "Rejected preflight-from-gcs bundle URL",
+    );
+    throw new RouteError(
+      `Invalid bundle URL: ${validated.reason}`,
+      "invalid_bundle_url",
+      400,
+    );
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(bundle_url, {
+      signal: AbortSignal.timeout(URL_FETCH_TIMEOUT_MS),
+      // Reject redirects: the URL was already validated against the GCS
+      // allowlist and we must not follow it to an arbitrary host.
+      redirect: "error",
+    });
+  } catch (err) {
+    log.error(
+      {
+        host: validated.host,
+        path: validated.path,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "Failed to fetch preflight-from-gcs bundle URL",
+    );
+    throw new InternalError(
+      `Failed to fetch bundle: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!upstream.ok) {
+    log.error(
+      {
+        host: validated.host,
+        path: validated.path,
+        upstream_status: upstream.status,
+      },
+      "preflight-from-gcs bundle URL returned non-2xx",
+    );
+    throw new InternalError(
+      `Bundle URL returned ${upstream.status} — the signed URL may have expired.`,
+    );
+  }
+
+  const bytes = new Uint8Array(await upstream.arrayBuffer());
+  const validationResult = validateVBundle(bytes);
+
+  if (!validationResult.is_valid || !validationResult.manifest) {
+    return {
+      can_import: false,
+      validation: {
+        is_valid: false as const,
+        errors: validationResult.errors,
+      },
+    };
+  }
+
+  const pathResolver = new DefaultPathResolver(
+    getWorkspaceDir(),
+    getWorkspaceHooksDir(),
+  );
+
+  try {
+    return analyzeImport({ manifest: validationResult.manifest, pathResolver });
+  } catch (err) {
+    log.error({ err }, "Unexpected error during preflight-from-gcs analysis");
+    throw new InternalError(
+      err instanceof Error
+        ? err.message
+        : "Unexpected preflight-from-gcs error",
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 interface CredentialImportSummary {
@@ -2007,6 +2228,33 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleMigrationImportFromGcs,
+  },
+  {
+    operationId: "migrations_preflightfromgcs_post",
+    endpoint: "migrations/preflight-from-gcs",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Dry-run import analysis from a signed GCS URL",
+    description:
+      "Fetch a .vbundle archive from a signed GCS download URL and return a preflight report — what would change if the bundle were imported — without writing anything to disk. Enables `vellum teleport --dry-run` against local and docker targets.",
+    tags: ["migrations"],
+    requestBody: z.object({
+      bundle_url: z
+        .string()
+        .url()
+        .describe("Signed GCS GET URL for the bundle."),
+    }),
+    responseBody: z.object({
+      can_import: z.boolean(),
+      summary: z.object({}).passthrough().optional(),
+      files: z.array(z.unknown()).optional(),
+      conflicts: z.array(z.unknown()).optional(),
+      validation: z.object({}).passthrough().optional(),
+    }),
+    handler: handleMigrationPreflightFromGcs,
   },
   {
     operationId: "migrations_jobs_by_job_id_get",

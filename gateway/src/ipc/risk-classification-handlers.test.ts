@@ -157,6 +157,70 @@ describe("sandboxAutoApprove", () => {
     });
     expect(result.sandboxAutoApprove).toBe(false);
   });
+
+  test("sandboxPathArgs populated for non-containerized path commands", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "cat /tmp/workspace/file.txt",
+      workingDir: "/tmp/workspace",
+      workspaceRoot: "/tmp/workspace",
+      isContainerized: false,
+    });
+    expect(result.sandboxAutoApprove).toBe(true);
+    expect(result.sandboxPathArgs).toEqual(["/tmp/workspace/file.txt"]);
+  });
+
+  test("sandboxPathArgs undefined for containerized", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "cat /tmp/workspace/file.txt",
+      workingDir: "/tmp/workspace",
+      workspaceRoot: "/tmp/workspace",
+      isContainerized: true,
+    });
+    expect(result.sandboxAutoApprove).toBe(true);
+    expect(result.sandboxPathArgs).toBeUndefined();
+  });
+
+  test("sandboxPathArgs undefined when no path args", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "ls",
+      workingDir: "/tmp/workspace",
+      workspaceRoot: "/tmp/workspace",
+      isContainerized: false,
+    });
+    expect(result.sandboxAutoApprove).toBe(true);
+    expect(result.sandboxPathArgs).toBeUndefined();
+  });
+
+  test("sandboxPathArgs includes paths from multiple segments", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "cat /tmp/workspace/a.txt && grep pattern /tmp/workspace/b.txt",
+      workingDir: "/tmp/workspace",
+      workspaceRoot: "/tmp/workspace",
+      isContainerized: false,
+    });
+    expect(result.sandboxAutoApprove).toBe(true);
+    expect(result.sandboxPathArgs).toEqual([
+      "/tmp/workspace/a.txt",
+      "/tmp/workspace/b.txt",
+    ]);
+  });
+
+  test("sandboxPathArgs populated even when path is outside workspace (lexical check fails)", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "cat /etc/passwd",
+      workingDir: "/tmp/workspace",
+      workspaceRoot: "/tmp/workspace",
+      isContainerized: false,
+    });
+    expect(result.sandboxAutoApprove).toBe(false);
+    // Path args are still returned so the daemon can inspect them
+    expect(result.sandboxPathArgs).toEqual(["/etc/passwd"]);
+  });
 });
 
 // ── File classification ─────────────────────────────────────────────────────
@@ -179,6 +243,40 @@ describe("file classification", () => {
       workingDir: "/tmp",
     });
     expect(result.risk).toBe("low");
+  });
+
+  test("file_write outside the working dir is medium risk", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/home/user/notes.txt",
+      workingDir: "/tmp",
+      resolvedPath: "/home/user/notes.txt",
+      resolvedWorkingDir: "/tmp",
+    });
+    expect(result.risk).toBe("medium");
+    expect(result.reason).toBe("File write outside the workspace");
+  });
+
+  test("file_write outside the working dir stays low when containerized", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/home/user/notes.txt",
+      workingDir: "/tmp",
+      resolvedPath: "/home/user/notes.txt",
+      resolvedWorkingDir: "/tmp",
+      isContainerized: true,
+    });
+    expect(result.risk).toBe("low");
+  });
+
+  test("file_read outside the working dir is medium via the lexical fallback", async () => {
+    const result = await classify({
+      tool: "file_read",
+      path: "/home/user/notes.txt",
+      workingDir: "/tmp",
+    });
+    expect(result.risk).toBe("medium");
+    expect(result.reason).toBe("File read outside the workspace");
   });
 
   test("host_file_read defaults to medium risk", async () => {
@@ -260,6 +358,27 @@ describe("file classification", () => {
     });
     expect(result.risk).toBe("high");
     expect(result.reason).toContain("routes");
+  });
+
+  test("file_write to workflows dir is high risk", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/workspace/workflows/victim/workflow.ts",
+      workingDir: "/workspace",
+      fileContext: {
+        protectedDir: "/workspace/.vellum/protected",
+        hooksDir: "/workspace/.hooks",
+        toolsDir: "/workspace/tools",
+        routesDir: "/workspace/routes",
+        workflowsDir: "/workspace/workflows",
+        monitoringDir: "/workspace/data/monitoring",
+        actorTokenSigningKeyPath:
+          "/workspace/.vellum/protected/actor-token-signing-key",
+        skillSourceDirs: ["/workspace/.vellum/skills"],
+      },
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("workflows");
   });
 
   test("host_file_transfer to_sandbox dest in tools dir is high risk", async () => {
@@ -500,13 +619,33 @@ describe("credentialed proxied bash", () => {
 // ── Unknown tool fallback ───────────────────────────────────────────────────
 
 describe("unknown tool fallback", () => {
-  test("unknown tool returns medium risk", async () => {
+  test("truly unknown tool returns medium risk with warning reason", async () => {
     const result = await classify({
       tool: "some_unknown_tool",
     });
     expect(result.risk).toBe("medium");
     expect(result.matchType).toBe("unknown");
     expect(result.reason).toContain("Unknown tool");
+  });
+
+  test("registered tool with registryDefaultRisk uses registry match, no reason", async () => {
+    const result = await classify({
+      tool: "remember",
+      registryDefaultRisk: "low",
+    });
+    expect(result.risk).toBe("low");
+    expect(result.matchType).toBe("registry");
+    expect(result.reason).toBe("");
+  });
+
+  test("registered tool with high registryDefaultRisk preserves risk level", async () => {
+    const result = await classify({
+      tool: "some_plugin_tool",
+      registryDefaultRisk: "high",
+    });
+    expect(result.risk).toBe("high");
+    expect(result.matchType).toBe("registry");
+    expect(result.reason).toBe("");
   });
 });
 

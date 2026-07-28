@@ -5,9 +5,7 @@ import path from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
-import type {
-  LockfileAssistant,
-} from "./lockfile-contract";
+import type { LockfileAssistant } from "./lockfile-contract";
 import { getLockfileData } from "./lockfile";
 
 const HEALTH_TIMEOUT_MS = 1_500;
@@ -20,6 +18,8 @@ const DEFAULT_PORTS = {
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  /** Alive and serving, but DB migrations failed — restart to recover. */
+  | "unhealthy"
   | "upgrading"
   | "sleeping"
   | "starting"
@@ -77,10 +77,7 @@ function readPidState(pidFile: string): PidState {
   }
 }
 
-function isFreshPidState(
-  pidState: PidState,
-  observedAtMs: number,
-): boolean {
+function isFreshPidState(pidState: PidState, observedAtMs: number): boolean {
   return (
     "updatedAtMs" in pidState &&
     observedAtMs - pidState.updatedAtMs <= STARTING_GRACE_MS
@@ -126,6 +123,63 @@ function httpHealthCheck(port: number): Promise<boolean> {
       resolve(false);
     });
     req.on("error", () => resolve(false));
+  });
+}
+
+type DaemonReadyzClassification =
+  "ready" | "migrating" | "failed" | "no_answer";
+
+/**
+ * Classify the daemon's DB migration readiness from the `/readyz` BODY.
+ * `/healthz` is a static probe that never carries migration state, and the
+ * `/readyz` status code stays 200 while migrations run (the k8s keep-the-pod
+ * contract) — so only the body distinguishes ready / migrating / failed.
+ * Legacy daemons' strict 503 startup body (no `dbMigrations` field) classifies
+ * as "migrating", which renders as the starting state.
+ */
+function probeDaemonReadyz(port: number): Promise<DaemonReadyzClassification> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: "/readyz",
+        timeout: HEALTH_TIMEOUT_MS,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          let body: {
+            ready?: boolean;
+            dbMigrations?: { state?: string };
+          } | null = null;
+          try {
+            body = JSON.parse(Buffer.concat(chunks).toString()) as {
+              ready?: boolean;
+              dbMigrations?: { state?: string };
+            };
+          } catch {
+            // Non-JSON body — classify from the status code alone.
+          }
+          if (body?.dbMigrations?.state === "failed") {
+            resolve("failed");
+            return;
+          }
+          if (res.statusCode === 200 && body?.ready !== false) {
+            resolve("ready");
+            return;
+          }
+          resolve("migrating");
+        });
+      },
+    );
+
+    req.on("timeout", () => {
+      req.destroy();
+      resolve("no_answer");
+    });
+    req.on("error", () => resolve("no_answer"));
   });
 }
 
@@ -309,6 +363,29 @@ async function runtimeStatusForEntry(
     };
   }
 
+  // Both processes answer their health checks, but the daemon's DB migrations
+  // may still be running (in-progress startup) or terminally failed (every
+  // DB-backed route 503s until a restart). Classify from the /readyz body so
+  // desktop/web hosts don't report a broken daemon as healthy.
+  const readiness = await probeDaemonReadyz(resources.daemonPort);
+  if (readiness === "failed") {
+    return {
+      ok: true,
+      state: "unhealthy",
+      pid: assistantPid.pid,
+      detail: "assistant database migrations failed — restart to recover",
+    };
+  }
+  if (readiness === "migrating") {
+    return {
+      ok: true,
+      state: "starting",
+      pid: assistantPid.pid,
+      detail: "assistant database migrations are running",
+    };
+  }
+  // "no_answer" while /healthz just passed is a transient hiccup — keep the
+  // health check authoritative rather than flapping to a worse state.
   return { ok: true, state: "healthy", pid: assistantPid.pid };
 }
 

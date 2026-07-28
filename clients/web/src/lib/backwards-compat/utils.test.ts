@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 import {
+  useAssistantScopedSupports,
   useAssistantSupports,
   whenAssistantVersionKnown,
 } from "@/lib/backwards-compat/utils";
@@ -90,6 +91,74 @@ describe("useAssistantSupports", () => {
     expect(check("0.10.0", "0.10.0-dev.202606211252.5cf8576")).toBe(false);
     // But 0.10.1 stable (next release) is ahead.
     expect(check("0.10.1", "0.10.0-dev.202606211252.5cf8576")).toBe(true);
+  });
+});
+
+describe("useAssistantScopedSupports", () => {
+  const OWNER_ID = "asst-owner";
+  const MIN = "0.11.0";
+
+  function setIdentity(version: string | null, assistantId: string | null) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, assistantId);
+  }
+
+  function checkScoped(
+    version: string | null,
+    ownerAssistantId: string | null | undefined = OWNER_ID,
+    identityAssistantId: string | null = OWNER_ID,
+  ): boolean {
+    setIdentity(version, identityAssistantId);
+    const { result } = renderHook(() =>
+      useAssistantScopedSupports(MIN, ownerAssistantId),
+    );
+    return result.current;
+  }
+
+  test("returns true when the version meets minVersion and the owner matches", () => {
+    expect(checkScoped("0.11.0")).toBe(true);
+    expect(checkScoped("1.0.0")).toBe(true);
+  });
+
+  test("returns false when the version is unknown or below minVersion", () => {
+    expect(checkScoped(null)).toBe(false);
+    expect(checkScoped("0.10.9")).toBe(false);
+  });
+
+  test("returns false when the identity version belongs to a different assistant", () => {
+    // The assistant-switch race: the previous assistant's supported
+    // version is still hydrated while the gated surface now belongs to a
+    // different assistant whose identity hasn't loaded. The version must
+    // not validate the new owner's surface.
+    expect(checkScoped("0.11.0", "asst-new-owner", "asst-previous")).toBe(
+      false,
+    );
+  });
+
+  test("returns false when the owner is null or undefined", () => {
+    expect(checkScoped("0.11.0", null)).toBe(false);
+    // Passed explicitly (a default parameter would swallow `undefined`).
+    setIdentity("0.11.0", OWNER_ID);
+    const { result } = renderHook(() =>
+      useAssistantScopedSupports(MIN, undefined),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false when the identity store has no owner recorded", () => {
+    expect(checkScoped("0.11.0", OWNER_ID, null)).toBe(false);
+  });
+
+  test("flips off the moment the identity is cleared for an assistant switch", () => {
+    setIdentity("0.11.0", OWNER_ID);
+    const { result, rerender } = renderHook(() =>
+      useAssistantScopedSupports(MIN, OWNER_ID),
+    );
+    expect(result.current).toBe(true);
+    useAssistantIdentityStore.getState().clearIdentity();
+    rerender();
+    expect(result.current).toBe(false);
   });
 });
 

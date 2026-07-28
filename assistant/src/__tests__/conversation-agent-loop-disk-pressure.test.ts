@@ -2,53 +2,18 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 
 type Context = Conversation;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    conversations: { skipAutoRetitling: true },
-  }),
-}));
+// Keep the turn-boundary commit wait short and skip second-pass retitling so
+// the blocked-turn cleanup path stays fast and deterministic.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
+setConfig("conversations", { skipAutoRetitling: true });
 
 const lockedDiskPressureStatus: DiskPressureStatus = {
   enabled: true,
@@ -86,9 +51,9 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
   getDiskPressureStatus: () => diskPressureStatus,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: () => ({
     id: "conv-123",
     conversationType: "background",
@@ -139,7 +104,6 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     contextCompactedAt: null,
     conversationType: "background",
     source: "memory",
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -150,16 +114,10 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     channelCapabilities: undefined,
     commandIntent: undefined,
     trustContext: undefined,
-    coreToolNames: new Set(),
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache: new Map() as Context["skillProjectionCache"],
-    traceEmitter: { emit: () => {} } as unknown as Context["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Context["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -177,11 +135,21 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: async () => {},
+    drainQueue: async (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => null,
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,
@@ -198,7 +166,7 @@ describe("runAgentLoopImpl disk pressure gate", () => {
   });
 
   test("blocks background turns inside the cleanup-safe finally path", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const activityStates: unknown[][] = [];
     const drainQueue = mock(async (_reason: unknown) => {});
     const ctx = makeCtx({

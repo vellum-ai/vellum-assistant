@@ -2,7 +2,7 @@
 
 For error handling conventions (throw vs result objects vs null), see [docs/error-handling.md](docs/error-handling.md).
 
-Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/workspace/migrations/`.
+Subdirectory-scoped rules live in local AGENTS.md files: `src/cli/`, `src/runtime/`, `src/approvals/`, `src/notifications/`, `src/plugins/`, `src/workspace/migrations/`.
 
 ## Adding new environment variables
 
@@ -12,11 +12,26 @@ When you introduce a new env var that the assistant process needs to read at run
 
 **Default to including it.** If the var doesn't contain secrets (e.g. a URL, a feature flag, a path, a mode string), add it. Only omit it if it carries credential material (tokens, passwords, private keys) — those must stay isolated to CES.
 
+`CES_LOCAL_SOCKET` is intentionally included despite the socket exposing credential RPCs — assistant subprocesses are expected to reach CES. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`).
+
 ## Daemon startup philosophy
 
 The daemon must **never** block startup due to **subsystem** failures (DB, Qdrant, plugins, feature flags, etc.). If an individual subsystem fails, log the error and continue in degraded mode so the process remains reachable for health checks and diagnostics.
 
 **Exception — duplicate daemon detection:** If the daemon cannot establish **any** client-facing transport because another daemon already holds both the IPC socket and HTTP port, it must exit immediately. A daemon with no transport is unmanageable (invisible to health checks, unreachable by stop commands) yet still runs background jobs (scheduler, memory worker, background wake) against the shared database, causing duplicate side effects.
+
+## DB migration readiness gating
+
+DB migrations run asynchronously during startup: the HTTP server binds (so `/healthz` answers) **before** `initializeDb()` finishes, and readiness is tracked in `src/daemon/daemon-readiness.ts` (`setDbMigrating` → `setDbReady`/`setDbMigrationFailed`). **No code may touch the database — `getDb()`, `getSqlite()`, drizzle queries, raw SQL — unless `getDbMigrationReadiness().ready` is true or its execution provably starts after `initializeDb()` settles in `daemon/lifecycle.ts`.** Querying earlier hits a partially-migrated schema ("no such table"/"no such column").
+
+Existing enforcement, which new code must not bypass:
+
+- **HTTP** requests are gated per-route in `runtime/http-server.ts`; **IPC** methods in `ipc/assistant-server.ts`; both derive their exempt set from `DB_MIGRATION_READINESS_EXEMPT_OPERATIONS` in `daemon-readiness.ts` (health/liveness probes only — anything exempted must never touch the DB).
+- **Message sinks** (`processMessage`, `processMessageInBackground`) guard via `assertDbMigrationsReadyForTurn()`.
+- **Background sweeps** are started by lifecycle only after migrations settle (`startRuntimeHttpServerBackgroundSweeps`).
+- The **migration-repair surface** (`admin/rollback-migrations` plus all `migrations/import*` / preflight transports and their job-status route) is additionally allowed in the terminal `failed` state only — see `DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS`. Never widen this to the `running` state: a rollback or import would race the in-flight migration runner. A successful repair does not clear the failed latch — the daemon must be restarted to re-run migrations and become ready.
+
+When adding a new background job, timer, signal handler, or transport entry point that reaches the DB, either start it after `initializeDb()` settles in lifecycle, or check `getDbMigrationReadiness().ready` (and skip/queue when unready) inside it. Do not add readiness waits to probe endpoints — `/healthz` must stay static and instant.
 
 ## Post-execution hooks
 
@@ -58,6 +73,10 @@ Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array)
 
 The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 
+## Telemetry wire contract
+
+Telemetry event types are defined by a platform-generated wire contract (`src/telemetry/telemetry-wire.generated.ts`) that `src/telemetry/types.ts` layers over, with pre-flush validation against it. Adding a new event type starts platform-side, not here. The mechanics, the drift guards, and the cross-repo ordering are documented next to the code they govern: see [`src/telemetry/AGENTS.md`](src/telemetry/AGENTS.md).
+
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.
@@ -70,7 +89,7 @@ The rule exists because test machinery and production code have **inverted invar
 
 Concretely:
 
-- **Test helpers** (e.g. `src/__tests__/*-test-helpers.ts`) use only node stdlib, `bun:test`, and sibling helpers. If they need to manipulate shared state that production code also reads, both sides declare a typed slot under `globalThis.vellumAssistant.*` and read/write that slot independently. The slot shape is duplicated by design — the helper and the production module both reference the namespace, neither imports the other.
+- **Test helpers** (e.g. `src/__tests__/*-test-helpers.ts`) use only node stdlib, `bun:test`, and sibling helpers. If they need to manipulate shared state that production code also reads, both sides read/write a typed slot under `globalThis.vellumAssistant.*`. The namespace shape is declared once, in the ambient `src/vellum-assistant-namespace.d.ts` (`VellumAssistantNamespace` and its slot value types) — the helper and the production module both refer to those global types by name, so they agree on the shape without either importing the other. Because that declaration is ambient (pure compile-time type info that reaches into no `src/` module), referring to it adds nothing to a helper's runtime import graph, so the no-`src/`-imports invariant still holds. To add a slot: declare its value type in that `.d.ts`, add the optional property to `VellumAssistantNamespace`, and have the owning module plus its test helper reference those globals instead of declaring their own copies.
 - **The test preload** (`src/__tests__/test-preload.ts`) is the strictest: it must not import from `src/` at all. Its only static imports are node stdlib, `bun:test`, and helpers in `src/__tests__/`. Importing from a source module risks running its import-time side effects before the workspace override is set.
 - **The preload verifier** (`src/__tests__/test-preload-verifier.ts`) runs after the main preload and asserts the override took effect (`VELLUM_WORKSPACE_DIR` must resolve under `os.tmpdir()`).
 - **Destructive ops** (e.g. `rmSync(dbPath, ...)`) in tests must call `assertNotLiveDb(path)` from `src/__tests__/assert-not-live-db.js` immediately before the destructive call. The check is a per-callsite belt to the preload-verifier suspenders.

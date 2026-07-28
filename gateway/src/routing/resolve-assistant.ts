@@ -7,9 +7,21 @@ const log = getLogger("routing");
 
 export function resolveAssistant(
   config: GatewayConfig,
-  conversationId: string,
-  actorId: string,
+  conversationId: string | undefined,
+  actorId: string | undefined,
 ): RoutingOutcome {
+  // Priority 0: no identity at all → nothing to route on. Reject before the
+  // unmapped default policy, so a malformed event with neither a conversation
+  // nor an actor can never fall through to the default assistant. Callers are
+  // expected to validate identity too; this is the fail-closed backstop.
+  if (!conversationId && !actorId) {
+    log.info(
+      { conversationId, actorId },
+      "No routable identity on event, rejecting",
+    );
+    return { rejected: true, reason: "No routable identity on this event" };
+  }
+
   // Priority 1: explicit conversation_id route
   for (const entry of config.routingEntries) {
     if (entry.type === "conversation_id" && entry.key === conversationId) {

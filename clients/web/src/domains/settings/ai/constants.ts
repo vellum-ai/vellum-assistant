@@ -1,3 +1,5 @@
+import { VELLUM_SERVED_PROVIDERS } from "@/assistant/llm-model-catalog";
+
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
 /**
@@ -13,10 +15,33 @@ export const INFERENCE_PROVIDERS = [
   "fireworks",
   "together",
   "openrouter",
+  "vercel-ai-gateway",
   "gemini",
+  "ollama",
   "minimax",
   "atlascloud",
+  "litellm",
+  "baseten",
+  "poolside",
 ] as const;
+
+/**
+ * `provider` value stored on the single Vellum-managed connection. It is a
+ * routing sentinel, not a real LLM provider, so it never appears in the profile
+ * provider picker.
+ */
+export const VELLUM_CONNECTION_PROVIDER = "vellum";
+
+/**
+ * Providers the single Vellum-managed (`vellum`) connection can serve. Mirrors
+ * the daemon's managed-routable set. A managed profile keeps its real provider
+ * (e.g. `fireworks`) while binding to the provider-agnostic `vellum`
+ * connection, so the editor must treat that connection as available for these
+ * providers even though its own `provider` is `vellum`.
+ */
+export const MANAGED_ROUTABLE_PROVIDERS = new Set<string>(
+  VELLUM_SERVED_PROVIDERS,
+);
 
 export const TOKEN_SLIDER_MIN_TOKENS = 1_000;
 export const TOKEN_SLIDER_STEP_TOKENS = 1_000;

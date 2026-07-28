@@ -6,10 +6,11 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 type TransportType = "stdio" | "sse" | "streamable-http";
-type AuthType = "none" | "bearer" | "api-key";
+type AuthType = "none" | "bearer" | "api-key" | "oauth";
 
 const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
   { value: "none", label: "None" },
+  { value: "oauth", label: "OAuth" },
   { value: "bearer", label: "Bearer Token" },
   { value: "api-key", label: "API Key" },
 ];
@@ -30,6 +31,7 @@ interface McpAddServerModalProps {
     command?: string;
     args?: string[];
     headers?: Record<string, string>;
+    autoAuth?: boolean;
   }) => void;
   isPending: boolean;
 }
@@ -82,6 +84,7 @@ export function McpAddServerModal({
       command?: string;
       args?: string[];
       headers?: Record<string, string>;
+      autoAuth?: boolean;
     } = { name: trimmedName, transportType };
 
     if (transportType === "stdio") {
@@ -105,6 +108,8 @@ export function McpAddServerModal({
         config.headers = { Authorization: `Bearer ${bearerToken.trim()}` };
       } else if (authType === "api-key" && apiKeyHeader.trim() && apiKeyValue.trim()) {
         config.headers = { [apiKeyHeader.trim()]: apiKeyValue.trim() };
+      } else if (authType === "oauth") {
+        config.autoAuth = true;
       }
     }
 
@@ -221,6 +226,12 @@ export function McpAddServerModal({
                     ))}
                   </select>
                 </div>
+
+                {authType === "oauth" ? (
+                  <p className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2 text-body-small-default text-[var(--content-tertiary)]">
+                    OAuth credentials will be configured through a browser-based authorization flow after the server is added.
+                  </p>
+                ) : null}
 
                 {authType === "bearer" ? (
                   <div className="space-y-1.5">

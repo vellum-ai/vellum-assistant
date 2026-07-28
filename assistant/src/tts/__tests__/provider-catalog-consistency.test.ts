@@ -62,7 +62,7 @@ function loadClientArtifact(): ClientCatalog {
 // ---------------------------------------------------------------------------
 
 describe("TTS provider catalog / client artifact consistency", () => {
-  const assistantIds = listCatalogProviderIds();
+  const assistantIds: readonly string[] = listCatalogProviderIds();
   const clientCatalog = loadClientArtifact();
   const clientIds = clientCatalog.providers.map((p) => p.id);
 
@@ -163,9 +163,10 @@ describe("TTS provider catalog / client artifact consistency", () => {
       }
     }
     if (violations.length > 0) {
-      expect(violations, "Subtitle mismatch:\n" + violations.join("\n")).toEqual(
-        [],
-      );
+      expect(
+        violations,
+        "Subtitle mismatch:\n" + violations.join("\n"),
+      ).toEqual([]);
     }
   });
 
@@ -203,7 +204,9 @@ describe("TTS provider catalog / client artifact consistency", () => {
         const ag = assistantEntry.credentialsGuide;
         if (cg && ag) {
           if (cg.url !== ag.url) {
-            violations.push(`"${clientEntry.id}": credentialsGuide.url mismatch`);
+            violations.push(
+              `"${clientEntry.id}": credentialsGuide.url mismatch`,
+            );
           }
           if (cg.description !== ag.description) {
             violations.push(

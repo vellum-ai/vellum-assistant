@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import type { BrowserOptions } from "@sentry/react";
 
+import { snapshotCommitPressure } from "@/lib/commit-pressure";
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
 import {
   installSentryControlListeners,
@@ -10,22 +11,38 @@ import { syncDiagnosticsToMain } from "@/runtime/diagnostics";
 import { sanitizeUrl } from "@/lib/sentry/url-sanitize";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /**
- * Resolve the Sentry DSN for the current host. The shared bundle reports to a
- * per-host project: Electron renderer → `VITE_SENTRY_DSN_MACOS`
- * (vellum-assistant-macos), iOS webview → `VITE_SENTRY_DSN_IOS`
- * (vellum-assistant-ios), Android webview → `VITE_SENTRY_DSN_ANDROID`
- * (vellum-assistant-android), web → `VITE_SENTRY_DSN`
- * (vellum-assistant-web).
+ * Recognize React's nested-update-limit error in every form it ships as.
  *
- * The Electron check comes first since the renderer also runs the web bundle.
+ * The expanded sentence only exists in the development bundle:
+ * `react-dom-client.production.js` throws `formatProdErrorMessage(185)`, which
+ * reads "Minified React error #185; visit https://react.dev/errors/185 …".
+ * Sentry expands it server-side for display, so the stored events read like
+ * the development text while the value reaching `beforeSend` — client-side,
+ * pre-transmit — is the minified one. Matching only the sentence would mean
+ * the enrichment never ran anywhere it matters.
+ *
+ * The digit guards keep `#185` from also matching a future `#1850`.
  */
+const REACT_ERROR_185 =
+  /Maximum update depth exceeded|Minified React error #185(?!\d)|react\.dev\/errors\/185(?!\d)/;
+
+function isReactError185(message: string): boolean {
+  return REACT_ERROR_185.test(message);
+}
+
+/** Resolve the Sentry DSN for the current host. */
 function resolveDsn(): string | undefined {
-  if (isElectron()) return import.meta.env.VITE_SENTRY_DSN_MACOS;
+  if (isElectron()) {
+    return import.meta.env.VITE_SENTRY_DSN_MACOS;
+  }
   if (isNativePlatform()) {
     const platform = Capacitor.getPlatform();
-    if (platform === "android") return import.meta.env.VITE_SENTRY_DSN_ANDROID;
+    if (platform === "android") {
+      return import.meta.env.VITE_SENTRY_DSN_ANDROID;
+    }
     return import.meta.env.VITE_SENTRY_DSN_IOS;
   }
   return import.meta.env.VITE_SENTRY_DSN;
@@ -40,6 +57,10 @@ function resolveDsn(): string | undefined {
  * transmit, so matched events never count against project quota. Filters
  * here must never match errors raised from `src/` — fix those at the call
  * site so real regressions are not hidden.
+ *
+ * `beforeSend` enriches React's `Maximum update depth exceeded` with the
+ * commit-pressure snapshot — that error's stack frame is a bystander, so
+ * without the extra context the events are not actionable.
  *
  * `beforeBreadcrumb` strips auth codes, invite tokens, and OAuth fragment
  * tokens from URLs the browser SDK records on navigation / fetch / XHR.
@@ -74,13 +95,38 @@ const options: BrowserOptions = {
   // after sourcemap upload.
   // Reference: https://docs.sentry.io/platforms/javascript/configuration/options/#attach-stacktrace
   attachStacktrace: true,
+  beforeSend(event) {
+    // React error 185 is thrown from whatever `setState` runs after the nested
+    // update limit is already breached, so its stack names a bystander — every
+    // occurrence so far has blamed a different frame. Attach the update
+    // traffic that was actually in flight so the next one names the cause.
+    // See `lib/commit-pressure.ts`.
+    const raisedMaxUpdateDepth = event.exception?.values?.some(
+      (value) => value.value != null && isReactError185(value.value),
+    );
+    if (!raisedMaxUpdateDepth) {
+      return event;
+    }
+    const pressure = snapshotCommitPressure();
+    if (!pressure) {
+      return event;
+    }
+    return {
+      ...event,
+      contexts: { ...event.contexts, commit_pressure: { ...pressure } },
+    };
+  },
   beforeBreadcrumb(breadcrumb) {
     const data = breadcrumb.data;
-    if (!data || typeof data !== "object") return breadcrumb;
+    if (!data || typeof data !== "object") {
+      return breadcrumb;
+    }
     const next: Record<string, unknown> = { ...data };
     for (const key of ["url", "to", "from"] as const) {
       const value = next[key];
-      if (typeof value === "string") next[key] = sanitizeUrl(value);
+      if (typeof value === "string") {
+        next[key] = sanitizeUrl(value);
+      }
     }
     return { ...breadcrumb, data: next };
   },
@@ -132,8 +178,16 @@ const options: BrowserOptions = {
  * process (no-op on web/iOS) so the main-process Sentry client matches.
  */
 export function initSentry(): void {
-  // Resolve the DSN at init time (post host-detection), not at module load.
-  const resolved: BrowserOptions = { ...options, dsn: resolveDsn() };
+  // Resolve host-detected values at init time (post host-detection), not at
+  // module load. `client_os` tags every event with the OS surface — the web
+  // DSN otherwise can't distinguish mobile-web (iOS/Android phone browsers)
+  // from desktop. Shares the product `detectClientOs()` so Sentry, analytics,
+  // and the assistant's `client_os` context all agree.
+  const resolved: BrowserOptions = {
+    ...options,
+    dsn: resolveDsn(),
+    initialScope: { tags: { client_os: detectClientOs() } },
+  };
   syncSentryClient(resolved);
   installSentryControlListeners(resolved);
   syncDiagnosticsToMain(diagnosticsConsentGranted());

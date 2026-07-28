@@ -26,6 +26,7 @@ import { ActiveChatView } from "@/domains/chat/active-chat-view";
 import { CleanupScreen } from "@/domains/chat/components/cleanup-screen";
 import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 import { SetupScreen } from "@/domains/chat/components/setup-screen";
+import { useStuckConnecting } from "@/domains/chat/hooks/use-stuck-connecting";
 
 export function ChatPage() {
   const isSessionInitializing = useIsSessionInitializing();
@@ -58,13 +59,25 @@ export function ChatPage() {
       ? "assistant_loading"
       : null;
 
+  // Watchdog: connecting has no natural failure surface, so a wedged auth
+  // init or lifecycle probe would spin forever. Escalate to a retry screen
+  // after a bounded wait (and capture the episode to Sentry).
+  const { connectingStuck, resetStuckConnecting } =
+    useStuckConnecting(connectingReason);
+  const retryStuckConnecting = useCallback(() => {
+    resetStuckConnecting();
+    lifecycleService.retryAssistant();
+  }, [resetStuckConnecting]);
+
   const lastConnectingReasonRef = useRef<string | null>(null);
   useEffect(() => {
     if (connectingReason === null) {
       lastConnectingReasonRef.current = null;
       return;
     }
-    if (lastConnectingReasonRef.current === connectingReason) return;
+    if (lastConnectingReasonRef.current === connectingReason) {
+      return;
+    }
     lastConnectingReasonRef.current = connectingReason;
     Sentry.addBreadcrumb({
       category: "chat.connecting",
@@ -79,6 +92,19 @@ export function ChatPage() {
   }, [connectingReason, assistantState.kind, assistantId]);
 
   if (connectingReason !== null) {
+    if (connectingStuck) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+          <p className="text-[var(--text-secondary)]">
+            Still connecting to your assistant — something seems stuck. Try
+            again, or refresh the page if this keeps happening.
+          </p>
+          <Button variant="primary" onClick={retryStuckConnecting}>
+            Try again
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[var(--text-secondary)]">Connecting…</p>

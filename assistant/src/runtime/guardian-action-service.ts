@@ -2,26 +2,23 @@
  * Shared service for processing guardian action decisions.
  *
  * Encapsulates the core business logic — validation, conversation scoping,
- * canonical decision application, and result mapping — so both the HTTP
- * handler and the message handler can delegate here without duplicating code.
+ * decision application, and result mapping — so both the HTTP handler and
+ * the message handler can delegate here without duplicating code.
  */
 
-import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
+import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import {
-  getCanonicalGuardianRequest,
-  isRequestInConversationScope,
-} from "../memory/canonical-guardian-store.js";
-import type { ApprovalAction } from "./channel-approval-types.js";
+  getGuardianRequestOrNull,
+  isGuardianRequestInScopeOrFalse,
+} from "../channels/gateway-guardian-requests.js";
+import {
+  APPROVAL_ACTION_IDS,
+  isApprovalAction,
+} from "./channel-approval-types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Canonical set of valid guardian actions, shared across all entrypoints. */
-const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = new Set<string>([
-  "approve_once",
-  "reject",
-]);
 
 /**
  * Legacy actions that map to canonical ones during client rollout.
@@ -33,7 +30,6 @@ const LEGACY_ACTION_MAP: Record<string, string> = {
   approve_conversation: "approve_once",
   approve_always: "approve_once",
 };
-
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,7 +47,19 @@ export interface ProcessGuardianDecisionParams {
 }
 
 export type ProcessGuardianDecisionResult =
-  | { ok: true; applied: true; requestId: string; replyText?: string }
+  | {
+      ok: true;
+      applied: true;
+      requestId: string;
+      replyText?: string;
+      /**
+       * The action to present on the resolved card — the resolved outcome, not
+       * necessarily the raw button (an access-request `reject` resolves to the
+       * `leave_unverified` park). Lets a client completing the card
+       * optimistically render the correct tone.
+       */
+      decidedAction?: string;
+    }
   | {
       ok: true;
       applied: false;
@@ -66,13 +74,14 @@ export type ProcessGuardianDecisionResult =
 // ---------------------------------------------------------------------------
 
 /**
- * Process a guardian decision through the canonical request primitive.
+ * Process a guardian decision through the unified decision primitive.
  *
  * Validates the action, checks conversation scope if applicable, applies the
- * canonical decision, and maps the result to a caller-agnostic shape that
- * both HTTP and message handlers can interpret.
+ * decision, and maps the result to a caller-agnostic shape that both HTTP
+ * and message handlers can interpret.
  *
- * Only `approve_once` and `reject` are valid actions.
+ * Valid actions are the `ApprovalAction` union; the primitive additionally
+ * scopes the introduction-card actions to `access_request` requests.
  */
 export async function processGuardianDecision(
   params: ProcessGuardianDecisionParams,
@@ -81,32 +90,38 @@ export async function processGuardianDecision(
 
   // 1. Canonicalize legacy actions, then validate
   const action = LEGACY_ACTION_MAP[params.action] ?? params.action;
-  if (!VALID_GUARDIAN_ACTIONS.has(action)) {
+  if (!isApprovalAction(action)) {
     return {
       ok: false,
       error: "invalid_action",
-      message: `Invalid action: ${params.action}. Must be one of: approve_once, reject`,
+      message: `Invalid action: ${params.action}. Must be one of: ${APPROVAL_ACTION_IDS.join(", ")}`,
     };
   }
 
-  // 2. Verify conversationId scoping before applying the canonical decision.
-  //    The decision is allowed when the conversationId matches the request's
+  // 2. Verify conversationId scoping before applying the decision. The
+  //    decision is allowed when the conversationId matches the request's
   //    source conversation OR a recorded delivery destination conversation.
+  //    Reads degrade fail-closed: an unreachable gateway scopes to not_found
+  //    (and the decide below fails loudly anyway).
   if (conversationId) {
-    const canonicalRequest = getCanonicalGuardianRequest(requestId);
+    const request = await getGuardianRequestOrNull(requestId);
     if (
-      canonicalRequest &&
-      canonicalRequest.conversationId &&
-      !isRequestInConversationScope(requestId, conversationId, channel)
+      request &&
+      request.sourceConversationId &&
+      !(await isGuardianRequestInScopeOrFalse(
+        requestId,
+        conversationId,
+        channel,
+      ))
     ) {
       return { ok: true, applied: false, reason: "not_found" };
     }
   }
 
-  // 3. Apply the canonical decision
-  const canonicalResult = await applyCanonicalGuardianDecision({
+  // 3. Apply the decision through the gateway-native primitive
+  const decisionResult = await applyGuardianDecision({
     requestId,
-    action: action as ApprovalAction,
+    action,
     actorContext: {
       actorPrincipalId: actorContext.actorPrincipalId,
       actorExternalUserId: undefined, // Desktop path — no channel-native ID
@@ -117,29 +132,30 @@ export async function processGuardianDecision(
   });
 
   // 4. Map the canonical result
-  if (canonicalResult.applied) {
-    if (canonicalResult.resolverFailed) {
+  if (decisionResult.applied) {
+    if (decisionResult.resolverFailed) {
       return {
         ok: true,
         applied: false,
         reason: "resolver_failed",
-        resolverFailureReason: canonicalResult.resolverFailureReason,
-        requestId: canonicalResult.requestId,
+        resolverFailureReason: decisionResult.resolverFailureReason,
+        requestId: decisionResult.requestId,
       };
     }
 
     return {
       ok: true,
       applied: true,
-      requestId: canonicalResult.requestId,
-      replyText: canonicalResult.resolverReplyText,
+      requestId: decisionResult.requestId,
+      replyText: decisionResult.resolverReplyText,
+      decidedAction: decisionResult.decidedAction,
     };
   }
 
   return {
     ok: true,
     applied: false,
-    reason: canonicalResult.reason,
+    reason: decisionResult.reason,
     requestId,
   };
 }

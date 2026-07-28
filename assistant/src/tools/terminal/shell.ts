@@ -1,18 +1,23 @@
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
+import { z } from "zod";
+
+import type { BackgroundToolCompletedEvent } from "../../api/events/background-tool-completed.js";
 import { getConfig } from "../../config/loader.js";
-import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
-import { isUntrustedShellLockdownActive } from "../../runtime/effective-capabilities.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
+import type { CompletedBackgroundTool } from "../background-tool-registry.js";
 import {
   generateBackgroundToolId,
   isBackgroundToolLimitReached,
   MAX_BACKGROUND_TOOLS,
+  recordCompletedBackgroundTool,
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
@@ -23,13 +28,16 @@ import {
   getOrStartSession,
   getSessionEnv,
 } from "../network/script-proxy/index.js";
-import { registerTool } from "../registry.js";
 import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
 } from "../shared/shell-output.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
+import type { ProxyEnvVars } from "../tool-types.js";
 import type {
-  ProxyEnvVars,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
@@ -47,6 +55,55 @@ function buildCredentialRefTrace(
 
 const log = getLogger("shell-tool");
 
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below. Optional
+ * fields catch to `undefined` so a malformed value degrades to its
+ * default: `timeout_seconds` falls back to the configured
+ * default (it is also read defensively pre-execution by
+ * `computePerToolTimeoutMs`), `network_mode` falls back to "off" (the
+ * `=== "proxied"` coercion), `background` to foreground (the `=== true`
+ * coercion), `credential_ids` to none, and `activity` is status-only.
+ */
+export const shellInputSchema = z.looseObject({
+  command: z.string().min(1).describe("The shell command to execute"),
+  activity: z
+    .string()
+    .describe(
+      'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
+    )
+    .optional()
+    .catch(undefined),
+  timeout_seconds: z
+    .number()
+    .describe(
+      "Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.",
+    )
+    .optional()
+    .catch(undefined),
+  network_mode: z
+    .enum(["off", "proxied"])
+    .describe(
+      'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
+    )
+    .optional()
+    .catch(undefined),
+  credential_ids: z
+    .array(z.string())
+    .describe(
+      'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
+    )
+    .optional()
+    .catch(undefined),
+  background: z
+    .boolean()
+    .describe(
+      "Run the command in the background. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
+    )
+    .optional()
+    .catch(undefined),
+});
+
 export const shellTool = {
   name: "bash",
   description: "Execute a shell command on the local machine",
@@ -54,55 +111,19 @@ export const shellTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      command: {
-        type: "string",
-        description: "The shell command to execute",
-      },
-      activity: {
-        type: "string",
-        description:
-          'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
-      },
-      timeout_seconds: {
-        type: "number",
-        description:
-          "Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.",
-      },
-      network_mode: {
-        type: "string",
-        enum: ["off", "proxied"],
-        description:
-          'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
-      },
-      credential_ids: {
-        type: "array",
-        items: { type: "string" },
-        description:
-          'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
-      },
-      background: {
-        type: "boolean",
-        description:
-          "Run the command in the background. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
-      },
-    },
-    required: ["command", "activity"],
-  },
+  input_schema: toToolInputSchema(shellInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const command = input.command as string;
-    if (!command || typeof command !== "string") {
-      return {
-        content: "Error: command is required and must be a string",
-        isError: true,
-      };
+    const parsed = shellInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("bash", parsed.error);
     }
+    const command = parsed.data.command;
 
     // Reject commands containing null bytes - they cause truncation at the
     // OS level while the parser sees the full string, enabling bypass.
@@ -110,7 +131,7 @@ export const shellTool = {
       return { content: "Error: command contains null bytes", isError: true };
     }
 
-    const background = input.background === true;
+    const background = parsed.data.background === true;
     if (background && context.diskPressureCleanupModeActive === true) {
       return {
         content:
@@ -120,58 +141,14 @@ export const shellTool = {
     }
 
     const config = getConfig();
-    const shellLockdownActive = isUntrustedShellLockdownActive({
-      trustClass: context.trustClass,
-      lockdownEnabled: isCesShellLockdownEnabled(config),
-    });
 
-    const networkMode: "off" | "proxied" =
-      input.network_mode === "proxied" ? "proxied" : "off";
-
-    // -----------------------------------------------------------------------
-    // CES shell lockdown - reject proxied credential sessions for untrusted
-    // actors when the lockdown flag is active. Proxied sessions grant the
-    // subprocess access to credentials through the egress proxy, which
-    // violates the secrecy guarantee.
-    // -----------------------------------------------------------------------
-    if (shellLockdownActive && networkMode === "proxied") {
-      log.warn(
-        { trustClass: context.trustClass },
-        "CES shell lockdown: rejecting proxied credential session for untrusted actor",
-      );
-      return {
-        content:
-          "Error: proxied credential sessions are not available in untrusted shell mode. " +
-          "Use the credential grant workflow to request access through a guardian.",
-        isError: true,
-      };
-    }
+    const networkMode: "off" | "proxied" = parsed.data.network_mode ?? "off";
 
     const rawCredentialRefs: string[] = [];
-    if (Array.isArray(input.credential_ids)) {
-      for (const id of input.credential_ids) {
-        if (typeof id === "string" && id.length > 0) {
-          rawCredentialRefs.push(id);
-        }
+    for (const id of parsed.data.credential_ids ?? []) {
+      if (id.length > 0) {
+        rawCredentialRefs.push(id);
       }
-    }
-
-    // -----------------------------------------------------------------------
-    // CES shell lockdown - reject non-empty credential-ref mode for untrusted
-    // actors. Even when network_mode is "off", passing credential_ids could
-    // allow the model to probe stored credential metadata.
-    // -----------------------------------------------------------------------
-    if (shellLockdownActive && rawCredentialRefs.length > 0) {
-      log.warn(
-        { trustClass: context.trustClass, refCount: rawCredentialRefs.length },
-        "CES shell lockdown: rejecting credential-ref mode for untrusted actor",
-      );
-      return {
-        content:
-          "Error: credential references are not available in untrusted shell mode. " +
-          "Use the credential grant workflow to request access through a guardian.",
-        isError: true,
-      };
     }
 
     // Resolve credential refs (UUID or service/field) to canonical UUIDs.
@@ -261,10 +238,7 @@ export const shellTool = {
     }
 
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
-    const requestedSec =
-      typeof input.timeout_seconds === "number"
-        ? input.timeout_seconds
-        : shellDefaultTimeoutSec;
+    const requestedSec = parsed.data.timeout_seconds ?? shellDefaultTimeoutSec;
     const timeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
     const timeoutMs = timeoutSec * 1000;
 
@@ -311,6 +285,8 @@ export const shellTool = {
 
     const env = buildSanitizedEnv();
     env.__CONVERSATION_ID = context.conversationId;
+    // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+    env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
     // Surface the resolving model to assistant CLI commands so they can tailor
     // remediation guidance for weak open models (see isWeakOpenModel).
     if (context.attribution?.resolvedModel) {
@@ -318,12 +294,6 @@ export const shellTool = {
     }
     if (proxyEnv) {
       Object.assign(env, proxyEnv);
-    }
-
-    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands can self-deny
-    // raw-token/secret reveal flows when invoked from an untrusted shell.
-    if (shellLockdownActive) {
-      env.VELLUM_UNTRUSTED_SHELL = "1";
     }
 
     const wrapped = { command: "bash", args: ["-c", "--", command] };
@@ -346,6 +316,7 @@ export const shellTool = {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
+      let aborted = false;
       const startedAt = Date.now();
 
       const child = spawn(wrapped.command, wrapped.args, {
@@ -382,7 +353,9 @@ export const shellTool = {
       let completed = false;
 
       child.on("close", (code, signal) => {
-        if (completed) return;
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
@@ -409,24 +382,72 @@ export const shellTool = {
           timeoutSec,
         );
 
-        const framing = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
+        const status: BackgroundToolCompletedEvent["status"] = aborted
+          ? "cancelled"
+          : timedOut
+            ? "failed"
+            : code === 0
+              ? "completed"
+              : "failed";
+        // A cancelled command exits with a null code, which formatShellOutput
+        // frames as "failed"; surface the cancellation instead.
+        const output =
+          status === "cancelled"
+            ? `Background command cancelled (id=${bgId}).`
+            : fmtResult.content;
+        const completedAt = Date.now();
+        const completion: CompletedBackgroundTool = {
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status,
+          exitCode: code ?? null,
+          output,
+          completedAt,
+        };
+
+        // Wake AFTER the terminal status is known so a user-cancelled run wakes
+        // the assistant with the cancellation — not the SIGKILL-framed "completed"
+        // output — matching the recorded/broadcast status and the inline card.
+        const framing =
+          status === "cancelled"
+            ? `Background command cancelled (id=${bgId}):`
+            : `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
           untrustedOutput: {
-            content: fmtResult.content,
+            content: output,
             source: "tool_result",
             // Already bounded + recovery-marked by formatShellOutput; a larger
             // budget keeps wrapUntrustedContent from re-truncating the marker.
             maxChars: MAX_OUTPUT_LENGTH * 2,
           },
         });
+        recordCompletedBackgroundTool(completion);
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status,
+            exitCode: code ?? null,
+            output,
+            completedAt,
+          },
+          context.conversationId,
+        );
       });
 
       child.on("error", (err) => {
-        if (completed) return;
+        if (completed) {
+          return;
+        }
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
@@ -444,12 +465,40 @@ export const shellTool = {
           spawnError: err.message,
         });
 
+        const framing = `Background command failed (id=${bgId}): ${err.message}`;
+        const completedAt = Date.now();
+        const completion: CompletedBackgroundTool = {
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          status: "failed",
+          exitCode: null,
+          output: framing,
+          completedAt,
+        };
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint: `Background command failed (id=${bgId}): ${err.message}`,
+          hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
+          backgroundToolCompletion: completion,
         });
+
+        recordCompletedBackgroundTool(completion);
+        broadcastMessage(
+          {
+            type: "background_tool_completed",
+            id: bgId,
+            conversationId: context.conversationId,
+            status: "failed",
+            exitCode: null,
+            output: framing,
+            completedAt,
+          },
+          context.conversationId,
+        );
       });
 
       registerBackgroundTool({
@@ -458,8 +507,23 @@ export const shellTool = {
         conversationId: context.conversationId,
         command,
         startedAt,
-        cancel: () => killTree("abort"),
+        cancel: () => {
+          aborted = true;
+          killTree("abort");
+        },
       });
+
+      broadcastMessage(
+        {
+          type: "background_tool_started",
+          id: bgId,
+          toolName: "bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+        },
+        context.conversationId,
+      );
 
       return {
         content: JSON.stringify({ backgrounded: true, id: bgId }),
@@ -668,5 +732,3 @@ function buildKillTree(
     }
   };
 }
-
-registerTool(shellTool);

@@ -4,10 +4,10 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateScheduleDescription } from "../memory/migrations/270-schedule-description.js";
-import { migrateScheduleSourceConversation } from "../memory/migrations/270-schedule-source-conversation.js";
-import * as schema from "../memory/schema.js";
-import { scheduleJobs } from "../memory/schema.js";
+import { migrateScheduleDescription } from "../persistence/migrations/270-schedule-description.js";
+import { migrateScheduleSourceConversation } from "../persistence/migrations/270-schedule-source-conversation.js";
+import * as schema from "../persistence/schema/index.js";
+import { scheduleJobs } from "../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -54,6 +54,7 @@ describe("schedule_syntax column migration", () => {
         workflow_args_json TEXT,
         timeout_ms INTEGER,
         inference_profile TEXT,
+        group_id TEXT,
         capabilities_json TEXT,
         description TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import { getConfig } from "../config/loader.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let lastGeminiConstructorOpts: Record<string, unknown> | null = null;
@@ -21,31 +21,6 @@ const MANAGED_PROVIDERS = [
 ] as const;
 
 let platformBaseUrlOverride: string | undefined;
-
-const baseLlm = LLMSchema.parse({});
-
-const mockConfig = {
-  services: {
-    inference: {},
-    "image-generation": {
-      mode: "your-own" as const,
-      provider: "gemini",
-      model: "gemini-3.1-flash-image-preview",
-    },
-    "web-search": {
-      mode: "your-own" as const,
-      provider: "inference-provider-native",
-    },
-  },
-  llm: {
-    ...baseLlm,
-    default: {
-      ...baseLlm.default,
-      provider: "anthropic" as const,
-      model: "test-model",
-    },
-  },
-};
 
 mock.module("@google/genai", () => ({
   GoogleGenAI: class MockGoogleGenAI {
@@ -77,7 +52,7 @@ mock.module("../config/env.js", () => ({
   },
 }));
 
-mock.module("../config/loader.js", () => ({
+mock.module("../providers/provider-secret-catalog.js", () => ({
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",
@@ -85,8 +60,6 @@ mock.module("../config/loader.js", () => ({
     "fireworks",
     "openrouter",
   ],
-  getConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../security/secure-keys.js", () => ({
@@ -115,18 +88,19 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // `handleAddSecret` fires this detached when a managed-proxy credential lands —
 // a v2-memory side effect outside this suite's provider-registry scope. Stub it
-// to a no-op; its behavior is covered by memory-v2-startup.test.ts.
-mock.module("../daemon/memory-v2-startup.js", () => ({
+// to a no-op; its behavior is covered by boot-maintenance.test.ts.
+mock.module("../plugins/defaults/memory/substrate/boot-maintenance.js", () => ({
   maybeReseedCapabilitiesAfterManagedCredential: async () => {},
+}));
+
+// secret-routes evicts conversations after a credential change so the next turn
+// rebuilds against the new providers; count the calls to assert that happens.
+mock.module("../daemon/conversation-store.js", () => ({
+  evictConversationsForReload: () => {
+    providerRefreshCalls++;
+  },
 }));
 
 import {
@@ -135,7 +109,6 @@ import {
   listProviders,
 } from "../providers/registry.js";
 import { ROUTES } from "../runtime/routes/secret-routes.js";
-import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 
 const addRoute = ROUTES.find(
   (r) => r.method === "POST" && r.endpoint === "secrets",
@@ -177,13 +150,7 @@ describe("secret routes managed proxy registry sync", () => {
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
-    registerSecretsDeps({
-      getCesClient: () => undefined,
-      onProviderCredentialsChanged: () => {
-        providerRefreshCalls++;
-      },
-    });
-    await initializeProviders(mockConfig);
+    await initializeProviders(getConfig());
   });
 
   test("adding vellum:assistant_api_key bootstraps managed fallback providers immediately", async () => {
@@ -224,7 +191,7 @@ describe("secret routes managed proxy registry sync", () => {
 
   test("deleting vellum:assistant_api_key clears managed fallback providers immediately", async () => {
     secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
-    await initializeProviders(mockConfig);
+    await initializeProviders(getConfig());
 
     for (const provider of MANAGED_PROVIDERS) {
       expect(listProviders()).toContain(provider);

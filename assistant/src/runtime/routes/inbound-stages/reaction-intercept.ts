@@ -10,32 +10,37 @@
  *   - a stranger's reaction creates no conversation, binding, or transcript
  *     row — it is dropped as channel noise,
  *   - a known contact's reaction is recorded as an inline transcript signal,
- *   - a guardian's reaction on an approval card is routed through the canonical
- *     guardian decision pipeline (the same path as buttons and text replies).
+ *   - a guardian's reaction on an approval card is routed through the guardian
+ *     decision pipeline (the same path as buttons and text replies).
  *
- * Reactions never drive an agent turn.
+ * The reactor's trust is read solely from the gateway-stamped verdict on
+ * `sourceMetadata`; a missing/failed/contradictory verdict fails closed to
+ * `unknown` (drop). Reactions never drive an agent turn.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
-import { addMessage } from "../../../memory/conversation-crud.js";
-import {
-  clearPayload,
-  linkMessage,
-  recordInbound,
-} from "../../../memory/delivery-crud.js";
-import { markProcessed } from "../../../memory/delivery-status.js";
-import { upsertBinding } from "../../../memory/external-conversation-store.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import { addMessage } from "../../../persistence/conversation-crud.js";
+import {
+  clearPayload,
+  linkMessage,
+  recordInbound,
+} from "../../../persistence/delivery-crud.js";
+import { markProcessed } from "../../../persistence/delivery-status.js";
+import { upsertBinding } from "../../../persistence/external-conversation-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
-import { resolveTrustContext } from "../../trust-context-resolver.js";
+import {
+  actorTrustContextFromVerdict,
+  verdictUsability,
+} from "../../trust-verdict-consumer.js";
 import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
 const log = getLogger("runtime-http");
@@ -53,9 +58,13 @@ export function isSlackReactionEvent(body: {
   sourceChannel?: string;
   callbackData?: string;
 }): boolean {
-  if (body.sourceChannel !== "slack") return false;
+  if (body.sourceChannel !== "slack") {
+    return false;
+  }
   const cb = body.callbackData;
-  if (typeof cb !== "string") return false;
+  if (typeof cb !== "string") {
+    return false;
+  }
   return cb.startsWith("reaction:") || cb.startsWith("reaction_removed:");
 }
 
@@ -78,7 +87,9 @@ export function parseSlackReactionCallbackData(
   } else {
     return null;
   }
-  if (emoji.length === 0) return null;
+  if (emoji.length === 0) {
+    return null;
+  }
   return { op, emoji };
 }
 
@@ -126,22 +137,26 @@ export async function handleSlackReactionIntercept(
     approvalConversationGenerator,
   } = params;
 
-  // Classify the reactor. No timezone enrichment — reactions never drive an
-  // agent turn, so only the trust class / guardian principal matter.
-  const trustCtx = resolveTrustContext({
-    assistantId: canonicalAssistantId,
-    sourceChannel,
-    conversationExternalId,
-    actorExternalId: rawSenderId,
-    actorUsername,
-    actorDisplayName,
-  });
+  // Classify the reactor from the gateway-stamped verdict — the same source
+  // acl-enforcement reads, gated by the same shared usability predicate. No
+  // local resolver, cache warm, or IPC reads; only the trust class / guardian
+  // principal matter for a reaction. An unusable verdict fails closed: the
+  // caller treats `null` as `unknown` and drops.
+  const usability = verdictUsability(sourceMetadata?.trustVerdict);
+  const trustCtx = usability.usable
+    ? actorTrustContextFromVerdict(usability.verdict, {
+        sourceChannel,
+        conversationExternalId,
+        actorUsername,
+        actorDisplayName,
+      })
+    : null;
 
-  // Drop strangers before any write. `unknown` covers no contact record and
-  // blocked/revoked contacts — a reaction from them is channel noise. Dropping
-  // here (before recordInbound/upsertBinding) means no empty conversation or
-  // binding is created on their behalf.
-  if (trustCtx.trustClass === "unknown") {
+  // Drop strangers before any write. `unknown` covers no contact record,
+  // blocked/revoked contacts, and missing/failed verdicts — a reaction from
+  // them is channel noise. Dropping here (before recordInbound/upsertBinding)
+  // means no empty conversation or binding is created on their behalf.
+  if (!trustCtx || trustCtx.trustClass === "unknown") {
     log.debug(
       { sourceChannel, conversationExternalId },
       "Dropping reaction from unknown actor",
@@ -179,7 +194,7 @@ export async function handleSlackReactionIntercept(
     sourceChannel,
     sourceInterface,
     trustContext: {
-      sourceChannel: trustCtx.sourceChannel,
+      sourceChannel,
       trustClass: trustCtx.trustClass,
     },
   });
@@ -217,7 +232,7 @@ export async function handleSlackReactionIntercept(
     });
   }
 
-  // Guardian approval-by-reaction → canonical decision pipeline, exactly like
+  // Guardian approval-by-reaction → guardian decision pipeline, exactly like
   // buttons and text replies. Only `reaction:` (added) expresses intent;
   // `reaction_removed:` never does. `handleGuardianReplyIntercept` self-gates
   // on `trustClass === "guardian"`, so a contact's reaction returns no response
@@ -309,7 +324,9 @@ async function persistSlackReactionAsMessage(params: {
   reactedMessageTs: string;
   duplicate: boolean;
 }): Promise<void> {
-  if (params.duplicate) return;
+  if (params.duplicate) {
+    return;
+  }
 
   const parsed = parseSlackReactionCallbackData(params.callbackData);
   if (!parsed) {

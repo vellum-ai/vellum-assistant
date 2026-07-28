@@ -8,9 +8,20 @@ import {
 } from "@/lib/local-mode";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
+import { clearResearchSnapshot } from "@/domains/onboarding/research-onboarding-persistence";
+import { removeLocalSetting } from "@/utils/local-settings";
+import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
+
+/**
+ * localStorage key the platform marketing site (`web/src/lib/hooks/
+ * use-navbar-auth.ts`, `ASSISTANT_NAME_CACHE_KEY`) uses to cache the assistant
+ * name for its nav/CTA. Same-origin on the assistant host, so retire clears it
+ * here — the two sides must agree on this string.
+ */
+const MARKETING_ASSISTANT_NAME_CACHE_KEY = "vellum_assistant_name";
 
 /**
  * Outcome of a retire attempt. On success carries the route the caller should
@@ -93,6 +104,17 @@ export async function retireAssistant(
     }
 
     useResolvedAssistantsStore.getState().remove(assistantId);
+    // Retiring ends any in-flight onboarding journey with it: drop the
+    // research-onboarding resume snapshot so the next onboarding starts at the
+    // form instead of resuming the retired assistant's run deep in the flow
+    // (e.g. straight onto the wake gate).
+    clearResearchSnapshot(useAuthStore.getState().user?.id ?? null);
+    // Drop the marketing nav's cached assistant name (same-origin localStorage,
+    // written by the platform's `useNavbarAuth`). Otherwise the marketing site
+    // keeps optimistically showing "My Assistant" after a retire until its own
+    // list fetch resolves — and the plugin install button mistakes the stale
+    // name for an existing assistant.
+    removeLocalSetting(MARKETING_ASSISTANT_NAME_CACHE_KEY);
     return { ok: true, nextRoute: getPostRetireRoute() };
   } catch {
     return { ok: false, error: "Failed to retire assistant." };

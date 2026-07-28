@@ -14,7 +14,11 @@
  * logged but never surface to callers.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
+import { parseIdentityFields } from "../daemon/handlers/identity.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 import { VellumPlatformClient } from "./client.js";
 
 const log = getLogger("sync-identity");
@@ -56,6 +60,26 @@ export function syncIdentityNameToPlatform(name: string): void {
     .catch(() => {
       // swallowed — doSync already logs internally
     });
+}
+
+/**
+ * Read the workspace IDENTITY.md and best-effort sync the assistant name to
+ * the platform record. Called once at daemon startup; later edits are picked
+ * up by the config watcher's IDENTITY.md change reaction.
+ */
+export function syncWorkspaceIdentityToPlatform(): void {
+  try {
+    const identityPath = getWorkspacePromptPath("IDENTITY.md");
+    const content = existsSync(identityPath)
+      ? readFileSync(identityPath, "utf-8")
+      : "";
+    const fields = parseIdentityFields(content);
+    if (fields.name) {
+      syncIdentityNameToPlatform(fields.name);
+    }
+  } catch (err) {
+    log.error({ err }, "Failed to sync identity to platform at startup");
+  }
 }
 
 async function doSync(name: string, requestSeq: number): Promise<void> {

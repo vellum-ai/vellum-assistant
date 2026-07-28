@@ -17,6 +17,15 @@ import type {
 const GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
 
 /**
+ * Mailbox-scoped Gmail API base URL. Gmail request paths in this module are
+ * relative to the authenticated user's mailbox (e.g. `/messages`, `/profile`),
+ * so they are joined onto this base rather than the google provider's generic
+ * host-only default (`https://www.googleapis.com`).
+ */
+export const GMAIL_API_BASE_URL =
+  "https://gmail.googleapis.com/gmail/v1/users/me";
+
+/**
  * Minimum Google OAuth scope a connection must carry for Gmail read access.
  *
  * The managed `google` OAuth app bundles Gmail + Calendar + Drive, but a
@@ -161,6 +170,7 @@ async function request<T>(
       resp = await connection.request({
         method,
         path,
+        baseUrl: GMAIL_API_BASE_URL,
         query,
         headers: {
           "Content-Type": "application/json",

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
+import { setConfig } from "./helpers/set-config.js";
 
 let mockSecureKeys: Record<string, string>;
-let mockRawConfig: Record<string, unknown>;
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
@@ -15,28 +15,6 @@ mock.module("../security/secure-keys.js", () => ({
     delete mockSecureKeys[key];
     return true;
   },
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => mockRawConfig,
-  getConfig: () => ({ email: { enabled: false } }),
-  getNestedValue: (obj: Record<string, unknown>, path: string) => {
-    const keys = path.split(".");
-    let current: unknown = obj;
-    for (const key of keys) {
-      if (current == null || typeof current !== "object") return undefined;
-      current = (current as Record<string, unknown>)[key];
-    }
-    return current;
-  },
-}));
-
-mock.module("../config/env-registry.js", () => ({
-  getIsPlatform: () => false,
-}));
-
-mock.module("../channels/config.js", () => ({
-  getChannelInvitePolicy: () => ({ codeRedemptionEnabled: false }),
 }));
 
 mock.module("../calls/twilio-rest.js", () => ({
@@ -56,20 +34,28 @@ let fetchCalls: Array<{ url: string; init?: RequestInit }>;
 let fetchHandler: (
   url: string,
   init?: RequestInit,
-) => { ok: boolean; body: unknown };
+) => { ok: boolean; body: unknown; scopes?: string };
 
 beforeEach(() => {
   mockSecureKeys = {};
-  mockRawConfig = {};
+  // Reset the seeded slack section to its empty (all-defaults) state.
+  setConfig("slack", {});
   fetchCalls = [];
   fetchHandler = () => ({ ok: true, body: { ok: true } });
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     fetchCalls.push({ url, init });
-    const { ok, body } = fetchHandler(url, init);
+    const { ok, body, scopes } = fetchHandler(url, init);
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    // Slack stamps the granted scopes on every Web API response.
+    if (scopes !== undefined) {
+      headers["x-oauth-scopes"] = scopes;
+    }
     return new Response(JSON.stringify(body), {
       status: ok ? 200 : 500,
-      headers: { "content-type": "application/json" },
+      headers,
     });
   }) as typeof globalThis.fetch;
 });
@@ -99,7 +85,7 @@ describe("slack remote probe (auth.test)", () => {
 
   test("passes when Slack auth.test returns ok and workspaces match", async () => {
     mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
-    mockRawConfig = { slack: { teamId: "T123" } };
+    setConfig("slack", { teamId: "T123" });
     fetchHandler = () => ({
       ok: true,
       body: { ok: true, team_id: "T123", team: "acme", user: "apollobot" },
@@ -138,7 +124,7 @@ describe("slack remote probe (auth.test)", () => {
 
   test("flags workspace mismatch between stored config and live token", async () => {
     mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
-    mockRawConfig = { slack: { teamId: "T_old" } };
+    setConfig("slack", { teamId: "T_old" });
     fetchHandler = () => ({
       ok: true,
       body: { ok: true, team_id: "T_new", team: "newco", user: "apollobot" },
@@ -166,5 +152,146 @@ describe("slack remote probe (auth.test)", () => {
     )!;
     expect(authTest.passed).toBe(false);
     expect(authTest.message).toMatch(/ECONNREFUSED/);
+  });
+});
+
+/**
+ * Slack can install an app with a fraction of the manifest's scopes while
+ * auth.test still succeeds — a live install produced 2 of 18, and the first
+ * real API call failed with missing_scope. auth.test passing is therefore not
+ * evidence the install is usable.
+ */
+describe("slack auth.test response validation", () => {
+  test("reports an unexpected shape instead of trusting the field types", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    // `ok` as a string slips past a cast and makes `!data.ok` decide on a
+    // truthy string rather than a boolean.
+    fetchHandler = () => ({ ok: true, body: { ok: "yes" } });
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const authTest = snapshot.remoteChecks!.find(
+      (c) => c.name === "auth_test",
+    )!;
+
+    expect(authTest.passed).toBe(false);
+    expect(authTest.message).toMatch(/unexpected response shape/i);
+  });
+
+  test("tolerates unknown fields Slack adds over time", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    fetchHandler = () => ({
+      ok: true,
+      body: { ok: true, team: "acme", user: "bot", some_new_field: 42 },
+    });
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const authTest = snapshot.remoteChecks!.find(
+      (c) => c.name === "auth_test",
+    )!;
+
+    expect(authTest.passed).toBe(true);
+  });
+});
+
+describe("slack scope-grant check", () => {
+  const ALL_REQUIRED = [
+    "app_mentions:read",
+    "assistant:write",
+    "channels:history",
+    "channels:read",
+    "chat:write",
+    "groups:history",
+    "groups:read",
+    "im:history",
+    "im:read",
+    "im:write",
+    "mpim:history",
+    "mpim:read",
+    "users:read",
+  ];
+
+  function okWithScopes(scopes: string) {
+    return () => ({
+      ok: true,
+      body: { ok: true, team_id: "T123", team: "acme", user: "apollobot" },
+      scopes,
+    });
+  }
+
+  test("passes when every required scope was granted", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    fetchHandler = okWithScopes(ALL_REQUIRED.join(","));
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const scopeCheck = snapshot.remoteChecks!.find(
+      (c) => c.name === "scopes_granted",
+    )!;
+
+    expect(scopeCheck.passed).toBe(true);
+  });
+
+  test("ignores declinable scopes the workspace opted out of", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    // No files:read / reactions:* / channels:join — all marked optional in the
+    // manifest, so declining them is a choice, not a fault.
+    fetchHandler = okWithScopes(ALL_REQUIRED.join(","));
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const scopeCheck = snapshot.remoteChecks!.find(
+      (c) => c.name === "scopes_granted",
+    )!;
+
+    expect(scopeCheck.passed).toBe(true);
+  });
+
+  test("catches the silent drop that auth.test reports as healthy", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    // The live symptom: token came back with a couple of scopes.
+    fetchHandler = okWithScopes("channels:history,chat:write");
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const authTest = snapshot.remoteChecks!.find(
+      (c) => c.name === "auth_test",
+    )!;
+    const scopeCheck = snapshot.remoteChecks!.find(
+      (c) => c.name === "scopes_granted",
+    )!;
+
+    // auth.test is happy — that is exactly why this check has to exist.
+    expect(authTest.passed).toBe(true);
+    expect(scopeCheck.passed).toBe(false);
+    expect(scopeCheck.message).toContain("assistant:write");
+    expect(scopeCheck.message).not.toContain("chat:write,");
+    // Recovery order matters: the update prompt gates the reinstall.
+    expect(scopeCheck.message).toMatch(/update prompt/i);
+    expect(scopeCheck.message).toMatch(/Reinstall to Workspace/i);
+  });
+
+  test("stays passing when Slack sends no scope header", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    fetchHandler = () => ({
+      ok: true,
+      body: { ok: true, team_id: "T123", team: "acme", user: "apollobot" },
+    });
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const scopeCheck = snapshot.remoteChecks!.find(
+      (c) => c.name === "scopes_granted",
+    )!;
+
+    expect(scopeCheck.passed).toBe(true);
+    expect(scopeCheck.message).toMatch(/skipped/i);
+  });
+
+  test("tolerates whitespace in the comma-separated header", async () => {
+    mockSecureKeys[credentialKey("slack_channel", "bot_token")] = "xoxb-fake";
+    fetchHandler = okWithScopes(` ${ALL_REQUIRED.join(" , ")} ,, `);
+
+    const [snapshot] = await runSlackRemoteProbe();
+    const scopeCheck = snapshot.remoteChecks!.find(
+      (c) => c.name === "scopes_granted",
+    )!;
+
+    expect(scopeCheck.passed).toBe(true);
   });
 });

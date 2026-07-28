@@ -4,6 +4,7 @@ import {
   formatAssistantLookupError,
   lookupAssistantByIdentifier,
 } from "../lib/assistant-config.js";
+import { crossEnvironmentAssistantHint } from "../lib/environments/detect.js";
 
 type FeatureFlagEntry = {
   key: string;
@@ -92,13 +93,13 @@ function printHelp(): void {
     "  $ vellum flags                                              # list flags for active assistant",
   );
   console.log(
-    "  $ vellum flags get voice-mode                                 # inspect one flag",
+    "  $ vellum flags get browser                                     # inspect one flag",
   );
   console.log(
-    "  $ vellum flags set voice-mode true                           # enable a flag",
+    "  $ vellum flags set browser true                               # enable a flag",
   );
   console.log(
-    "  $ vellum flags set external-plugins true --assistant eval-1  # target by name/id",
+    "  $ vellum flags set browser true     --assistant eval-1       # target by name/id",
   );
 }
 
@@ -132,7 +133,9 @@ function rethrowFetchError(err: unknown): never {
     (err.message.includes("fetch") || err.message.includes("connect"))
   ) {
     throw new Error(
-      "Could not reach the assistant gateway. Is it running? Try 'vellum wake'.",
+      `Could not reach the assistant gateway. Is it running? Try 'vellum wake'.${
+        crossEnvironmentAssistantHint() ?? ""
+      }`,
     );
   }
   throw err;

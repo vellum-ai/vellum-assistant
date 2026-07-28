@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  normalizeSlackReactionAdded,
-  type SlackReactionAddedEvent,
-} from "../slack/normalize.js";
+import { normalizeSlackReactionAdded } from "../slack/reaction-normalizer.js";
+import type { SlackReactionEvent } from "../slack/message-schemas.js";
 import type { GatewayConfig } from "../config.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -33,8 +31,8 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 function makeReactionEvent(
-  overrides?: Partial<SlackReactionAddedEvent>,
-): SlackReactionAddedEvent {
+  overrides?: Partial<SlackReactionEvent>,
+): SlackReactionEvent {
   return {
     type: "reaction_added",
     user: "U001",

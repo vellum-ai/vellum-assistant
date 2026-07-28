@@ -12,8 +12,9 @@
  * Population:
  *  - Local mode: assistant list auto-syncs with the lockfile store via
  *    subscription, so every hatch / sync / retire is reflected.
- *  - Platform mode: populated from the `listAssistants` API during
- *    `initSession` in the auth store.
+ *  - Platform mode: populated from the `listAssistants` API by
+ *    `reloadPlatformAssistants` (assistant/platform-assistants-sync.ts),
+ *    which runs whenever the platform session becomes present.
  *
  * Do NOT confuse with `lockfile-store.ts`, which is the raw on-disk
  * lockfile cache used internally by `lib/local-mode.ts` for host IPC.
@@ -91,6 +92,12 @@ interface ResolvedAssistantsState {
 interface ResolvedAssistantsActions {
   setFromLockfile: (lockfile: Lockfile) => void;
   setFromApi: (assistants: Assistant[]) => void;
+  /**
+   * Mark the list hydrated without replacing it. For load paths that settle
+   * with no authoritative data (a failed platform assistants fetch), so guards
+   * awaiting hydration don't wait forever on a list that isn't coming.
+   */
+  markHydrated: () => void;
   upsertFromApi: (assistant: Assistant) => void;
   remove: (assistantId: string) => void;
   clear: () => void;
@@ -160,6 +167,8 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           };
         }),
       }),
+
+    markHydrated: () => set({ assistantsHydrated: true }),
 
     upsertFromApi: (assistant) =>
       set((state) => {

@@ -50,6 +50,12 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
     return null;
   }
 
+  if (provider === "vellum") {
+    return (await sttProviderKeyResolves("vellum"))
+      ? createDaemonBatchTranscriber(null, "vellum")
+      : null;
+  }
+
   const apiKey = await getProviderKeyAsync(credentialProviderName);
   return createDaemonBatchTranscriber(apiKey, provider as SttProviderId);
 }
@@ -124,13 +130,12 @@ export async function resolveTelephonySttCapability(): Promise<TelephonySttCapab
   }
 
   // Provider is telephony-eligible — verify credentials exist.
-  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
-  if (!apiKey) {
+  if (!(await sttProviderKeyResolves(entry.credentialProvider))) {
     return {
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -214,13 +219,12 @@ export async function resolveConversationStreamingSttCapability(): Promise<Conve
   }
 
   // Provider is streaming-eligible — verify credentials exist.
-  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
-  if (!apiKey) {
+  if (!(await sttProviderKeyResolves(entry.credentialProvider))) {
     return {
       status: "missing-credentials",
       providerId: entry.id,
       credentialProvider: entry.credentialProvider,
-      reason: `No API key configured for credential provider "${entry.credentialProvider}"`,
+      reason: sttCredentialGapReason(entry.credentialProvider),
     };
   }
 
@@ -255,55 +259,96 @@ export interface ResolveStreamingTranscriberOptions {
   /** Audio sample rate in Hz from the client WebSocket connection. */
   sampleRate?: number;
   /**
+   * Provider to resolve a transcriber for. Defaults to
+   * `services.stt.provider`. Callers that derive the provider themselves
+   * (e.g. live voice, which runs on the managed-speech effective provider)
+   * pass it here so the resolved transcriber matches the provider their own
+   * readiness check approved.
+   */
+  providerId?: SttProviderId;
+  /**
    * Speaker diarization preference. Default: `"off"`.
    *
    * See {@link DiarizePreference} for semantics.
    */
   diarize?: DiarizePreference;
+  /**
+   * Emit `final` events only at utterance boundaries. Supported only by
+   * providers whose catalog `telephonyMode` is `"realtime-ws"` (Deepgram,
+   * where it also enables `utterance_end_ms` endpointing). All other
+   * providers resolve to `null` so the caller falls back to per-turn
+   * batch transcription — e.g. openai-whisper fires `final` only from
+   * `stop()` (end-of-stream, not end-of-utterance) and xAI emits a
+   * `final` per committed segment. Used by telephony call ingestion.
+   * Default: false.
+   */
+  utteranceBoundaryFinals?: boolean;
+  /**
+   * Silence window (ms) the provider waits before finalizing an utterance
+   * when `utteranceBoundaryFinals` is enabled (Deepgram `utterance_end_ms`).
+   * Ignored without `utteranceBoundaryFinals`. Default: 1000.
+   */
+  utteranceEndMs?: number;
 }
 
 /**
  * Resolve a `StreamingTranscriber` for daemon-hosted streaming transcription.
  *
- * Reads `services.stt.provider` from the assistant config to determine which
- * STT provider to use, verifies it supports the `daemon-streaming` boundary,
- * and constructs the appropriate streaming adapter. Credential lookup is
- * centralized here (an authorized secure-keys importer) so callers don't
- * need to import secure-keys directly.
+ * Uses `options.providerId`, falling back to `services.stt.provider` from the
+ * assistant config, verifies the provider supports the `daemon-streaming`
+ * boundary, and constructs the appropriate streaming adapter. Credential
+ * lookup is centralized here (an authorized secure-keys importer) so callers
+ * don't need to import secure-keys directly.
  *
  * Returns `null` when:
- * - The configured provider is not in the catalog.
- * - The configured provider doesn't support the `daemon-streaming` boundary.
+ * - The resolved provider is not in the catalog.
+ * - The resolved provider doesn't support the `daemon-streaming` boundary.
  * - No credentials are configured for the resolved provider.
- * - No streaming adapter exists for the configured provider.
- * - `diarize` is `"required"` but the configured provider cannot diarize.
+ * - No streaming adapter exists for the resolved provider.
+ * - `diarize` is `"required"` but the resolved provider cannot diarize.
+ * - `utteranceBoundaryFinals` is set but the resolved provider's catalog
+ *   `telephonyMode` is not `"realtime-ws"`.
  */
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
-  const config = getConfig();
-  const provider = config.services.stt.provider;
+  const provider =
+    options.providerId ?? (getConfig().services.stt.provider as SttProviderId);
   const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
-  const credentialProviderName = getCredentialProvider(
-    provider as SttProviderId,
-  );
+  const credentialProviderName = getCredentialProvider(provider);
   if (!credentialProviderName) {
     return null;
   }
 
   // Verify the provider supports the daemon-streaming boundary.
-  if (!supportsBoundary(provider as SttProviderId, "daemon-streaming")) {
+  if (!supportsBoundary(provider, "daemon-streaming")) {
     return null;
+  }
+
+  // Boundary-requiring callers (telephony) can only stream on providers
+  // whose catalog telephonyMode is "realtime-ws" (Deepgram gates finals on
+  // utterance boundaries). Everything else fires `final` either only from
+  // stop() — end-of-stream, not end-of-utterance (openai-whisper) — or per
+  // committed segment (xAI), so streaming would yield no replies until
+  // hangup, or mid-sentence replies. Resolve to null so the caller falls
+  // back to per-turn batch transcription.
+  if (options.utteranceBoundaryFinals) {
+    const telephonyMode = getProviderEntry(provider)?.telephonyMode;
+    if (telephonyMode !== "realtime-ws") {
+      log.warn(
+        { providerId: provider, telephonyMode },
+        "utterance-boundary finals requested but the configured STT provider has no realtime telephony streaming — falling back to batch transcription",
+      );
+      return null;
+    }
   }
 
   // Resolve diarization capability against the catalog. For `"required"`
   // callers, bail early (with a warning) when the configured provider can't
   // diarize so the caller can surface a clear error to the user.
-  const providerSupportsDiarization = supportsDiarization(
-    provider as SttProviderId,
-  );
+  const providerSupportsDiarization = supportsDiarization(provider);
   if (diarizePreference === "required" && !providerSupportsDiarization) {
     log.warn(
       { providerId: provider },
@@ -315,16 +360,35 @@ export async function resolveStreamingTranscriber(
     (diarizePreference === "preferred" || diarizePreference === "required") &&
     providerSupportsDiarization;
 
-  const apiKey = await getProviderKeyAsync(credentialProviderName);
-  if (!apiKey) {
+  const apiKey =
+    provider === "vellum"
+      ? null
+      : await getProviderKeyAsync(credentialProviderName);
+  if (provider === "vellum") {
+    if (!(await sttProviderKeyResolves("vellum"))) {
+      return null;
+    }
+  } else if (!apiKey) {
     return null;
   }
 
-  return createStreamingTranscriber(apiKey, provider as SttProviderId, {
+  return createStreamingTranscriber(apiKey ?? "", provider, {
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
+    utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
+    utteranceEndMs: options.utteranceEndMs,
   });
 }
+
+/**
+ * Default Deepgram `utterance_end_ms` used when utterance-boundary finals
+ * are requested and the caller supplies no override. This is the pause
+ * length after which an `UtteranceEnd` frame confirms the utterance is
+ * complete even when `speech_final` endpointing never fired (e.g.
+ * background noise). Telephony callers override it via
+ * `calls.voice.utteranceEndMs`.
+ */
+const UTTERANCE_BOUNDARY_END_MS = 1_000;
 
 /**
  * Options forwarded to individual streaming adapter constructors.
@@ -338,6 +402,19 @@ interface CreateStreamingTranscriberOptions {
    * support.
    */
   diarize?: boolean;
+  /**
+   * Whether `final` events should be gated on utterance boundaries.
+   * Only forwarded to Deepgram; the resolver never sets this for
+   * providers without realtime telephony streaming (they resolve to
+   * `null` instead).
+   */
+  utteranceBoundaryFinals?: boolean;
+  /**
+   * Silence window (ms) before an utterance is finalized. Only forwarded
+   * to Deepgram (as `utterance_end_ms`) when `utteranceBoundaryFinals`
+   * is set. Defaults to {@link UTTERANCE_BOUNDARY_END_MS}.
+   */
+  utteranceEndMs?: number;
 }
 
 /**
@@ -361,6 +438,13 @@ async function createStreamingTranscriber(
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
         ...(options.diarize ? { diarize: true } : {}),
+        ...(options.utteranceBoundaryFinals
+          ? {
+              utteranceBoundaryFinals: true,
+              utteranceEndMs:
+                options.utteranceEndMs ?? UTTERANCE_BOUNDARY_END_MS,
+            }
+          : {}),
       });
     }
     case "google-gemini": {
@@ -388,9 +472,70 @@ async function createStreamingTranscriber(
         ...(options.diarize ? { diarize: true } : {}),
       });
     }
+    case "vellum": {
+      // Managed speech dials the GATEWAY's speech relay (velay contact is
+      // gateway-only); the apiKey argument is unused. Diarization is
+      // unsupported (not in the relay's param allowlist) and silently
+      // ignored, matching Gemini/Whisper — as is utteranceEndMs (the relay
+      // allowlist has no utterance_end_ms; boundary finals ride on
+      // endpointing alone).
+      // The gateway is the credential authority, but the platform
+      // connection (API key + assistant ID) is checkable locally — gate
+      // here so preflight reports "connect your account" instead of
+      // resolving a transcriber whose dial is doomed.
+      const { vellumManagedSpeechAvailable } =
+        await import("./vellum-managed.js");
+      if (!(await vellumManagedSpeechAvailable())) {
+        return null;
+      }
+      const { resolveSpeechRelayConnection } =
+        await import("./vellum-speech-relay-connection.js");
+      const connection = await resolveSpeechRelayConnection();
+      if (!connection) {
+        return null;
+      }
+      const { VellumManagedRealtimeTranscriber } =
+        await import("./vellum-managed-realtime.js");
+      return new VellumManagedRealtimeTranscriber(connection, {
+        sampleRate: options.sampleRate,
+        ...(options.utteranceBoundaryFinals
+          ? { utteranceBoundaryFinals: true }
+          : {}),
+      });
+    }
     default: {
       const _exhaustive: never = providerId;
       return null;
     }
   }
+}
+
+/**
+ * True when an API key resolves for the given credential provider name.
+ *
+ * Centralized here (an authorized secure-keys importer) so callers that only
+ * need a key-existence check don't import secure-keys directly.
+ */
+/**
+ * Human-readable reason for a credential gap, aware that connection-based
+ * providers (vellum) are fixed by connecting the platform account, not by
+ * entering an API key.
+ */
+export function sttCredentialGapReason(credentialProviderName: string): string {
+  if (credentialProviderName === "vellum") {
+    return "No Vellum platform connection for managed speech — run 'assistant platform connect'";
+  }
+  return `No API key configured for credential provider "${credentialProviderName}"`;
+}
+
+export async function sttProviderKeyResolves(
+  credentialProviderName: string,
+): Promise<boolean> {
+  // vellum has no stored API key — the platform connection is the credential.
+  if (credentialProviderName === "vellum") {
+    const { vellumManagedSpeechAvailable } =
+      await import("./vellum-managed.js");
+    return vellumManagedSpeechAvailable();
+  }
+  return (await getProviderKeyAsync(credentialProviderName)) !== undefined;
 }

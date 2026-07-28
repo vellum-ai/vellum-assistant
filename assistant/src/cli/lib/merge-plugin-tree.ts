@@ -44,7 +44,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
-import { INSTALL_META_FILENAME } from "./install-from-github.js";
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { computeFingerprint } from "./plugin-fingerprint.js";
 
 const execFileAsync = promisify(execFile);
@@ -120,7 +120,9 @@ interface MergedFile {
 function isBinary(buf: Buffer): boolean {
   const len = Math.min(buf.length, 8000);
   for (let i = 0; i < len; i++) {
-    if (buf[i] === 0) return true;
+    if (buf[i] === 0) {
+      return true;
+    }
   }
   return false;
 }
@@ -151,10 +153,12 @@ async function threeWayMergeFile(
   labels: ConflictLabels,
 ): Promise<MergedFile> {
   if (isBinary(ours) || isBinary(base) || isBinary(theirs)) {
-    if (ours.equals(base))
+    if (ours.equals(base)) {
       return { content: theirs, conflicted: false, binaryConflicted: false };
-    if (theirs.equals(base))
+    }
+    if (theirs.equals(base)) {
       return { content: ours, conflicted: false, binaryConflicted: false };
+    }
     if (strategy === "assistant") {
       return { content: ours, conflicted: false, binaryConflicted: true };
     }
@@ -243,7 +247,7 @@ export async function mergePluginTree({
   conflictLabels,
 }: MergePluginTreeOptions): Promise<PluginMergeResult> {
   const labels = conflictLabels ?? DEFAULT_CONFLICT_LABELS;
-  const exclude = [INSTALL_META_FILENAME];
+  const exclude = PRESERVED_ENTRIES;
   const base = computeFingerprint(baseDir, exclude).files;
   const ours = computeFingerprint(oursDir, exclude).files;
   const theirs = computeFingerprint(theirsDir, exclude).files;
@@ -285,8 +289,12 @@ export async function mergePluginTree({
           labels,
         );
         keep(rel, merged.content);
-        if (merged.conflicted) conflicts.push(rel);
-        if (merged.binaryConflicted) binaryConflicts.push(rel);
+        if (merged.conflicted) {
+          conflicts.push(rel);
+        }
+        if (merged.binaryConflicted) {
+          binaryConflicts.push(rel);
+        }
       }
       continue;
     }

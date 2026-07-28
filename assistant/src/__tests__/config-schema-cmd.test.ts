@@ -17,7 +17,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -62,10 +64,7 @@ let mockIpcResult: {
 
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: async () => mockIpcResult,
-  exitFromIpcResult: (r: {
-    error?: string;
-    statusCode?: number;
-  }) => {
+  exitFromIpcResult: (r: { error?: string; statusCode?: number }) => {
     process.stderr.write((r.error ?? "Unknown error") + "\n");
     if (r.statusCode === undefined) {
       process.exit(10);
@@ -91,15 +90,15 @@ import { getSchemaAtPath } from "../config/schema-utils.js";
 // ---------------------------------------------------------------------------
 
 describe("getSchemaAtPath", () => {
-  test("returns full schema for a leaf key (llm.default.maxTokens → number schema)", () => {
+  test("returns full schema for a leaf key (llm.profileSession.defaultTtlSeconds → number schema)", () => {
     const result = getSchemaAtPath(
       AssistantConfigSchema,
-      "llm.default.maxTokens",
+      "llm.profileSession.defaultTtlSeconds",
     );
     expect(result).not.toBeNull();
-    // maxTokens has a default, so it should be parseable
+    // defaultTtlSeconds has a default, so it should be parseable
     const parsed = (result as z.ZodType).parse(undefined);
-    expect(parsed).toBe(64000);
+    expect(parsed).toBe(1800);
   });
 
   test("navigates nested paths (memory.segmentation → object schema)", () => {
@@ -234,10 +233,10 @@ describe("z.toJSONSchema integration", () => {
     expect(properties!.safety).toBeDefined();
   });
 
-  test("sub-schema at a leaf like llm.default.maxTokens produces integer schema", () => {
+  test("sub-schema at a leaf like llm.profileSession.defaultTtlSeconds produces integer schema", () => {
     const maxTokensSchema = getSchemaAtPath(
       AssistantConfigSchema,
-      "llm.default.maxTokens",
+      "llm.profileSession.defaultTtlSeconds",
     );
     expect(maxTokensSchema).not.toBeNull();
     const jsonSchema = z.toJSONSchema(maxTokensSchema!, {

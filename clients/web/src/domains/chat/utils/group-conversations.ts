@@ -1,22 +1,25 @@
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 /**
  * Pure helper for splitting the sidebar's conversation list into system
- * category buckets (`pinned`, `slack`, `scheduled`, `background`, `recents`) and
- * optional user-defined custom groups.
+ * category buckets (`pinned`, `channelSections`, `scheduled`, `background`,
+ * `recents`) and optional user-defined custom groups.
  *
  * Categorization (mirrors backend conventions in `web/src/lib/chat/api.ts`):
  *
  * - `pinned` — `isPinned === true`. Takes priority over every other bucket.
- * - `slack` — Slack-origin conversations with no explicit group assignment
- *   (or legacy `groupId === "system:all"`). Slack is a first-class origin
- *   section, not a foreground/background status.
+ * - `channelSections` — conversations that originate from an external channel
+ *   (Slack, Telegram, WhatsApp, phone, …) with no explicit group assignment
+ *   (or legacy `groupId === "system:all"`). Each origin channel is a
+ *   first-class collapsible section, not a foreground/background status; one
+ *   `ChannelSection` is produced per channel that has conversations, ordered
+ *   by channel id.
  * - `scheduled` — `conversationType === "scheduled"` OR legacy
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
  *   (`conversationType === "background"` or `groupId === "system:background"`),
- *   including auto-analysis (reflections). Sub-grouping by `source` is
- *   handled downstream by `backgroundSubGroups.ts`.
+ *   including auto-analysis (reflections).
  * - `recents` — everything else (foreground, non-pinned), sorted by
  *   `lastMessageAt` descending. Background/scheduled conversations with a
  *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
@@ -33,6 +36,16 @@ import { isScheduledConversation } from "@/utils/conversation-predicates";
 export interface CustomGroup {
   id: string;
   name: string;
+  /** Stored icon name from the group row; null when none was chosen
+   *  (older assistants omit the field entirely). */
+  icon: string | null;
+  conversations: Conversation[];
+}
+
+/** One collapsible sidebar section for an external origin channel. */
+export interface ChannelSection {
+  /** Origin channel id, e.g. `"slack"`, `"telegram"`, `"whatsapp"`. */
+  channelId: string;
   conversations: Conversation[];
 }
 
@@ -40,7 +53,7 @@ export interface GroupedConversations {
   pinned: Conversation[];
   scheduled: Conversation[];
   background: Conversation[];
-  slack: Conversation[];
+  channelSections: ChannelSection[];
   recents: Conversation[];
   customGroups: CustomGroup[];
 }
@@ -62,15 +75,16 @@ function isBackground(c: Conversation): boolean {
   );
 }
 
-export function isSlackConversation(c: Conversation): boolean {
-  return c.originChannel === "slack";
-}
-
-function shouldBucketInSlackSection(c: Conversation): boolean {
-  return (
-    isSlackConversation(c) &&
-    (c.groupId == null || c.groupId === "system:all")
-  );
+/**
+ * The origin channel id whose section this conversation belongs in, or
+ * `null` when it isn't an unassigned external-channel conversation. Mirrors
+ * the precedence the Slack section used: a channel conversation only buckets
+ * into its section when it has no explicit (custom or system) group.
+ */
+function channelSectionBucketId(c: Conversation): string | null {
+  if (!isChannelConversation(c)) return null;
+  if (c.groupId != null && c.groupId !== "system:all") return null;
+  return c.originChannel ?? null;
 }
 
 /**
@@ -124,8 +138,38 @@ function compareByDisplayOrder(a: Conversation, b: Conversation): number {
  * True when a `groupId` refers to a non-system (custom) group.
  * System groups use a `"system:"` prefix (e.g. `"system:pinned"`).
  */
-function isCustomGroupId(groupId: string | undefined): groupId is string {
+export function isCustomGroupId(groupId: string | undefined): groupId is string {
   return !!groupId && !groupId.startsWith("system:");
+}
+
+// ---------------------------------------------------------------------------
+// Move-to-group helpers
+// ---------------------------------------------------------------------------
+
+/** A custom group a conversation can be filed into via the "Move to group" menu. */
+export type MoveToGroupTarget = Pick<ConversationGroup, "id" | "name">;
+
+/** True when a conversation currently belongs to a custom (non-system) group. */
+export function isInCustomGroup(conversation: Conversation): boolean {
+  return isCustomGroupId(conversation.groupId);
+}
+
+/**
+ * Build the "Move to group" targets for a conversation: every custom
+ * (non-system) group except the one it already belongs to.
+ *
+ * System buckets (Pinned, Recents, channel sections) are intentionally
+ * excluded — Pinning has its own menu item, and the rest are derived sections,
+ * not folders an arbitrary conversation can be filed into.
+ */
+export function buildMoveToGroupTargets(
+  conversation: Conversation,
+  groups?: ConversationGroup[],
+): MoveToGroupTarget[] {
+  const currentGroupId = conversation.groupId;
+  return (groups ?? [])
+    .filter((g) => !g.isSystemGroup && g.id !== currentGroupId)
+    .map((g) => ({ id: g.id, name: g.name }));
 }
 
 export function groupConversations(
@@ -137,7 +181,7 @@ export function groupConversations(
   const pinned: Conversation[] = [];
   const scheduled: Conversation[] = [];
   const background: Conversation[] = [];
-  const slack: Conversation[] = [];
+  const channelBuckets = new Map<string, Conversation[]>();
   const recents: Conversation[] = [];
 
   // Build a lookup from group id → CustomGroup bucket.
@@ -146,7 +190,12 @@ export function groupConversations(
   if (options?.groups) {
     for (const g of options.groups) {
       if (g.isSystemGroup) continue;
-      const bucket: CustomGroup = { id: g.id, name: g.name, conversations: [] };
+      const bucket: CustomGroup = {
+        id: g.id,
+        name: g.name,
+        icon: g.icon ?? null,
+        conversations: [],
+      };
       groupLookup.set(g.id, bucket);
       customGroupsList.push(bucket);
     }
@@ -174,14 +223,17 @@ export function groupConversations(
       }
     }
 
-    if (shouldBucketInSlackSection(c)) {
-      slack.push(c);
+    const channelId = channelSectionBucketId(c);
+    if (channelId) {
+      const bucket = channelBuckets.get(channelId);
+      if (bucket) bucket.push(c);
+      else channelBuckets.set(channelId, [c]);
       continue;
     }
 
     // Explicitly surfaced conversations are promoted into Recents instead
     // of the Scheduled/Background buckets (normal lastMessageAt sort).
-    // Pinned, custom-group, and Slack precedence above stays as-is.
+    // Pinned, custom-group, and channel-section precedence above stays as-is.
     if (c.surfacedAt != null) {
       recents.push(c);
       continue;
@@ -206,9 +258,16 @@ export function groupConversations(
   const sortedRecents = recents.slice().sort((a, b) => {
     return parseLastMessageAt(b) - parseLastMessageAt(a);
   });
-  const sortedSlack = slack.slice().sort((a, b) => {
-    return parseLastMessageAt(b) - parseLastMessageAt(a);
-  });
+  // One section per channel that has conversations, each recency-sorted,
+  // with the sections themselves ordered by channel id for a stable layout.
+  const channelSections: ChannelSection[] = [...channelBuckets.entries()]
+    .map(([channelId, convs]) => ({
+      channelId,
+      conversations: convs
+        .slice()
+        .sort((a, b) => parseLastMessageAt(b) - parseLastMessageAt(a)),
+    }))
+    .sort((a, b) => a.channelId.localeCompare(b.channelId));
   // Pinned + custom groups honor `displayOrder` (set when the user
   // drag-reorders). Any global resort by recency at this level would
   // override the user's custom order — see LUM-1619.
@@ -221,7 +280,7 @@ export function groupConversations(
     pinned: sortedPinned,
     scheduled,
     background,
-    slack: sortedSlack,
+    channelSections,
     recents: sortedRecents,
     customGroups: customGroupsList,
   };

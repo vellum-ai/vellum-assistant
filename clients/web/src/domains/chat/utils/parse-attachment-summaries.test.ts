@@ -28,6 +28,7 @@ describe("parseAttachmentSummariesFromContent", () => {
         mimeType: "application/pdf",
         sizeBytes: Math.round(32.1 * 1024),
         previewUrl: null,
+        thumbnailUrl: null,
       },
     ]);
   });

@@ -15,18 +15,9 @@ import {
 // ---------------------------------------------------------------------------
 // Mock logger
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
-
 import { _resetBackend } from "../security/secure-keys.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
@@ -305,7 +296,7 @@ describe("CredentialBroker.serverUse", () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain("No tools are currently allowed");
-      expect(result.reason).toContain("assistant credentials set");
+      expect(result.reason).toContain("assistant credentials prompt");
     });
 
     test("denies when credential has domain restrictions even if tool matches", async () => {
@@ -594,7 +585,7 @@ describe("CredentialBroker.serverUseById", () => {
     expect(result.success).toBe(false);
     if (result.success) throw new Error("expected denial");
     expect(result.reason).toContain("No tools are currently allowed");
-    expect(result.reason).toContain("assistant credentials set");
+    expect(result.reason).toContain("assistant credentials prompt");
   });
 
   test("denies when metadata exists but no stored secret value", async () => {

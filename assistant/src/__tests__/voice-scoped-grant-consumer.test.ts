@@ -20,36 +20,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
-// ── Config mock ─────────────────────────────────────────────────────
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    provider: "anthropic",
-    calls: {
-      enabled: true,
-      provider: "twilio",
-      maxDurationSeconds: 12 * 60,
-      userConsultTimeoutSeconds: 90,
-      userConsultationTimeoutSeconds: 90,
-      silenceTimeoutSeconds: 30,
-      disclosure: { enabled: false, text: "" },
-      safety: { denyCategories: [] },
-      model: undefined,
-    },
-    memory: { enabled: false },
-  }),
-}));
-
 // ── Assistant event hub mock ───────────────────────────────────────
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
@@ -73,26 +43,36 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   }),
 }));
 
+// ── Conversation store mock (voice bridge resolves conversations here) ──
+
+let scopedGrantConversationFactory: (() => unknown) | null = null;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async () => {
+    if (!scopedGrantConversationFactory) {
+      throw new Error("scopedGrantConversationFactory not set for test");
+    }
+    return scopedGrantConversationFactory();
+  },
+}));
+
 // ── Import source modules after all mocks are registered ────────────
 
 import { and, eq } from "drizzle-orm";
 
-import {
-  setVoiceBridgeDeps,
-  startVoiceTurn,
-} from "../calls/voice-session-bridge.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   _internal,
   type CreateScopedApprovalGrantParams,
   revokeScopedApprovalGrantsForContext,
-} from "../memory/scoped-approval-grants.js";
+} from "../approvals/scoped-approval-grants.js";
+import { startVoiceTurn } from "../calls/voice-session-bridge.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 
 const { createScopedApprovalGrant } = _internal;
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
 await initializeDb();
@@ -120,7 +100,7 @@ function createMockSession(opts?: {
   const toolName = opts?.toolName ?? TOOL_NAME;
   const toolInput = opts?.toolInput ?? TOOL_INPUT;
 
-  let clientCallback: ((msg: ServerMessage) => void) | null = null;
+  let clientCallback: ((msg: AssistantEvent) => void) | null = null;
   let confirmationDecision: {
     requestId: string;
     decision: string;
@@ -129,7 +109,6 @@ function createMockSession(opts?: {
 
   const session = {
     isProcessing: () => false,
-    memoryPolicy: {},
     setAssistantId: () => {},
     setTrustContext: () => {},
     setCommandIntent: () => {},
@@ -139,7 +118,7 @@ function createMockSession(opts?: {
     currentRequestId: requestId,
     abort: () => {},
     persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
-    updateClient: (cb: (msg: ServerMessage) => void, _reset?: boolean) => {
+    updateClient: (cb: (msg: AssistantEvent) => void, _reset?: boolean) => {
       clientCallback = cb;
     },
     handleConfirmationResponse: (
@@ -157,7 +136,7 @@ function createMockSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      options?: { onEvent?: (msg: ServerMessage) => void },
+      options?: { onEvent?: (msg: AssistantEvent) => void },
     ) => {
       // Emit a confirmation_request through the client callback
       if (clientCallback) {
@@ -169,10 +148,10 @@ function createMockSession(opts?: {
           riskLevel: "medium",
           allowlistOptions: [],
           scopeOptions: [],
-        } as ServerMessage);
+        } as AssistantEvent);
       }
       // Then complete the turn
-      options?.onEvent?.({ type: "message_complete" } as ServerMessage);
+      options?.onEvent?.({ type: "message_complete" } as AssistantEvent);
     },
   };
 
@@ -190,15 +169,7 @@ function createMockSession(opts?: {
 function setupBridgeDeps(
   sessionFactory: () => ReturnType<typeof createMockSession>["session"],
 ) {
-  let currentSession: ReturnType<typeof createMockSession>["session"] | null =
-    null;
-  setVoiceBridgeDeps({
-    getOrCreateConversation: async () => {
-      currentSession = sessionFactory();
-      return currentSession as any;
-    },
-    resolveAttachments: () => [],
-  });
+  scopedGrantConversationFactory = () => sessionFactory();
 }
 
 // ---------------------------------------------------------------------------

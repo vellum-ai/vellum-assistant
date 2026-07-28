@@ -9,7 +9,6 @@ import {
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   CUSTOM_SENTINEL,
   draftsEqual,
@@ -17,6 +16,7 @@ import {
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
+import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
   configGetOptions,
@@ -31,6 +31,7 @@ import type {
 import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -117,6 +118,7 @@ function CallSiteOverridesModalInner({
     () => buildOrderedProfiles(profiles, profileOrder),
     [profiles, profileOrder],
   );
+  const selectableInferenceProviders = useSelectableInferenceProviders();
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
@@ -129,13 +131,12 @@ function CallSiteOverridesModalInner({
   });
 
   const [search, setSearch] = useState("");
+  const [applyAllProfile, setApplyAllProfile] = useState("");
   const [draftEdits, setDraftEdits] = useState<
     Record<string, CallSiteOverrideDraft | null>
   >({});
   const [saving, setSaving] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
-  const analyzeConversationEnabled =
-    useAssistantFeatureFlagStore.use.analyzeConversation();
 
   const {
     data: catalog,
@@ -151,13 +152,10 @@ function CallSiteOverridesModalInner({
     refetchOnWindowFocus: false,
   });
 
-  const gatedCallSites = useMemo(() => {
-    let all = (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent");
-    if (!analyzeConversationEnabled) {
-      all = all.filter((cs) => cs.id !== "analyzeConversation");
-    }
-    return all;
-  }, [catalog, analyzeConversationEnabled]);
+  const gatedCallSites = useMemo(
+    () => (catalog?.callSites ?? []).filter((cs) => cs.id !== "mainAgent"),
+    [catalog],
+  );
 
   const catalogLoaded = !isLoading && !isError && !!catalog;
   const daemonConfigLoaded = !!daemonConfig;
@@ -219,6 +217,24 @@ function CallSiteOverridesModalInner({
       ),
     [drafts],
   );
+
+  const applyAllOptions = useMemo(
+    () =>
+      visibleProfilesForPicker(orderedProfiles, []).map((p) => ({
+        value: p.name,
+        label: profilePickerLabel(p),
+      })),
+    [orderedProfiles],
+  );
+
+  const handleApplyAll = useCallback(() => {
+    if (!applyAllProfile) return;
+    const next: Record<string, CallSiteOverrideDraft | null> = {};
+    for (const id of catalogCallSiteIds) {
+      next[id] = { profile: applyAllProfile };
+    }
+    setDraftEdits(next);
+  }, [applyAllProfile, catalogCallSiteIds]);
 
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
@@ -296,7 +312,8 @@ function CallSiteOverridesModalInner({
       if (seedProfile) {
         setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
       } else {
-        const defaultProvider = INFERENCE_PROVIDERS[0];
+        const defaultProvider =
+          selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
         const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
         setDraftEdits((prev) => ({
           ...prev,
@@ -304,7 +321,7 @@ function CallSiteOverridesModalInner({
         }));
       }
     },
-    [gatedCallSites, orderedProfiles],
+    [gatedCallSites, orderedProfiles, selectableInferenceProviders],
   );
 
   // ---------------------------------------------------------------------------
@@ -390,6 +407,32 @@ function CallSiteOverridesModalInner({
             fullWidth
           />
         </div>
+
+        {/* Apply one profile to every action */}
+        {applyAllOptions.length > 0 && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
+            <p className="min-w-0 flex-1 text-body-medium-default text-[var(--content-default)]">
+              Use one profile for all actions
+            </p>
+            <Dropdown
+              value={applyAllProfile}
+              onChange={setApplyAllProfile}
+              options={applyAllOptions}
+              placeholder="Choose profile…"
+              className="w-44"
+              menuMinWidth={280}
+              menuAlign="end"
+            />
+            <Button
+              variant="outlined"
+              size="compact"
+              onClick={handleApplyAll}
+              disabled={!applyAllProfile || !isSeeded || saving}
+            >
+              Apply to all
+            </Button>
+          </div>
+        )}
 
         {/* Loading */}
         {isLoading && (

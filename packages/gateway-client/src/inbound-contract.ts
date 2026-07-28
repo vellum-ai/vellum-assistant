@@ -69,6 +69,45 @@ export const SourceMetadataSchema = z
     slackBotMentioned: z.boolean().optional(),
     /** Slack workspace/team ID. */
     account: z.string().optional(),
+    /**
+     * Slack-specific: team ID the inbound actor belongs to. Threads to the
+     * daemon as the `recipient_team_id` for channel reply streaming.
+     */
+    actorTeamId: z.string().optional(),
+
+    /**
+     * Slack-specific: what the sender had open when they messaged the app,
+     * ordered by relevance. Slack attaches this to `message.im` once the app
+     * subscribes to `app_context_changed` (which requires `agent_view`), so a
+     * DM like "summarise this" can be resolved against the channel, thread, or
+     * canvas the sender was actually looking at.
+     *
+     * Entity values are Slack ids; the entity `type` is a Slack type URI such
+     * as `slack#/types/channel_id`. Absent when the sender had nothing open.
+     */
+    appContext: z
+      .object({
+        entities: z.array(
+          z.object({
+            type: z.string(),
+            /**
+             * An id string for channel / canvas / list entities; an object for
+             * `slack#/types/message_context`, which points at a specific
+             * message or thread.
+             */
+            value: z.union([
+              z.string(),
+              z.object({
+                messageTs: z.string().optional(),
+                channelId: z.string().optional(),
+              }),
+            ]),
+            teamId: z.string().optional(),
+            enterpriseId: z.string().optional(),
+          }),
+        ),
+      })
+      .optional(),
 
     /**
      * Per-channel inbound admission policy attached by the gateway. The
@@ -86,6 +125,11 @@ export const SourceMetadataSchema = z
     trustVerdict: TrustVerdictSchema.optional(),
 
     // Email-specific fields
+    /**
+     * Ingress provider that delivered the email to the gateway
+     * (e.g. "mailgun", "resend", or "platform" for the Vellum relay).
+     */
+    emailProvider: z.string().optional(),
     /** Email subject line. */
     emailSubject: z.string().optional(),
     /** Email recipient address. */

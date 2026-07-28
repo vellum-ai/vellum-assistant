@@ -54,6 +54,10 @@ export interface LlmContextError {
   provider?: string;
   statusCode?: number;
   retryAfterMs?: number;
+  apiErrorCode?: string;
+  apiErrorType?: string;
+  apiErrorParam?: string;
+  requestId?: string;
 }
 
 export interface LlmContextNormalizationResult {
@@ -121,6 +125,14 @@ function normalizeProviderErrorPayload(
   if (statusCode !== undefined) normalized.statusCode = statusCode;
   const retryAfterMs = asNumber(error.retryAfterMs);
   if (retryAfterMs !== undefined) normalized.retryAfterMs = retryAfterMs;
+  const apiErrorCode = asString(error.apiErrorCode);
+  if (apiErrorCode !== undefined) normalized.apiErrorCode = apiErrorCode;
+  const apiErrorType = asString(error.apiErrorType);
+  if (apiErrorType !== undefined) normalized.apiErrorType = apiErrorType;
+  const apiErrorParam = asString(error.apiErrorParam);
+  if (apiErrorParam !== undefined) normalized.apiErrorParam = apiErrorParam;
+  const requestId = asString(error.requestId);
+  if (requestId !== undefined) normalized.requestId = requestId;
   return normalized;
 }
 

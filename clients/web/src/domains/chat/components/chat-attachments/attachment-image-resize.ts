@@ -54,21 +54,58 @@ export function shouldAutoResizeImageAttachment(file: Pick<File, "name" | "size"
   return isAutoResizableImage(file) && file.size > IMAGE_AUTO_RESIZE_TARGET_BYTES;
 }
 
-export function filenameForResizedImage(name: string): string {
+export function isHeicAttachment(file: Pick<File, "name" | "type">): boolean {
+  const mimeType = file.type.trim().toLowerCase();
+  if (mimeType === "image/heic" || mimeType === "image/heif") {
+    return true;
+  }
+
+  const extension = file.name.split(".").pop()?.trim().toLowerCase();
+  return extension === "heic" || extension === "heif";
+}
+
+/**
+ * HEIC/HEIF is converted regardless of size — Chromium cannot decode it, so
+ * compatibility (not byte savings) is the goal. Conversion only succeeds where
+ * the browser decodes HEIC (WebKit: Safari, the iOS app); on Chromium it fails
+ * fast and the original uploads for the daemon to normalize.
+ */
+export function shouldPrepareImageAttachment(file: Pick<File, "name" | "size" | "type">): boolean {
+  return shouldAutoResizeImageAttachment(file) || isHeicAttachment(file);
+}
+
+/** `image/png` → `png`; both JPEG spellings → `jpg`; anything odd → `jpg`. */
+function extensionForImageType(mimeType: string): string {
+  if (/^image\/jpe?g$/i.test(mimeType)) {
+    return "jpg";
+  }
+  const subtype = mimeType.slice("image/".length).toLowerCase();
+  return /^[a-z0-9]+$/.test(subtype) ? subtype : "jpg";
+}
+
+/**
+ * Rename a re-encoded image to match what the canvas actually produced.
+ * `encodedType` defaults to JPEG because that is what {@link encodeJpeg}
+ * requests — but a UA that cannot encode JPEG falls back to PNG silently, and
+ * the extension has to follow the bytes or the daemon stores a lie.
+ */
+export function filenameForResizedImage(name: string, encodedType = "image/jpeg"): string {
   const fallback = "attachment";
   const trimmedName = name.trim() || fallback;
-  if (/\.(?:jpe?g)$/i.test(trimmedName)) {
+  const extension = extensionForImageType(encodedType);
+  const currentExtension = trimmedName.match(/\.([^./\\]+)$/)?.[1]?.toLowerCase();
+  if (currentExtension === extension || (extension === "jpg" && currentExtension === "jpeg")) {
     return trimmedName;
   }
 
   const withoutExtension = trimmedName.replace(/\.[^./\\]+$/, "") || fallback;
-  return `${withoutExtension}.jpg`;
+  return `${withoutExtension}.${extension}`;
 }
 
 export async function prepareImageAttachmentForUpload(
   file: File,
 ): Promise<ImageAttachmentResizeResult> {
-  if (!shouldAutoResizeImageAttachment(file)) {
+  if (!shouldPrepareImageAttachment(file)) {
     return { status: "unchanged", file };
   }
 
@@ -100,17 +137,26 @@ export async function prepareImageAttachmentForUpload(
     } catch {
       resizedBlob = null;
     }
-    if (!resizedBlob || resizedBlob.size >= file.size) {
+    // A JPEG re-encode of a small HEIC is often larger than the source; for
+    // HEIC the size regression is acceptable because the output must be
+    // renderable, not smaller.
+    if (!resizedBlob || (!isHeicAttachment(file) && resizedBlob.size >= file.size)) {
       return {
         status: "failed",
         error: "Couldn't resize this image for upload. Try a smaller image.",
       };
     }
 
+    // `toBlob` may silently fall back to PNG when the UA cannot encode JPEG,
+    // so the File takes the blob's real type rather than the requested one.
+    const encodedType = resizedBlob.type.startsWith("image/")
+      ? resizedBlob.type
+      : "image/jpeg";
+
     return {
       status: "resized",
-      file: new File([resizedBlob], filenameForResizedImage(file.name), {
-        type: "image/jpeg",
+      file: new File([resizedBlob], filenameForResizedImage(file.name, encodedType), {
+        type: encodedType,
         lastModified: file.lastModified,
       }),
     };

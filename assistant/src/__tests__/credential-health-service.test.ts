@@ -41,7 +41,6 @@ type RefreshOutcome = "ok" | "refresh_failed";
 let mockRefreshOutcome: RefreshOutcome = "ok";
 
 // Managed-path mock state.
-const managedProviders = new Set<string>();
 let managedListResponse: {
   ok: boolean;
   status: number;
@@ -91,15 +90,6 @@ mock.module("../oauth/oauth-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    debug: () => {},
-    error: () => {},
-  }),
-}));
-
 class MockTokenExpiredError extends Error {
   constructor(service: string, message?: string) {
     super(message ?? `Token expired for "${service}"`);
@@ -125,24 +115,10 @@ mock.module("../security/token-manager.js", () => ({
   },
 }));
 
-// Managed-path mocks: services schema, config loader, platform client,
-// PlatformOAuthConnection. The managed code path uses dynamic imports for
-// these so they only matter when a managed test scenario is exercised.
-mock.module("../config/schemas/services.js", () => ({
-  ServicesSchema: {
-    shape: {
-      "google-oauth": {},
-      "notion-oauth": {},
-    },
-  },
-  getServiceMode: (_services: unknown, key: string) =>
-    managedProviders.has(key) ? "managed" : "your-own",
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ services: {} }),
-}));
-
+// Managed-path mocks: platform client and PlatformOAuthConnection. The
+// managed code path uses dynamic imports for these so they only matter when
+// a managed test scenario is exercised. The managed/your-own service mode is
+// seeded into the real workspace config via `seedGoogleOAuthMode` below.
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => ({
@@ -184,8 +160,15 @@ mock.module("../oauth/platform-connection.js", () => ({
 
 // ── Import under test ────────────────────────────────────────────────
 
+import { setConfig } from "./helpers/set-config.js";
+
 const { checkAllCredentials, checkCredentialForProvider, _setFetchFn } =
   await import("../credential-health/credential-health-service.js");
+
+/** Seed the real workspace config's `services.google-oauth.mode`. */
+function seedGoogleOAuthMode(mode: "managed" | "your-own"): void {
+  setConfig("services", { "google-oauth": { mode } });
+}
 
 // Inject mock fetch via the test helper (Bun's global fetch can't be
 // overridden via globalThis assignment).
@@ -219,7 +202,7 @@ function addProvider(
     pingBody: null,
     // checkManagedProvider reads this field via OAuthProviderRow; the
     // health-check code branches to the managed path only when set AND
-    // when managedProviders includes the corresponding config key.
+    // when the corresponding config key's service mode is "managed".
     managedServiceConfigKey: opts?.managedServiceConfigKey,
   });
 }
@@ -266,7 +249,7 @@ describe("credential-health-service", () => {
     mockFetchResponse = { ok: true, status: 200 };
     mockFetchThrows = false;
     mockRefreshOutcome = "ok";
-    managedProviders.clear();
+    seedGoogleOAuthMode("your-own");
     managedListResponse = { ok: true, status: 200, body: { results: [] } };
     managedPingOutcome = { kind: "status", status: 200 };
   });
@@ -637,7 +620,7 @@ describe("credential-health-service", () => {
         pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
         managedServiceConfigKey: "google-oauth",
       });
-      managedProviders.add("google-oauth");
+      seedGoogleOAuthMode("managed");
       if (opts?.hasActiveConnection !== false) {
         managedListResponse = {
           ok: true,

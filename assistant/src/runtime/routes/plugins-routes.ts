@@ -23,6 +23,9 @@
  * `get_route_schema` so the gateway's IPC proxy stays in sync.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import {
@@ -34,24 +37,30 @@ import {
   PluginInspectNotFoundError,
 } from "../../cli/lib/inspect-plugin.js";
 import {
-  DEFAULT_PLUGIN_REF,
   installPlugin,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
+  sanitizePluginName,
 } from "../../cli/lib/install-from-github.js";
 import {
   type InstalledPluginInfo,
   listInstalledPlugins,
 } from "../../cli/lib/list-installed-plugins.js";
 import { getPluginCatalog } from "../../cli/lib/plugin-catalog-cache.js";
+import { resolvePluginSourceFromCatalog } from "../../cli/lib/plugin-catalog-resolve.js";
+import {
+  DEFAULT_PIN_HISTORY_LIMIT,
+  DEFAULT_PLUGIN_REF,
+  type PluginUpgradeStrategy,
+} from "../../cli/lib/plugin-constants.js";
 import {
   getPluginDetails,
   PluginDetailsNotFoundError,
 } from "../../cli/lib/plugin-details.js";
+import { readValidatedPluginIcon } from "../../cli/lib/plugin-icon-file.js";
 import {
-  DEFAULT_PIN_HISTORY_LIMIT,
   listPinHistory,
   PluginPinHistoryError,
   resolvePinToMarketplaceCommit,
@@ -64,16 +73,36 @@ import {
   type PluginSearchMatch,
 } from "../../cli/lib/search-plugins.js";
 import {
+  disablePlugin,
+  enablePlugin,
+  InvalidPluginNameError as InvalidTogglePluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+} from "../../cli/lib/toggle-plugin.js";
+import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
 import {
   PluginMergeBaselineError,
   PluginNotUpgradableError,
-  type PluginUpgradeStrategy,
   upgradePlugin,
 } from "../../cli/lib/upgrade-plugin.js";
+import { getPlatformBaseUrl } from "../../config/env.js";
+import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { ensurePluginApiShim } from "../../plugins/ensure-plugin-api-shim.js";
+import {
+  deactivatePluginForUpdate,
+  reconcilePluginSourcesNow,
+} from "../../plugins/mtime-cache.js";
+import { getLocalCategorySlugs } from "../../skills/categories-cache.js";
+import { getLogger } from "../../util/logger.js";
+import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  getOriginClientId,
+  publishPluginsChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   ConflictError,
@@ -83,6 +112,7 @@ import {
   ServiceUnavailableError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -95,6 +125,11 @@ const pluginInfoSchema = z.object({
       "Plugin's directory name (kebab-case). Matches `assistant plugins install <id>`.",
     ),
   name: z.string().describe("Display name. Equal to `id` today."),
+  enabled: z
+    .boolean()
+    .describe(
+      "Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its directory; `true` otherwise.",
+    ),
   description: z
     .string()
     .nullable()
@@ -113,10 +148,45 @@ const pluginInfoSchema = z.object({
     .describe(
       "Non-fatal issues with this entry (missing `package.json`, malformed JSON, ...). Omitted when clean.",
     ),
+  category: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      "Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace installs.",
+    ),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.",
+    ),
+  hasIcon: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the plugin ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Drives whether a client fetches the bundled icon.",
+    ),
+  iconVersion: z
+    .string()
+    .optional()
+    .describe(
+      "Content hash of the validated `icon.png`; present only when `hasIcon` is true. Use it as a cache-buster for the bundled-icon endpoint.",
+    ),
 });
 
 const pluginsListResponseSchema = z.object({
   plugins: z.array(pluginInfoSchema),
+  categoryCounts: z
+    .record(z.string(), z.number())
+    .optional()
+    .describe(
+      "Installed plugins per category (before the category filter is applied).",
+    ),
+  totalCount: z
+    .number()
+    .optional()
+    .describe("Total installed plugins matching non-category filters."),
 });
 
 const pluginMatchSourceSchema = z
@@ -148,6 +218,18 @@ const pluginSearchMatchSchema = z.object({
     .string()
     .optional()
     .describe("Short description, when known (external entries only today)."),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Plugin icon: a curated emoji from the marketplace entry, or an icon URL served by the platform catalog when the plugin ships a bundled image.",
+    ),
+  category: z
+    .string()
+    .nullable()
+    .describe(
+      "Marketplace category slug (Skills taxonomy); null when the entry declares none.",
+    ),
   source: pluginMatchSourceSchema,
 });
 
@@ -232,6 +314,23 @@ const pluginDetailsResponseSchema = z.object({
     .nullable()
     .describe(
       "Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its descriptor is incomplete (e.g. a placeholder sha256).",
+    ),
+  icon: z
+    .string()
+    .nullable()
+    .describe(
+      "Author-declared emoji icon from the plugin's `package.json` `vellum.icon`, or null when none.",
+    ),
+  hasIcon: z
+    .boolean()
+    .describe(
+      "Whether the locally installed copy ships a valid author-bundled `icon.png` (PNG magic + dimensions + size validated). Always false when the plugin is not installed.",
+    ),
+  iconVersion: z
+    .string()
+    .nullable()
+    .describe(
+      "Content hash of the validated `icon.png`; null when `hasIcon` is false. Use it as a cache-buster for the bundled-icon endpoint.",
     ),
 });
 
@@ -608,13 +707,49 @@ const pluginDiffResponseSchema = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
+const log = getLogger("plugins-routes");
+
+/**
+ * Emit a structured log for a platform plugin-catalog outage before the caller
+ * maps it to a client-facing error.
+ *
+ * The catalog fetcher (`plugin-catalog-platform.ts`) throws
+ * `PluginCatalogUnavailableError` without logging, and the transport adapters
+ * return the resulting `RouteError` (a 503) without any Sentry capture — so an
+ * outage on the platform-first paths (`search`, `install`, the remote-only
+ * detail view) otherwise leaves no trace beyond the daemon access-log status
+ * code, and the real upstream status / URL is lost. Log at `error` so the
+ * outage is time-correlatable in the daemon log and surfaces in Sentry;
+ * `upstreamStatus` preserves the true platform status (e.g. 404 / 500 / 503)
+ * that the client-facing 503 collapses.
+ */
+function logPluginCatalogUnavailable(
+  operation: string,
+  err: PluginCatalogUnavailableError,
+): void {
+  log.error(
+    {
+      err,
+      operation,
+      upstreamStatus: err.status,
+      platformBaseUrl: getPlatformBaseUrl(),
+    },
+    "Platform plugin catalog unavailable",
+  );
+}
+
 interface PluginView {
   id: string;
   name: string;
+  enabled: boolean;
   description: string | null;
   version: string | null;
   path: string;
   issues?: string[];
+  category?: string | null;
+  icon?: string;
+  hasIcon: boolean;
+  iconVersion?: string;
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -624,14 +759,71 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   const view: PluginView = {
     id: entry.name,
     name: entry.name,
+    // `entry.name` is the plugin directory name, which is the sentinel key.
+    enabled: !isPluginDisabled(entry.name),
     description: entry.packageJson?.description ?? null,
     version: entry.packageJson?.version ?? null,
     path: entry.target,
+    hasIcon: entry.hasIcon,
   };
   if (entry.issues.length > 0) {
     view.issues = [...entry.issues];
   }
+  if (entry.packageJson?.icon !== undefined) {
+    view.icon = entry.packageJson.icon;
+  }
+  if (entry.iconVersion !== undefined) {
+    view.iconVersion = entry.iconVersion;
+  }
   return view;
+}
+
+/**
+ * Marketplace → Skills category slug aliases for known, unambiguous mismatches.
+ * Keep this tiny: only add a mapping when it is obviously correct. Marketplace
+ * slugs with no clean Skills equivalent are intentionally absent so they fall
+ * through to `null` → the "system" bucket.
+ */
+const MARKETPLACE_CATEGORY_ALIASES: Record<string, string> = {
+  developer: "development",
+};
+
+/**
+ * Normalize a raw marketplace category slug to the shared Skills taxonomy so
+ * the rail never carries an invisible bucket. Lowercases + trims, applies the
+ * alias map, then returns the slug only when it is a valid Skills slug —
+ * otherwise `null`, which buckets under "system" so the plugin stays both
+ * counted and reachable. `validSlugs` is resolved once per request by the
+ * caller (never per item).
+ */
+export function normalizeMarketplaceCategory(
+  raw: string | null | undefined,
+  validSlugs: Set<string>,
+): string | null {
+  if (!raw) {
+    return null;
+  }
+  const slug = raw.trim().toLowerCase();
+  if (!slug) {
+    return null;
+  }
+  const aliased = MARKETPLACE_CATEGORY_ALIASES[slug] ?? slug;
+  return validSlugs.has(aliased) ? aliased : null;
+}
+
+/**
+ * Valid Skills category slugs the marketplace categories normalize against.
+ * Sync + local (bundled YAML via the Skills categories-cache) so the plugins
+ * list never takes on remote latency; a read failure degrades to an empty set,
+ * normalizing every category to `null` → "system" rather than throwing —
+ * mirroring the bounded posture of the catalog lookup.
+ */
+function getValidCategorySlugs(): Set<string> {
+  try {
+    return getLocalCategorySlugs();
+  } catch {
+    return new Set();
+  }
 }
 
 /** Wire shape for a catalog match. Mirrors {@link pluginSearchMatchSchema}. */
@@ -639,6 +831,8 @@ interface PluginMatchView {
   name: string;
   path: string;
   description?: string;
+  icon?: string;
+  category: string | null;
   source: { kind: "github"; repo: string; path?: string; ref: string };
 }
 
@@ -647,10 +841,14 @@ interface PluginMatchView {
  * serializer's `Record<string, unknown>` contract holds. The wire shape is
  * identical to {@link PluginSearchMatch}.
  */
-function projectMatch(m: PluginSearchMatch): PluginMatchView {
+function projectMatch(
+  m: PluginSearchMatch,
+  validSlugs: Set<string>,
+): PluginMatchView {
   const view: PluginMatchView = {
     name: m.name,
     path: m.path,
+    category: normalizeMarketplaceCategory(m.category, validSlugs),
     source: {
       kind: "github",
       repo: m.source.repo,
@@ -661,13 +859,20 @@ function projectMatch(m: PluginSearchMatch): PluginMatchView {
   if (m.description !== undefined) {
     view.description = m.description;
   }
+  if (m.icon !== undefined) {
+    view.icon = m.icon;
+  }
   return view;
 }
 
 function matchesQuery(plugin: PluginView, needle: string): boolean {
   const q = needle.toLowerCase();
-  if (plugin.id.toLowerCase().includes(q)) return true;
-  if (plugin.name.toLowerCase().includes(q)) return true;
+  if (plugin.id.toLowerCase().includes(q)) {
+    return true;
+  }
+  if (plugin.name.toLowerCase().includes(q)) {
+    return true;
+  }
   if (plugin.description && plugin.description.toLowerCase().includes(q)) {
     return true;
   }
@@ -678,14 +883,128 @@ function matchesQuery(plugin: PluginView, needle: string): boolean {
 // Handler — list installed
 // ---------------------------------------------------------------------------
 
-function handleListPlugins({ queryParams = {} }: RouteHandlerArgs): {
+/** Uncategorized fallback bucket — matches the Skills taxonomy default. */
+const UNCATEGORIZED = "system";
+
+/**
+ * Time budget for the marketplace category lookup on the installed list.
+ * The installed list is a fast local read; the catalog is a remote GitHub
+ * fetch that can hang on a cold cache. Bounding the lookup keeps `GET
+ * /v1/plugins` responsive during a marketplace slowdown.
+ */
+const CATEGORY_LOOKUP_TIMEOUT_MS = 1500;
+
+/**
+ * Resolve the marketplace category map, racing the catalog fetch against a
+ * timer so a slow/hanging GitHub fetch can't block the installed list: on a
+ * rejection or a timeout past {@link CATEGORY_LOOKUP_TIMEOUT_MS} it degrades to
+ * an empty map (every `category` resolves to `null`). `timeoutMs` is injectable
+ * so tests can exercise the bound without the full production budget.
+ */
+export async function loadCategoryMapBounded(
+  timeoutMs: number = CATEGORY_LOOKUP_TIMEOUT_MS,
+): Promise<Map<string, string | null>> {
+  // Clear the timer once the race settles so a catalog-wins path doesn't leave
+  // the timer pending per request (matters for shutdown / test handles).
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const catalog = await Promise.race([
+      getPluginCatalog(DEFAULT_PLUGIN_REF, {
+        fetch: globalThis.fetch.bind(globalThis),
+      }),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+    if (!catalog) {
+      // Timed out past the budget: the installed list degrades to no
+      // categories rather than stalling. Non-fatal, but log it so a slow
+      // marketplace is diagnosable and not silently invisible.
+      log.warn(
+        { timeoutMs, platformBaseUrl: getPlatformBaseUrl() },
+        "Plugin catalog lookup timed out; listing without categories",
+      );
+      return new Map();
+    }
+    return new Map(catalog.matches.map((m) => [m.name, m.category]));
+  } catch (err) {
+    // The installed list must never fail on a catalog outage, so this degrades
+    // to no categories — but log it (warn: the request still succeeds) so the
+    // same platform outage that hard-fails search/install is not invisible on
+    // the list path. `upstreamStatus` is preserved when the failure carries one.
+    log.warn(
+      {
+        err,
+        platformBaseUrl: getPlatformBaseUrl(),
+        ...(err instanceof PluginCatalogUnavailableError
+          ? { upstreamStatus: err.status }
+          : {}),
+      },
+      "Plugin catalog lookup failed; listing without categories",
+    );
+    return new Map();
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function handleListPlugins({
+  queryParams = {},
+}: RouteHandlerArgs): Promise<{
   plugins: PluginView[];
-} {
+  categoryCounts: Record<string, number>;
+  totalCount: number;
+}> {
   const q = queryParams.q?.trim();
+  const category = queryParams.category?.trim();
+
   const installed = listInstalledPlugins();
   const projected = installed.map(projectPlugin);
-  const filtered = q ? projected.filter((p) => matchesQuery(p, q)) : projected;
-  return { plugins: filtered };
+
+  // Nothing installed → `categoryCounts`/`totalCount` are deterministically
+  // empty and there is nothing to categorize, so skip the network-bound catalog
+  // lookup entirely (no wasted GitHub request or bounded stall wait).
+  if (projected.length === 0) {
+    return { plugins: [], categoryCounts: {}, totalCount: 0 };
+  }
+
+  // Categories live only in the catalog. A marketplace outage OR slowdown must
+  // never block the installed list, so the lookup is bounded: it degrades to an
+  // empty map (every category becomes `null`) on a rejection or a stall.
+  const categoryMap = await loadCategoryMapBounded();
+
+  // Normalize raw marketplace slugs to the shared Skills taxonomy once per
+  // request: a raw slug with no Skills row (e.g. `developer`, `memory`) would
+  // otherwise be counted in "All" yet unreachable by any rail row. Normalizing
+  // maps the unambiguous ones (`developer` → `development`) and folds the rest
+  // to `null` → "system", so counts always match visible rows.
+  const validSlugs = getValidCategorySlugs();
+
+  // An installed plugin's `id` is its directory name, which is the catalog
+  // match's `name` — so it's the lookup key.
+  const withCategory = projected.map((p) => ({
+    ...p,
+    category: normalizeMarketplaceCategory(categoryMap.get(p.id), validSlugs),
+  }));
+
+  let list = q ? withCategory.filter((p) => matchesQuery(p, q)) : withCategory;
+
+  // Counts are taken BEFORE the category filter so the rail badges stay stable
+  // while a single category is selected.
+  const categoryCounts: Record<string, number> = {};
+  for (const p of list) {
+    const bucket = p.category ?? UNCATEGORIZED;
+    categoryCounts[bucket] = (categoryCounts[bucket] ?? 0) + 1;
+  }
+  const totalCount = list.length;
+
+  if (category) {
+    list = list.filter((p) => (p.category ?? UNCATEGORIZED) === category);
+  }
+
+  return { plugins: list, categoryCounts, totalCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -708,33 +1027,37 @@ async function handleSearchPlugins({
 
   try {
     // Reject a malformed regex before any network I/O so a user typo is a
-    // cheap deterministic 400 — never a wasted GitHub request that could
-    // surface as 503 on a cold cache when upstream is rate-limited.
+    // cheap deterministic 400 rather than a wasted catalog fetch.
     assertValidSearchPattern(query);
-    // The catalog is cached per ref (and served stale on upstream failure),
-    // so repeated searches don't re-hit GitHub's unauthenticated rate limit.
-    // Filtering by the query is an in-memory operation over that catalog.
+    // getPluginCatalog is platform-first (or the bundled manifest when platform
+    // features are disabled) and fails hard on a platform error — never served
+    // stale. Filtering by the query is in-memory over the resolved catalog.
     const catalog = await getPluginCatalog(ref, {
       fetch: globalThis.fetch.bind(globalThis),
     });
     const matches = filterPluginCatalog(catalog, query);
+    // Resolve the valid Skills slugs once per request, then normalize each
+    // match's marketplace category against them so "Available" filters
+    // consistently against the same taxonomy as the installed rail.
+    const validSlugs = getValidCategorySlugs();
     // Re-pack `readonly` lib types into mutable copies so the route
     // serializer's `Record<string, unknown>` contract holds. The wire
     // shape is identical.
     return {
       query,
       ref: catalog.ref,
-      matches: matches.map(projectMatch),
+      matches: matches.map((m) => projectMatch(m, validSlugs)),
     };
   } catch (err) {
     if (err instanceof InvalidSearchPatternError) {
       throw new BadRequestError(err.message);
     }
-    // A rate-limited or unavailable upstream (with no cache to fall back on)
-    // is transient and retryable — surface it as 503 rather than a
+    // A rate-limited or unavailable platform (no stale catalog to fall back
+    // on) is transient and retryable — surface it as 503 rather than a
     // misleading 500 so the client can show a "temporarily unavailable"
     // state and retry later.
     if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("search", err);
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
@@ -752,17 +1075,37 @@ interface PluginUninstallResponse {
   target: string;
 }
 
-function handleUninstallPlugin({
+async function handleUninstallPlugin({
   pathParams = {},
-}: RouteHandlerArgs): PluginUninstallResponse {
+  headers,
+}: RouteHandlerArgs): Promise<PluginUninstallResponse> {
   // The HTTP router has already URL-decoded `:name` for us; pass it
   // through verbatim — `uninstallPlugin` runs the same
   // `sanitizePluginName` check the CLI uses, so attacker-supplied
   // `../escape` style names get rejected before `rmSync` is reached.
   const rawName = pathParams.name ?? "";
 
+  // The daemon marks itself DB-ready and serves HTTP before
+  // `initializePlugins()` materializes the workspace `@vellumai/plugin-api`
+  // shim, so a DELETE that lands in that boot window would run a plugin's
+  // `shutdown` hook before the shim exists — a hook importing the package
+  // would fail to resolve and be silently skipped before the directory is
+  // removed. Ensure the shim here first. Best-effort and idempotent: outside
+  // that window it's a cheap no-op rewrite, and a failure just means such a
+  // hook's import may not resolve.
+  await ensurePluginApiShim().catch(() => {});
+
   try {
-    const result = uninstallPlugin({ name: rawName });
+    // `uninstallPlugin` runs the plugin's `shutdown` hook (while its files are
+    // still present) and then removes the directory — both in this daemon
+    // process. Following it with a reconcile drops the plugin's now-absent
+    // tools and hooks from the in-memory caches immediately (the `shutdown`
+    // already ran, so the reconcile's deactivation does not run it again),
+    // rather than leaving that to the background source watcher. Symmetric to
+    // the install route, which reconciles to bring a new plugin up.
+    const result = await uninstallPlugin({ name: rawName });
+    await reconcilePluginSourcesNow();
+    publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {
     if (err instanceof InvalidPluginNameError) {
@@ -800,6 +1143,13 @@ async function handleGetPluginDetails({
     if (err instanceof PluginDetailsNotFoundError) {
       throw new NotFoundError(err.message);
     }
+    // A catalog outage blocking a remote-only (not-installed) detail view is
+    // transient — surface it as retryable rather than a misleading 404/500 so
+    // clients retry instead of treating the plugin as permanently gone.
+    if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("details", err);
+      throw new ServiceUnavailableError(err.message);
+    }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin detail lookup failed",
     );
@@ -821,7 +1171,9 @@ async function resolveInstallMarketplaceRef(
   name: string,
   pin: string | undefined,
 ): Promise<string> {
-  if (!pin) return DEFAULT_PLUGIN_REF;
+  if (!pin) {
+    return DEFAULT_PLUGIN_REF;
+  }
   const entry = await resolvePinToMarketplaceCommit(name, pin, {
     fetch: globalThis.fetch.bind(globalThis),
   });
@@ -834,30 +1186,67 @@ async function resolveInstallMarketplaceRef(
   return entry.marketplaceCommit;
 }
 
-async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
-  const name = typeof body.name === "string" ? body.name : "";
-  if (!name) {
+async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
+  const rawName = typeof body.name === "string" ? body.name : "";
+  if (!rawName) {
     throw new BadRequestError("`name` is required");
   }
   const force = typeof body.force === "boolean" ? body.force : undefined;
   const pin = typeof body.pin === "string" ? body.pin : undefined;
 
-  // The marketplace ref is never taken raw from the request: a caller-supplied
+  // The install source is never taken raw from the request: a caller-supplied
   // ref would let any `settings.write` principal install from an unreviewed
   // revision (a PR branch, fork ref, ...) whose manifest could carry attacker
-  // code the loader then dynamically imports. Installs over HTTP therefore
-  // resolve only against reviewed history. A `pin` is honored by mapping it —
-  // server-side — to the marketplace commit that introduced it, but only if it
-  // appears in the plugin's reviewed pin history; an unreviewed SHA is refused.
-  // The default install reads the current catalog on `DEFAULT_PLUGIN_REF`.
-  // Operators who need an unreviewed revision use the local CLI's
-  // `assistant plugins install --pin <sha> --allow-unreviewed`.
+  // code the loader then dynamically imports. The default (no-pin) install
+  // resolves owner/repo/ref from the gated catalog — platform-first, or the
+  // bundled manifest when platform features are disabled — which is the same
+  // reviewed source of truth `handleSearchPlugins` advertises, and installs via
+  // a trusted pre-resolved source (no direct `plugins/marketplace.json` fetch).
+  // A `pin` is honored by mapping it — server-side — to the marketplace commit
+  // that introduced it through the plugin's reviewed pin history; an unreviewed
+  // SHA is refused. Operators who need an unreviewed revision use the local
+  // CLI's `assistant plugins install --pin <sha> --allow-unreviewed`.
   try {
-    const marketplaceRef = await resolveInstallMarketplaceRef(name, pin);
-    const result = await installPlugin(
-      { name, ref: marketplaceRef, force },
-      { fetch: globalThis.fetch.bind(globalThis) },
-    );
+    // Validate the name up front — before any catalog/pin/network work — so a
+    // malformed name (`../escape`) is a deterministic 400 rather than a 404/503
+    // from the catalog lookup. `installPlugin` sanitizes too; this restores the
+    // advertised 400 across both the no-pin and pin paths.
+    const name = sanitizePluginName(rawName);
+    let result;
+    if (pin) {
+      const marketplaceRef = await resolveInstallMarketplaceRef(name, pin);
+      result = await installPlugin(
+        { name, ref: marketplaceRef, force },
+        { fetch: globalThis.fetch.bind(globalThis) },
+      );
+    } else {
+      const source = await resolvePluginSourceFromCatalog(name, {
+        fetch: globalThis.fetch.bind(globalThis),
+      });
+      if (!source) {
+        throw new NotFoundError(`No plugin named "${name}" in the catalog.`);
+      }
+      result = await installPlugin(
+        {
+          name,
+          force,
+          trustedSource: {
+            owner: source.owner,
+            repo: source.repo,
+            rootPath: source.path,
+            ref: source.ref,
+          },
+        },
+        { fetch: globalThis.fetch.bind(globalThis) },
+      );
+    }
+    // Bring the freshly materialized plugin up in-process right now — register
+    // its tools and run its `init` hook — instead of waiting for the resource
+    // monitor to republish the sentinel and a later turn to apply it. This is
+    // what makes `init` fire as part of the install rather than at the next
+    // daemon boot. Never throws; a failure is contained and logged.
+    await reconcilePluginSourcesNow();
+    publishPluginsChanged(getOriginClientId(headers));
     return {
       ok: true as const,
       name: result.name,
@@ -866,7 +1255,7 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
       ref: result.ref,
     };
   } catch (err) {
-    // Pin resolution already maps unreviewed/bad-pin cases to a RouteError;
+    // Pin resolution and the not-in-catalog case already map to a RouteError;
     // re-throw those verbatim rather than masking them as a 500.
     if (err instanceof RouteError) {
       throw err;
@@ -887,6 +1276,12 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
     }
     // The pin-history read hits GitHub too; treat its failures as retryable.
     if (err instanceof PluginPinHistoryError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    // A rate-limited or unavailable platform catalog (no stale fallback) is
+    // transient — surface it as retryable rather than a misleading 500.
+    if (err instanceof PluginCatalogUnavailableError) {
+      logPluginCatalogUnavailable("install", err);
       throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
@@ -1008,6 +1403,7 @@ async function handleDiffPlugin({ pathParams = {} }: RouteHandlerArgs) {
 async function handleUpgradePlugin({
   pathParams = {},
   body = {},
+  headers,
 }: RouteHandlerArgs) {
   const rawName = pathParams.name ?? "";
   const dryRun = typeof body.dryRun === "boolean" ? body.dryRun : undefined;
@@ -1020,11 +1416,47 @@ async function handleUpgradePlugin({
   // (resolved inside `upgradePlugin` via `inspectPlugin`), never a
   // caller-supplied ref — a `settings.write` principal cannot redirect the
   // upgrade at an unreviewed revision.
+  //
+  // Ensure the workspace `@vellumai/plugin-api` shim before the upgrade (as
+  // the uninstall route does before `uninstallPlugin`): the old version's
+  // `shutdown` runs mid-upgrade at the swap boundary, and a hook that imports
+  // the package must resolve even inside the daemon boot window.
+  await ensurePluginApiShim().catch(() => {});
+  // Set when the upgrade reached the swap boundary and this route deactivated
+  // the old version; from that point the plugin is down until a reconcile
+  // brings the on-disk version up, so the reconcile below must run even when
+  // the swap itself failed (re-initializing the untouched old install).
+  let deactivated = false;
   try {
+    const name = sanitizePluginName(rawName);
     const result = await upgradePlugin(
-      { name: rawName, dryRun, strategy },
-      { fetch: globalThis.fetch.bind(globalThis) },
+      { name, dryRun, strategy },
+      {
+        fetch: globalThis.fetch.bind(globalThis),
+        // Tear the old version down BEFORE the staged tree replaces its
+        // files, mirroring uninstall (shutdown runs while the files it was
+        // initialized from are still on disk). Deactivating in-process also
+        // marks the plugin inactive, so the post-swap reconcile's redeploy
+        // branch skips its own deactivate (no double shutdown) and only the
+        // new version's `init` remains to run.
+        beforeSwap: async () => {
+          deactivated = true;
+          await deactivatePluginForUpdate(name);
+        },
+      },
     );
+    // Bring the change up in-process right now — the new version's `init`
+    // via the reconcile — instead of waiting for the resource monitor to
+    // republish the sentinel and a later turn to apply it. This is what
+    // makes the lifecycle fire as part of the upgrade rather than at the
+    // next daemon boot, symmetric to the install and uninstall routes. A
+    // no-op or dry run leaves the tree unchanged (and never reaches the
+    // swap boundary), so there is nothing to reconcile. Never throws; a
+    // failure is contained and logged.
+    if (result.outcome === "upgraded") {
+      await reconcilePluginSourcesNow();
+    }
+    publishPluginsChanged(getOriginClientId(headers));
     return {
       name: result.name,
       outcome: result.outcome,
@@ -1056,9 +1488,10 @@ async function handleUpgradePlugin({
     if (err instanceof PluginMergeBaselineError) {
       throw new ConflictError(err.message);
     }
-    // The install exists but has no marketplace entry to advance to — a
-    // permanent state the caller cannot resolve by retrying. 409 marks the
-    // request as well-formed but not actionable in the current state.
+    // The install has neither a marketplace entry nor a recorded GitHub source
+    // to advance to — a permanent state the caller cannot resolve by retrying.
+    // 409 marks the request as well-formed but not actionable in the current
+    // state.
     if (err instanceof PluginNotUpgradableError) {
       throw new ConflictError(err.message);
     }
@@ -1070,7 +1503,115 @@ async function handleUpgradePlugin({
     throw new InternalError(
       err instanceof Error ? err.message : "plugin upgrade failed",
     );
+  } finally {
+    // Once `beforeSwap` deactivated the old version, the plugin is down until
+    // a reconcile brings the on-disk tree up — the new revision on success,
+    // or the untouched old install when the swap itself failed. Run it here
+    // rather than only on the success path so a failed swap never strands
+    // the plugin deactivated until the next sentinel-driven reconcile.
+    // (On success this is the same reconcile the try block already awaited;
+    // `reconcilePluginSourcesNow` coalesces, and a second pass with nothing
+    // changed is a cheap no-op.)
+    if (deactivated) {
+      await reconcilePluginSourcesNow();
+    }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — enable / disable
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a `toggle-plugin` lib error onto the transport-agnostic route error.
+ * `enablePlugin` / `disablePlugin` throw their own taxonomy (distinct from the
+ * install/uninstall libs), which the branches below narrow to 400 / 404 / 409;
+ * anything unrecognized surfaces as an unexpected 500.
+ */
+function mapTogglePluginError(err: unknown): RouteError {
+  if (err instanceof InvalidTogglePluginNameError) {
+    return new BadRequestError(err.message);
+  }
+  if (err instanceof PluginDirectoryNotFoundError) {
+    return new NotFoundError(err.message);
+  }
+  if (err instanceof PluginAlreadyInStateException) {
+    return new ConflictError(err.message);
+  }
+  return new InternalError(
+    err instanceof Error ? err.message : "plugin toggle failed",
+  );
+}
+
+/**
+ * Toggle a plugin's `.disabled` sentinel through the shared toggle-plugin lib,
+ * then publish a generic `sync_changed(plugins:list)` so every client refetches
+ * `GET /v1/plugins`. Enable and disable emit the SAME invalidation — the tag
+ * names WHICH resource is stale, not the new value. The origin client id is
+ * threaded through for self-echo suppression.
+ */
+function handleEnablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
+  try {
+    enablePlugin(pathParams.name ?? "");
+    publishPluginsChanged(getOriginClientId(headers));
+    return { ok: true };
+  } catch (err) {
+    throw mapTogglePluginError(err);
+  }
+}
+
+function handleDisablePlugin({ pathParams = {}, headers }: RouteHandlerArgs) {
+  try {
+    disablePlugin(pathParams.name ?? "");
+    publishPluginsChanged(getOriginClientId(headers));
+    return { ok: true };
+  } catch (err) {
+    throw mapTogglePluginError(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — icon (bundled icon.png)
+// ---------------------------------------------------------------------------
+
+/**
+ * Serve an installed plugin's validated author-bundled `icon.png` as
+ * `image/png`. Side-effect-free: the on-disk icon is re-validated on read and
+ * never mutated. `sanitizePluginName` rejects a traversal name (`../escape`)
+ * with a 400 before it becomes a filesystem path. The content-hash
+ * `iconVersion` is the `ETag` and the bytes are immutable-cacheable, so a byte
+ * change yields a new hash — clients refetch off the `hasIcon` / `iconVersion`
+ * fields on the list / detail responses.
+ */
+function handleGetPluginIcon({
+  pathParams = {},
+}: RouteHandlerArgs): RouteResponse {
+  let name: string;
+  try {
+    name = sanitizePluginName(pathParams.name ?? "");
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    throw err;
+  }
+
+  const v = readValidatedPluginIcon(join(getWorkspacePluginsDir(), name));
+  if (!v.hasIcon || !v.path) {
+    throw new NotFoundError("Plugin icon not found");
+  }
+
+  const bytes = readFileSync(v.path);
+  return new RouteResponse(new Uint8Array(bytes), {
+    "Content-Type": "image/png",
+    "Content-Length": String(bytes.length),
+    // `private`: the icon is an authenticated, workspace-specific resource, so
+    // no shared/proxy cache may reuse it across requests. The content-hash
+    // ETag + immutable still let the browser cache aggressively.
+    "Cache-Control": "private, max-age=31536000, immutable",
+    ETag: `"${v.iconVersion}"`,
+    "X-Content-Type-Options": "nosniff",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1088,7 +1629,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List installed plugins",
     description:
-      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description.",
+      "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.",
     tags: ["plugins"],
     queryParams: [
       {
@@ -1096,6 +1637,12 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "string" },
         description:
           "Optional substring filter applied to plugin id, name, and description.",
+      },
+      {
+        name: "category",
+        schema: { type: "string" },
+        description:
+          "Filter installed plugins by category slug (Skills taxonomy).",
       },
     ],
     responseBody: pluginsListResponseSchema,
@@ -1124,7 +1671,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "ref",
         schema: { type: "string" },
         description:
-          "Optional git ref to list the catalog at. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).",
+          "Accepted for backward compatibility. The catalog is resolved from the Vellum platform (or the bundled manifest when platform features are disabled); this ref does not select a git revision — it is echoed back and used as the cache key. Defaults to the CLI's `DEFAULT_PLUGIN_REF` (typically `main`).",
       },
     ],
     responseBody: pluginsSearchResponseSchema,
@@ -1140,7 +1687,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Install a plugin",
     description:
-      "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
+      "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the plugin is picked up live on the next read (no restart required). Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
     tags: ["plugins"],
     requestBody: pluginInstallRequestSchema,
     responseBody: pluginInstallResponseSchema,
@@ -1202,6 +1749,36 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleGetPluginDetails,
   },
   {
+    operationId: "plugins_icon",
+    endpoint: "plugins/:name/icon",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Serve a plugin's bundled icon",
+    description:
+      "Serve the installed plugin's validated author-bundled `icon.png` as `image/png`. The PNG is re-validated on read (magic bytes + IHDR dimensions + size) and served with an immutable `Cache-Control` plus a content-hash `ETag` — the `iconVersion` reported by `GET /v1/plugins` and `GET /v1/plugins/:name` — so clients cache aggressively and only refetch when the hash changes. A plugin with no valid bundled icon returns 404; a malformed name returns 400. Pair with the `hasIcon` / `iconVersion` fields on the list and detail responses to decide whether to fetch.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description: "Install name (kebab-case).",
+      },
+    ],
+    responseBody: {
+      contentType: "image/png",
+      schema: { type: "string", format: "binary" },
+    },
+    additionalResponses: {
+      "404": {
+        description: "No installed plugin with the given name has an icon.",
+      },
+    },
+    handler: handleGetPluginIcon,
+  },
+  {
     operationId: "plugins_uninstall",
     endpoint: "plugins/:name",
     method: "DELETE",
@@ -1211,7 +1788,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Uninstall a plugin",
     description:
-      "Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return 400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.",
+      "Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return 400. Missing plugins return 404. The plugin is dropped from the running runtime live on the next read (no restart required).",
     tags: ["plugins"],
     pathParams: [
       {
@@ -1355,9 +1932,9 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "Upgrade a plugin to the marketplace pin",
+    summary: "Upgrade a plugin to its source's current revision",
     description:
-      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
+      'Move an installed plugin to its source\'s current revision, re-materializing it under `<workspaceDir>/plugins/<name>/`. A marketplace plugin advances to the curated pin; a plugin installed directly from a GitHub URL (untrusted, not in the marketplace) advances to whatever its recorded ref now resolves to — a pinned SHA is immutable (a no-op), a branch/tag/HEAD moves as upstream does — re-materialized verbatim with no curated adapter overlay, exactly as the original untrusted install was. The target ref is never taken from the request (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the target; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite` (default) discards them and re-installs the target wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting hunks toward the local edit (`ours`) or the target (`theirs`), or writing git conflict markers into the file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI\'s `assistant plugins upgrade <name> [--strategy <s>]`.',
     tags: ["plugins"],
     pathParams: [
       {
@@ -1380,7 +1957,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       "409": {
         description:
-          "The install exists but has no marketplace entry to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
+          "The install has neither a marketplace entry nor a recorded GitHub source to advance to, or a merge strategy was requested whose install-time baseline cannot be reconstructed.",
       },
       "503": {
         description:
@@ -1388,5 +1965,76 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleUpgradePlugin,
+  },
+  {
+    operationId: "plugins_enable",
+    endpoint: "plugins/:name/enable",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Enable a plugin",
+    description:
+      "Enable a plugin in this workspace by removing its `.disabled` sentinel, mirroring the CLI's `assistant plugins enable <name>`. The change is honored live at read time by every tool / injector / hook gate — no restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-enabled plugin returns 409; a name with no plugin directory returns 404 (prefix a default plugin with `default-`); a malformed name returns 400.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Directory name under `<workspaceDir>/plugins/`. Prefix a default plugin with `default-`. Must be kebab-case alphanumerics.",
+      },
+    ],
+    responseBody: z.object({ ok: z.boolean() }),
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed validation (not kebab-case alphanumerics).",
+      },
+      "404": {
+        description: "No plugin directory exists with the given name.",
+      },
+      "409": {
+        description: "The plugin is already enabled.",
+      },
+    },
+    handler: handleEnablePlugin,
+  },
+  {
+    operationId: "plugins_disable",
+    endpoint: "plugins/:name/disable",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Disable a plugin",
+    description:
+      "Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404 (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Directory name under `<workspaceDir>/plugins/`. Prefix a default plugin with `default-`. Must be kebab-case alphanumerics.",
+      },
+    ],
+    responseBody: z.object({ ok: z.boolean() }),
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed validation (not kebab-case alphanumerics).",
+      },
+      "404": {
+        description:
+          "No plugin directory exists with the given name (user plugins must already be installed).",
+      },
+      "409": {
+        description: "The plugin is already disabled.",
+      },
+    },
+    handler: handleDisablePlugin,
   },
 ];

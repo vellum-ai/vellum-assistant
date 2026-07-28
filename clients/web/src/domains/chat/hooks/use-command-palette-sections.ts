@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
+import { isElectron } from "@/runtime/is-electron";
+
 import {
   type CommandPaletteItemData,
   type CommandPaletteSection,
@@ -42,7 +44,7 @@ function buildActionsSection(assistantName: string): CommandPaletteSection {
         id: "action-new-conversation",
         icon: SquarePen,
         title: "New Conversation",
-        shortcutHint: "⌘N",
+        shortcutHint: isElectron() ? "⌘N" : "⌘⇧O",
       },
       {
         id: "action-current-conversation",
@@ -173,10 +175,12 @@ function dispatchCommandPaletteAction(
       } else if (item.id.startsWith("search-conv-")) {
         const convId = item.id.slice("search-conv-".length);
         ctx.switchConversation(convId);
-      } else if (
-        item.id.startsWith("search-schedule-") ||
-        item.id.startsWith("search-contact-")
-      ) {
+      } else if (item.id.startsWith("search-schedule-")) {
+        haptic.light();
+        ctx.navigate(
+          routes.schedules.detail(item.id.slice("search-schedule-".length)),
+        );
+      } else if (item.id.startsWith("search-contact-")) {
         haptic.light();
         ctx.navigate(routes.identity);
       }

@@ -11,6 +11,7 @@ import {
 import { dirname, join } from "node:path";
 import * as readline from "node:readline";
 
+import type { AssistantEvent } from "./api/index.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
@@ -18,14 +19,16 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
-import type { ServerMessage } from "./daemon/message-protocol.js";
-import { getConversation, getMessages } from "./memory/conversation-crud.js";
+import {
+  getConversation,
+  getMessages,
+} from "./persistence/conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
   setConversationKeyIfAbsent,
-} from "./memory/conversation-key-store.js";
-import { listConversations } from "./memory/conversation-queries.js";
+} from "./persistence/conversation-key-store.js";
+import { listConversations } from "./persistence/conversation-queries.js";
 import {
   type EventStreamWatcher,
   watchEventStream,
@@ -41,7 +44,9 @@ const CLI_CONVERSATION_KEY = "builtin-cli:default";
 
 export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   const value = typeof rawUrl === "string" ? rawUrl : String(rawUrl ?? "");
-  if (!value) return "";
+  if (!value) {
+    return "";
+  }
 
   try {
     const parsed = new URL(value);
@@ -59,7 +64,6 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
 export async function startCli(): Promise<void> {
   let conversationKey = CLI_CONVERSATION_KEY;
   let conversationId = "";
-  let pendingUserContent: string | null = null;
   let generating = false;
   let lastUsage: {
     inputTokens: number;
@@ -164,7 +168,9 @@ export async function startCli(): Promise<void> {
           error?: string;
           message?: string;
         }): void => {
-          if (settled) return;
+          if (settled) {
+            return;
+          }
           settled = true;
           watcher.close();
           clearTimeout(timeoutId);
@@ -283,54 +289,8 @@ export async function startCli(): Promise<void> {
     });
   }
 
-  function handleMessage(msg: ServerMessage): void {
+  function handleMessage(msg: AssistantEvent): void {
     switch (msg.type) {
-      case "conversation_info":
-        pendingSessionPick = false;
-        conversationId = msg.conversationId;
-        process.stdout.write(
-          `\n  Conversation: ${msg.title}\n  Type your message. Ctrl+D to detach.\n\n`,
-        );
-        if (pendingUserContent) {
-          const content = pendingUserContent;
-          pendingUserContent = null;
-          sendUserMessage(content).then((result) => {
-            if (result.ok) {
-              generating = true;
-              spinner.start("Thinking...");
-            } else {
-              if (result.error === "secret_blocked" && result.message) {
-                process.stdout.write(`${result.message}\n`);
-                rl.question("Send anyway? (y/N): ", (answer) => {
-                  if (answer.trim().toLowerCase() === "y") {
-                    sendUserMessage(content, {
-                      bypassSecretCheck: true,
-                    }).then((retryResult) => {
-                      if (retryResult.ok) {
-                        generating = true;
-                        spinner.start("Thinking...");
-                      } else {
-                        process.stdout.write(
-                          "[Not connected — message not sent]\n",
-                        );
-                        prompt();
-                      }
-                    });
-                  } else {
-                    prompt();
-                  }
-                });
-              } else {
-                process.stdout.write("[Not connected — message not sent]\n");
-                prompt();
-              }
-            }
-          });
-        } else {
-          prompt();
-        }
-        break;
-
       case "assistant_text_delta":
         spinner.stop();
         process.stdout.write(msg.text);
@@ -452,7 +412,9 @@ export async function startCli(): Promise<void> {
         break;
 
       case "tool_result":
-        if (!toolStreaming) spinner.stop();
+        if (!toolStreaming) {
+          spinner.stop();
+        }
         if (toolStreaming) {
           if (msg.status) {
             process.stdout.write(`\n${msg.status}`);
@@ -498,70 +460,10 @@ export async function startCli(): Promise<void> {
         prompt();
         break;
 
-      case "conversation_list_response":
-        if (pendingSessionPick) {
-          renderConversationPicker(msg.conversations);
-        } else {
-          for (const conversation of msg.conversations) {
-            process.stdout.write(
-              `  ${conversation.id}  ${conversation.title}\n`,
-            );
-          }
-          prompt();
-        }
-        break;
-
       case "model_info":
         process.stdout.write(`\n  Model: ${msg.model} (${msg.provider})\n\n`);
         prompt();
         break;
-
-      case "history_response":
-        process.stdout.write("\n");
-        if (msg.messages.length === 0) {
-          process.stdout.write("  No messages in this conversation.\n");
-        } else {
-          for (const m of msg.messages) {
-            const label = m.role === "user" ? "you" : "assistant";
-            const preview = truncate(m.text, 120);
-            process.stdout.write(
-              `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
-            );
-          }
-        }
-        process.stdout.write("\n");
-        prompt();
-        break;
-
-      case "undo_complete":
-        if (msg.removedCount === 0) {
-          process.stdout.write("\n  Nothing to undo.\n\n");
-        } else {
-          process.stdout.write(
-            `\n  Removed last exchange (${msg.removedCount} messages).\n\n`,
-          );
-        }
-        prompt();
-        break;
-
-      case "usage_response": {
-        process.stdout.write("\n");
-        process.stdout.write(`  Model:          ${msg.model}\n`);
-        process.stdout.write(
-          `  Input tokens:   ${msg.totalInputTokens.toLocaleString()}\n`,
-        );
-        process.stdout.write(
-          `  Output tokens:  ${msg.totalOutputTokens.toLocaleString()}\n`,
-        );
-        const costStr =
-          msg.estimatedCost > 0
-            ? `$${msg.estimatedCost.toFixed(4)}`
-            : "N/A (unknown model pricing)";
-        process.stdout.write(`  Estimated cost: ${costStr}\n`);
-        process.stdout.write("\n");
-        prompt();
-        break;
-      }
     }
   }
 
@@ -593,8 +495,12 @@ export async function startCli(): Promise<void> {
 
   function handleLine(line: string): void {
     const content = line.trim();
-    if (!content) return;
-    if (pendingSessionPick) return;
+    if (!content) {
+      return;
+    }
+    if (pendingSessionPick) {
+      return;
+    }
 
     // Persist to history file (ensure parent directory exists)
     try {
@@ -666,12 +572,7 @@ export async function startCli(): Promise<void> {
             process.stdout.write("  No messages in this conversation.\n");
           } else {
             for (const msg of rawMessages) {
-              let parsedContent: unknown;
-              try {
-                parsedContent = JSON.parse(msg.content);
-              } catch {
-                parsedContent = msg.content;
-              }
+              const parsedContent: unknown = msg.content;
               const text = renderHistoryContent(parsedContent).text;
               const label = msg.role === "user" ? "you" : "assistant";
               const preview = truncate(text, 120);
@@ -721,8 +622,12 @@ export async function startCli(): Promise<void> {
               requestId?: string;
               error?: string;
             };
-            if (result.requestId !== requestId) return;
-            if (settled) return;
+            if (result.requestId !== requestId) {
+              return;
+            }
+            if (settled) {
+              return;
+            }
             settled = true;
             undoWatcher.close();
             clearTimeout(undoTimeoutId);

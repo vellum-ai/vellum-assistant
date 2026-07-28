@@ -84,17 +84,19 @@ function CoinFace({ idSuffix }: { idSuffix: string }) {
         strokeWidth="1.4"
       />
 
-      {/* Embossed dollar sign — soft emboss, bright gold. */}
+      {/* Embossed dollar sign — soft emboss, bright gold. `textAnchor=middle`
+          centers horizontally and `dy=0.355em` (~half the cap height) centers
+          vertically across browsers; `dominantBaseline` is avoided because iOS
+          WebKit renders it unreliably. */}
       <g
         fontFamily="var(--font-sans), system-ui, sans-serif"
         fontWeight={900}
         fontSize="58"
         textAnchor="middle"
-        dominantBaseline="central"
       >
-        <text x="50" y="52" fill="#C88E16" transform="translate(1.3 1.6)">$</text>
-        <text x="50" y="52" fill="#FFF6CF" opacity="0.7" transform="translate(-1.3 -1.5)">$</text>
-        <text x="50" y="52" fill="#F4C12A">$</text>
+        <text x="50" y="50" dy="0.355em" fill="#C88E16" transform="translate(1.3 1.6)">$</text>
+        <text x="50" y="50" dy="0.355em" fill="#FFF6CF" opacity="0.7" transform="translate(-1.3 -1.5)">$</text>
+        <text x="50" y="50" dy="0.355em" fill="#F4C12A">$</text>
       </g>
 
       {/* Gloss + hot-spot */}

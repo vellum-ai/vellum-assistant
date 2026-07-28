@@ -2,65 +2,21 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 let TEST_DIR = "";
 const seedUpsertSlugs: string[] = [];
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: true,
-  },
-  auditLog: { retentionDays: 0 },
-  services: {
-    inference: {
-      mode: "your-own",
-      provider: "anthropic",
-      model: "claude-opus-4-6",
-    },
-    "image-generation": {
-      mode: "your-own",
-      provider: "gemini",
-      model: "gemini-3.1-flash-image-preview",
-    },
-    "web-search": { mode: "your-own", provider: "inference-provider-native" },
-  },
-  skills: {
-    entries: {},
-    allowBundled: [],
-  },
-};
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
+// Keep bundled skills out of the catalog so the lifecycle assertions only
+// see the managed skills these tests create (default `allowBundled: null`
+// would load every bundled skill).
+setConfig("skills", { allowBundled: [] });
 
 mock.module("../skills/catalog-cache.js", () => ({
   getCatalog: async () => [],
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   embedWithBackend: async (_config: unknown, inputs: unknown[]) => ({
     provider: "local",
     model: "test-model",
@@ -69,7 +25,7 @@ mock.module("../memory/embedding-backend.js", () => ({
   generateSparseEmbedding: () => ({ indices: [1], values: [1] }),
 }));
 
-mock.module("../memory/v2/qdrant.js", () => ({
+mock.module("../plugins/defaults/memory/substrate/qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: { slug: string }) => {
     seedUpsertSlugs.push(params.slug);
   },
@@ -85,7 +41,7 @@ import {
   _resetSkillStoreForTests,
   getSkillCapability,
   seedV2SkillEntries,
-} from "../memory/v2/skill-store.js";
+} from "../plugins/defaults/memory/substrate/skill-store.js";
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { skillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";

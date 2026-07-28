@@ -6,7 +6,18 @@ import type { VelayHeaders } from "./protocol.js";
 
 const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
 
-const VELAY_ALLOWED_HTTP_PATH_PREFIXES = ["/webhooks/twilio/"] as const;
+const VELAY_ALLOWED_HTTP_PATH_PREFIXES = [
+  "/webhooks/twilio/",
+  "/v1/audio/",
+] as const;
+// Exact-match HTTP paths (no trailing segments). Keep in sync with the
+// registration allowlist in allowed-paths.ts — Velay enforces that list
+// platform-side, and this bridge check is the local second layer.
+const VELAY_ALLOWED_HTTP_EXACT_PATHS = [
+  "/assistant/credentials/enter",
+  "/v1/credential-requests/peek",
+  "/v1/credential-requests/submit",
+] as const;
 const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
   "/v1/live-voice",
   "/v1/stt/stream",
@@ -23,8 +34,13 @@ const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
 export const VELAY_FORWARDED_HEADER = "x-velay-forwarded" as const;
 
 export function isAllowedVelayHttpPath(path: string): boolean {
-  return VELAY_ALLOWED_HTTP_PATH_PREFIXES.some((prefix) =>
-    path.startsWith(prefix),
+  return (
+    VELAY_ALLOWED_HTTP_PATH_PREFIXES.some((prefix) =>
+      path.startsWith(prefix),
+    ) ||
+    VELAY_ALLOWED_HTTP_EXACT_PATHS.includes(
+      path as (typeof VELAY_ALLOWED_HTTP_EXACT_PATHS)[number],
+    )
   );
 }
 

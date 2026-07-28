@@ -17,7 +17,14 @@ describe("isWeakOpenModel", () => {
   });
 
   test("does not match capable models", () => {
-    for (const model of ["claude-opus-4-8", "claude-sonnet-4-6", "gpt-5.5"]) {
+    for (const model of [
+      "claude-opus-4-8",
+      "claude-sonnet-4-6",
+      "gpt-5.5",
+      "moonshotai/kimi-k3",
+      "accounts/fireworks/models/kimi-k3",
+      "moonshotai/kimi-latest",
+    ]) {
       expect(isWeakOpenModel(model)).toBe(false);
     }
   });

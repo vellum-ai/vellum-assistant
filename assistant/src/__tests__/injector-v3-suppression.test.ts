@@ -32,11 +32,11 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
-import { INJECTION_HEADER } from "../memory/v2/injection.js";
-import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory-v3-shadow/render-injection.js";
-import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory-v3-shadow/types.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { INJECTION_HEADER } from "../plugins/defaults/memory/v2/injection.js";
+import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory/v3/render-injection.js";
+import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory/v3/types.js";
 import type {
   InjectionBlock,
   Injector,
@@ -44,19 +44,34 @@ import type {
 } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
-// Drive the suppression branch by controlling the static injector chain that
+// Drive the suppression branch by controlling the injector chain that
 // `applyRuntimeInjections` walks. The slot is mutated per-test to stand in for
 // the memory-v3 injectors producing (or not producing) blocks.
 const injectorChainSlot: Injector[] = [];
-mock.module("../plugins/defaults/memory-retrieval/injector-chain.js", () => ({
-  getInjectorChain: () => injectorChainSlot,
+const realInjectorRegistry = await import("../plugins/injector-registry.js");
+mock.module("../plugins/injector-registry.js", () => ({
+  ...realInjectorRegistry,
+  getRegisteredInjectors: () => injectorChainSlot,
 }));
 
 // `applyRuntimeInjections` reads the v3-live gate (`config.memory.v3.live`)
-// via `isMemoryV3Live`; drive it directly through this slot per-test.
+// via `isMemoryV3Live`; drive it directly through this slot per-test. The
+// import graph also pulls `isV3TierActive` (the permission policy-context
+// precomputes the proc-to-skills gate off it) and `isMemoryEnabled`, so the
+// wholesale mock must expose both.
 let memoryV3LiveSlot = false;
 mock.module("../config/memory-v3-gate.js", () => ({
   isMemoryV3Live: () => memoryV3LiveSlot,
+  isV3TierActive: () => false,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
+  usesConceptPageMemory: (memory?: {
+    enabled?: boolean;
+    v2?: { enabled?: boolean };
+    v3?: { live?: boolean };
+  }) =>
+    memory?.enabled !== false &&
+    (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
 const { applyRuntimeInjections } =

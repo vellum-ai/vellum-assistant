@@ -4,7 +4,8 @@
  * Live voice picks its transport by deployment kind via
  * {@link resolveLiveVoiceWsUrl}:
  *
- * - **Cloud** — streams audio to velay (`velay.vellum.ai`), which is
+ * - **Cloud** — streams audio to the platform environment's velay (prod
+ *   `velay.vellum.ai`, staging `velay-staging.vellum.ai`, …), which is
  *   cross-origin from the `platform.vellum.ai` SPA. A same-origin cookie WS
  *   upgrade is NOT viable: velay does no user auth, and the channel gateway
  *   only accepts a local actor edge JWT. So the browser first mints a
@@ -37,15 +38,21 @@
  * cookie + CSRF + `Vellum-Organization-Id`.
  */
 
+import { velayHostForPlatformHost } from "@vellumai/service-contracts/ingress";
+
 import { authLiveVoiceTokenCreate } from "@/generated/api/sdk.gen";
 import type { LiveVoiceTokenResponse } from "@/generated/api/types.gen";
+import { getPlatformRuntimeUrl } from "@/lib/platform-runtime-url";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { assertHasResponse } from "@/utils/api-errors";
 
-/** Production velay host (no scheme). Overridable via `VITE_VELAY_HOST`. */
+/**
+ * Production velay host (no scheme). Fallback when neither the
+ * `VITE_VELAY_HOST` override nor the platform-host derivation applies.
+ */
 const DEFAULT_VELAY_HOST = "velay.vellum.ai";
 
 export class LiveVoiceTokenError extends Error {
@@ -96,9 +103,29 @@ export async function mintLiveVoiceToken(
   return data;
 }
 
-/** Resolve the velay host (no scheme), honouring the build-time override. */
+/**
+ * Resolve the velay host (no scheme). An explicit `VITE_VELAY_HOST` always
+ * wins (local `vel up` velay); otherwise derive it from the platform runtime
+ * URL so one renderer build follows whichever platform environment it is
+ * connected to — the Electron web bundle is built without `VITE_VELAY_HOST`,
+ * and baking the prod default would send a staging assistant's token to prod
+ * velay, which rejects it on the WS upgrade.
+ */
 function getVelayHost(): string {
-  return import.meta.env.VITE_VELAY_HOST || DEFAULT_VELAY_HOST;
+  if (import.meta.env.VITE_VELAY_HOST) {
+    return import.meta.env.VITE_VELAY_HOST;
+  }
+  try {
+    const derived = velayHostForPlatformHost(
+      new URL(getPlatformRuntimeUrl()).hostname,
+    );
+    if (derived) {
+      return derived;
+    }
+  } catch {
+    // Unparseable platform URL — fall through to the prod default.
+  }
+  return DEFAULT_VELAY_HOST;
 }
 
 /**
@@ -175,41 +202,91 @@ export interface BuildSelfHostedLiveVoiceWsUrlArgs {
 }
 
 /**
- * Build the live-voice WebSocket URL for the self-hosted / local path:
+ * Local gateway proxy path (`/assistant/__gateway/<port>`) as produced by
+ * `gatewayProxyUrl` in local-mode. HTTP gateway traffic rides this same-origin
+ * proxy, but a live-voice WebSocket cannot: both hosts that serve the proxy —
+ * the Vite dev-server middleware and the Electron `app://` protocol forward —
+ * proxy HTTP only and drop the WS upgrade, so a WS dialled at the proxy path
+ * never reaches the gateway. When the ingress is this proxy path we therefore
+ * bypass it and dial the loopback gateway port directly (the `ws://127.0.0.1:*`
+ * shape the desktop CSP already allowlists).
+ */
+const LOCAL_GATEWAY_PROXY_PATH = /^\/assistant\/__gateway\/(\d+)\/?$/;
+
+export interface BuildSelfHostedGatewayWsUrlArgs {
+  /**
+   * The user's gateway ingress URL (e.g. `https://x.ngrok-free.app` or the local
+   * `/assistant/__gateway/<port>` proxy path), from {@link getSelfHostedIngressUrl}.
+   */
+  ingressUrl: string;
+  /** Gateway route to open, e.g. `/v1/live-voice` or `/v1/stt/stream`. */
+  routePath: string;
+  /** Platform actor edge JWT from {@link getSelfHostedActorToken}. */
+  token: string;
+  /** Extra query params to append after `token` (e.g. `conversationId`). */
+  params?: Record<string, string>;
+}
+
+/**
+ * Build a self-hosted gateway WebSocket URL. Shared by every gateway WS the
+ * browser opens (`/v1/live-voice`, `/v1/stt/stream`) so the transport rules stay
+ * in one place:
  *
- *   ws(s)://<ingressHost>/v1/live-voice?token=<actorToken>[&conversationId=<id>]
- *
- * Differences from the cloud (velay) URL:
- * - **No `/<assistantId>` path prefix.** That prefix is velay's tunnel routing;
- *   the gateway serves `/v1/live-voice` directly.
  * - **Scheme follows the ingress:** `https`→`wss`, `http`→`ws`, so a plain-HTTP
  *   local gateway is reachable over `ws`.
  * - **The token is the actor edge JWT**, not a minted velay token. It rides in
  *   `?token=` because the browser WebSocket API can't set an `Authorization`
- *   header; the gateway's non-managed `checkLiveVoiceAuth` reads it there.
- *
- * The ingress *path prefix* is preserved and `/v1/live-voice` is appended to it
- * — in local Docker mode the gateway is reached at a path-based proxy
- * (`<origin>/assistant/__gateway/{port}`), exactly as the HTTP interceptor
- * (`rewriteForSelfHostedIngress`) splices it. Any query/hash on the ingress is
- * dropped.
+ *   header; the gateway's non-managed auth reads it there.
+ * - **Local `/assistant/__gateway/<port>` proxy path → direct loopback dial**
+ *   (`ws://127.0.0.1:<port>{routePath}`), since that HTTP-only proxy can't carry
+ *   the WS upgrade — see {@link LOCAL_GATEWAY_PROXY_PATH}.
+ * - **Remote ingress** (e.g. an ngrok `wss://` URL) keeps its host and path
+ *   prefix, with `routePath` appended. Any query/hash on the ingress is dropped.
+ */
+export function buildSelfHostedGatewayWsUrl({
+  ingressUrl,
+  routePath,
+  token,
+  params,
+}: BuildSelfHostedGatewayWsUrlArgs): string {
+  const ingress = new URL(ingressUrl);
+  const localProxy = ingress.pathname.match(LOCAL_GATEWAY_PROXY_PATH);
+
+  let target: URL;
+  if (localProxy) {
+    target = new URL(`ws://127.0.0.1:${localProxy[1]}${routePath}`);
+  } else {
+    ingress.protocol = ingress.protocol === "http:" ? "ws:" : "wss:";
+    const prefix = ingress.pathname.replace(/\/+$/, "");
+    ingress.pathname = `${prefix}${routePath}`;
+    ingress.search = "";
+    ingress.hash = "";
+    target = ingress;
+  }
+
+  target.searchParams.set("token", token);
+  for (const [key, value] of Object.entries(params ?? {})) {
+    target.searchParams.set(key, value);
+  }
+  return target.toString();
+}
+
+/**
+ * Build the live-voice WebSocket URL for the self-hosted / local path. Thin
+ * wrapper over {@link buildSelfHostedGatewayWsUrl} for the `/v1/live-voice`
+ * route; the gateway serves it directly (no velay `/<assistantId>` prefix).
  */
 export function buildSelfHostedLiveVoiceWsUrl({
   ingressUrl,
   conversationId,
   token,
 }: BuildSelfHostedLiveVoiceWsUrlArgs): string {
-  const url = new URL(ingressUrl);
-  url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-  const prefix = url.pathname.replace(/\/+$/, "");
-  url.pathname = `${prefix}/v1/live-voice`;
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("token", token);
-  if (conversationId) {
-    url.searchParams.set("conversationId", conversationId);
-  }
-  return url.toString();
+  return buildSelfHostedGatewayWsUrl({
+    ingressUrl,
+    routePath: "/v1/live-voice",
+    token,
+    params: conversationId ? { conversationId } : undefined,
+  });
 }
 
 export interface ResolveLiveVoiceWsUrlArgs {

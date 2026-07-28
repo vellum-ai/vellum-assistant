@@ -1,13 +1,14 @@
-import {
-  afterAll,
-  afterEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 // The transcript transitively pulls in the viewer store → the generated daemon
 // SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
@@ -18,26 +19,125 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   documentsByIdGet: async () => ({ data: undefined }),
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
-  MessageAttachments: () => <div data-testid="attachments" />,
+mock.module(
+  "@/domains/chat/components/chat-attachments/message-attachments",
+  () => ({
+    MessageAttachments: () => <div data-testid="attachments" />,
+  }),
+);
+
+// The ACP-run and background-task rows wire their transcript stop button to
+// these standalone actions; stub them so clicking Stop records the call without
+// pulling in the daemon SDK / store wiring.
+const stopAcpRunMock = mock(async () => {});
+const stopBackgroundTaskMock = mock(async () => {});
+mock.module("@/domains/chat/utils/acp-run-actions", () => ({
+  stopAcpRun: stopAcpRunMock,
+}));
+mock.module("@/domains/chat/utils/background-task-actions", () => ({
+  stopBackgroundTask: stopBackgroundTaskMock,
 }));
 
+// The vellum file action modal builds on the design-library Modal (Radix
+// dialog). Stub the design-library primitives with bare elements so these
+// tests exercise the modal's action wiring without pulling in Radix's portal
+// and focus machinery.
+mock.module("@vellumai/design-library/components/modal", () => {
+  const passthrough =
+    (slot: string) =>
+    ({ children }: { children?: ReactNode }) => (
+      <div data-testid={slot}>{children}</div>
+    );
+  return {
+    Modal: {
+      Root: ({
+        open,
+        children,
+      }: {
+        open?: boolean;
+        children?: ReactNode;
+      }) => (open ? <div role="dialog">{children}</div> : null),
+      Content: passthrough("modal-content"),
+      Header: passthrough("modal-header"),
+      Title: ({ children }: { children?: ReactNode }) => (
+        <div data-testid="modal-title">{children}</div>
+      ),
+      Description: passthrough("modal-description"),
+      Footer: passthrough("modal-footer"),
+    },
+  };
+});
+mock.module("@vellumai/design-library/components/button", () => ({
+  Button: ({
+    children,
+    onClick,
+  }: {
+    children?: ReactNode;
+    onClick?: () => void;
+  }) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
+  ),
+}));
+
+// `openWorkspaceFile` lazily imports the app router, which these tests don't
+// build. Stub it to record the workspace paths opened via the file action
+// modal's "Go to file" button.
+const openWorkspaceFileMock = mock(async (_path: string) => {});
+mock.module("@/utils/open-workspace-file", () => ({
+  openWorkspaceFile: openWorkspaceFileMock,
+}));
+
+// Captures the latest `onVellumLinkClick` handler so tests can drive the
+// vellum:// link download path directly through the mocked markdown renderer.
+let lastVellumLinkClick: ((href: string, linkText: string) => void) | undefined;
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
   ChatMarkdownMessage: ({
     content,
     hardLineBreaks,
+    onVellumLinkClick,
+    redactedCredentialChips,
   }: {
     content: string;
     hardLineBreaks?: boolean;
-  }) => (
-    <div
-      data-testid="markdown"
-      data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
-    >
-      {content}
-    </div>
-  ),
+    onVellumLinkClick?: (href: string, linkText: string) => void;
+    redactedCredentialChips?: boolean;
+  }) => {
+    lastVellumLinkClick = onVellumLinkClick;
+    return (
+      <div
+        data-testid="markdown"
+        data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+        data-redacted-credential-chips={
+          redactedCredentialChips ? "true" : "false"
+        }
+      >
+        {content}
+      </div>
+    );
+  },
 }));
+
+// `handleVellumLinkClick` resolves the clicked link to an attachment and hands
+// it to `downloadAttachment`; stub it to record which attachment matched.
+// The stub mirrors the real helper's `previewUrl` fallback branch (the only
+// one reachable without an assistantId) so the mid-turn tool-result image
+// test still observes `saveFile` receiving the data-URL bytes.
+const downloadAttachmentMock = mock(
+  async (attachment: { filename: string; previewUrl: string | null }) => {
+    if (attachment.previewUrl) {
+      const { saveFile } = await import("@/runtime/native-file");
+      await saveFile(attachment.previewUrl, attachment.filename);
+    }
+  },
+);
+mock.module(
+  "@/domains/chat/components/chat-attachments/download-attachment",
+  () => ({
+    downloadAttachment: downloadAttachmentMock,
+  }),
+);
 
 mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
   SurfaceRouter: ({ surface }: { surface: { surfaceId: string } }) => (
@@ -125,13 +225,78 @@ mock.module(
   }),
 );
 
+// The four transcript inline-card render paths (workflow / ACP run /
+// background task — and subagent, via `SubagentSpawnGroup`) all route through
+// the generic `InlineProcessCardRow`. Stub it so these tests can assert which
+// descriptor + id each render helper maps to, and that the transcript's
+// `onOpen`/`onStop` wiring reaches the row — without hydrating each kind's
+// store (the row's own markup is covered by `inline-process-card.test`).
+mock.module("@/domains/chat/process-registry/inline-process-card-row", () => ({
+  InlineProcessCardRow: ({
+    descriptor,
+    id,
+    onOpen,
+    onStop,
+  }: {
+    descriptor: { kind: string };
+    id: string;
+    onOpen?: () => void;
+    onStop?: () => void;
+  }) => (
+    <div
+      data-testid="inline-process-card"
+      data-process-kind={descriptor.kind}
+      data-process-id={id}
+      data-has-stop={onStop ? "true" : "false"}
+    >
+      <button
+        type="button"
+        data-testid="inline-process-card-open"
+        onClick={() => onOpen?.()}
+      />
+      <button
+        type="button"
+        data-testid="inline-process-card-stop"
+        onClick={() => onStop?.()}
+      />
+    </div>
+  ),
+}));
+
+// The mid-turn tool-result image strip downloads data-URL bytes through
+// `downloadAttachment`, which lazily imports the native-file bridge. Stub it so
+// clicking Download records the call without touching Capacitor / DOM anchors.
+const saveFileMock = mock(async () => {});
+mock.module("@/runtime/native-file", () => ({
+  saveFile: saveFileMock,
+}));
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const noop = () => {};
+
+/**
+ * Drives a `vellum://` link click through the mocked markdown renderer. The
+ * click stages the file in component state (opening the action modal), so it
+ * must run inside `act`.
+ */
+function clickVellumLink(href: string, linkText: string) {
+  act(() => {
+    lastVellumLinkClick?.(href, linkText);
+  });
+}
+
+/** Clicks an action button inside the vellum file action modal. */
+function clickModalAction(name: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
+}
 
 // `TranscriptMessageBody` renders a row's body by walking its unified
 // `contentBlocks` projection — the sole source of truth. Each block embeds its
@@ -230,9 +395,9 @@ describe("TranscriptMessageBody", () => {
     expect(markdown).not.toBeNull();
     expect(markdown!.textContent).toBe("line one\nline two");
     expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
-    // The text run is wrapped in the surface-lift user bubble.
+    // The text run is wrapped in the user bubble.
     expect(
-      container.querySelector(".bg-\\[var\\(--surface-lift\\)\\]"),
+      container.querySelector("[class*='user-bubble-bg']"),
     ).not.toBeNull();
   });
 
@@ -422,7 +587,12 @@ describe("TranscriptMessageBody", () => {
           role: "assistant",
           contentBlocks: [
             thinkingBlock("why I called the tool"),
-            toolUseBlock({ id: "tc-a", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-a",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
             textBlock("the answer"),
           ],
           timestamp: 1_000,
@@ -521,6 +691,177 @@ describe("TranscriptMessageBody", () => {
     ).toBeNull();
   });
 
+  test("renders images returned by an assistant tool result", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-img",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated 2 images",
+      imageData: "img-a",
+      imageDataList: ["img-a", "img-b"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-generated-images",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const images = container.querySelectorAll(
+      "[data-testid='tool-result-image']",
+    );
+    expect(images.length).toBe(2);
+    expect(images[0]!.getAttribute("src")).toBe("data:image/png;base64,img-a");
+    expect(images[1]!.getAttribute("src")).toBe("data:image/png;base64,img-b");
+  });
+
+  test("infers non-png MIME types for assistant tool-result images", () => {
+    const jpegData = "/9j/4AAQSkZJRgABAQAAAQABAAD";
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-jpeg",
+      name: "media_generate_image",
+      input: { prompt: "photo" },
+      result: "Generated 1 image",
+      imageDataList: [jpegData],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-generated-jpeg",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    expect(image?.getAttribute("src")).toBe(
+      `data:image/jpeg;base64,${jpegData}`,
+    );
+  });
+
+  test("mid-turn tool-result images are keyboard-operable and named from the tool", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-fileread",
+      name: "file_read",
+      input: { path: "/tmp/diagram.png" },
+      result: "Read 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-fileread-image",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    const clickable = image?.closest("[role='button']");
+    expect(clickable).not.toBeNull();
+    // Filename mirrors the daemon's `toolNameToFilePrefix` (`file_read` →
+    // `file-read.png`), surfaced as the accessible label and download label.
+    expect(clickable!.getAttribute("aria-label")).toBe("file-read.png");
+    expect(clickable!.getAttribute("tabindex")).toBe("0");
+    const download = container.querySelector(
+      "[aria-label='Download file-read.png']",
+    );
+    expect(download).not.toBeNull();
+  });
+
+  test("clicking a mid-turn tool-result image opens the shared preview", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-open",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <TranscriptMessageBody
+          message={{
+            id: "m-open-preview",
+            role: "assistant",
+            contentBlocks: [toolUseBlock(toolCall)],
+            toolCalls: [toolCall],
+            timestamp: 1_000,
+          }}
+          onSurfaceAction={noop}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+    const clickable = container
+      .querySelector("[data-testid='tool-result-image']")
+      ?.closest("[role='button']");
+    fireEvent.click(clickable!);
+
+    // The reused AttachmentPreviewModal portals into document.body.
+    const dialog = document.querySelector("[role='dialog']");
+    expect(dialog).not.toBeNull();
+    expect(dialog!.getAttribute("aria-label")).toBe(
+      "Preview of media-generate-image.png",
+    );
+  });
+
+  test("downloading a mid-turn tool-result image saves the data-URL bytes", async () => {
+    saveFileMock.mockClear();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-dl",
+      name: "file_read",
+      input: { path: "/tmp/shot.png" },
+      result: "Read 1 image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-download-image",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(toolCall)],
+          toolCalls: [toolCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const download = container.querySelector(
+      "[aria-label='Download file-read.png']",
+    );
+    fireEvent.click(download!);
+    await waitFor(() => {
+      expect(saveFileMock).toHaveBeenCalledWith(
+        "data:image/png;base64,img-a",
+        "file-read.png",
+      );
+    });
+  });
+
   test("a tool + thinking run still renders the boxed activity card", () => {
     // A run with more than one card item (tool + thinking) is NOT a lone tool,
     // so it stays the boxed card rather than collapsing to the inline chip.
@@ -530,7 +871,12 @@ describe("TranscriptMessageBody", () => {
           id: "m-tool-thinking",
           role: "assistant",
           contentBlocks: [
-            toolUseBlock({ id: "tc-mix", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-mix",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
             thinkingBlock("reasoning about the tool"),
             textBlock("done"),
           ],
@@ -581,7 +927,12 @@ describe("TranscriptMessageBody", () => {
           contentBlocks: [
             thinkingBlock("just reasoning"),
             textBlock("answer"),
-            toolUseBlock({ id: "tc-a", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-a",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
           ],
           timestamp: 1_000,
         }}
@@ -608,7 +959,10 @@ describe("TranscriptMessageBody", () => {
     const html = renderMessage({
       id: "m-think",
       role: "assistant",
-      contentBlocks: [thinkingBlock("chain of thought"), textBlock("the answer")],
+      contentBlocks: [
+        thinkingBlock("chain of thought"),
+        textBlock("the answer"),
+      ],
       timestamp: 1_000,
     });
 
@@ -729,9 +1083,9 @@ describe("TranscriptMessageBody", () => {
     );
 
     const bubbles = container.querySelectorAll(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
-    // Exactly one bubble container carries the surface-lift background.
+    // Exactly one bubble container carries the user-bubble background.
     expect(bubbles.length).toBe(1);
 
     const bubble = bubbles[0]!;
@@ -770,13 +1124,221 @@ describe("TranscriptMessageBody", () => {
     );
 
     const bubbles = container.querySelectorAll(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     expect(bubbles.length).toBe(1);
     expect(bubbles[0]!.querySelector("img")?.getAttribute("src")).toBe(
       "blob:preview",
     );
     expect(container.querySelector("[data-testid='attachments']")).toBeNull();
+  });
+
+  test("vellum link click matches the decoded path basename for bare labels", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-link",
+          role: "assistant",
+          contentBlocks: [textBlock("grab it")],
+          attachments: [
+            {
+              id: "att-enc",
+              filename: "qa shot.png",
+              mimeType: "image/png",
+              sizeBytes: 99,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Bare label + percent-encoded path: the daemon stored the DECODED
+    // basename ("qa shot.png"), so the click must decode before matching.
+    clickVellumLink("vellum://workspace/scratch/qa%20shot.png", "desktop");
+    clickModalAction("Download file");
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-enc" });
+  });
+
+  test("bare-label links to files sharing a basename resolve independently", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-dup",
+          role: "assistant",
+          contentBlocks: [textBlock("two results")],
+          attachments: [
+            {
+              id: "att-first",
+              filename: "first.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+            {
+              id: "att-second",
+              filename: "second.png",
+              mimeType: "image/png",
+              sizeBytes: 2,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink("vellum://workspace/b/result.png", "second");
+    clickModalAction("Download file");
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-second" });
+  });
+
+  test("bare label cannot be shadowed by an unrelated attachment with that name", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-shadow",
+          role: "assistant",
+          contentBlocks: [textBlock("two files")],
+          attachments: [
+            {
+              // Unrelated attachment explicitly named like the link's label.
+              id: "att-decoy",
+              filename: "desktop",
+              mimeType: "application/octet-stream",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+            {
+              // The attachment the daemon materialized for the clicked link
+              // (bare label, so stored as label + path extension).
+              id: "att-real",
+              filename: "desktop.png",
+              mimeType: "image/png",
+              sizeBytes: 2,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink("vellum://workspace/qa-delete-desktop-dialog.png", "desktop");
+    clickModalAction("Download file");
+    expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-real" });
+  });
+
+  test("workspace link click opens the action modal; Go to file navigates", () => {
+    downloadAttachmentMock.mockClear();
+    openWorkspaceFileMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-modal",
+          role: "assistant",
+          contentBlocks: [textBlock("see the skill")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink(
+      "vellum://workspace/skills/foo/weekly%20plan.md",
+      "weekly plan.md",
+    );
+    // Both actions are offered for a workspace file.
+    expect(screen.getByRole("button", { name: "Go to file" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
+
+    clickModalAction("Go to file");
+    // The workspace path is percent-decoded before navigation.
+    expect(openWorkspaceFileMock).toHaveBeenCalledWith(
+      "skills/foo/weekly plan.md",
+    );
+    expect(downloadAttachmentMock).not.toHaveBeenCalled();
+    // Choosing an action dismisses the modal.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
+  });
+
+  test("host link modal offers download only, not Go to file", () => {
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-host",
+          role: "assistant",
+          contentBlocks: [textBlock("host file")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    clickVellumLink("vellum://host/Users/user1/doc.pdf", "doc.pdf");
+    // Host files cannot open in the workspace browser.
+    expect(screen.queryByRole("button", { name: "Go to file" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Download file" }),
+    ).not.toBeNull();
+  });
+
+  test("vellum link click still matches link text and raw basename", () => {
+    downloadAttachmentMock.mockClear();
+    render(
+      <TranscriptMessageBody
+        message={{
+          id: "a-link2",
+          role: "assistant",
+          contentBlocks: [textBlock("two links")],
+          attachments: [
+            {
+              id: "att-label",
+              filename: "report.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 10,
+              previewUrl: null,
+            },
+            {
+              id: "att-raw",
+              filename: "qa%ZZshot.png",
+              mimeType: "image/png",
+              sizeBytes: 11,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Link text still wins when it names the attachment.
+    clickVellumLink("vellum://workspace/out/final.pdf", "report.pdf");
+    clickModalAction("Download file");
+    expect(
+      (downloadAttachmentMock.mock.calls[0] as unknown[])[0],
+    ).toMatchObject({ id: "att-label" });
+
+    // Malformed percent-encoding: decodeURIComponent throws, raw basename
+    // fallback still finds the attachment.
+    clickVellumLink("vellum://workspace/qa%ZZshot.png", "shot");
+    clickModalAction("Download file");
+    expect(
+      (downloadAttachmentMock.mock.calls[1] as unknown[])[0],
+    ).toMatchObject({ id: "att-raw" });
   });
 
   test("renders assistant attachments via the separate MessageAttachments strip", () => {
@@ -800,14 +1362,101 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    // Assistant path: separate strip renders, no surface-lift bubble.
-    expect(container.querySelector("[data-testid='attachments']")).not.toBeNull();
+    // Assistant path: separate strip renders, no user bubble.
     expect(
-      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+      container.querySelector("[data-testid='attachments']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[class*='user-bubble-bg']"),
     ).toBeNull();
   });
 
-  test("renders a user-message surface outside the surface-lift bubble", () => {
+  test("suppresses native text selection on user bubbles for coarse pointers", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+
+    try {
+      const { container } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "u-touch",
+            role: "user",
+            contentBlocks: [textBlock("hold me")],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      const bubble = container.querySelector("[class*='user-bubble-bg']");
+      expect(bubble).not.toBeNull();
+      // The long-press sheet owns the gesture on touch; native selection must
+      // not race it, so the bubble carries select-none + touch-callout:none.
+      expect(bubble!.className).toContain("select-none");
+      expect(bubble!.className).toContain("[-webkit-touch-callout:none]");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  test("keeps user-bubble text selectable on fine pointers (desktop)", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        // Fine pointer: no coarse-pointer match.
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+
+    try {
+      const { container } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "u-mouse",
+            role: "user",
+            contentBlocks: [textBlock("select me")],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      const bubble = container.querySelector("[class*='user-bubble-bg']");
+      expect(bubble).not.toBeNull();
+      expect(bubble!.className).not.toContain("select-none");
+      expect(bubble!.className).not.toContain("[-webkit-touch-callout:none]");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  test("renders a user-message surface outside the user bubble", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={{
@@ -820,7 +1469,7 @@ describe("TranscriptMessageBody", () => {
     );
 
     const bubble = container.querySelector(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     expect(bubble).not.toBeNull();
     // Text lives inside the bubble.
@@ -856,9 +1505,9 @@ describe("TranscriptMessageBody", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // The surface is NOT inside a surface-lift bubble; the text IS.
+    // The surface is NOT inside a user bubble; the text IS.
     const bubble = container.querySelector(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     expect(bubble).not.toBeNull();
     expect(bubble!.contains(surface)).toBe(false);
@@ -873,7 +1522,12 @@ describe("TranscriptMessageBody", () => {
           role: "user",
           contentBlocks: [
             textBlock("before tool"),
-            toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-1",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
             textBlock("after tool"),
           ],
         }}
@@ -901,10 +1555,10 @@ describe("TranscriptMessageBody", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // The tool chip is never wrapped inside a surface-lift text bubble — the
+    // The tool chip is never wrapped inside a user text bubble — the
     // text runs render inline and the chip sits between them.
     const bubbles = container.querySelectorAll(
-      "[class*='bg-[var(--surface-lift)]']",
+      "[class*='user-bubble-bg']",
     );
     for (const bubble of bubbles) {
       expect(bubble.contains(toolChip)).toBe(false);
@@ -918,17 +1572,22 @@ describe("TranscriptMessageBody", () => {
           id: "u4",
           role: "user",
           contentBlocks: [
-            toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
+            toolUseBlock({
+              id: "tc-1",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
           ],
         }}
         onSurfaceAction={noop}
       />,
     );
 
-    // No visible text and no attachments: the empty surface-lift bubble must
+    // No visible text and no attachments: the empty user bubble must
     // not render.
     expect(
-      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+      container.querySelector("[class*='user-bubble-bg']"),
     ).toBeNull();
     // The lone tool still renders as the inline chip.
     expect(
@@ -950,3 +1609,182 @@ function taskProgressSurface(surfaceId: string): Surface {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Generic inline card (PR 10): each render helper maps resolved ids → the
+// generic `InlineProcessCardRow` (stubbed above) with the right descriptor,
+// and preserves the transcript's existing `onOpen`/`onStop` handler wiring.
+// ---------------------------------------------------------------------------
+
+describe("TranscriptMessageBody — generic inline process cards", () => {
+  function renderBody(
+    message: DisplayMessage,
+    props: {
+      onWorkflowClick?: (id: string) => void;
+      onStopWorkflow?: (id: string) => void;
+    } = {},
+  ) {
+    return render(
+      <TranscriptMessageBody
+        message={message}
+        onSurfaceAction={noop}
+        onWorkflowClick={props.onWorkflowClick}
+        onStopWorkflow={props.onStopWorkflow}
+      />,
+    );
+  }
+
+  test("renders the workflow descriptor row and wires open + stop", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-wf",
+      name: "run_workflow",
+      input: {},
+      result: JSON.stringify({ runId: "wf-1" }),
+      completedAt: 1,
+    };
+    const opened: string[] = [];
+    const stopped: string[] = [];
+    const { getByTestId } = renderBody(
+      {
+        id: "m-wf",
+        role: "assistant",
+        contentBlocks: [toolUseBlock(toolCall)],
+        toolCalls: [toolCall],
+        timestamp: 1_000,
+      },
+      {
+        onWorkflowClick: (id) => opened.push(id),
+        onStopWorkflow: (id) => stopped.push(id),
+      },
+    );
+
+    const row = getByTestId("inline-process-card");
+    expect(row.getAttribute("data-process-kind")).toBe("workflow");
+    expect(row.getAttribute("data-process-id")).toBe("wf-1");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-open"));
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(opened).toEqual(["wf-1"]);
+    expect(stopped).toEqual(["wf-1"]);
+  });
+
+  test("renders the ACP-run descriptor row and wires open + stop", () => {
+    stopAcpRunMock.mockClear();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-acp",
+      name: "acp_spawn",
+      input: {},
+      result: JSON.stringify({ acpSessionId: "acp-1" }),
+      completedAt: 1,
+    };
+    const { getByTestId } = renderBody({
+      id: "m-acp",
+      role: "assistant",
+      contentBlocks: [toolUseBlock(toolCall)],
+      toolCalls: [toolCall],
+      timestamp: 1_000,
+    });
+
+    const row = getByTestId("inline-process-card");
+    expect(row.getAttribute("data-process-kind")).toBe("acp-run");
+    expect(row.getAttribute("data-process-id")).toBe("acp-1");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(stopAcpRunMock).toHaveBeenCalledWith("acp-1");
+  });
+
+  test("renders the background-task descriptor row and wires open + stop", () => {
+    stopBackgroundTaskMock.mockClear();
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-bg",
+      name: "bash",
+      input: { background: true },
+      result: JSON.stringify({ backgrounded: true, id: "bg-1" }),
+      completedAt: 1,
+    };
+    const { getByTestId } = renderBody({
+      id: "m-bg",
+      role: "assistant",
+      contentBlocks: [toolUseBlock(toolCall)],
+      toolCalls: [toolCall],
+      timestamp: 1_000,
+    });
+
+    const row = getByTestId("inline-process-card");
+    expect(row.getAttribute("data-process-kind")).toBe("background-task");
+    expect(row.getAttribute("data-process-id")).toBe("bg-1");
+    expect(row.getAttribute("data-has-stop")).toBe("true");
+
+    fireEvent.click(getByTestId("inline-process-card-stop"));
+    expect(stopBackgroundTaskMock).toHaveBeenCalledWith("bg-1");
+  });
+});
+
+describe("TranscriptMessageBody — redacted-credential chip version gate", () => {
+  const GATE_ASSISTANT_ID = "asst-gate";
+
+  function chipFlag(
+    role: "assistant" | "user",
+    assistantId: string | null = GATE_ASSISTANT_ID,
+  ): string | null {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: `m-gate-${role}`,
+          role,
+          contentBlocks: [textBlock("some text")],
+          timestamp: 1_000,
+        }}
+        assistantId={assistantId}
+        onSurfaceAction={noop}
+      />,
+    );
+    return container
+      .querySelector("[data-testid='markdown']")!
+      .getAttribute("data-redacted-credential-chips");
+  }
+
+  function hydrateIdentity(version: string, assistantId = GATE_ASSISTANT_ID) {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, assistantId);
+  }
+
+  afterEach(() => {
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  test("chips stay off while the assistant version is unknown", () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips stay off against an assistant below the gate (no neutralization)", () => {
+    hydrateIdentity("0.10.8");
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips enable for the identity owner's messages at the gated version", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant")).toBe("true");
+  });
+
+  test("chips stay off when the hydrated version belongs to a different assistant", () => {
+    // Assistant-switch race: the previous assistant's supported version
+    // is still hydrated while the transcript belongs to the new one.
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION, "asst-previous");
+    expect(chipFlag("assistant")).toBe("false");
+  });
+
+  test("chips stay off when the transcript has no assistant owner", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("assistant", null)).toBe("false");
+  });
+
+  test("user messages never enable chips, even at the gated version", () => {
+    hydrateIdentity(REDACTED_CHIPS_MIN_VERSION);
+    expect(chipFlag("user")).toBe("false");
+  });
+});

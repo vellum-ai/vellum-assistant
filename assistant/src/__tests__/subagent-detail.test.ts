@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { MessageRow } from "../memory/conversation-crud.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
 import { parseSubagentMessages } from "../runtime/routes/subagents-routes.js";
 
 let msgCounter = 0;
@@ -15,10 +15,11 @@ function msg(role: string, content: unknown[]): MessageRow {
     id: `msg-${msgCounter}`,
     conversationId: "conv-1",
     role,
-    content: JSON.stringify(content),
+    content: content as MessageRow["content"],
     createdAt: Date.now(),
     metadata: null,
     clientMessageId: null,
+    finalized: 1,
   };
 }
 

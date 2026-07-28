@@ -22,7 +22,7 @@ import {
   slugify,
   updateApp,
   validateDirName,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

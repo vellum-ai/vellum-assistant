@@ -5,7 +5,6 @@
  * classifications reflect the change immediately.
  */
 
-import { z } from "zod";
 import {
   TrustRuleStore,
   VALID_RISK_VALUES,
@@ -18,43 +17,16 @@ import { getGatewayDb } from "../../db/connection.js";
 import { autoApproveThresholds } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 
+import { TrustRuleSuggestRequestSchema } from "./trust-rules-routes.js";
+
 const log = getLogger("trust-rules");
 
 // ---------------------------------------------------------------------------
 // Zod schema for POST /v1/trust-rules/suggest request body
 // ---------------------------------------------------------------------------
 
-const SuggestRequestSchema = z.object({
-  tool: z.string().min(1),
-  command: z.string().min(1),
-  riskAssessment: z.object({
-    risk: z.string(),
-    reasoning: z.string(),
-    reasonDescription: z.string(),
-  }),
-  scopeOptions: z.array(
-    z.object({
-      pattern: z.string(),
-      label: z.string(),
-    }),
-  ),
-  directoryScopeOptions: z
-    .array(
-      z.object({
-        scope: z.string(),
-        label: z.string(),
-      }),
-    )
-    .optional(),
-  intent: z.enum(["auto_approve", "escalate"]),
-  existingRule: z
-    .object({
-      id: z.string(),
-      pattern: z.string(),
-      risk: z.string(),
-    })
-    .optional(),
-});
+// Wire schema shared with the published OpenAPI spec (single source).
+const SuggestRequestSchema = TrustRuleSuggestRequestSchema;
 
 export interface TrustRulesListParams {
   origin?: string;

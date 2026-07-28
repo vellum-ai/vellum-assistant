@@ -93,6 +93,7 @@ export function canOpenScheduleSourceConversation(schedule: Schedule): boolean {
   );
 }
 
+/** Legacy single-conversation rule. See {@link getOpenableScheduleRunConversationId}. */
 export function canOpenScheduleRunConversation(run: ScheduleRun): boolean {
   return (
     !!run.conversationId &&
@@ -109,6 +110,18 @@ export function getOpenableScheduleSourceConversationId(
     : null;
 }
 
+/**
+ * @deprecated Prefer `ScheduleRun.conversations`. A schedule run can touch
+ * multiple conversations, and script runs usually do. The schedule-runs
+ * endpoint now derives the full list from the usage ledger and returns it as
+ * `conversations`, where each entry carries its own title, exists flag, and
+ * archive timestamp. This helper reads the legacy scalar fields and can only
+ * ever name one conversation.
+ *
+ * It remains in use where the new list is never sent. That covers daemons
+ * that predate `conversations`, and the system-task run endpoints for
+ * heartbeat, consolidation, and retrospective runs.
+ */
 export function getOpenableScheduleRunConversationId(
   run: ScheduleRun,
 ): string | null {
@@ -119,6 +132,27 @@ export function getOpenableScheduleRunConversationId(
 
 export function hasRunText(value: string | null | undefined): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * Scheduler bookkeeping rows: the not-yet-fired `pending` row for the next
+ * scheduled run, and `superseded` rows a timer reset leaves behind when it
+ * replaces that pending row. They describe scheduling state, not runs — a
+ * heartbeat daemon excludes them from run history, but daemons predating
+ * that exclusion still send them, so run lists filter them here as well.
+ */
+export function isBookkeepingRun(run: Pick<ScheduleRun, "status">): boolean {
+  return run.status === "pending" || run.status === "superseded";
+}
+
+/**
+ * Whether the run actually executed, as opposed to being skipped by a guard,
+ * missed while the daemon was down, or a bookkeeping row.
+ */
+export function isExecutedRun(run: Pick<ScheduleRun, "status">): boolean {
+  return (
+    run.status !== "skipped" && run.status !== "missed" && !isBookkeepingRun(run)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -323,9 +357,11 @@ export function summarizeRunsForUsage(
   runs: ScheduleRun[] | undefined,
   range: { from: number; to: number },
 ): ScheduleUsageSummary {
+  // Only executed runs count — skipped/missed/bookkeeping rows would inflate
+  // the run count without representing anything that ran or cost money.
   const runsInRange = (runs ?? []).filter((run) => {
     const startedAt = run.startedAt ?? run.createdAt;
-    return startedAt >= range.from && startedAt <= range.to;
+    return isExecutedRun(run) && startedAt >= range.from && startedAt <= range.to;
   });
 
   return {

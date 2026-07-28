@@ -12,6 +12,7 @@ import {
     useQueryClient,
 } from "@tanstack/react-query";
 import {
+    Download,
     FileIcon,
     FileText,
     FolderOpen,
@@ -33,6 +34,7 @@ import {
     SourcePre,
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { downloadWorkspaceFile } from "@/domains/workspace/utils/download-workspace-file";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
@@ -45,6 +47,77 @@ import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 
 import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace-browser";
+
+/**
+ * Download state for a single workspace file — shared by the binary-fallback
+ * card and the preview header's download affordance so both surfaces report
+ * in-progress and failure the same way.
+ */
+function useWorkspaceFileDownload(opts: {
+  assistantId: string;
+  path: string;
+  name: string;
+  showHidden?: boolean;
+}) {
+  const { assistantId, path, name, showHidden } = opts;
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const download = useCallback(async () => {
+    setError(false);
+    setIsDownloading(true);
+    try {
+      await downloadWorkspaceFile({ assistantId, path, filename: name, showHidden });
+    } catch {
+      setError(true);
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [assistantId, path, name, showHidden]);
+
+  return { isDownloading, error, download };
+}
+
+/**
+ * Icon-only download button for a previewed file's header. Images, video, and
+ * other inline-rendered files have no other download path, so this lives in the
+ * header's top-right corner alongside any view-mode controls.
+ */
+function HeaderDownloadButton({
+  assistantId,
+  path,
+  name,
+  showHidden,
+}: {
+  assistantId: string;
+  path: string;
+  name: string;
+  showHidden?: boolean;
+}) {
+  const { isDownloading, error, download } = useWorkspaceFileDownload({
+    assistantId,
+    path,
+    name,
+    showHidden,
+  });
+  return (
+    <Button
+      variant="ghost"
+      size="regular"
+      iconOnly={
+        isDownloading ? (
+          <Loader2 className="animate-spin" aria-hidden />
+        ) : (
+          <Download aria-hidden />
+        )
+      }
+      onClick={() => void download()}
+      disabled={isDownloading}
+      aria-label={`Download ${name}`}
+      tooltip={error ? "Download failed. Try again." : "Download"}
+    />
+  );
+}
 
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
@@ -252,11 +325,105 @@ function BinaryContentViewer({
   return null;
 }
 
+function BinaryFileCard({
+  assistantId,
+  path,
+  name,
+  mimeType,
+  size,
+  modifiedAt,
+  showHidden,
+}: {
+  assistantId: string;
+  path: string;
+  name: string;
+  mimeType: string;
+  size?: number;
+  modifiedAt?: string | null;
+  showHidden?: boolean;
+}) {
+  const { isDownloading, error, download: handleDownload } =
+    useWorkspaceFileDownload({ assistantId, path, name, showHidden });
 
-
-
-
-
+  return (
+    <div className="flex h-full flex-col">
+      <FileHeader name={name} mimeType={mimeType} size={size} />
+      <div className="flex flex-1 items-center justify-center p-8">
+        <div
+          className="w-full max-w-sm rounded-lg border p-6 text-center"
+          style={{
+            borderColor: "var(--border-base)",
+            backgroundColor: "var(--surface-lift)",
+          }}
+        >
+          <FileIcon
+            className="mx-auto h-10 w-10"
+            style={{ color: "var(--content-tertiary)" }}
+          />
+          <p
+            className="mt-3 text-body-medium-default"
+            style={{ color: "var(--content-default)" }}
+          >
+            {name}
+          </p>
+          <div className="mt-2 space-y-1">
+            <p
+              className="text-body-small-default"
+              style={{
+                color: "var(--content-secondary, var(--content-tertiary))",
+              }}
+            >
+              {mimeType}
+            </p>
+            <p
+              className="text-body-small-default"
+              style={{
+                color: "var(--content-secondary, var(--content-tertiary))",
+              }}
+            >
+              {formatFileSize(size, "Unknown size")}
+            </p>
+            {modifiedAt && (
+              <p
+                className="text-body-small-default"
+                style={{
+                  color: "var(--content-secondary, var(--content-tertiary))",
+                }}
+              >
+                Modified: {new Date(modifiedAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <Button
+            variant="outlined"
+            size="compact"
+            leftIcon={
+              isDownloading ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <Download aria-hidden />
+              )
+            }
+            onClick={handleDownload}
+            disabled={isDownloading}
+            aria-label={`Download ${name}`}
+            className="mt-4"
+          >
+            {isDownloading ? "Downloading…" : "Download"}
+          </Button>
+          {error && (
+            <p
+              className="mt-2 text-body-small-default"
+              style={{ color: "var(--system-error)" }}
+            >
+              Download failed. Try again.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function WorkspaceFileViewer({
   assistantId,
@@ -599,7 +766,19 @@ export function WorkspaceFileViewer({
   if (mimeType.startsWith("image/") || mimeType.startsWith("video/")) {
     return (
       <div className="flex h-full flex-col">
-        <FileHeader name={name} mimeType={mimeType} size={data.size} />
+        <FileHeader
+          name={name}
+          mimeType={mimeType}
+          size={data.size}
+          rightContent={
+            <HeaderDownloadButton
+              assistantId={assistantId}
+              path={selectedPath}
+              name={name}
+              showHidden={showHidden}
+            />
+          }
+        />
         <div className="flex-1 overflow-auto">
           <BinaryContentViewer
             assistantId={assistantId}
@@ -612,58 +791,16 @@ export function WorkspaceFileViewer({
     );
   }
 
-  // Binary fallback — metadata card
+  // Binary fallback — metadata card with download
   return (
-    <div className="flex h-full flex-col">
-      <FileHeader name={name} mimeType={mimeType} size={data.size} />
-      <div className="flex flex-1 items-center justify-center p-8">
-        <div
-          className="w-full max-w-sm rounded-lg border p-6 text-center"
-          style={{
-            borderColor: "var(--border-base)",
-            backgroundColor: "var(--surface-lift)",
-          }}
-        >
-          <FileIcon
-            className="mx-auto h-10 w-10"
-            style={{ color: "var(--content-tertiary)" }}
-          />
-          <p
-            className="mt-3 text-body-medium-default"
-            style={{ color: "var(--content-default)" }}
-          >
-            {name}
-          </p>
-          <div className="mt-2 space-y-1">
-            <p
-              className="text-body-small-default"
-              style={{
-                color: "var(--content-secondary, var(--content-tertiary))",
-              }}
-            >
-              {mimeType}
-            </p>
-            <p
-              className="text-body-small-default"
-              style={{
-                color: "var(--content-secondary, var(--content-tertiary))",
-              }}
-            >
-              {formatFileSize(data.size, "Unknown size")}
-            </p>
-            {data.modifiedAt && (
-              <p
-                className="text-body-small-default"
-                style={{
-                  color: "var(--content-secondary, var(--content-tertiary))",
-                }}
-              >
-                Modified: {new Date(data.modifiedAt).toLocaleString()}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+    <BinaryFileCard
+      assistantId={assistantId}
+      path={selectedPath}
+      name={name}
+      mimeType={mimeType}
+      size={data.size}
+      modifiedAt={data.modifiedAt}
+      showHidden={showHidden}
+    />
   );
 }

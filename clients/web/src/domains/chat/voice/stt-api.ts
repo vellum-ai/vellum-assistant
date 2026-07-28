@@ -3,11 +3,16 @@ import {
   secretsPost,
   sttTranscribePost,
 } from "@/generated/daemon/sdk.gen";
+import { MACOS_NATIVE_STT_PROVIDER_ID } from "@/lib/provider-catalogs";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import {
   getLocalSetting,
   removeLocalSetting,
 } from "@/utils/local-settings";
+import {
+  LS_STT_API_KEY_PREFIX,
+  LS_STT_PROVIDER,
+} from "@/utils/local-settings-keys";
 
 export interface SttTranscribeOk {
   status: "ok";
@@ -45,19 +50,7 @@ export interface SttTranscribeFailure {
 
 export type SttTranscribeOutcome = SttTranscribeOk | SttTranscribeFailure;
 
-const LS_STT_PROVIDER = "vellum:voice:sttProvider";
-const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 const DEFAULT_STT_PROVIDER_ID = "deepgram";
-
-/**
- * Provider id for the explicit "macOS Native Dictation" settings choice.
- * Not a daemon provider: when selected, dictation routes through the mac
- * helper's `SFSpeechRecognizer` and never calls `/v1/stt/transcribe`.
- * Mirrors `MACOS_NATIVE_STT_PROVIDER_ID` in
- * `@/domains/settings/ai/provider-catalogs.ts` — cross-domain constants stay
- * duplicated here, like the `LS_STT_*` keys above.
- */
-const MACOS_NATIVE_STT_PROVIDER_ID = "macos-native";
 
 /**
  * True when the user explicitly chose macOS native dictation as the STT

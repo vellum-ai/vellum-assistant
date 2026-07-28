@@ -37,7 +37,7 @@ Run the store script to securely collect the API key:
 bun skills/resend-setup/scripts/store-api-key.ts
 ```
 
-The script opens a secure credential prompt, stores the key with the correct injection templates, and exits. If it exits 0, the key is stored. **Never ask for the key in chat.**
+The script opens a secure credential prompt, stores the key with the correct injection templates, and exits. If it exits 0, the key is stored. Exit code **130** means the user cancelled the prompt — nothing was stored; that's a valid choice, not an error, so ask whether they'd like to try again rather than treating it as a failure. Any other non-zero exit is a real failure. **Never ask for the key in chat.**
 
 ### Step 2: Detect the Domain
 

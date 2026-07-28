@@ -4,10 +4,11 @@
  * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
+ * POST   /v1/conversations/summarize      — summarize context up to a message
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
+ * PUT    /v1/conversations/:id/enabledplugins — set per-conversation plugin scope
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
- * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/archive    — archive a conversation
  * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
@@ -15,17 +16,32 @@
  * POST   /v1/conversations/:id/surface    — promote to / demote from Recents
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
- * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
+ * POST   /v1/conversations/:id/retry      — retry the last assistant turn
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
+import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
-import { destroyActiveConversation } from "../../daemon/conversation-store.js";
+import { isUserCancellation } from "../../daemon/conversation-error.js";
+import { touchConversation } from "../../daemon/conversation-evictor.js";
+import {
+  discardLastAssistantDisplayTurn,
+  extractUserPromptText,
+} from "../../daemon/conversation-history.js";
+import {
+  formatSummarizeUpToResult,
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+} from "../../daemon/conversation-process.js";
+import { findConversation } from "../../daemon/conversation-registry.js";
+import {
+  destroyActiveConversation,
+  getOrCreateConversation as getOrCreateConversationInstance,
+} from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
   clearAllConversations,
-  regenerateResponse,
   resolveMetaSlashCommand,
   switchConversation,
   undoLastMessage,
@@ -39,31 +55,46 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
-  wipeConversation,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import {
   getOrCreateConversation,
   resolveConversationId,
   setConversationKeyIfAbsent,
-} from "../../memory/conversation-key-store.js";
-import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+} from "../../persistence/conversation-key-store.js";
+import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
+import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
+import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
+  publishConversationEnabledPluginsChanged,
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
+  publishConversationMessagesChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
+import { persistCannedAssistantCard } from "./canned-message-complete.js";
+import { buildChannelMetadata } from "./channel-metadata.js";
 import { conversationSummarySchema } from "./conversation-list-routes.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+  UnprocessableEntityError,
+} from "./errors.js";
 import { setInferenceProfileSession } from "./inference-profile-session-handler.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 const log = getLogger("conversation-management-routes");
 
@@ -77,13 +108,13 @@ function resolveOrThrow(rawId: string): string {
   return id;
 }
 
-function cancelScheduleIfLast(conversationId: string): void {
+async function cancelScheduleIfLast(conversationId: string): Promise<void> {
   const conv = getConversation(conversationId);
   if (
     conv?.scheduleJobId &&
     countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
   ) {
-    deleteSchedule(conv.scheduleJobId);
+    await deleteSchedule(conv.scheduleJobId);
   }
 }
 
@@ -179,6 +210,139 @@ async function handleForkConversation({
   }
 }
 
+async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
+  const rawConversationId = body.conversationId;
+  if (!rawConversationId || typeof rawConversationId !== "string") {
+    throw new BadRequestError("Missing conversationId");
+  }
+  const beforeMessageId = body.beforeMessageId;
+  if (!beforeMessageId || typeof beforeMessageId !== "string") {
+    throw new BadRequestError("Missing beforeMessageId");
+  }
+
+  const conversationId =
+    resolveConversationId(rawConversationId) ?? rawConversationId;
+  // Gate on DB existence first: `getOrCreateConversationInstance` would
+  // otherwise create a fresh conversation and mask the not-found case.
+  if (!getConversation(conversationId)) {
+    throw new NotFoundError(`Conversation ${rawConversationId} not found`);
+  }
+  const conversation = await getOrCreateConversationInstance(conversationId);
+
+  // Synchronous check-then-claim (no await between them) so a concurrent
+  // request cannot slip past the busy gate.
+  if (conversation.isProcessing()) {
+    throw new ConflictError(
+      "The assistant is currently responding — try again when it finishes",
+    );
+  }
+  conversation.setProcessing(true);
+  // Install an abort controller before the long summary call so Stop can
+  // actually cancel it — mirroring the send path (`persistUserMessage`).
+  // Without one, `abortConversation` finds no live controller, force-clears the
+  // processing flag, and lets the summary keep running so it can apply/persist
+  // after cancel and race the next turn.
+  const abortController = new AbortController();
+  conversation.abortController = abortController;
+
+  // The summarize action only ships from the vellum web/desktop client; the
+  // interface id is omitted because this management route (unlike the send
+  // path) does not receive one from the client.
+  const channelMeta = buildChannelMetadata("vellum", undefined, {
+    trustContext: conversation.trustContext,
+  });
+  const persistCard = (text: string) =>
+    persistCannedAssistantCard({
+      conversation,
+      conversationId,
+      text,
+      metadata: channelMeta,
+    });
+
+  // Fire-and-forget: return 202 immediately, run summarization async. The
+  // summary LLM call can exceed the client's HTTP timeout on large contexts.
+  // The `context_compacted` SSE event, usage recording, and memory hooks are
+  // all emitted inside the shared compaction write path — only the result
+  // card is the route's responsibility.
+  (async () => {
+    // The paired terminal for the thinking activity emitted below. Clients
+    // that started an indicator from the thinking event need a definitive
+    // idle — the result card's `message_complete` covers the happy path,
+    // but the hard-error path persists no card, so the idle emit in
+    // `finally` is what guarantees the indicator always clears.
+    let terminalReason:
+      | "message_complete"
+      | "error_terminal"
+      | "generation_cancelled" = "message_complete";
+    try {
+      conversation.emitActivityState("thinking", "context_compacting", {
+        statusText: "Summarizing conversation",
+      });
+      const result = await conversation.summarizeUpToMessage(beforeMessageId);
+      // Stop aborted the in-flight summary: the compactor reports the aborted
+      // provider call as a non-compacted result (it swallows the abort rather
+      // than throwing), so detect cancellation via the signal. A cancelled
+      // summary applies nothing — surface a clean cancellation instead of a
+      // "skipped" card. A summary that already compacted before a late Stop
+      // still shows its card; that work is already persisted.
+      if (!result.compacted && abortController.signal.aborted) {
+        terminalReason = "generation_cancelled";
+        return;
+      }
+      const cardId = await persistCard(formatSummarizeUpToResult(result));
+      // Attribute the compaction LLM call to the card it produced, so the
+      // inspector shows it there instead of the unlinked-row recovery
+      // guessing an enclosing turn.
+      if (result.summaryRequestLogId) {
+        linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
+      }
+    } catch (err) {
+      // A Stop that surfaces as a thrown abort (rather than the compactor's
+      // swallowed no-op) is still a clean cancellation, not an error card.
+      if (
+        isUserCancellation(err, {
+          phase: "handler",
+          aborted: abortController.signal.aborted,
+        })
+      ) {
+        terminalReason = "generation_cancelled";
+        return;
+      }
+      // Boundary/mapping UserErrors are expected user-facing outcomes, not
+      // failures: surface them as a skipped card rather than an error event.
+      if (err instanceof UserError) {
+        try {
+          await persistCard(`Summarization skipped — ${err.message}`);
+          return;
+        } catch (cardErr) {
+          err = cardErr;
+        }
+      }
+      terminalReason = "error_terminal";
+      log.error({ err, conversationId }, "Summarize command failed");
+      broadcastMessage({
+        type: "conversation_error",
+        conversationId,
+        code: "UNKNOWN",
+        userMessage: `Summarization failed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      });
+    } finally {
+      conversation.emitActivityState("idle", terminalReason);
+      // Null our controller before clearing the flag so a racing Stop takes
+      // `abortConversation`'s force-clear branch instead of signalling a dead
+      // controller. Identity-guarded: a newer turn may already own the field.
+      if (conversation.abortController === abortController) {
+        conversation.abortController = null;
+      }
+      conversation.setProcessing(false);
+      void conversation.kickDrainQueue("loop_complete", "summarize_command");
+    }
+  })();
+
+  return { accepted: true as const, conversationId };
+}
+
 async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
   const conversationId = body.conversationId as string | undefined;
   if (!conversationId || typeof conversationId !== "string") {
@@ -224,6 +388,49 @@ async function handleSetInferenceProfile({
   return result;
 }
 
+async function handleUpdateConversationEnabledPlugins({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const enabledPlugins = body.enabledPlugins as string[] | null | undefined;
+  // The field is required; `null` is the explicit "clear the scope" signal.
+  // A missing field (malformed/empty body) must not silently clear the scope.
+  if (enabledPlugins === undefined) {
+    throw new BadRequestError(
+      "enabledPlugins is required (use null to clear the scope)",
+    );
+  }
+  if (
+    enabledPlugins !== null &&
+    (!Array.isArray(enabledPlugins) ||
+      enabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
+  }
+
+  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  const conversation = getConversation(resolvedId);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+
+  // `null` clears the per-chat scope back to the default (all enabled
+  // plugins); a `string[]` scopes the chat to those plugin ids.
+  const nextEnabledPlugins = enabledPlugins;
+  setConversationEnabledPlugins(resolvedId, nextEnabledPlugins);
+  findConversation(resolvedId)?.setEnabledPlugins(nextEnabledPlugins);
+
+  publishConversationEnabledPluginsChanged(
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  return { conversationId: resolvedId, enabledPlugins: nextEnabledPlugins };
+}
+
 function handleRenameConversation({
   pathParams = {},
   body = {},
@@ -264,59 +471,13 @@ async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
   return undefined;
 }
 
-function handleWipeConversation({
+async function handleDeleteConversation({
   pathParams = {},
   headers,
 }: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
-  cancelScheduleIfLast(resolvedId);
-
-  destroyActiveConversation(resolvedId);
-  const result = wipeConversation(resolvedId);
-  for (const segId of result.segmentIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "segment",
-      targetId: segId,
-    });
-  }
-  for (const summaryId of result.deletedSummaryIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "summary",
-      targetId: summaryId,
-    });
-  }
-  log.info(
-    {
-      conversationId: resolvedId,
-      summariesDeleted: result.deletedSummaryIds.length,
-      jobsCancelled: result.cancelledJobCount,
-    },
-    "Wiped conversation and reverted memory changes",
-  );
-  publishConversationListAndMetadataChanged(
-    "deleted",
-    resolvedId,
-    headers?.["x-vellum-client-id"]?.trim() || undefined,
-  );
-
-  void stripConversationIds(resolvedId);
-
-  return {
-    wiped: true,
-    unsupersededItems: 0,
-    deletedSummaries: result.deletedSummaryIds.length,
-    cancelledJobs: result.cancelledJobCount,
-  };
-}
-
-function handleDeleteConversation({
-  pathParams = {},
-  headers,
-}: RouteHandlerArgs) {
-  const resolvedId = resolveOrThrow(pathParams.id!);
-
-  cancelScheduleIfLast(resolvedId);
+  await cancelScheduleIfLast(resolvedId);
 
   destroyActiveConversation(resolvedId);
   const deleted = deleteConversation(resolvedId);
@@ -332,6 +493,9 @@ function handleDeleteConversation({
       targetId: summaryId,
     });
   }
+  // The lexical-index purge is fired by `deleteConversation` itself (via the
+  // `onConversationDeleted` persistence hook), so every delete caller cleans up
+  // — no route-level purge needed here.
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
   publishConversationListAndMetadataChanged(
@@ -468,6 +632,147 @@ async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
   };
 }
 
+/**
+ * Retry the last assistant turn: permanently discard the latest assistant
+ * display turn, keep its anchoring user message, and re-run generation from
+ * that message. Accepted with 202; the regenerated turn streams over SSE
+ * exactly like a normal send (`assistant_activity_state` thinking →
+ * text/tool deltas → `message_complete`), and the discarded rows reach other
+ * clients through the `conversation:<id>:messages` sync invalidation.
+ */
+async function handleRetryLastAssistantTurn({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
+  const rawId = pathParams.id!;
+  const conversationId = resolveConversationId(rawId) ?? rawId;
+  // Gate on DB existence first: `getOrCreateConversationInstance` would
+  // otherwise create a fresh conversation and mask the not-found case.
+  if (!getConversation(conversationId)) {
+    throw new NotFoundError(`Conversation ${rawId} not found`);
+  }
+  const conversation = await getOrCreateConversationInstance(conversationId);
+  touchConversation(conversationId);
+
+  // Bind the requesting actor's trust before the turn. A freshly hydrated
+  // conversation has no trust context, and `loadFromDb` under an unset
+  // context filters guardian-provenance history — the re-run would see an
+  // empty transcript.
+  const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
+  conversation.setTrustContext(
+    await resolveVellumActorTrustContext(actorPrincipalId, {
+      healResetDrift: true,
+    }),
+  );
+  conversation.currentTurnSourceActorPrincipalId =
+    await resolveActorPrincipalIdForLocalGuardian(actorPrincipalId);
+
+  // Synchronous check-then-claim (no await between them) so a concurrent
+  // request cannot slip past the busy gate. Everything through the tail
+  // deletion below is synchronous, so the claim can't be raced.
+  if (conversation.isProcessing()) {
+    throw new ConflictError(
+      "The assistant is currently responding — try again when it finishes",
+    );
+  }
+  conversation.setProcessing(true);
+
+  const requestId = uuidv7();
+  const abortController = new AbortController();
+  let discarded: ReturnType<typeof discardLastAssistantDisplayTurn>;
+  try {
+    conversation.currentRequestId = requestId;
+    // runAgentLoop requires a live controller; it is also what Stop signals.
+    conversation.abortController = abortController;
+    discarded = discardLastAssistantDisplayTurn(conversationId);
+    if (!discarded) {
+      throw new UnprocessableEntityError("No user message to retry from");
+    }
+  } catch (err) {
+    if (conversation.abortController === abortController) {
+      conversation.abortController = null;
+    }
+    conversation.currentRequestId = undefined;
+    conversation.setProcessing(false);
+    throw err;
+  }
+
+  if (discarded.deletedMessageIds.length > 0) {
+    // Published without an origin client id: the initiating client must
+    // reconcile too — it discovers the discarded tail the same way other
+    // clients do.
+    publishConversationMessagesChanged(conversationId);
+  }
+
+  const anchor = discarded.anchor;
+  const anchorMetadata = anchor.metadata
+    ? safeParseRecord(anchor.metadata)
+    : undefined;
+  // A machine-signal anchor (wake trigger, subagent/ACP notification, hidden
+  // send) re-runs as a hidden turn so it stays out of the titler, mirroring
+  // how the original turn ran.
+  const isHiddenPrompt = isEchoSuppressedUserMessage(anchorMetadata);
+  // Reproduce the anchor's original permission mode so the re-run keeps the
+  // same approval semantics: a background-event wake records the interactivity
+  // it ran under (`backgroundEventInteractive`; see persistWakeTriggerMessage).
+  // Legacy anchors written before the field existed fall back to non-interactive
+  // — the conservative choice that keeps a retried scheduled turn from stalling
+  // on approvals the original never asked for.
+  const recordedInteractive = anchorMetadata?.backgroundEventInteractive;
+  const isInteractive =
+    typeof recordedInteractive === "boolean"
+      ? recordedInteractive
+      : !isBackgroundEventMetadata(anchorMetadata);
+  const contentText = extractUserPromptText(anchor.content);
+
+  // Fire-and-forget: return 202 immediately, stream the re-run over SSE. The
+  // loop's own teardown clears processing, publishes the metadata sync
+  // invalidation, and drains anything queued during the turn.
+  (async () => {
+    try {
+      conversation.emitActivityState("thinking", "message_dequeued", {
+        requestId,
+      });
+      // Unconditional resync of the in-memory history to the truncated DB
+      // state. `loadFromDb`'s tail-row rehydration leaves the anchor in
+      // exactly the "next turn re-injects fresh" shape the loop expects.
+      await conversation.loadFromDb();
+      await conversation.runAgentLoop(contentText, anchor.id, {
+        onEvent: broadcastMessage,
+        isUserMessage: true,
+        isInteractive,
+        ...(isHiddenPrompt ? { isHiddenPrompt: true } : {}),
+      });
+    } catch (err) {
+      log.error({ err, conversationId }, "Retry turn failed");
+      broadcastMessage({
+        type: "conversation_error",
+        conversationId,
+        code: "UNKNOWN",
+        userMessage: `Retry failed: ${err instanceof Error ? err.message : String(err)}`,
+        retryable: true,
+      });
+      // The loop's finally owns teardown once it starts; this guard covers
+      // a throw before that claim (e.g. loadFromDb). Identity-guarded: a
+      // newer turn may already own the controller field.
+      if (conversation.abortController === abortController) {
+        conversation.abortController = null;
+        conversation.setProcessing(false);
+        conversation.emitActivityState("idle", "error_terminal", {
+          requestId,
+        });
+      }
+    }
+  })();
+
+  return {
+    accepted: true as const,
+    conversationId,
+    userMessageId: anchor.id,
+    discardedCount: discarded.deletedMessageIds.length,
+  };
+}
+
 async function handleResolveMetaSlashCommand({
   pathParams = {},
   body = {},
@@ -489,25 +794,6 @@ async function handleResolveMetaSlashCommand({
     throw new NotFoundError(`No conversation for ${pathParams.id}`);
   }
   return result;
-}
-
-async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
-  const conversationId = pathParams.id!;
-  try {
-    const result = await regenerateResponse(conversationId);
-    if (!result) {
-      throw new NotFoundError(`No active conversation for ${pathParams.id}`);
-    }
-    return undefined;
-  } catch (err) {
-    if (err instanceof NotFoundError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(
-      { err, conversationId: pathParams.id },
-      "Error regenerating via HTTP",
-    );
-    throw new InternalError(`Failed to regenerate: ${message}`);
-  }
 }
 
 function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
@@ -611,6 +897,33 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleForkConversation,
   },
   {
+    operationId: "summarizeConversation",
+    endpoint: "conversations/summarize",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Summarize a conversation up to a message",
+    description:
+      "Replace the conversation's context before the given message with a generated summary. " +
+      "The boundary snaps to the start of the turn containing beforeMessageId; that turn and " +
+      "everything after stay verbatim. Messages are never deleted.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      beforeMessageId: z
+        .string()
+        .describe("Summarize all messages before this one"),
+    }),
+    responseBody: z.object({
+      accepted: z.literal(true),
+      conversationId: z.string(),
+    }),
+    responseStatus: "202",
+    handler: handleSummarizeConversation,
+  },
+  {
     operationId: "switchConversation",
     endpoint: "conversations/switch",
     method: "POST",
@@ -672,6 +985,30 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleSetInferenceProfile,
   },
   {
+    operationId: "conversations_by_id_enabledplugins_put",
+    endpoint: "conversations/:id/enabledplugins",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Set conversation enabled plugins",
+    description:
+      "Scope a single conversation to a subset of installed plugins " +
+      "(first-party defaults are always available). Pass null to clear the " +
+      "scope back to the default (all enabled plugins).",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    responseBody: z.object({
+      conversationId: z.string(),
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    handler: handleUpdateConversationEnabledPlugins,
+  },
+  {
     operationId: "renameConversation",
     endpoint: "conversations/:id/name",
     method: "PATCH",
@@ -702,27 +1039,6 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     responseStatus: "204",
     handler: handleClearAllConversations,
-  },
-  {
-    operationId: "wipeConversation",
-    endpoint: "conversations/:id/wipe",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
-    },
-    summary: "Wipe a conversation",
-    description:
-      "Delete all messages in a conversation and revert associated memory changes.",
-    tags: ["conversations"],
-    pathParams: [{ name: "id", type: "uuid" }],
-    responseBody: z.object({
-      wiped: z.boolean(),
-      unsupersededItems: z.number().int(),
-      deletedSummaries: z.number().int(),
-      cancelledJobs: z.number().int(),
-    }),
-    handler: handleWipeConversation,
   },
   {
     operationId: "deleteConversation",
@@ -866,6 +1182,41 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleUndoLastMessage,
   },
   {
+    operationId: "retryLastAssistantTurn",
+    endpoint: "conversations/:id/retry",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Retry the last assistant turn",
+    description:
+      "Permanently discard the most recent assistant display turn (the assistant rows and " +
+      "tool-result rows after the last turn-starting user message), keep that user message, " +
+      "and re-run generation from it. Accepted immediately; the regenerated turn streams " +
+      "over SSE like a normal send.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      accepted: z.literal(true),
+      conversationId: z.string(),
+      userMessageId: z
+        .string()
+        .describe("The user message the turn is re-running from"),
+      discardedCount: z
+        .number()
+        .int()
+        .describe("Number of message rows discarded from the tail"),
+    }),
+    responseStatus: "202",
+    additionalResponses: {
+      "404": { description: "Conversation not found" },
+      "409": { description: "The assistant is currently responding" },
+      "422": { description: "No user message exists to retry from" },
+    },
+    handler: handleRetryLastAssistantTurn,
+  },
+  {
     operationId: "resolveConversationSlashCommand",
     endpoint: "conversations/:id/slash",
     method: "POST",
@@ -898,22 +1249,6 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
     }),
     handler: handleResolveMetaSlashCommand,
-  },
-  {
-    operationId: "regenerateResponse",
-    endpoint: "conversations/:id/regenerate",
-    method: "POST",
-    policy: {
-      requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Regenerate response",
-    description:
-      "Re-run the assistant for the last user message in a conversation.",
-    tags: ["conversations"],
-    pathParams: [{ name: "id", type: "uuid" }],
-    responseStatus: "202",
-    handler: handleRegenerateResponse,
   },
   {
     operationId: "reorderConversations",

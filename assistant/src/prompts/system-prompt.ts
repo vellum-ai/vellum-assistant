@@ -10,8 +10,10 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import { markActivationSession } from "../memory/activation-session-store.js";
+import { resolveTrustClass } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import { markActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
+import { derivePersonaTrustFlags } from "../runtime/trust-class.js";
 import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -319,14 +321,12 @@ export interface SystemPromptPersonaOverride {
   /**
    * Pins the `hasNoClient` flag for the prompt build, taking precedence over
    * the top-level `BuildSystemPromptOptions.hasNoClient` (which mirrors the
-   * conversation's live client state). The `05-access-preference` section
-   * renders different text under the flag — early in the prompt, so a
-   * mismatch breaks byte-parity with a cached prefix even when persona and
-   * profile match. Used by fork-based memory retrospectives: the fork is
-   * hydrated clientless (`hasNoClient = true`) while the source's live turns
-   * ran under the source's own client state (`false` for interactive
-   * interfaces, `true` for channel-routed sources) — the pin carries that
-   * live-turn value.
+   * conversation's live client state). No system-prompt section branches on
+   * `hasNoClient`, so this pin does not affect prompt output; it is retained
+   * so fork-based memory retrospectives can thread the source conversation's
+   * live-turn value (`false` for interactive interfaces, `true` for
+   * channel-routed sources) through the build without depending on the fork's
+   * clientless hydration default.
    */
   hasNoClient?: boolean;
 }
@@ -395,6 +395,21 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const hasNoClient =
     options?.personaOverride?.hasNoClient ?? options?.hasNoClient;
 
+  // Trust flags for the current actor, lifted onto the render context so
+  // persona sections — notably `users/default.md`, the persona rendered for
+  // non-guardian actors — can gate privacy guardrails on who is being spoken
+  // to. The class is resolved through `resolveTrustClass` first: a *present*
+  // trustContext always keeps the actor's real class (a resolved non-guardian
+  // channel actor is never elevated, even under DISABLE_HTTP_AUTH), while an
+  // *absent* one follows the actor-resolution contract — guardian for
+  // local/native builds in an auth-disabled deployment (initial-prompt
+  // warming, home generation, and btw sidechains build prompts with no
+  // trustContext for the owner), unknown otherwise so an unclassifiable turn
+  // still fails closed to the guardrail. The flag grouping itself lives on
+  // {@link derivePersonaTrustFlags}.
+  const { trustClass, isGuardian, isTrustedContact, isStranger } =
+    derivePersonaTrustFlags(resolveTrustClass(options?.trustContext));
+
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
   // and `{{key}}` paths inside `workspacePath` all resolve against this
@@ -411,6 +426,10 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     workspaceDir: getWorkspaceDir(),
     userSlug,
     channelSlug,
+    trustClass,
+    isGuardian,
+    isTrustedContact,
+    isStranger,
   };
 
   // Every system-prompt block flows through the bundled section

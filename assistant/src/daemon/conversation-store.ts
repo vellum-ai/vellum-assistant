@@ -8,28 +8,37 @@
  *
  * The {@link getOrCreateConversation} function owns the full
  * creation/reuse lifecycle — provider wiring, rate limiting, system
- * prompt assembly, and DB hydration. DaemonServer calls
- * {@link initConversationLifecycle} once at construction time to
- * supply the few remaining lifecycle references (evictor, shared
- * rate-limit timestamps, broadcast).
+ * prompt assembly, and DB hydration. Idle eviction lives in
+ * `conversation-evictor`.
  */
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import {
+  ADOPTABLE_CONVERSATION_ID_RE,
+  createConversation,
+  ensureConversationExists,
+  getConversation,
+} from "../persistence/conversation-crud.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
-import { resolveDefaultProvider } from "../providers/connection-resolution.js";
+import {
+  mainAgentResolutionError,
+  resolveDefaultProvider,
+} from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
-import type { ConversationEvictor } from "./conversation-evictor.js";
+import {
+  removeFromEvictor,
+  touchConversation,
+} from "./conversation-evictor.js";
+import { resolveInitialSystemPrompt } from "./conversation-initial-prompt.js";
 import {
   allConversations,
   clearConversations,
   conversationCount,
+  conversationEntries,
   conversationIds,
   deleteConversation,
   findConversation,
@@ -65,40 +74,25 @@ function clearConversationOptions(): void {
 /** Dedup guard: in-flight creation promises keyed by conversation ID. */
 const conversationCreating = new Map<string, Promise<Conversation>>();
 
-/** Lifecycle refs injected once by DaemonServer at construction. */
-let _evictor: ConversationEvictor | null = null;
-let _sharedRequestTimestamps: number[] = [];
-
-/**
- * One-time initialization called by DaemonServer to supply lifecycle
- * references that the conversation creation logic needs.
- */
-export function initConversationLifecycle(refs: {
-  evictor: ConversationEvictor;
-  sharedRequestTimestamps: number[];
-}): void {
-  _evictor = refs.evictor;
-  _sharedRequestTimestamps = refs.sharedRequestTimestamps;
-}
-
 function applyTransportMetadata(
   conversation: Conversation,
   options: ConversationCreateOptions | undefined,
 ): void {
   const transport = options?.transport;
-  if (!transport) return;
+  if (!transport) {
+    return;
+  }
   conversation.setTransportHints(buildTransportHints(transport));
   conversation.applyHostEnvFromTransport(transport);
   conversation.applyClientTimezoneFromTransport(transport);
+  conversation.applyClientOsFromTransport(transport);
 }
 
 /**
  * Get or create an active conversation by ID.
  *
  * Handles provider setup, rate limiting, system prompt, memory policy,
- * and conversation hydration. Caller must have called
- * {@link initConversationLifecycle} first (DaemonServer does this at
- * construction).
+ * and conversation hydration.
  */
 export async function getOrCreateConversation(
   conversationId: string,
@@ -107,7 +101,14 @@ export async function getOrCreateConversation(
   let conversation = findConversation(conversationId);
   const sendToClient = () => {};
 
-  const { taskRunId: _taskRunId, ...persistentOptions } = options ?? {};
+  // `taskRunId` and `ephemeral` are per-call scopes, not durable conversation
+  // metadata, so they are stripped before the remaining options are merged
+  // into the persisted `conversationOptions` map.
+  const {
+    taskRunId: _taskRunId,
+    ephemeral,
+    ...persistentOptions
+  } = options ?? {};
   if (Object.values(persistentOptions).some((v) => v !== undefined)) {
     mergeConversationOptions(conversationId, persistentOptions);
   }
@@ -117,6 +118,9 @@ export async function getOrCreateConversation(
     (conversation.isStale() && !conversation.isProcessing())
   ) {
     if (conversation) {
+      // Stale rebuild: the conversation id lives on, so abort in-flight
+      // children but keep terminal subagent results readable for the
+      // retention window.
       getSubagentManager().abortAllForParent(conversationId);
       conversation.dispose();
     }
@@ -138,14 +142,7 @@ export async function getOrCreateConversation(
       // credential, platform auth unavailable).
       const baseProvider = await resolveDefaultProvider(config);
       if (!baseProvider) {
-        const resolved = resolveCallSiteConfig("mainAgent", config.llm);
-        throw new ProviderNotConfiguredError(
-          resolved.provider,
-          listProviders(),
-          {
-            connectionName: resolved.provider_connection,
-          },
-        );
+        throw await mainAgentResolutionError(config.llm, listProviders());
       }
       // Per-call `callSite` routing layered on top, with connection-awareness
       // for alternate profiles (matches the canonical dispatch path).
@@ -155,13 +152,12 @@ export async function getOrCreateConversation(
         provider = new RateLimitProvider(
           provider,
           rateLimit,
-          _sharedRequestTimestamps,
+          getSubagentManager().sharedRequestTimestamps,
         );
       }
       const workingDir = getSandboxWorkingDir();
 
-      const systemPrompt =
-        storedOptions?.systemPromptOverride ?? buildSystemPrompt();
+      const systemPrompt = await resolveInitialSystemPrompt(storedOptions);
       const maxTokens = storedOptions?.maxResponseTokens;
 
       const newConversation = new Conversation(
@@ -177,6 +173,40 @@ export async function getOrCreateConversation(
         },
       );
       newConversation.updateClient(sendToClient, true);
+
+      // Ensure the conversations row exists before hydrating from DB.
+      // `getOrCreateConversation` builds the in-memory Conversation, but
+      // the persisted row is what `loadFromDb` reads for conversationType,
+      // source, and other metadata. If the row doesn't exist yet (brand-new
+      // conversation), create it now so hydration caches the right fields.
+      //
+      // When `conversationType` is provided (e.g. "background" for
+      // plugin-driven conversations), create the row with that type so it
+      // is hidden from the sidebar. The ID is validated against the same
+      // pattern as `ensureConversationExists` to prevent path traversal.
+      // Otherwise use `ensureConversationExists` directly, which validates
+      // and creates a standard row.
+      //
+      // Ephemeral calls skip row creation entirely: their contract persists
+      // nothing, so the in-memory Conversation hydrates from whatever rows
+      // already exist without leaking a sidebar-visible row. `loadFromDb`
+      // tolerates a missing row.
+      if (!ephemeral && !getConversation(conversationId)) {
+        if (storedOptions?.conversationType) {
+          if (!ADOPTABLE_CONVERSATION_ID_RE.test(conversationId)) {
+            throw new Error(
+              `Refusing to adopt unsafe conversation id: ${JSON.stringify(conversationId)}`,
+            );
+          }
+          createConversation({
+            id: conversationId,
+            conversationType: storedOptions.conversationType,
+          });
+        } else {
+          ensureConversationExists(conversationId);
+        }
+      }
+
       await newConversation.loadFromDb();
       if (storedOptions?.assistantId) {
         newConversation.setAssistantId(storedOptions.assistantId);
@@ -201,7 +231,7 @@ export async function getOrCreateConversation(
     } finally {
       conversationCreating.delete(conversationId);
     }
-    _evictor?.touch(conversationId);
+    touchConversation(conversationId);
   } else {
     if (!conversation.isProcessing()) {
       applyTransportMetadata(conversation, options);
@@ -209,21 +239,9 @@ export async function getOrCreateConversation(
         conversation.setTrustContext(options.trustContext);
       }
     }
-    _evictor?.touch(conversationId);
+    touchConversation(conversationId);
   }
   return conversation;
-}
-
-// ---------------------------------------------------------------------------
-// Thin evictor wrappers — so callers don't need the DaemonServer instance
-// ---------------------------------------------------------------------------
-
-export function touchConversation(conversationId: string): void {
-  _evictor?.touch(conversationId);
-}
-
-function removeFromEvictor(conversationId: string): void {
-  _evictor?.remove(conversationId);
 }
 
 /**
@@ -232,13 +250,31 @@ function removeFromEvictor(conversationId: string): void {
  * deleted conversation and trip FK constraints.
  */
 export function destroyActiveConversation(conversationId: string): void {
+  // Subagent teardown is keyed by parent id, not the live instance — an
+  // evicted parent still retains its terminal children, and deleting the
+  // conversation must take their records with it.
+  getSubagentManager().disposeAllForParent(conversationId);
   const conversation = findConversation(conversationId);
-  if (!conversation) return;
+  if (!conversation) {
+    return;
+  }
   removeFromEvictor(conversationId);
-  getSubagentManager().abortAllForParent(conversationId);
   conversation.dispose();
   deleteConversation(conversationId);
   deleteConversationOptions(conversationId);
+}
+
+/**
+ * Dispose all in-memory conversations and clear the store during daemon
+ * shutdown. Subagent teardown and evictor stop are driven separately by the
+ * shutdown sequence, so this only releases the conversation instances and
+ * resets the registry.
+ */
+export function stopConversations(): void {
+  for (const conversation of allConversations()) {
+    conversation.dispose();
+  }
+  clearConversations();
 }
 
 /**
@@ -247,10 +283,12 @@ export function destroyActiveConversation(conversationId: string): void {
  */
 export function clearAllActiveConversations(): number {
   const count = conversationCount();
-  const subagentManager = getSubagentManager();
+  // Dispose subagents across ALL parents, not just the in-memory ones — an
+  // evicted parent still retains its terminal children, and clear-all must
+  // take their records with it.
+  getSubagentManager().disposeAllForAllParents();
   for (const id of conversationIds()) {
     removeFromEvictor(id);
-    subagentManager.abortAllForParent(id);
   }
   for (const conversation of allConversations()) {
     conversation.dispose();
@@ -258,4 +296,24 @@ export function clearAllActiveConversations(): number {
   clearConversations();
   clearConversationOptions();
   return count;
+}
+
+/**
+ * Evict in-memory conversations after a config/prompt/skills reload so the next
+ * turn rebuilds them against the new config. Idle conversations are disposed and
+ * dropped; busy ones are marked stale so they're rebuilt once their current turn
+ * finishes. Also used when provider credentials change.
+ */
+export function evictConversationsForReload(): void {
+  const subagentManager = getSubagentManager();
+  for (const [id, conversation] of conversationEntries()) {
+    if (!conversation.isProcessing()) {
+      subagentManager.abortAllForParent(id);
+      conversation.dispose();
+      deleteConversation(id);
+      removeFromEvictor(id);
+    } else {
+      conversation.markStale();
+    }
+  }
 }

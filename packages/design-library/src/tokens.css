@@ -19,6 +19,13 @@
  *   Dark:  node 2674:20730
  * --------------------------------------------------------------------------- */
 
+/* The library declares its own Tailwind scan target, so every consumer that
+ * imports these tokens picks it up — `@source` resolves relative to this file.
+ * `.ts` as well as `.tsx`: shared class strings live in plain modules too
+ * (`utils/menu-styles.ts`), and a `.tsx`-only glob drops any utility that
+ * appears nowhere else, including its `data-[disabled]:` variants. */
+@source "./**/*.{ts,tsx}";
+
 /* ---------------------------------------------------------------------------
  * Brand fonts.
  *
@@ -544,6 +551,10 @@
   --text-body-medium-default-weight: 500;
   --text-body-medium-default-line-height: 18px;
 
+  --text-body-small-lighter-size: 12px;
+  --text-body-small-lighter-weight: 400;
+  --text-body-small-lighter-line-height: 18px;
+
   --text-body-small-default-size: 12px;
   --text-body-small-default-weight: 500;
   --text-body-small-default-line-height: 1;
@@ -611,6 +622,12 @@
   font-weight: var(--text-body-medium-lighter-weight);
   line-height: var(--text-body-medium-lighter-line-height);
 }
+@utility text-body-small-lighter {
+  font-family: var(--font-sans);
+  font-size: var(--text-body-small-lighter-size);
+  font-weight: var(--text-body-small-lighter-weight);
+  line-height: var(--text-body-small-lighter-line-height);
+}
 @utility text-body-small-default {
   font-family: var(--font-sans);
   font-size: var(--text-body-small-default-size);
@@ -640,6 +657,32 @@
   font-size: var(--text-chat-size);
   font-weight: var(--text-chat-weight);
   line-height: var(--text-chat-line-height);
+}
+
+/*
+ * Optically center a single-line text label inside a flex-centered row.
+ *
+ * Centering the label's line box does not center the visible glyphs: the
+ * line box reserves descender space below the baseline, and engines round
+ * font ascent/descent when placing the baseline. With DM Sans this leaves
+ * cap-height text riding visibly high next to box-centered siblings such
+ * as icons (worst where the line height is below the font's natural
+ * content height, e.g. `text-body-large-default` at 16px/20px).
+ *
+ * `text-box: trim-both cap alphabetic` trims the box to the cap-height
+ * and baseline, so flex centering aligns the ink itself — self-correcting
+ * for any font metrics or engine rounding. The symmetric padding keeps
+ * ascender/descender ink (which paints outside the trimmed content box)
+ * inside the padding box, so `overflow: hidden` truncation cannot clip
+ * it: DM Sans descenders reach 0.31em below the baseline and diacritics
+ * reach 0.292em above the caps, both within the 0.35em pad. Engines
+ * without `text-box` support keep the existing rendering unchanged.
+ */
+@utility text-optical-center {
+  @supports (text-box: trim-both cap alphabetic) {
+    text-box: trim-both cap alphabetic;
+    padding-block: 0.35em;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -697,6 +740,22 @@
 }
 .collapsible-content[data-state="closed"] {
   animation: collapsible-slide-up var(--anim-fast) var(--anim-spring);
+}
+
+/* ---------------------------------------------------------------------------
+ * Streaming-dot pulse — the three animated dots in `GoToNewest`, signalling
+ * that content is still arriving out of view. Each dot offsets its
+ * `animation-delay` so they read as a travelling wave. Applied through the
+ * `animate-go-to-newest-dot` utility behind a `motion-safe` variant so it
+ * honours `prefers-reduced-motion`.
+ * --------------------------------------------------------------------------- */
+@keyframes typing-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@utility animate-go-to-newest-dot {
+  animation: typing-dot-pulse 1s ease-in-out infinite;
 }
 
 

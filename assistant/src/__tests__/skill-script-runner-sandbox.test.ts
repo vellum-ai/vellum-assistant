@@ -1,45 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mocks — must be declared before the module under test is imported
-// ---------------------------------------------------------------------------
-
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: true,
-  },
-  auditLog: { retentionDays: 0 },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { runSkillToolScript } from "../tools/skills/skill-script-runner.js";
 import type { ToolContext } from "../tools/types.js";
@@ -230,13 +192,16 @@ describe("runSkillToolScript routing", () => {
     expect(result.content).toBe("sandbox hello from host");
   });
 
-  test("explicit target=host uses in-process execution", async () => {
+  test("explicit target=host uses in-process execution for a bundled skill", async () => {
+    // Host execution is a first-party capability — the runner only runs it
+    // in-process for bundled skills (non-bundled host execution is refused;
+    // see skill-script-runner-host.test.ts).
     const result = await runSkillToolScript(
       tempDir,
       "success.ts",
       { name: "explicit" },
       makeContext(),
-      { target: "host" },
+      { target: "host", bundled: true },
     );
 
     expect(result.isError).toBe(false);

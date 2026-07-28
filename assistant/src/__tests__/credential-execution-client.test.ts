@@ -31,7 +31,6 @@ import {
 } from "../credential-execution/client.js";
 import {
   discoverCesWithRetry,
-  discoverLocalCes,
   discoverManagedCes,
 } from "../credential-execution/executable-discovery.js";
 
@@ -78,40 +77,6 @@ function createMockTransport(): CesTransport & {
 
   return mock;
 }
-
-// ---------------------------------------------------------------------------
-// Local discovery — fail closed when executable is unavailable
-// ---------------------------------------------------------------------------
-
-describe("local CES discovery", () => {
-  test("returns unavailable when CES executable is not found", () => {
-    // discoverLocalCes() searches well-known paths. In the test environment,
-    // those paths should not contain a credential-executor binary.
-    const result = discoverLocalCes();
-    // If running in a dev environment where the binary IS installed, this
-    // test still passes — we just verify the result shape.
-    if (result.mode === "unavailable") {
-      expect(result.reason).toContain("CES executable not found");
-      expect(result.mode).toBe("unavailable");
-    } else if (result.mode === "local-source") {
-      // Source entry point exists in the monorepo — verify the success shape.
-      expect(result.sourcePath).toBeTruthy();
-    } else {
-      // Binary exists in this environment — verify the success shape.
-      expect(result.mode).toBe("local");
-      expect(
-        (result as { executablePath: string }).executablePath,
-      ).toBeTruthy();
-    }
-  });
-
-  test("never returns a fallback or in-process mode", () => {
-    const result = discoverLocalCes();
-    // The result must be "local", "local-source", or "unavailable".
-    // There must never be a fallback mode like "in-process" or "degraded".
-    expect(["local", "local-source", "unavailable"]).toContain(result.mode);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Managed discovery — fail closed when socket is missing or handshake fails
@@ -306,7 +271,7 @@ describe("CES client", () => {
     const client = createCesClient(transport);
 
     try {
-      await client.call("list_grants", {});
+      await client.call("list_credentials", {});
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(CesClientError);
@@ -339,7 +304,7 @@ describe("CES client", () => {
     transport.alive = false;
 
     try {
-      await client.call("list_grants", {});
+      await client.call("list_credentials", {});
       expect(true).toBe(false);
     } catch (err) {
       expect(err).toBeInstanceOf(CesTransportError);
@@ -369,7 +334,7 @@ describe("CES client", () => {
     await handshakePromise;
 
     // Start a call that will never complete
-    const callPromise = client.call("list_grants", {});
+    const callPromise = client.call("list_credentials", {});
 
     // Close the client
     client.close();

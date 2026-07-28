@@ -18,7 +18,6 @@ interface ProviderEditorApiKeySectionProps {
   onApiKeyChange: (value: string) => void;
   credential: string;
   onCredentialChange: (value: string) => void;
-  isAuthLocked: boolean;
   isLoadingCredential: boolean;
   apiKeyPlaceholder: string;
   provider: ConnectionProvider;
@@ -44,7 +43,6 @@ export function ProviderEditorApiKeySection({
   onApiKeyChange,
   credential,
   onCredentialChange,
-  isAuthLocked,
   isLoadingCredential,
   apiKeyPlaceholder,
   provider,
@@ -82,7 +80,6 @@ export function ProviderEditorApiKeySection({
               onError(null);
             }}
             placeholder={apiKeyPlaceholder}
-            disabled={isAuthLocked}
             fullWidth
           />
         )}
@@ -134,7 +131,6 @@ export function ProviderEditorApiKeySection({
                       onChange={(v) => {
                         onCredentialChange(v);
                       }}
-                      disabled={isAuthLocked}
                       options={dropdownOptions}
                     />
                   </div>
@@ -152,13 +148,12 @@ export function ProviderEditorApiKeySection({
                       value={newCredentialName}
                       onChange={(e) => setNewCredentialName(e.target.value)}
                       placeholder="e.g. team-key"
-                      disabled={isAuthLocked}
                       fullWidth
                     />
                     <Button
                       variant="primary"
                       size="compact"
-                      disabled={isAuthLocked || !newCredentialName.trim()}
+                      disabled={!newCredentialName.trim()}
                       onClick={() => {
                         const trimmed = newCredentialName.trim();
                         if (!trimmed) return;
@@ -178,7 +173,6 @@ export function ProviderEditorApiKeySection({
                 <Button
                   variant="ghost"
                   size="compact"
-                  disabled={isAuthLocked}
                   onClick={() => {
                     if (isCreatingNewCredential) {
                       setIsCreatingNewCredential(false);

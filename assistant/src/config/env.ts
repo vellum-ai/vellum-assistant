@@ -95,12 +95,6 @@ export function isHttpAuthDisabled(): boolean {
   return str("DISABLE_HTTP_AUTH")?.toLowerCase() === "true";
 }
 
-// ── Monitoring ───────────────────────────────────────────────────────────────
-
-export function getSentryDsn(): string {
-  return str("SENTRY_DSN_ASSISTANT") ?? "";
-}
-
 // ── Qdrant ───────────────────────────────────────────────────────────────────
 
 export function getQdrantUrlEnv(): string | undefined {

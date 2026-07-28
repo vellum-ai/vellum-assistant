@@ -22,13 +22,13 @@ import { join } from "node:path";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, getLogsDb } from "../../memory/db-connection.js";
+import { getDb, getLogsDb } from "../../persistence/db-connection.js";
 import {
   llmRequestLogs,
   llmUsageEvents,
   messages,
   toolInvocations,
-} from "../../memory/schema.js";
+} from "../../persistence/schema/index.js";
 import { getLogger, LOG_FILE_PATTERN } from "../../util/logger.js";
 import {
   getDaemonStderrLogPath,
@@ -40,6 +40,7 @@ import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { createTarGz } from "./archive-utils.js";
 import { InternalError } from "./errors.js";
+import { collectInstalledInventory } from "./log-export/installed-inventory.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
 import { redactStagedExportFiles } from "./redact-staged-export.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -369,6 +370,40 @@ async function handleExport({
       );
     }
 
+    // --- Installed skills & plugins inventory ---
+    // Metadata only (names, last-updated dates, content fingerprints) — never
+    // skill/plugin file bodies. Lets a support bundle answer which skills and
+    // plugins the session actually had installed, and at what version, which is
+    // otherwise unrecoverable from the archive. See
+    // `log-export/installed-inventory.ts`.
+    let inventorySkillCount = 0;
+    let inventoryPluginCount = 0;
+    try {
+      const inventory = await collectInstalledInventory();
+      inventorySkillCount = inventory.skills.length;
+      inventoryPluginCount = inventory.plugins.length;
+      writeFileSync(
+        join(staging, "installed-inventory.json"),
+        JSON.stringify(inventory, null, 2),
+        "utf-8",
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      writeFileSync(
+        join(staging, "installed-inventory-error.json"),
+        JSON.stringify(
+          { error: message, collectedAt: new Date().toISOString() },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+      log.warn(
+        { err },
+        "Failed to collect installed skills/plugins inventory, continuing without it",
+      );
+    }
+
     // --- Export manifest ---
     const manifestType = conversationId
       ? ("conversation-export" as const)
@@ -409,6 +444,8 @@ async function handleExport({
         full: full ?? false,
         workspaceEntries: workspaceResult.entries.length,
         workspaceBytes: workspaceResult.totalBytes,
+        inventorySkillCount,
+        inventoryPluginCount,
         truncatedSections,
         redactionScanned: redactionResult.filesScanned,
         redactionRedacted: redactionResult.filesRedacted,

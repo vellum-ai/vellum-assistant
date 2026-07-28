@@ -13,23 +13,12 @@ import "../../__tests__/test-preload.js";
 // Mock implementations
 // ---------------------------------------------------------------------------
 
-class MockIpcHandlerError extends Error {
-  readonly statusCode: number;
-  readonly code: string;
-  constructor(message: string, statusCode: number, code: string) {
-    super(message);
-    this.name = "IpcHandlerError";
-    this.statusCode = statusCode;
-    this.code = code;
-  }
-}
-
-class MockIpcTransportError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "IpcTransportError";
-  }
-}
+// Spread the actual module so the real IpcHandlerError/IpcTransportError
+// classes (thrown by tests below, caught via instanceof in the proxy) and
+// untouched exports like ipcSuggestTrustRule stay importable by later-loaded
+// files when suites share a bun process.
+const actualAssistantClient = await import("../../ipc/assistant-client.js");
+const { IpcHandlerError, IpcTransportError } = actualAssistantClient;
 
 // Single mock for `ipcCallAssistant` — used by both `refreshRouteSchema`
 // (to prime the cache) and `tryIpcProxy` (per-request IPC calls).
@@ -93,9 +82,8 @@ const defaultIpcImpl = (
 const ipcCallAssistantMock = mock(defaultIpcImpl);
 
 mock.module("../../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: ipcCallAssistantMock,
-  IpcHandlerError: MockIpcHandlerError,
-  IpcTransportError: MockIpcTransportError,
 }));
 
 // Stub validateEdgeToken — default: auth passes
@@ -268,7 +256,7 @@ describe("tryIpcProxy", () => {
     ipcCallAssistantMock.mockImplementation((method: string) => {
       if (method === "get_route_schema") return Promise.resolve(ROUTE_SCHEMA);
       return Promise.reject(
-        new MockIpcHandlerError(
+        new IpcHandlerError(
           "Binary/streaming responses are not supported over the IPC transport; use HTTP",
           421,
           "BINARY_UNSUPPORTED_OVER_IPC",
@@ -338,7 +326,7 @@ describe("tryIpcProxy", () => {
 
   test("returns handler error status code from IpcHandlerError", async () => {
     ipcCallAssistantMock.mockImplementation(() => {
-      throw new MockIpcHandlerError("Not found", 404, "NOT_FOUND");
+      throw new IpcHandlerError("Not found", 404, "NOT_FOUND");
     });
 
     const req = makeRequest("/v1/health");
@@ -352,7 +340,7 @@ describe("tryIpcProxy", () => {
 
   test("returns 502 on transport error", async () => {
     ipcCallAssistantMock.mockImplementation(() => {
-      throw new MockIpcTransportError("Socket closed");
+      throw new IpcTransportError("Socket closed");
     });
 
     const req = makeRequest("/v1/health");

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  fetchLatestVersion,
   fetchReleases,
   resolveImageRefsDetailed,
 } from "../lib/platform-releases.js";
@@ -113,5 +114,46 @@ describe("resolveImageRefsDetailed", () => {
     mockFetchJson([{ ...RELEASE, assistant_image_ref: null }]);
     const result = await resolveImageRefsDetailed("0.7.0");
     expect(result.status).toBe("dockerhub-fallback");
+  });
+
+  test("requests the preview channel when channel=preview", async () => {
+    const fetchMock = mockFetchJson([RELEASE]);
+    await resolveImageRefsDetailed("v0.7.0", undefined, "preview");
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("channel=preview");
+    expect(url).not.toContain("stable=true");
+  });
+
+  test("keeps the stable filter when channel=stable (default)", async () => {
+    const fetchMock = mockFetchJson([RELEASE]);
+    await resolveImageRefsDetailed("v0.7.0", undefined, "stable");
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("stable=true");
+    expect(url).not.toContain("channel=");
+  });
+});
+
+describe("fetchLatestVersion", () => {
+  test("defaults to the stable channel", async () => {
+    const fetchMock = mockFetchJson([RELEASE]);
+    const version = await fetchLatestVersion();
+    expect(version).toBe("0.7.0");
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("stable=true");
+    expect(url).not.toContain("channel=");
+  });
+
+  test("requests the preview channel when asked", async () => {
+    const preview = { ...RELEASE, version: "0.8.0-preview.3" };
+    const fetchMock = mockFetchJson([preview]);
+    const version = await fetchLatestVersion("preview");
+    expect(version).toBe("0.8.0-preview.3");
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("channel=preview");
+  });
+
+  test("returns null when the channel has no releases", async () => {
+    mockFetchJson([]);
+    expect(await fetchLatestVersion("preview")).toBeNull();
   });
 });

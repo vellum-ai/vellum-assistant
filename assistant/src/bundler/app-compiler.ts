@@ -307,10 +307,11 @@ const compileSlots = new Map<string, CompileSlot>();
  * fresh compile.
  */
 export function compileApp(appDir: string): Promise<CompileResult> {
+  const distDir = join(appDir, "dist");
   const slot = compileSlots.get(appDir);
 
   if (!slot) {
-    const current = runCompile(appDir);
+    const current = runCompile(appDir, distDir);
     const onSettled = () => slotCompileSettled(appDir, current);
     current.then(onSettled, onSettled);
     compileSlots.set(appDir, { current });
@@ -328,7 +329,7 @@ export function compileApp(appDir: string): Promise<CompileResult> {
     } catch {
       // Ignore: we want to rerun regardless of the prior compile's outcome.
     }
-    return runCompile(appDir);
+    return runCompile(appDir, distDir);
   };
   const pending = rerun();
   const onSettled = () => slotCompileSettled(appDir, pending);
@@ -358,11 +359,45 @@ function slotCompileSettled(
   }
 }
 
-async function runCompile(appDir: string): Promise<CompileResult> {
+/**
+ * Compile a TSX app from `appDir/src/` into `distDir`, laid out exactly like a
+ * normal `dist/` (`distDir/main.js`, `distDir/index.html`, …).
+ *
+ * {@link compileApp} wraps this to build `appDir/dist` through the per-`appDir`
+ * serialisation queue. Call it directly to build into a caller-owned directory
+ * instead: because each caller supplies its own private `distDir`, such builds
+ * never share a mutable target and need no serialisation. This is how a
+ * plugin-bundled app is rendered on open without writing into the plugin tree
+ * (which the daemon treats as read-only) or racing the monitor process, which
+ * is the sole writer of a plugin app's real `dist/`.
+ */
+export async function runCompile(
+  appDir: string,
+  distDir: string,
+): Promise<CompileResult> {
   const start = performance.now();
   const srcDir = join(appDir, "src");
-  const distDir = join(appDir, "dist");
   const entryPoint = join(srcDir, "main.tsx");
+
+  // An app without src/main.tsx has nothing to build — report a diagnostic
+  // instead of letting the source scan below throw on the missing directory.
+  // When a source tree exists but the entrypoint is gone, also clear stale
+  // dist/ so serve/publish surface the failure instead of old compiled
+  // output; a directory with no src/ at all (e.g. a retired single-file app)
+  // is left untouched.
+  if (!existsSync(entryPoint)) {
+    if (existsSync(srcDir) && existsSync(distDir)) {
+      rmSync(distDir, { recursive: true, force: true });
+    }
+    return {
+      ok: false,
+      errors: [
+        { text: "App has no src/main.tsx — there is no source to compile." },
+      ],
+      warnings: [],
+      durationMs: Math.round(performance.now() - start),
+    };
+  }
 
   // Clear stale dist/ output so removed assets (e.g. CSS) don't persist
   if (existsSync(distDir)) {

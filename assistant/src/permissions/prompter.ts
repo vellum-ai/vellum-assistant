@@ -1,12 +1,13 @@
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { redactSensitiveFields } from "../security/redaction.js";
-import type { ExecutionTarget } from "../tools/types.js";
+import type { ExecutionTarget } from "../tools/tool-types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { createGuardianRequestForConfirmation } from "./confirmation-guardian-request.js";
 import type { AllowlistOption, ScopeOption, UserDecision } from "./types.js";
 
 const log = getLogger("permission-prompter");
@@ -35,10 +36,10 @@ export class PermissionPrompter {
    * pendingInteractions, matching the host proxy pattern.
    */
   private ownedIds = new Set<string>();
-  private sendToClient: (msg: ServerMessage) => void;
+  private sendToClient: (msg: AssistantEvent) => void;
   private onStateChanged?: ConfirmationStateCallback;
 
-  constructor(sendToClient: (msg: ServerMessage) => void) {
+  constructor(sendToClient: (msg: AssistantEvent) => void) {
     this.sendToClient = sendToClient;
   }
 
@@ -46,7 +47,7 @@ export class PermissionPrompter {
     this.onStateChanged = cb;
   }
 
-  updateSender(sendToClient: (msg: ServerMessage) => void): void {
+  updateSender(sendToClient: (msg: AssistantEvent) => void): void {
     this.sendToClient = sendToClient;
   }
 
@@ -71,7 +72,9 @@ export class PermissionPrompter {
     isContainerized?: boolean,
     directoryScopeOptions?: readonly { scope: string; label: string }[],
   ): Promise<ConfirmResult & { wasAbort?: boolean }> {
-    if (signal?.aborted) return { decision: "deny", wasAbort: true };
+    if (signal?.aborted) {
+      return { decision: "deny", wasAbort: true };
+    }
 
     const requestId = uuid();
 
@@ -142,7 +145,9 @@ export class PermissionPrompter {
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      this.sendToClient({
+      const confirmationMsg: AssistantEvent & {
+        type: "confirmation_request";
+      } = {
         type: "confirmation_request",
         requestId,
         toolName,
@@ -170,7 +175,20 @@ export class PermissionPrompter {
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
         toolUseId,
-      });
+      };
+      this.sendToClient(confirmationMsg);
+
+      // Promote the confirmation to a guardian request so channel
+      // guardian decisions (reactions, buttons, text) can resolve it.
+      // The prompter runs inside the emitting turn, so the request binds
+      // to that turn's trust snapshot.
+      if (conversationId) {
+        void createGuardianRequestForConfirmation(
+          confirmationMsg,
+          conversationId,
+          { preferTurnSnapshot: true },
+        );
+      }
 
       this.onStateChanged?.(requestId, "pending", "system", toolUseId);
     });

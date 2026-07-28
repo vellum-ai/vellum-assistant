@@ -1,8 +1,9 @@
-import { getMessageById } from "../../memory/conversation-crud.js";
+import { getMessageById } from "../../persistence/conversation-crud.js";
 import {
   listConversations,
   searchConversations,
-} from "../../memory/conversation-queries.js";
+} from "../../persistence/conversation-queries.js";
+import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { renderHistoryContent } from "./shared.js";
 
 // ---------------------------------------------------------------------------
@@ -16,7 +17,9 @@ export interface ConversationSearchParams {
 }
 
 /** Search conversations and return results (no transport dependency). */
-export function performConversationSearch(params: ConversationSearchParams) {
+export async function performConversationSearch(
+  params: ConversationSearchParams,
+) {
   // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
   if (params.query.trim() === "*") {
     const rows = listConversations(params.limit);
@@ -53,7 +56,9 @@ export function getMessageContent(
   conversationId?: string,
 ): MessageContentResult | null {
   const dbMessage = getMessageById(messageId, conversationId);
-  if (!dbMessage) return null;
+  if (!dbMessage) {
+    return null;
+  }
 
   let text: string | undefined;
   let toolCalls:
@@ -61,7 +66,7 @@ export function getMessageContent(
     | undefined;
 
   try {
-    const content = JSON.parse(dbMessage.content);
+    const content = dbMessage.content;
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
     const parsedToolCalls = rendered.toolCalls;
@@ -74,8 +79,7 @@ export function getMessageContent(
       }));
     }
   } catch {
-    // Raw text content (not JSON)
-    text = dbMessage.content || undefined;
+    text = extractTextFromStoredMessageContent(dbMessage.content) || undefined;
   }
 
   return {

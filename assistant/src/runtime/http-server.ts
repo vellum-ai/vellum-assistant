@@ -11,35 +11,36 @@ import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
-import type { RelayWebSocketData } from "../calls/relay-server.js";
 import {
-  activeRelayConnections,
-  RelayConnection,
-} from "../calls/relay-server.js";
-import {
-  handleConnectAction,
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import { isHttpAuthDisabled } from "../config/env.js";
+import {
+  getRuntimeHttpHost,
+  getRuntimeHttpPort,
+  isHttpAuthDisabled,
+} from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { processMessage } from "../daemon/process-message.js";
-import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
-import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
 import {
-  type LiveVoiceClientFrame,
-  type LiveVoiceProtocolError,
-  LiveVoiceProtocolErrorCode,
-  type LiveVoiceServerFrame,
-  parseLiveVoiceBinaryAudioFrame,
-  parseLiveVoiceClientTextFrame,
-} from "../live-voice/protocol.js";
+  getDbMigrationReadiness,
+  isDbMigrationGateBypassed,
+} from "../daemon/daemon-readiness.js";
+import { processMessage } from "../daemon/process-message.js";
+import {
+  createLiveVoiceConnection,
+  type LiveVoiceConnection,
+} from "../live-voice/live-voice-connection.js";
+import { getLiveVoiceSessionManager } from "../live-voice/live-voice-manager.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   activeSttStreamSessions,
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
+import {
+  startTelegramWebhookHealthSweep,
+  stopTelegramWebhookHealthSweep,
+} from "../telegram/webhook-health.js";
 import { getLogger } from "../util/logger.js";
 import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
@@ -57,6 +58,7 @@ import { withErrorHandling } from "./middleware/error-handler.js";
 import {
   extractClientIp,
   ipRateLimiter,
+  isRateLimitExemptEndpoint,
   rateLimitHeaders,
   rateLimitResponse,
   selectAuthenticatedRateLimiter,
@@ -72,17 +74,20 @@ import {
 } from "./middleware/twilio-validation.js";
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
-import {
-  startCanonicalGuardianExpirySweep,
-  stopCanonicalGuardianExpirySweep,
-} from "./routes/canonical-guardian-expiry-sweep.js";
 import { RouteError } from "./routes/errors.js";
-import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import {
+  startGuardianExpirySweep,
+  stopGuardianExpirySweep,
+} from "./routes/guardian-expiry-sweep.js";
+import {
+  dbMigrationUnavailableResponse,
+  handleHealth,
+  handleReadyz,
+} from "./routes/identity-routes.js";
 import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
 } from "./routes/inference-profile-session-reaper.js";
-import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -97,10 +102,26 @@ const DEFAULT_HOSTNAME = "127.0.0.1";
 /** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
+function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
+  if (isDbMigrationGateBypassed(endpoint)) {
+    return null;
+  }
+  return dbMigrationUnavailableResponse();
+}
+
+function dbMigrationUnavailableForPath(path: string): Response | null {
+  if (path.startsWith("/v1/")) {
+    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
+    return dbMigrationUnavailableForEndpoint(endpoint);
+  }
+
+  return dbMigrationUnavailableResponse();
+}
+
 /**
  * WebSocket data attached to `/v1/calls/media-stream` connections.
  * The `wsType` discriminator routes frames to the media-stream call
- * session instead of the ConversationRelay handlers.
+ * session instead of the other WebSocket handlers.
  */
 interface MediaStreamWebSocketData {
   wsType: "media-stream";
@@ -138,8 +159,6 @@ interface SttStreamWebSocketData {
  */
 interface LiveVoiceWebSocketData {
   wsType: "live-voice";
-  sessionId?: string;
-  lastSeq: number;
 }
 
 export class RuntimeHttpServer {
@@ -149,17 +168,25 @@ export class RuntimeHttpServer {
 
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
+  private sweepsStarted = false;
 
-  private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
+  /**
+   * Live voice handlers, one per open `/v1/live-voice` socket, keyed by the
+   * socket. The server owns this registry (mirroring the media-stream / STT
+   * session maps) rather than parking the handler on `ws.data`; the manager's
+   * single-active-session lock still bounds how many can hold a session.
+   */
+  private readonly liveVoiceConnections = new Map<
+    ServerWebSocket<LiveVoiceWebSocketData>,
+    LiveVoiceConnection
+  >();
+
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
 
-    this.liveVoiceSessionManager = new LiveVoiceSessionManager({
-      createSession: (context) => createLiveVoiceSession(context),
-    });
     this.router = new HttpRouter();
   }
 
@@ -170,7 +197,6 @@ export class RuntimeHttpServer {
 
   async start(): Promise<void> {
     type AllWebSocketData =
-      | RelayWebSocketData
       | MediaStreamWebSocketData
       | SttStreamWebSocketData
       | LiveVoiceWebSocketData;
@@ -183,8 +209,8 @@ export class RuntimeHttpServer {
       websocket: {
         open: (ws) => {
           const data = ws.data as AllWebSocketData;
-          if ("wsType" in data && data.wsType === "media-stream") {
-            const msData = data as MediaStreamWebSocketData;
+          if (data.wsType === "media-stream") {
+            const msData = data;
             log.info(
               { callSessionId: msData.callSessionId },
               "Media-stream WebSocket opened",
@@ -200,8 +226,8 @@ export class RuntimeHttpServer {
             msData.session = session;
             return;
           }
-          if ("wsType" in data && data.wsType === "stt-stream") {
-            const sttData = data as SttStreamWebSocketData;
+          if (data.wsType === "stt-stream") {
+            const sttData = data;
 
             // The runtime is config-authoritative: always resolve the
             // provider from `services.stt.provider` regardless of what
@@ -271,35 +297,37 @@ export class RuntimeHttpServer {
             );
             return;
           }
-          if ("wsType" in data && data.wsType === "live-voice") {
+          if (data.wsType === "live-voice") {
+            const liveVoiceWs = ws as ServerWebSocket<LiveVoiceWebSocketData>;
+            this.liveVoiceConnections.set(
+              liveVoiceWs,
+              createLiveVoiceConnection({
+                send: (frame) => {
+                  ws.send(JSON.stringify(frame));
+                },
+              }),
+            );
             log.info("Live voice WebSocket opened");
             return;
           }
-          const callSessionId = (data as RelayWebSocketData).callSessionId;
-          log.info({ callSessionId }, "ConversationRelay WebSocket opened");
-          if (callSessionId) {
-            const connection = new RelayConnection(
-              ws as ServerWebSocket<RelayWebSocketData>,
-              callSessionId,
-            );
-            activeRelayConnections.set(callSessionId, connection);
-          }
+          log.warn("WebSocket opened with unknown data type — closing");
+          ws.close(1008, "Unknown WebSocket type");
         },
         message: (ws, message) => {
           const data = ws.data as AllWebSocketData;
-          const raw =
-            typeof message === "string"
-              ? message
-              : new TextDecoder().decode(message);
-          if ("wsType" in data && data.wsType === "media-stream") {
-            const msData = data as MediaStreamWebSocketData;
-            msData.session?.handleMessage(raw);
+          if (data.wsType === "media-stream") {
+            const raw =
+              typeof message === "string"
+                ? message
+                : new TextDecoder().decode(message);
+            data.session?.handleMessage(raw);
             return;
           }
-          if ("wsType" in data && data.wsType === "stt-stream") {
-            const sttData = data as SttStreamWebSocketData;
-            const session = sttData.session;
-            if (!session) return;
+          if (data.wsType === "stt-stream") {
+            const session = data.session;
+            if (!session) {
+              return;
+            }
 
             if (typeof message === "string") {
               session.handleMessage(message);
@@ -313,35 +341,20 @@ export class RuntimeHttpServer {
             }
             return;
           }
-          if ("wsType" in data && data.wsType === "live-voice") {
-            void this.handleLiveVoiceMessage(
+          if (data.wsType === "live-voice") {
+            const connection = this.liveVoiceConnections.get(
               ws as ServerWebSocket<LiveVoiceWebSocketData>,
-              message,
-            ).catch((err) => {
-              log.warn(
-                { error: err instanceof Error ? err.message : String(err) },
-                "Live voice WebSocket message handler failed",
-              );
-              this.sendLiveVoiceError(
-                ws as ServerWebSocket<LiveVoiceWebSocketData>,
-                {
-                  code: LiveVoiceProtocolErrorCode.InvalidFrame,
-                  message: "Live voice frame handling failed",
-                },
-              );
-            });
+            );
+            void connection?.handleMessage(message);
             return;
           }
-          const callSessionId = (data as RelayWebSocketData).callSessionId;
-          if (callSessionId) {
-            const connection = activeRelayConnections.get(callSessionId);
-            connection?.handleMessage(raw);
-          }
+          log.warn("WebSocket message on unknown data type — closing");
+          ws.close(1008, "Unknown WebSocket type");
         },
         close: (ws, code, reason) => {
           const data = ws.data as AllWebSocketData;
-          if ("wsType" in data && data.wsType === "media-stream") {
-            const msData = data as MediaStreamWebSocketData;
+          if (data.wsType === "media-stream") {
+            const msData = data;
             log.info(
               {
                 callSessionId: msData.callSessionId,
@@ -368,8 +381,8 @@ export class RuntimeHttpServer {
             }
             return;
           }
-          if ("wsType" in data && data.wsType === "stt-stream") {
-            const sttData = data as SttStreamWebSocketData;
+          if (data.wsType === "stt-stream") {
+            const sttData = data;
             log.info(
               {
                 provider: sttData.provider,
@@ -390,34 +403,36 @@ export class RuntimeHttpServer {
             }
             return;
           }
-          if ("wsType" in data && data.wsType === "live-voice") {
+          if (data.wsType === "live-voice") {
+            const liveVoiceWs = ws as ServerWebSocket<LiveVoiceWebSocketData>;
+            const connection = this.liveVoiceConnections.get(liveVoiceWs);
+            this.liveVoiceConnections.delete(liveVoiceWs);
             log.info(
               {
-                sessionId: data.sessionId,
+                sessionId: connection?.sessionId,
                 code,
                 reason: reason?.toString(),
               },
               "Live voice WebSocket closed",
             );
-            this.releaseLiveVoiceSession(data, "websocket_close");
+            connection?.release();
             return;
           }
-          const callSessionId = (data as RelayWebSocketData).callSessionId;
-          log.info(
-            { callSessionId, code, reason: reason?.toString() },
-            "ConversationRelay WebSocket closed",
+          log.warn(
+            { code, reason: reason?.toString() },
+            "WebSocket with unknown data type closed",
           );
-          if (callSessionId) {
-            const connection = activeRelayConnections.get(callSessionId);
-            connection?.handleTransportClosed(code, reason?.toString());
-            connection?.destroy();
-            activeRelayConnections.delete(callSessionId);
-          }
         },
       },
     });
 
-    this.startBackgroundSweeps();
+    // Background sweeps are intentionally NOT started here. The HTTP server
+    // binds early in startup (so /healthz answers ASAP) — before DB migrations
+    // run. The sweeps touch the ORM (retry sweep → processMessage, guardian
+    // expiry, profile reaper), so starting them now would race async migrations
+    // and hit "no such table". The daemon calls
+    // startRuntimeHttpServerBackgroundSweeps() only after migrations settle
+    // (success or failed degraded mode). See daemon/lifecycle.ts.
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -451,30 +466,57 @@ export class RuntimeHttpServer {
 
   /**
    * Start background sweep timers: retry sweep for failed channel events,
-   * guardian approval/action expiry sweeps, and canonical guardian expiry.
-   * Extracted from start() to allow future callers to defer sweep startup.
+   * the guardian-request expiry sweep, and the inference-profile session reaper.
+   *
+   * These all touch the ORM, so the daemon defers this until DB migrations
+   * have settled — successfully or in the failed degraded mode, where the DB
+   * is open and the expiry/reaper maintenance still applies (see
+   * daemon/lifecycle.ts). Idempotent — safe to call once per settle; repeat
+   * calls are no-ops.
    */
-  private startBackgroundSweeps(): void {
+  startBackgroundSweeps(): void {
+    if (this.sweepsStarted) {
+      return;
+    }
+    this.sweepsStarted = true;
     if (!this.retrySweepTimer) {
       this.retrySweepTimer = setInterval(() => {
-        if (this.sweepInProgress) return;
+        if (this.sweepInProgress) {
+          return;
+        }
+        // Replays route through processMessage, which refuses turns while
+        // migration readiness is unready — and each refused replay would count
+        // toward the event's dead-letter budget. Skip the cycle instead so
+        // events queued before a failed migration survive until a restart
+        // repairs the schema.
+        if (!getDbMigrationReadiness().ready) {
+          return;
+        }
         this.sweepInProgress = true;
-        sweepFailedEvents(processMessage).finally(() => {
-          this.sweepInProgress = false;
-        });
+        void sweepFailedEvents(processMessage)
+          .catch((err) => {
+            log.error({ err }, "Failed channel event retry sweep failed");
+          })
+          .finally(() => {
+            this.sweepInProgress = false;
+          });
       }, 30_000);
     }
 
-    startCanonicalGuardianExpirySweep();
-    log.info("Canonical guardian request expiry sweep started");
+    startGuardianExpirySweep();
+    log.info("Guardian request expiry sweep started");
 
     startInferenceProfileSessionReaper();
     log.info("Inference profile session reaper started");
+
+    startTelegramWebhookHealthSweep();
+    log.info("Telegram webhook health sweep started");
   }
 
   async stop(): Promise<void> {
-    stopCanonicalGuardianExpirySweep();
+    stopGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
+    stopTelegramWebhookHealthSweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
@@ -488,9 +530,10 @@ export class RuntimeHttpServer {
       activeSttStreamSessions.delete(sessionId);
     }
 
-    const liveVoiceSessionId = this.liveVoiceSessionManager.activeSessionId;
+    const liveVoiceManager = getLiveVoiceSessionManager();
+    const liveVoiceSessionId = liveVoiceManager.activeSessionId;
     if (liveVoiceSessionId) {
-      await this.liveVoiceSessionManager.releaseSession(
+      await liveVoiceManager.releaseSession(
         liveVoiceSessionId,
         "manager_shutdown",
       );
@@ -547,17 +590,14 @@ export class RuntimeHttpServer {
       return handleReadyz();
     }
 
-    // WebSocket upgrade for ConversationRelay — before auth check because
-    // Twilio WebSocket connections don't use bearer tokens.
-    if (
-      path.startsWith("/v1/calls/relay") &&
-      req.headers.get("upgrade")?.toLowerCase() === "websocket"
-    ) {
-      return this.handleRelayUpgrade(req, server);
+    const migrationResponse = dbMigrationUnavailableForPath(path);
+    if (migrationResponse) {
+      return migrationResponse;
     }
 
-    // WebSocket upgrade for Twilio Media Streams — same private-network
-    // restrictions as relay upgrades.
+    // WebSocket upgrade for Twilio Media Streams — before auth check because
+    // Twilio WebSocket connections don't use bearer tokens; restricted to
+    // private-network peers with a gateway service token.
     if (
       path.startsWith("/v1/calls/media-stream") &&
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
@@ -586,7 +626,9 @@ export class RuntimeHttpServer {
     // Twilio webhook endpoints — before auth check because Twilio
     // webhook POSTs don't include bearer tokens.
     const twilioResponse = await this.handleTwilioWebhook(req, path);
-    if (twilioResponse) return twilioResponse;
+    if (twilioResponse) {
+      return twilioResponse;
+    }
 
     // Audio serving endpoint — before auth check because Twilio
     // fetches these URLs directly (isPublic route, ATL-314).
@@ -617,20 +659,6 @@ export class RuntimeHttpServer {
         }
         throw err;
       }
-    }
-
-    // Skill-registered routes (e.g. meet-bot event ingress). Handled before
-    // JWT auth because skills may use their own auth (e.g. per-meeting bearer
-    // tokens minted by a session manager).
-    const skillMatch = matchSkillRoute(path, req.method);
-    if (skillMatch) {
-      if (skillMatch.kind === "methodMismatch") {
-        return new Response("Method Not Allowed", {
-          status: 405,
-          headers: { Allow: skillMatch.allow.join(", ") },
-        });
-      }
-      return await skillMatch.route.handler(req, skillMatch.match);
     }
 
     // JWT bearer authentication — replaces the old shared-secret comparison.
@@ -682,8 +710,13 @@ export class RuntimeHttpServer {
         ? selectAuthenticatedRateLimiter(clientIp)
         : ipRateLimiter;
       const limiterKind = token ? "authenticated" : "unauthenticated";
-      const result = limiter.check(clientIp, path);
-      if (!result.allowed) {
+      // Streaming (SSE) and liveness endpoints bypass the per-minute request
+      // limiter — see isRateLimitExemptEndpoint. `result` stays null for them,
+      // so no 429 is returned and no rate-limit headers are attached.
+      const result = isRateLimitExemptEndpoint(endpoint)
+        ? null
+        : limiter.check(clientIp, path);
+      if (result && !result.allowed) {
         return rateLimitResponse(result, {
           clientIp,
           deniedPath: path,
@@ -701,8 +734,10 @@ export class RuntimeHttpServer {
       const response =
         routerResponse ?? httpError("NOT_FOUND", "Not found", 404);
       const headers = new Headers(response.headers);
-      for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
-        headers.set(k, v);
+      if (result) {
+        for (const [k, v] of Object.entries(rateLimitHeaders(result))) {
+          headers.set(k, v);
+        }
       }
       return new Response(response.body, {
         status: response.status,
@@ -722,7 +757,9 @@ export class RuntimeHttpServer {
   }
 
   private verifyGatewayServiceToken(req: Request): Response | null {
-    if (isHttpAuthDisabled()) return null;
+    if (isHttpAuthDisabled()) {
+      return null;
+    }
 
     const wsUrl = new URL(req.url);
     const token = wsUrl.searchParams.get("token");
@@ -743,35 +780,6 @@ export class RuntimeHttpServer {
     return null;
   }
 
-  private handleRelayUpgrade(
-    req: Request,
-    server: ReturnType<typeof Bun.serve>,
-  ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct relay access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    // Verify the gateway service token before accepting the upgrade.
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
-
-    const wsUrl = new URL(req.url);
-    const callSessionId = wsUrl.searchParams.get("callSessionId");
-    if (!callSessionId) {
-      return new Response("Missing callSessionId", { status: 400 });
-    }
-    const upgraded = server.upgrade(req, { data: { callSessionId } });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
-    return undefined!;
-  }
-
   private handleMediaStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
@@ -786,7 +794,9 @@ export class RuntimeHttpServer {
 
     // Verify the gateway service token before accepting the upgrade.
     const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
+    if (tokenError) {
+      return tokenError;
+    }
 
     const wsUrl = new URL(req.url);
     const callSessionId = wsUrl.searchParams.get("callSessionId");
@@ -794,7 +804,7 @@ export class RuntimeHttpServer {
       return new Response("Missing callSessionId", { status: 400 });
     }
     // Media-stream connections use a distinct wsType so the open/message/close
-    // handlers route them to MediaStreamCallSession instead of RelayConnection.
+    // handlers route them to MediaStreamCallSession.
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "media-stream",
@@ -811,7 +821,7 @@ export class RuntimeHttpServer {
   /**
    * Handle WebSocket upgrade for `/v1/stt/stream`.
    *
-   * Private-network restrictions apply (same as relay/media-stream) so the
+   * Private-network restrictions apply (same as media-stream) so the
    * runtime remains unreachable from the public internet. The gateway
    * authenticates the downstream client and proxies the upgrade with a
    * short-lived gateway service token.
@@ -830,7 +840,9 @@ export class RuntimeHttpServer {
 
     // Verify the gateway service token before accepting the upgrade.
     const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
+    if (tokenError) {
+      return tokenError;
+    }
 
     const wsUrl = new URL(req.url);
     // provider is optional compatibility metadata — the runtime resolves
@@ -883,154 +895,19 @@ export class RuntimeHttpServer {
     }
 
     const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
+    if (tokenError) {
+      return tokenError;
+    }
 
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "live-voice",
-        lastSeq: 0,
       } satisfies LiveVoiceWebSocketData,
     });
     if (!upgraded) {
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
     return undefined!;
-  }
-
-  private async handleLiveVoiceMessage(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    message: string | ArrayBuffer | ArrayBufferView,
-  ): Promise<void> {
-    if (typeof message === "string") {
-      const result = parseLiveVoiceClientTextFrame(message);
-      if (!result.ok) {
-        this.sendLiveVoiceError(ws, result.error);
-        return;
-      }
-      await this.dispatchLiveVoiceClientFrame(ws, result.frame);
-      return;
-    }
-
-    const result = parseLiveVoiceBinaryAudioFrame(message);
-    if (!result.ok) {
-      this.sendLiveVoiceError(ws, result.error);
-      return;
-    }
-
-    const sessionId = ws.data.sessionId;
-    if (!sessionId) {
-      this.sendLiveVoiceStateError(
-        ws,
-        "Live voice binary audio received before start",
-      );
-      return;
-    }
-
-    const handled = await this.liveVoiceSessionManager.handleBinaryAudio(
-      sessionId,
-      result.frame.data,
-    );
-    if (handled.status === "not_found") {
-      ws.data.sessionId = undefined;
-      this.sendLiveVoiceStateError(ws, "Live voice session is not active");
-    }
-  }
-
-  private async dispatchLiveVoiceClientFrame(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    frame: LiveVoiceClientFrame,
-  ): Promise<void> {
-    if (frame.type === "start") {
-      if (ws.data.sessionId) {
-        this.sendLiveVoiceStateError(ws, "Live voice session already started");
-        return;
-      }
-
-      const result = await this.liveVoiceSessionManager.startSession(frame, {
-        sendFrame: async (serverFrame) => {
-          this.sendLiveVoiceFrame(ws, serverFrame);
-        },
-      });
-      if (result.status === "accepted") {
-        ws.data.sessionId = result.sessionId;
-      }
-      return;
-    }
-
-    const sessionId = ws.data.sessionId;
-    if (!sessionId) {
-      this.sendLiveVoiceStateError(
-        ws,
-        `Live voice ${frame.type} frame received before start`,
-      );
-      return;
-    }
-
-    const handled = await this.liveVoiceSessionManager.handleClientFrame(
-      sessionId,
-      frame,
-    );
-    if (handled.status === "not_found") {
-      ws.data.sessionId = undefined;
-      this.sendLiveVoiceStateError(ws, "Live voice session is not active");
-      return;
-    }
-
-    if (frame.type === "end") {
-      ws.data.sessionId = undefined;
-    }
-  }
-
-  private sendLiveVoiceStateError(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    message: string,
-  ): void {
-    this.sendLiveVoiceError(ws, {
-      code: LiveVoiceProtocolErrorCode.InvalidFrame,
-      message,
-    });
-  }
-
-  private sendLiveVoiceError(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    error: Pick<LiveVoiceProtocolError, "code" | "message">,
-  ): void {
-    this.sendLiveVoiceFrame(ws, {
-      type: "error",
-      seq: ws.data.lastSeq + 1,
-      code: error.code,
-      message: error.message,
-    });
-  }
-
-  private sendLiveVoiceFrame(
-    ws: ServerWebSocket<LiveVoiceWebSocketData>,
-    frame: LiveVoiceServerFrame,
-  ): void {
-    const seq = Math.max(ws.data.lastSeq + 1, frame.seq);
-    ws.data.lastSeq = seq;
-    ws.send(JSON.stringify({ ...frame, seq }));
-  }
-
-  private releaseLiveVoiceSession(
-    data: LiveVoiceWebSocketData,
-    reason: "websocket_close",
-  ): void {
-    const sessionId = data.sessionId;
-    data.sessionId = undefined;
-    if (!sessionId) return;
-
-    void this.liveVoiceSessionManager
-      .releaseSession(sessionId, reason)
-      .catch((err) => {
-        log.warn(
-          {
-            error: err instanceof Error ? err.message : String(err),
-            sessionId,
-          },
-          "Failed to release live voice session",
-        );
-      });
   }
 
   private async handleTwilioWebhook(
@@ -1046,7 +923,9 @@ export class RuntimeHttpServer {
       : gatewayTwilioMatch
         ? GATEWAY_SUBPATH_MAP[gatewayTwilioMatch[1]]
         : null;
-    if (!resolvedTwilioSubpath || req.method !== "POST") return null;
+    if (!resolvedTwilioSubpath || req.method !== "POST") {
+      return null;
+    }
 
     const twilioSubpath = resolvedTwilioSubpath;
 
@@ -1059,17 +938,74 @@ export class RuntimeHttpServer {
     }
 
     const validation = await validateTwilioWebhook(req);
-    if (validation instanceof Response) return validation;
+    if (validation instanceof Response) {
+      return validation;
+    }
 
     const validatedReq = cloneRequestWithBody(req, validation.body);
 
-    if (twilioSubpath === "voice-webhook")
+    if (twilioSubpath === "voice-webhook") {
       return await handleVoiceWebhook(validatedReq);
-    if (twilioSubpath === "status")
+    }
+    if (twilioSubpath === "status") {
       return await handleStatusCallback(validatedReq);
-    if (twilioSubpath === "connect-action")
-      return await handleConnectAction(validatedReq);
+    }
 
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton
+// ---------------------------------------------------------------------------
+
+let instance: RuntimeHttpServer | null = null;
+
+/**
+ * Start the runtime HTTP server singleton early in daemon startup so /healthz
+ * answers ASAP. A bind failure (port in use, permission denied, fd exhaustion)
+ * is non-fatal: it is logged and the daemon falls back to IPC-only operation,
+ * leaving the singleton unset.
+ */
+export async function startRuntimeHttpServer(): Promise<void> {
+  const port = getRuntimeHttpPort();
+  const hostname = getRuntimeHttpHost();
+  log.info({ port }, "Daemon startup: starting runtime HTTP server");
+  const server = new RuntimeHttpServer({ port, hostname });
+  try {
+    await server.start();
+    instance = server;
+    log.info(
+      { port, hostname },
+      "Daemon startup: runtime HTTP server listening",
+    );
+  } catch (err) {
+    log.warn(
+      { err, port },
+      "Failed to start runtime HTTP server, continuing without it",
+    );
+    instance = null;
+  }
+}
+
+/**
+ * Start the runtime HTTP server's ORM-touching background sweeps. Called by the
+ * daemon once DB migrations have settled — on success, or in the failed
+ * degraded mode where the DB opened and maintenance (guardian approval/action
+ * expiry, profile reaping) must still run; the retry sweep additionally skips
+ * its cycles while readiness is unready. Never called before migrations settle,
+ * so the sweeps can't race a schema mid-migration. No-op if the HTTP server
+ * failed to bind (IPC-only mode) or sweeps already started.
+ */
+export function startRuntimeHttpServerBackgroundSweeps(): void {
+  instance?.startBackgroundSweeps();
+}
+
+/** Stop the runtime HTTP server singleton if one is running; no-op otherwise. */
+export async function stopRuntimeHttpServer(): Promise<void> {
+  if (!instance) {
+    return;
+  }
+  await instance.stop();
+  instance = null;
 }

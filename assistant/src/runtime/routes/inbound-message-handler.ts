@@ -1,21 +1,22 @@
 /**
  * Channel inbound message handler: validates, records, and routes inbound
  * messages from all channels. Handles ingress ACL, edits, guardian
- * verification, guardian action answers, approval interception, and
- * invite token redemption.
+ * verification, guardian action answers, and approval interception.
+ * Invite token/code redemption is intercepted at gateway ingress before
+ * messages reach this handler.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
 import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
   isAdmissionPolicy,
+  isAdmissionPolicyExemptChannel,
 } from "@vellumai/gateway-client";
 
 import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
-import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -37,33 +38,9 @@ import {
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import { mapChatTypeToConversationType } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import {
-  attachInlineAttachmentToMessage,
-  AttachmentUploadError,
-  getAttachmentsByIds,
-  validateAttachmentUpload,
-} from "../../memory/attachments-store.js";
-import {
-  recordConversationSeenSignal,
-  type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import {
-  addMessage,
-  getMessageById,
-  getMessages,
-  selectSlackMetaCandidateMetadata,
-  updateMessageContent,
-  updateMessageMetadata,
-} from "../../memory/conversation-crud.js";
-import {
-  clearPayload,
-  findMessageBySourceId,
-  recordInbound,
-} from "../../memory/delivery-crud.js";
-import { markProcessed } from "../../memory/delivery-status.js";
-import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   resolveSlackBotUserId,
@@ -78,6 +55,7 @@ import { downloadSlackFile } from "../../messaging/providers/slack/download.js";
 import {
   buildSlackTimezoneMetadata,
   formatSlackTimezoneLabel,
+  isSlackTs,
   mergeSlackMetadata,
   readSlackMetadataFromMessageMetadata,
   type SlackFileMetadata,
@@ -85,26 +63,58 @@ import {
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
+import {
+  attachInlineAttachmentToMessage,
+  AttachmentUploadError,
+  getAttachmentsByIds,
+  validateAttachmentUpload,
+} from "../../persistence/attachments-store.js";
+import {
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../../persistence/conversation-attention-store.js";
+import {
+  addMessage,
+  getMessageById,
+  getMessages,
+  selectSlackMetaCandidateMetadata,
+  updateMessageContent,
+  updateMessageMetadata,
+} from "../../persistence/conversation-crud.js";
+import { applyDeterministicTitleIfReplaceable } from "../../persistence/conversation-title-service.js";
+import {
+  clearPayload,
+  findMessageBySourceId,
+  recordInbound,
+} from "../../persistence/delivery-crud.js";
+import { markProcessed } from "../../persistence/delivery-status.js";
+import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
-import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
+import {
+  isApprovalHandshakeInProgress,
+  maybeNotifyGuardianOfAdmittedContact,
+  notifyGuardianOfAccessRequest,
+} from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
-import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
+import {
+  composeAccessDenialReply,
+  enforceIngressAcl,
+} from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
 import { handleEditIntercept } from "./inbound-stages/edit-intercept.js";
-import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept.js";
 import { handleGuardianActivationIntercept } from "./inbound-stages/guardian-activation-intercept.js";
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
+import { prepareChannelInboundContent } from "./inbound-stages/inbound-content-prep.js";
 import {
   handleSlackReactionIntercept,
   isSlackReactionEvent,
@@ -142,7 +152,9 @@ function trimMetadataString(
   key: string,
 ): string | undefined {
   const value = metadata?.[key];
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
@@ -151,7 +163,9 @@ function parseSlackActorTimezoneMetadata(
   sourceChannel: string,
   metadata: SourceMetadata | undefined,
 ): SlackActorTimezoneMetadata | undefined {
-  if (sourceChannel !== "slack") return undefined;
+  if (sourceChannel !== "slack") {
+    return undefined;
+  }
 
   const timezone = metadata?.timezone?.trim() || undefined;
   const timezoneLabel = metadata?.timezoneLabel?.trim() || undefined;
@@ -180,7 +194,9 @@ function attachSlackRequesterTimezone(
   trustCtx: TrustContext,
   timezone: SlackActorTimezoneMetadata | undefined,
 ): TrustContext {
-  if (!timezone) return trustCtx;
+  if (!timezone) {
+    return trustCtx;
+  }
   return {
     ...trustCtx,
     ...(timezone.timezone ? { requesterTimezone: timezone.timezone } : {}),
@@ -401,7 +417,9 @@ export async function handleChannelInbound({
     assistantId,
     externalMessageId,
   });
-  if (guardianActivationResponse) return guardianActivationResponse;
+  if (guardianActivationResponse) {
+    return guardianActivationResponse;
+  }
 
   // ── Slack reaction handling ──
   // Reactions are passive channel signals — not messages, and not access
@@ -411,7 +429,7 @@ export async function handleChannelInbound({
   // notification, and a stranger's reaction creates no conversation/binding.
   // The interceptor drops strangers, records known contacts' reactions as
   // transcript signals, and routes a guardian's reaction on an approval card
-  // through the canonical guardian decision pipeline. Reactions never drive an
+  // through the guardian decision pipeline. Reactions never drive an
   // agent turn.
   if (isSlackReactionEvent(body)) {
     return handleSlackReactionIntercept({
@@ -454,6 +472,13 @@ export async function handleChannelInbound({
     ? admissionPolicyFromGateway
     : undefined;
 
+  // Callback payloads (button presses, delete sentinels) are decision
+  // attempts / lifecycle events, not access attempts: the ACL stage must not
+  // respond to one by minting a verification challenge or creating an access
+  // request (LUM-2673). Reaction callbacks never reach this point — the
+  // intercept above returns for them.
+  const isCallbackInteraction = hasCallbackData;
+
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
     canonicalSenderId,
@@ -468,10 +493,12 @@ export async function handleChannelInbound({
     actorUsername: body.actorUsername,
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
-    externalMessageId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
+    isCallbackInteraction,
   });
-  if (aclResult.earlyResponse) return aclResult.earlyResponse;
+  if (aclResult.earlyResponse) {
+    return aclResult.earlyResponse;
+  }
   const { resolvedMember } = aclResult;
 
   // ── Slack delete propagation ──
@@ -514,7 +541,9 @@ export async function handleChannelInbound({
         conversationExternalId,
         deletedMessageTs,
       );
-      if (original) break;
+      if (original) {
+        break;
+      }
       if (attempt < deleteLookupRetries) {
         log.info(
           {
@@ -658,12 +687,15 @@ export async function handleChannelInbound({
     typeof sourceMetadata?.messageId === "string"
       ? sourceMetadata.messageId
       : undefined;
-  const slackThreadTs =
-    sourceChannel === "slack" &&
+  // Thread id of the inbound message's external container (Slack thread ts,
+  // Telegram topic id). Scopes conversation resolution and the persisted
+  // binding for thread-scoped channels.
+  const channelThreadId =
     typeof sourceMetadata?.threadId === "string" &&
     sourceMetadata.threadId.trim().length > 0
       ? sourceMetadata.threadId.trim()
       : undefined;
+  const slackThreadTs = sourceChannel === "slack" ? channelThreadId : undefined;
 
   if (isEdit && !sourceMessageId) {
     throw new BadRequestError("sourceMetadata.messageId is required for edits");
@@ -676,7 +708,7 @@ export async function handleChannelInbound({
       conversationExternalId,
       externalMessageId,
       sourceMessageId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
       canonicalAssistantId,
       assistantId,
       content,
@@ -692,7 +724,7 @@ export async function handleChannelInbound({
     {
       sourceMessageId,
       assistantId: canonicalAssistantId,
-      sourceThreadId: slackThreadTs,
+      sourceThreadId: channelThreadId,
     },
   );
 
@@ -707,7 +739,7 @@ export async function handleChannelInbound({
       sourceChannel,
       externalChatId: conversationExternalId,
       externalChatName: slackChannelName,
-      externalThreadId: slackThreadTs ?? null,
+      externalThreadId: channelThreadId ?? null,
       externalUserId: canonicalSenderId ?? rawSenderId ?? null,
       displayName: body.actorDisplayName ?? null,
       username: body.actorUsername ?? null,
@@ -735,6 +767,10 @@ export async function handleChannelInbound({
         },
     slackActorTimezone,
   );
+  // Exact provenance for this turn's triggering message, read back by
+  // guardian-approval producers to link approval cards to their source.
+  trustCtx.sourceMessageId = sourceMessageId;
+  trustCtx.sourceThreadId = slackThreadTs;
 
   // ── Admission policy floor ──
   // Sits between trust resolution and the agent loop. The gateway attaches
@@ -748,15 +784,16 @@ export async function handleChannelInbound({
   // inside `enforceAdmissionPolicy` — defense in depth alongside the
   // gateway's exempt-channel skip and the PUT-handler's 403.
   //
-  // Bootstrap deep-link: when ACL flagged a validated pending_bootstrap
+  // Bootstrap deep-link: when ACL resolved a validated pending_bootstrap
   // session, skip the floor entirely. The bootstrap intercept stage below
-  // handles identity binding and emits its own reply; the sender has not
-  // yet acquired a trust class and should not be denied here.
+  // reuses that session (no second gateway lookup), handles identity
+  // binding, and emits its own reply; the sender has not yet acquired a
+  // trust class and should not be denied here.
   // Gated by `channel-trust-floors`: when off, skip the floor entirely (admit)
   // so inbound falls back to ACL-only behavior. The gateway also omits the
   // floor when off, so the ACL above already saw the default permissive policy.
   const admissionResult =
-    !channelTrustFloorsEnabled || aclResult.isValidatedBootstrap
+    !channelTrustFloorsEnabled || aclResult.validatedBootstrapSession != null
       ? ({ admitted: true } as const)
       : enforceAdmissionPolicy({
           sourceChannel,
@@ -798,48 +835,91 @@ export async function handleChannelInbound({
     // `acl-enforcement.ts:267-449` for `not_a_member`, so denials are
     // visible in the same UI. previousMemberStatus is only meaningful when
     // a member record exists; we pass it through when available so the
-    // guardian sees "previously pending" etc.
+    // guardian sees "previously pending" etc. Callback interactions never
+    // create an access request (LUM-2673); the handshake window is still
+    // probed for reply copy.
     let guardianNotified = false;
-    try {
-      const accessResult = await notifyGuardianOfAccessRequest({
-        canonicalAssistantId,
-        sourceChannel,
-        conversationExternalId,
-        actorExternalId: canonicalSenderId ?? rawSenderId,
-        actorDisplayName: body.actorDisplayName,
-        actorUsername: body.actorUsername,
-        ...(resolvedMember
-          ? {
-              previousMemberStatus: channelStatusToMemberStatus(
-                resolvedMember.status,
-              ),
-            }
-          : {}),
-        messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
-        ...(typeof sourceMetadata?.isStranger === "boolean"
-          ? { isStranger: sourceMetadata.isStranger }
-          : {}),
-        ...(typeof sourceMetadata?.isRestricted === "boolean"
-          ? { isRestricted: sourceMetadata.isRestricted }
-          : {}),
-        ...(typeof sourceMetadata?.messageId === "string"
-          ? { messageTs: sourceMetadata.messageId }
-          : {}),
-      });
-      guardianNotified = accessResult.notified;
-    } catch (err) {
-      log.error(
-        { err, sourceChannel, conversationExternalId },
-        "Failed to notify guardian of access request (admission policy)",
+    let handshakeInProgress = false;
+    const floorSenderId = canonicalSenderId ?? rawSenderId;
+    if (isCallbackInteraction) {
+      if (floorSenderId) {
+        handshakeInProgress = await isApprovalHandshakeInProgress({
+          canonicalAssistantId,
+          sourceChannel,
+          actorExternalId: floorSenderId,
+        });
+      }
+    } else {
+      try {
+        const accessResult = await notifyGuardianOfAccessRequest({
+          canonicalAssistantId,
+          sourceChannel,
+          conversationExternalId,
+          actorExternalId: floorSenderId,
+          actorDisplayName: body.actorDisplayName,
+          actorUsername: body.actorUsername,
+          // The floor deny runs after recordInbound, so the originating
+          // conversation exists — attach the in-app card to it (instead of a
+          // standalone Chat) so the card lands in the originating Slack/Telegram
+          // conversation and its delivery row points there.
+          destinationConversationId: result.conversationId,
+          ...(resolvedMember
+            ? {
+                previousMemberStatus: channelStatusToMemberStatus(
+                  resolvedMember.status,
+                ),
+              }
+            : {}),
+          messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+          ...(typeof sourceMetadata?.isBot === "boolean"
+            ? { isBot: sourceMetadata.isBot }
+            : {}),
+          ...(typeof sourceMetadata?.isStranger === "boolean"
+            ? { isStranger: sourceMetadata.isStranger }
+            : {}),
+          ...(typeof sourceMetadata?.isRestricted === "boolean"
+            ? { isRestricted: sourceMetadata.isRestricted }
+            : {}),
+          ...(typeof sourceMetadata?.messageId === "string"
+            ? { messageTs: sourceMetadata.messageId }
+            : {}),
+        });
+        guardianNotified = accessResult.notified;
+        handshakeInProgress =
+          !accessResult.notified &&
+          accessResult.reason === "approval_pending_verification";
+      } catch (err) {
+        log.error(
+          { err, sourceChannel, conversationExternalId },
+          "Failed to notify guardian of access request (admission policy)",
+        );
+      }
+    }
+
+    // recordInbound created this conversation, but a floor-denied inbound never
+    // runs an agent turn, so neither title-generation hook fires and the
+    // conversation would sit on the "Generating title…" placeholder forever.
+    // Give it a deterministic title (the access-request card is its content).
+    // Only for the access-request path — a callback interaction seeds no card.
+    if (!isCallbackInteraction) {
+      const requesterLabel =
+        body.actorDisplayName ?? body.actorUsername ?? floorSenderId;
+      applyDeterministicTitleIfReplaceable(
+        result.conversationId,
+        requesterLabel
+          ? `Access request — ${requesterLabel}`
+          : "Access request",
       );
     }
 
     // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
     // challenge text for `trusted_contacts` / `guardian_only` denials —
     // sender gets the standard "ask the guardian" copy.
-    const replyText = guardianNotified
-      ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
-      : "Sorry, you haven't been approved to message this assistant.";
+    const replyText = composeAccessDenialReply({
+      verdict: inboundVerdict,
+      guardianNotified,
+      handshakeInProgress,
+    });
     let replyDelivered = false;
     if (replyCallbackUrl) {
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
@@ -862,7 +942,9 @@ export async function handleChannelInbound({
       }
     }
 
-    if (!result.duplicate) markProcessed(result.eventId);
+    if (!result.duplicate) {
+      markProcessed(result.eventId);
+    }
 
     return {
       accepted: true,
@@ -934,28 +1016,6 @@ export async function handleChannelInbound({
     };
   }
 
-  // ── Ingress escalation ──
-  const escalationResponse = await handleEscalationIntercept({
-    resolvedMember,
-    canonicalAssistantId,
-    sourceChannel,
-    sourceInterface,
-    conversationExternalId,
-    externalMessageId,
-    conversationId: result.conversationId,
-    eventId: result.eventId,
-    content: trimmedContent,
-    attachmentIds,
-    sourceMetadata: body.sourceMetadata,
-    actorDisplayName: body.actorDisplayName,
-    actorExternalId: body.actorExternalId,
-    actorUsername: body.actorUsername,
-    replyCallbackUrl: body.replyCallbackUrl,
-    canonicalSenderId,
-    rawSenderId,
-  });
-  if (escalationResponse) return escalationResponse;
-
   const metadataHintsRaw = sourceMetadata?.hints;
   const metadataHints = Array.isArray(metadataHintsRaw)
     ? metadataHintsRaw.filter(
@@ -963,28 +1023,6 @@ export async function handleChannelInbound({
           typeof hint === "string" && hint.trim().length > 0,
       )
     : [];
-
-  // Inject channel-scoped permission hints for Slack channel messages
-  if (sourceChannel === "slack") {
-    const channelProfile = getChannelPermissionProfile(conversationExternalId);
-    if (channelProfile) {
-      if (channelProfile.blockedTools?.length) {
-        metadataHints.push(
-          `Channel policy: the following tools are blocked in this channel: ${channelProfile.blockedTools.join(", ")}`,
-        );
-      }
-      if (channelProfile.allowedToolCategories?.length) {
-        metadataHints.push(
-          `Channel policy: only these tool categories are allowed in this channel: ${channelProfile.allowedToolCategories.join(", ")}`,
-        );
-      }
-      if (channelProfile.trustLevel === "restricted") {
-        metadataHints.push(
-          "Channel policy: this channel has restricted trust level. Exercise caution with tool usage.",
-        );
-      }
-    }
-  }
 
   const metadataUxBrief =
     typeof sourceMetadata?.uxBrief === "string" &&
@@ -1007,6 +1045,7 @@ export async function handleChannelInbound({
     sourceMetadata.chatType.trim().length > 0
       ? sourceMetadata.chatType.trim()
       : undefined;
+  trustCtx.conversationType = mapChatTypeToConversationType(sourceChatType);
 
   // Preserve locale from sourceMetadata so the model can greet in the user's language
   const sourceLanguageCode =
@@ -1024,15 +1063,17 @@ export async function handleChannelInbound({
     sourceChannel,
     conversationExternalId,
     eventId: result.eventId,
+    validatedBootstrapSession: aclResult.validatedBootstrapSession,
   });
-  if (bootstrapResponse) return bootstrapResponse;
+  if (bootstrapResponse) {
+    return bootstrapResponse;
+  }
 
-  // Legacy voice guardian action interception removed — all guardian reply
-  // routing now flows through the canonical router below (routeGuardianReply),
-  // which handles request code matching, callback parsing, and NL classification
-  // against canonical_guardian_requests.
+  // All guardian reply routing flows through the guardian reply router below
+  // (routeGuardianReply), which handles request code matching, callback
+  // parsing, and NL classification against the gateway's guardian_requests.
 
-  // ── Canonical guardian reply router ──
+  // ── Guardian reply router ──
   const guardianReplyResult = await handleGuardianReplyIntercept({
     isDuplicate: result.duplicate,
     trimmedContent,
@@ -1050,7 +1091,9 @@ export async function handleChannelInbound({
     guardianPrincipalId: trustCtx.guardianPrincipalId,
     approvalConversationGenerator,
   });
-  if (guardianReplyResult.response) return guardianReplyResult.response;
+  if (guardianReplyResult.response) {
+    return guardianReplyResult.response;
+  }
 
   // ── Approval interception ──
   // Keep this active whenever callback context is available.
@@ -1232,6 +1275,61 @@ export async function handleChannelInbound({
         heartbeatService?.resetTimer();
       }
 
+      // ── Introduction nudge on first admit ──
+      // A sender the guardian has never classified can clear a permissive
+      // floor (`any_contact`, `strangers`) and start conversing with no
+      // guardian touchpoint — the introduction card otherwise fires only on
+      // deny. Nudge the guardian informationally so trust assignment does
+      // not depend on a denial; fire-and-forget, the turn proceeds
+      // regardless (LUM-2742). Runs after the secret ingress check so the
+      // persisted messagePreview can never carry a blocked secret. Exempt
+      // channels (`a2a`, `platform`) are outside the human-trust model, and
+      // a validated bootstrap session is already mid-verification.
+      if (
+        channelTrustFloorsEnabled &&
+        !isCallbackInteraction &&
+        aclResult.validatedBootstrapSession == null &&
+        !isAdmissionPolicyExemptChannel(sourceChannel) &&
+        (trustCtx.trustClass === "unverified_contact" ||
+          trustCtx.trustClass === "unknown")
+      ) {
+        const admittedSenderId = canonicalSenderId ?? rawSenderId;
+        if (admittedSenderId) {
+          void maybeNotifyGuardianOfAdmittedContact({
+            canonicalAssistantId,
+            sourceChannel,
+            conversationExternalId,
+            actorExternalId: admittedSenderId,
+            actorDisplayName: body.actorDisplayName,
+            actorUsername: body.actorUsername,
+            // The nudge fires after recordInbound, so the originating
+            // conversation exists — attach the in-app card to it.
+            destinationConversationId: result.conversationId,
+            messagePreview: truncate(
+              trimmedContent,
+              MESSAGE_PREVIEW_MAX_LENGTH,
+            ),
+            ...(typeof sourceMetadata?.isBot === "boolean"
+              ? { isBot: sourceMetadata.isBot }
+              : {}),
+            ...(typeof sourceMetadata?.isStranger === "boolean"
+              ? { isStranger: sourceMetadata.isStranger }
+              : {}),
+            ...(typeof sourceMetadata?.isRestricted === "boolean"
+              ? { isRestricted: sourceMetadata.isRestricted }
+              : {}),
+            ...(typeof sourceMetadata?.messageId === "string"
+              ? { messageTs: sourceMetadata.messageId }
+              : {}),
+          }).catch((err) => {
+            log.warn(
+              { err, sourceChannel, conversationExternalId },
+              "Failed to send introduction nudge for admitted contact",
+            );
+          });
+        }
+      }
+
       // Slack inbound metadata captured for thread-aware persistence. The
       // gateway forwards `thread_ts` under `sourceMetadata.threadId` and the
       // message's own ts under `sourceMetadata.messageId`. Persistence turns
@@ -1251,6 +1349,20 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? resolveSlackTranscriptTimestampTimezone(inboundClientTimezone)
           : undefined;
+      const slackActorTeamId =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.actorTeamId === "string" &&
+        sourceMetadata.actorTeamId.length > 0
+          ? sourceMetadata.actorTeamId
+          : undefined;
+      // What the sender had open in Slack when they sent this message. The
+      // entities themselves are validated where they are rendered; here we
+      // only confirm the envelope is the array shape the contract promises.
+      const slackAppContextEntities =
+        sourceChannel === "slack" &&
+        Array.isArray(sourceMetadata?.appContext?.entities)
+          ? sourceMetadata.appContext.entities
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1266,6 +1378,7 @@ export async function handleChannelInbound({
               ...(trustCtx.requesterExternalUserId
                 ? { actorExternalUserId: trustCtx.requesterExternalUserId }
                 : {}),
+              ...(slackActorTeamId ? { actorTeamId: slackActorTeamId } : {}),
               ...buildSlackTimezoneMetadata({
                 actorTimezone: slackActorTimezone?.timezone,
                 actorTimezoneLabel: slackActorTimezone?.timezoneLabel,
@@ -1277,6 +1390,9 @@ export async function handleChannelInbound({
                   slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
                 speakerTimezoneLabel: slackSpeakerTimezoneLabel,
               }),
+              ...(slackAppContextEntities?.length
+                ? { appContext: { entities: slackAppContextEntities } }
+                : {}),
             }
           : undefined;
 
@@ -1345,19 +1461,21 @@ export async function handleChannelInbound({
         });
       }
 
-      // Wrap non-guardian inbound content in external_content boundaries so
+      // Fence non-guardian inbound content in external_content boundaries so
       // the model can distinguish external channel messages from instructions.
-      const contentForProcessing =
-        trustCtx.trustClass !== "guardian"
-          ? wrapUntrustedContent(trimmedContent, {
-              source: sourceChannel === "slack" ? "slack" : "webhook",
-              sourceDetail: trustCtx.requesterIdentifier,
-            })
-          : trimmedContent;
-      const displayContentForProcessing =
-        sourceChannel === "slack" && trustCtx.trustClass !== "guardian"
-          ? trimmedContent
-          : undefined;
+      // The retry sweep prepares replayed content through the same helper.
+      const {
+        content: contentForProcessing,
+        displayContent: displayContentForProcessing,
+      } = prepareChannelInboundContent({
+        trimmedContent,
+        trustClass: trustCtx.trustClass,
+        sourceChannel,
+        requesterIdentifier: trustCtx.requesterIdentifier,
+        ...(slackInbound?.appContext
+          ? { slackAppContext: slackInbound.appContext }
+          : {}),
+      });
 
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
@@ -1406,19 +1524,6 @@ export async function handleChannelInbound({
 const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
 
 /**
- * Shape-check for a Slack `ts` value. Slack IDs messages by `<seconds>.<micros>`
- * strings (e.g. `"1700000000.000100"`). The daemon also stores an
- * `externalMessageId` derived from the gateway's dedupe key which follows a
- * different format, so any path that feeds a ts to Slack's API
- * (`conversations.history`'s `latest`, etc.) must shape-check first — Slack
- * rejects non-ts arguments with `invalid_arguments`, and passing a malformed
- * bound silently disables the intended history window.
- */
-function isSlackTs(value: string | null | undefined): value is string {
-  return typeof value === "string" && /^\d+\.\d+$/.test(value);
-}
-
-/**
  * Batch size used when pulling candidate rows from SQL. A bare
  * `LIKE '%"slackMeta"%'` match can include rows whose metadata JSON is
  * malformed or carries the literal under an unrelated key, so we fetch in
@@ -1461,14 +1566,20 @@ function countSlackMetaMessages(conversationId: string): number {
       batchLimit,
       offset,
     );
-    if (candidates.length === 0) return count;
+    if (candidates.length === 0) {
+      return count;
+    }
     for (const raw of candidates) {
       if (readSlackMetadataFromMessageMetadata(raw)) {
         count++;
-        if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
+        if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) {
+          return count;
+        }
       }
     }
-    if (candidates.length < batchLimit) return count;
+    if (candidates.length < batchLimit) {
+      return count;
+    }
     offset += candidates.length;
   }
   return count;
@@ -1488,7 +1599,9 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
     // `channelTs` equal to the target message's ts, so including them would
     // make a reaction on a thread parent wrongly short-circuit thread
     // backfill (the parent itself may still be unseen).
-    if (meta && meta.eventKind === "message") seen.add(meta.channelTs);
+    if (meta && meta.eventKind === "message") {
+      seen.add(meta.channelTs);
+    }
   }
   return seen;
 }
@@ -1501,11 +1614,17 @@ interface ParsedSlackTimestamp {
 function parseSlackTimestamp(
   ts: string | undefined,
 ): ParsedSlackTimestamp | null {
-  if (!ts) return null;
+  if (!ts) {
+    return null;
+  }
   const match = /^(\d+)\.(\d{1,6})$/.exec(ts);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const micros = BigInt(match[2]);
-  if (micros > 999_999n) return null;
+  if (micros > 999_999n) {
+    return null;
+  }
   return {
     seconds: BigInt(match[1]),
     micros,
@@ -1515,11 +1634,21 @@ function parseSlackTimestamp(
 function compareSlackTimestamps(left: string, right: string): number | null {
   const parsedLeft = parseSlackTimestamp(left);
   const parsedRight = parseSlackTimestamp(right);
-  if (!parsedLeft || !parsedRight) return null;
-  if (parsedLeft.seconds < parsedRight.seconds) return -1;
-  if (parsedLeft.seconds > parsedRight.seconds) return 1;
-  if (parsedLeft.micros < parsedRight.micros) return -1;
-  if (parsedLeft.micros > parsedRight.micros) return 1;
+  if (!parsedLeft || !parsedRight) {
+    return null;
+  }
+  if (parsedLeft.seconds < parsedRight.seconds) {
+    return -1;
+  }
+  if (parsedLeft.seconds > parsedRight.seconds) {
+    return 1;
+  }
+  if (parsedLeft.micros < parsedRight.micros) {
+    return -1;
+  }
+  if (parsedLeft.micros > parsedRight.micros) {
+    return 1;
+  }
   return 0;
 }
 
@@ -1537,11 +1666,17 @@ function readStoredSlackThreadState(
 
   for (const row of getMessages(conversationId)) {
     const meta = readSlackMetadataFromMessageMetadata(row.metadata);
-    if (!meta || meta.eventKind !== "message") continue;
-    if (meta.channelTs !== threadTs && meta.threadTs !== threadTs) continue;
+    if (!meta || meta.eventKind !== "message") {
+      continue;
+    }
+    if (meta.channelTs !== threadTs && meta.threadTs !== threadTs) {
+      continue;
+    }
 
     storedChannelTs.add(meta.channelTs);
-    if (!parseSlackTimestamp(meta.channelTs)) continue;
+    if (!parseSlackTimestamp(meta.channelTs)) {
+      continue;
+    }
     if (
       latestStoredThreadTs === undefined ||
       compareSlackTimestamps(meta.channelTs, latestStoredThreadTs) === 1
@@ -1649,7 +1784,9 @@ async function persistBackfilledSlackMessage(params: {
       typeof f.mimetype === "string" &&
       f.mimetype.startsWith("image/"),
   );
-  if (imageFiles.length === 0) return;
+  if (imageFiles.length === 0) {
+    return;
+  }
 
   const hydratedAttachments = await withSlackBotToken(
     params.account,
@@ -1660,7 +1797,9 @@ async function persistBackfilledSlackMessage(params: {
         const file = imageFiles[i];
         try {
           const downloaded = await downloadSlackFile(file, token);
-          if (!downloaded) continue;
+          if (!downloaded) {
+            continue;
+          }
           const validation = validateAttachmentUpload(
             downloaded.filename,
             downloaded.mimeType,
@@ -1683,6 +1822,7 @@ async function persistBackfilledSlackMessage(params: {
             downloaded.filename,
             downloaded.mimeType,
             downloaded.data,
+            { normalizeImage: true },
           );
           attachments.push({
             filename: downloaded.filename,
@@ -1746,13 +1886,15 @@ function isBackfilledSlackGuardianMessage(
   guardianExternalUserId: string | undefined,
 ): boolean {
   const rawSenderId = message.sender?.id?.trim();
-  if (!rawSenderId || !guardianExternalUserId) return false;
-  const canonicalSender =
+  if (!rawSenderId || !guardianExternalUserId) {
+    return false;
+  }
+  const normalizedSender =
     canonicalizeInboundIdentity("slack", rawSenderId) ?? rawSenderId;
-  const canonicalGuardian =
+  const normalizedGuardian =
     canonicalizeInboundIdentity("slack", guardianExternalUserId) ??
     guardianExternalUserId.trim();
-  return canonicalSender === canonicalGuardian;
+  return normalizedSender === normalizedGuardian;
 }
 
 const SLACK_ASSISTANT_THREAD_PLACEHOLDER_TEXT = "New Assistant Thread";
@@ -1761,7 +1903,9 @@ async function isSlackAssistantThreadPlaceholder(
   message: ProviderMessage,
   account: string | undefined,
 ): Promise<boolean> {
-  if (message.metadata?.isBot !== true) return false;
+  if (message.metadata?.isBot !== true) {
+    return false;
+  }
   const hasSlackFiles =
     Array.isArray(message.metadata.slackFiles) &&
     message.metadata.slackFiles.length > 0;
@@ -1779,19 +1923,27 @@ async function isBackfilledSlackAssistantMessage(
   message: ProviderMessage,
   account: string | undefined,
 ): Promise<boolean> {
-  if (message.metadata?.isBot !== true) return false;
+  if (message.metadata?.isBot !== true) {
+    return false;
+  }
 
   const botUserId = getConfig().slack.botUserId.trim();
   const rawSenderId = message.sender?.id?.trim();
-  if (!botUserId) return false;
+  if (!botUserId) {
+    return false;
+  }
 
-  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) return true;
+  if (rawSenderId && slackIdentityMatches(rawSenderId, botUserId)) {
+    return true;
+  }
 
   const rawBotId =
     typeof message.metadata.slackBotId === "string"
       ? message.metadata.slackBotId.trim()
       : "";
-  if (!rawBotId) return false;
+  if (!rawBotId) {
+    return false;
+  }
 
   try {
     const resolvedBotUserId = await resolveSlackBotUserId(account, rawBotId);
@@ -1831,7 +1983,9 @@ function readSlackFilesWithUrlsFromProviderMetadata(
   metadata: Record<string, unknown> | undefined,
 ): SlackFileWithUrls[] {
   const raw = metadata?.slackFiles;
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
   const files: SlackFileWithUrls[] = [];
   for (const item of raw) {
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
@@ -1839,7 +1993,9 @@ function readSlackFilesWithUrlsFromProviderMetadata(
     }
     const record = item as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name.trim() : "";
-    if (!name) continue;
+    if (!name) {
+      continue;
+    }
     files.push({
       ...(typeof record.id === "string" && record.id.length > 0
         ? { id: record.id }
@@ -1940,7 +2096,9 @@ async function runBackfillSlackDmIfCold(params: {
     // monotonic createdAt.
     const ordered = [...fetched].reverse();
     for (const message of ordered) {
-      if (seen.has(message.id)) continue;
+      if (seen.has(message.id)) {
+        continue;
+      }
       if (await isSlackAssistantThreadPlaceholder(message, params.account)) {
         continue;
       }
@@ -2059,7 +2217,9 @@ function emptySlackThreadBackfillResult(): SlackThreadBackfillResult {
 }
 
 function pruneBackfillCacheIfNeeded(): void {
-  if (_backfillTriggerCache.size < BACKFILL_TRIGGER_CACHE_MAX) return;
+  if (_backfillTriggerCache.size < BACKFILL_TRIGGER_CACHE_MAX) {
+    return;
+  }
   const now = Date.now();
   for (const [key, ts] of _backfillTriggerCache) {
     if (now - ts >= BACKFILL_TRIGGER_TTL_MS) {
@@ -2083,7 +2243,9 @@ function pruneBackfillCacheIfNeeded(): void {
 
 function isBackfillRecentlyTriggered(cacheKey: string): boolean {
   const ts = _backfillTriggerCache.get(cacheKey);
-  if (ts === undefined) return false;
+  if (ts === undefined) {
+    return false;
+  }
   if (Date.now() - ts >= BACKFILL_TRIGGER_TTL_MS) {
     _backfillTriggerCache.delete(cacheKey);
     return false;
@@ -2117,12 +2279,16 @@ function maxSlackMessageTs(messages: ProviderMessage[]): string | undefined {
 
 function slackTimestampToMicros(ts: string | undefined): bigint | null {
   const parsed = parseSlackTimestamp(ts);
-  if (!parsed) return null;
+  if (!parsed) {
+    return null;
+  }
   return parsed.seconds * MICROS_PER_SECOND + parsed.micros;
 }
 
 function slackTimestampFromMicros(totalMicros: bigint): string | undefined {
-  if (totalMicros < 0n) return undefined;
+  if (totalMicros < 0n) {
+    return undefined;
+  }
   const seconds = totalMicros / MICROS_PER_SECOND;
   const micros = totalMicros % MICROS_PER_SECOND;
   return `${seconds.toString()}.${micros.toString().padStart(6, "0")}`;
@@ -2133,11 +2299,17 @@ function didInitialWindowsLeaveGap(params: {
   recent: SlackBackfillWindowPage;
   recentScanTruncated: boolean;
 }): boolean {
-  if (params.recentScanTruncated) return true;
-  if (!slackPageHasMore(params.early)) return false;
+  if (params.recentScanTruncated) {
+    return true;
+  }
+  if (!slackPageHasMore(params.early)) {
+    return false;
+  }
   const earlyMax = maxSlackMessageTs(params.early.messages);
   const recentMin = minSlackMessageTs(params.recent.messages);
-  if (!earlyMax || !recentMin) return false;
+  if (!earlyMax || !recentMin) {
+    return false;
+  }
   const compared = compareSlackTimestamps(earlyMax, recentMin);
   return compared !== null && compared < 0;
 }
@@ -2226,16 +2398,24 @@ async function fetchSlackThreadUpperAdjacentWindow(params: {
   };
 
   for (const windowMicros of SLACK_UPPER_ADJACENT_EXPANDING_WINDOWS_MICROS) {
-    if (attempts >= maxAttempts) break;
+    if (attempts >= maxAttempts) {
+      break;
+    }
     const shouldExpand = await considerWindow(windowMicros);
-    if (!shouldExpand) break;
+    if (!shouldExpand) {
+      break;
+    }
   }
 
   if (truncatedBeforeUpperBound && !safePage && attempts < maxAttempts) {
     for (const windowMicros of SLACK_UPPER_ADJACENT_SHRINKING_WINDOWS_MICROS) {
-      if (attempts >= maxAttempts) break;
+      if (attempts >= maxAttempts) {
+        break;
+      }
       await considerWindow(windowMicros);
-      if (safePage) break;
+      if (safePage) {
+        break;
+      }
     }
   }
 
@@ -2351,7 +2531,9 @@ function dedupeSlackProviderMessages(
 ): ProviderMessage[] {
   const byTs = new Map<string, ProviderMessage>();
   for (const message of messages) {
-    if (!message.id || byTs.has(message.id)) continue;
+    if (!message.id || byTs.has(message.id)) {
+      continue;
+    }
     byTs.set(message.id, message);
   }
   return [...byTs.values()];
@@ -2362,7 +2544,9 @@ function sortSlackProviderMessages(
 ): ProviderMessage[] {
   return [...messages].sort((left, right) => {
     const compared = compareSlackTimestamps(left.id, right.id);
-    if (compared !== null) return compared;
+    if (compared !== null) {
+      return compared;
+    }
     return left.id.localeCompare(right.id);
   });
 }
@@ -2439,7 +2623,9 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     // Pre-seed only after computing lowerBoundTs. The current inbound row
     // may not have reached the DB yet, and treating it as stored state would
     // hide the gap we need to fetch.
-    if (excludeChannelTs) threadState.storedChannelTs.add(excludeChannelTs);
+    if (excludeChannelTs) {
+      threadState.storedChannelTs.add(excludeChannelTs);
+    }
 
     if (upperBoundTs && lowerBoundTs) {
       const lowerVsUpper = compareSlackTimestamps(lowerBoundTs, upperBoundTs);
@@ -2505,8 +2691,12 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
 
     let persisted = 0;
     for (const message of fetched) {
-      if (!message.id) continue;
-      if (threadState.storedChannelTs.has(message.id)) continue;
+      if (!message.id) {
+        continue;
+      }
+      if (threadState.storedChannelTs.has(message.id)) {
+        continue;
+      }
       if (await isSlackAssistantThreadPlaceholder(message, account)) {
         continue;
       }

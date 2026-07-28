@@ -93,12 +93,8 @@ import {
   unregisterWorkspaceTool,
 } from "../registry.js";
 import { finalizeTool } from "../tool-defaults.js";
-import type {
-  RiskLevel,
-  Tool,
-  ToolDefinition,
-  ToolExecutionResult,
-} from "../types.js";
+import type { RiskLevel } from "../tool-types.js";
+import type { Tool, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("workspace-tool-loader");
 
@@ -148,8 +144,12 @@ const WORKSPACE_TOOL_DEFAULTS = Object.freeze({
  * .gitignore, etc.) cannot accidentally claim a tool.
  */
 function isValidToolFilenameStem(stem: string): boolean {
-  if (stem.length === 0) return false;
-  if (stem.startsWith(".")) return false;
+  if (stem.length === 0) {
+    return false;
+  }
+  if (stem.startsWith(".")) {
+    return false;
+  }
   return isProviderSafeToolName(stem);
 }
 
@@ -200,7 +200,9 @@ function selectLiveExtension(
     if (extensions.has(candidate)) {
       const shadowed: LiveToolExtension[] = [];
       for (const ext of LIVE_TOOL_EXTENSIONS) {
-        if (ext !== candidate && extensions.has(ext)) shadowed.push(ext);
+        if (ext !== candidate && extensions.has(ext)) {
+          shadowed.push(ext);
+        }
       }
       return { ext: candidate, shadowed };
     }
@@ -318,7 +320,9 @@ async function importToolDefaultBounded(
     );
     return undefined;
   } finally {
-    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
 }
 
@@ -470,7 +474,9 @@ function scanWorkspaceToolsDir(toolsDir: string): {
     }
 
     const classified = classifyEntry(entry);
-    if (!classified) continue;
+    if (!classified) {
+      continue;
+    }
     if (!isValidToolFilenameStem(classified.stem)) {
       log.error(
         { entry, stem: classified.stem, toolsDir },
@@ -561,7 +567,9 @@ async function loadDesiredLiveTool(
       entry.path,
       importTimeoutMs,
     );
-    if (defaultExport === undefined) return undefined; // Failure already logged.
+    if (defaultExport === undefined) {
+      return undefined;
+    } // Failure already logged.
     if (defaultExport === null || typeof defaultExport !== "object") {
       log.error(
         { entryPath: entry.path, type: typeof defaultExport },
@@ -571,7 +579,9 @@ async function loadDesiredLiveTool(
     }
     toolSpec = defaultExport as ToolDefinition;
   }
-  if (!toolSpec) return undefined;
+  if (!toolSpec) {
+    return undefined;
+  }
   return applyWorkspaceToolDefaults(toolSpec, stem);
 }
 
@@ -619,7 +629,9 @@ let inflightReconcile: Promise<LoadWorkspaceToolsResult> | null = null;
 export function loadWorkspaceTools(
   options: LoadWorkspaceToolsOptions = {},
 ): Promise<LoadWorkspaceToolsResult> {
-  if (inflightReconcile) return inflightReconcile;
+  if (inflightReconcile) {
+    return inflightReconcile;
+  }
   // `reconcileWorkspaceTools` never rejects (all failures are caught and
   // logged); `.finally` clears the slot either way so the next caller scans
   // fresh.

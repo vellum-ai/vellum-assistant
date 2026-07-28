@@ -43,13 +43,12 @@ function renderShell(
 }
 
 describe("ToolProgressCardShell — collapsed render per state", () => {
-  test("loading renders the three-dot indicator", () => {
-    const { getByTestId, container } = renderShell({ state: "loading" });
-    const indicator = getByTestId("tool-progress-card-status-indicator");
-    expect(indicator.tagName).toBe("SPAN");
-    // No SVG icon present — the loading indicator is the dots, not a lucide
-    // svg.
-    expect(container.querySelector("svg")).toBeNull();
+  test("loading renders no status indicator — the shimmering title is the signal", () => {
+    const { queryByTestId, getByText } = renderShell({ state: "loading" });
+    // No leading indicator while loading: the header title renders through
+    // the streaming shimmer and carries the in-flight signal itself.
+    expect(queryByTestId("tool-progress-card-status-indicator")).toBeNull();
+    expect(getByText("Doing the thing")).toBeTruthy();
   });
 
   test("complete renders the CheckCircle2 icon", () => {
@@ -178,11 +177,13 @@ describe("ToolProgressCardShell — expand/collapse", () => {
 describe("ToolProgressCardShell — leading icon slot", () => {
   test("renders the leadingIcon between the indicator and the title", () => {
     const { getByTestId, container } = renderShell({
+      state: "complete",
       leadingIcon: <span data-testid="leading-icon">LI</span>,
     });
     expect(getByTestId("leading-icon")).toBeTruthy();
     // The icon sits inside the header label cluster, after the status
-    // indicator. Sanity-check the indicator is also present.
+    // indicator. Sanity-check the indicator is also present (terminal state —
+    // loading renders no indicator at all).
     expect(getByTestId("tool-progress-card-status-indicator")).toBeTruthy();
     // The wrapper exists in the rendered DOM.
     expect(container.querySelector('[data-testid="leading-icon"]')).not.toBeNull();

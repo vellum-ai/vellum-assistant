@@ -23,7 +23,7 @@ function buildStreams(): Captured {
 }
 
 describe("confirmPrompt", () => {
-  test("returns \"non-interactive\" without reading when isTTY=false", async () => {
+  test('returns "non-interactive" without reading when isTTY=false', async () => {
     const { stdin, stdout, stderr, outChunks, errChunks } = buildStreams();
     const result = await confirmPrompt({
       question: "Delete? [y/N] ",
@@ -38,7 +38,7 @@ describe("confirmPrompt", () => {
     expect(outChunks.join("")).toBe("");
   });
 
-  test("returns \"confirmed\" for \"y\\n\"", async () => {
+  test('returns "confirmed" for "y\\n"', async () => {
     const { stdin, stdout, stderr } = buildStreams();
     const pending = confirmPrompt({
       question: "Delete? [y/N] ",
@@ -52,7 +52,7 @@ describe("confirmPrompt", () => {
     expect(await pending).toBe("confirmed");
   });
 
-  test("returns \"confirmed\" for \"yes\\n\" (case-insensitive, whitespace-tolerant)", async () => {
+  test('returns "confirmed" for "yes\\n" (case-insensitive, whitespace-tolerant)', async () => {
     const { stdin, stdout, stderr } = buildStreams();
     const pending = confirmPrompt({
       question: "Delete? [y/N] ",
@@ -66,7 +66,7 @@ describe("confirmPrompt", () => {
     expect(await pending).toBe("confirmed");
   });
 
-  test("returns \"denied\" for \"n\\n\"", async () => {
+  test('returns "denied" for "n\\n"', async () => {
     const { stdin, stdout, stderr } = buildStreams();
     const pending = confirmPrompt({
       question: "Delete? [y/N] ",
@@ -80,7 +80,7 @@ describe("confirmPrompt", () => {
     expect(await pending).toBe("denied");
   });
 
-  test("returns \"denied\" for empty input (just Enter)", async () => {
+  test('returns "denied" for empty input (just Enter)', async () => {
     const { stdin, stdout, stderr } = buildStreams();
     const pending = confirmPrompt({
       question: "Delete? [y/N] ",
@@ -94,7 +94,7 @@ describe("confirmPrompt", () => {
     expect(await pending).toBe("denied");
   });
 
-  test("returns \"denied\" on EOF without any data (regression: would have hung)", async () => {
+  test('returns "denied" on EOF without any data (regression: would have hung)', async () => {
     const { stdin, stdout, stderr } = buildStreams();
     const pending = confirmPrompt({
       question: "Delete? [y/N] ",
@@ -108,7 +108,7 @@ describe("confirmPrompt", () => {
     expect(await pending).toBe("denied");
   });
 
-  test("returns \"denied\" on EOF after a partial line with no newline", async () => {
+  test('returns "denied" on EOF after a partial line with no newline', async () => {
     const { stdin, stdout, stderr } = buildStreams();
     const pending = confirmPrompt({
       question: "Delete? [y/N] ",
@@ -131,7 +131,7 @@ describe("confirmPrompt", () => {
   test("writes the question to stdout when interactive", async () => {
     const { stdin, stdout, stderr, outChunks } = buildStreams();
     const pending = confirmPrompt({
-      question: "Delete plugin \"foo\"? [y/N] ",
+      question: 'Delete plugin "foo"? [y/N] ',
       isTTY: true,
       refuseNonInteractiveMessage: "n/a",
       stdin,
@@ -140,7 +140,7 @@ describe("confirmPrompt", () => {
     });
     stdin.write("n\n");
     await pending;
-    expect(outChunks.join("")).toContain("Delete plugin \"foo\"? [y/N] ");
+    expect(outChunks.join("")).toContain('Delete plugin "foo"? [y/N] ');
   });
 
   test("treats stray garbage as denial, never confirmation", async () => {

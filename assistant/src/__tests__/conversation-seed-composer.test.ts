@@ -570,9 +570,9 @@ describe("composeConversationSeed", () => {
       expect(seed.trim().length).toBeGreaterThan(0);
     });
 
-    test('uses context payload "senderIdentifier" for escalation events', () => {
+    test('uses context payload "senderIdentifier" for access-request events', () => {
       const signal = makeSignal({
-        sourceEventName: "ingress.escalation",
+        sourceEventName: "ingress.access_request",
         contextPayload: { senderIdentifier: "Alice" },
       });
       const copy = makeCopy({ title: "", body: "" });
@@ -581,7 +581,7 @@ describe("composeConversationSeed", () => {
         "vellum" as NotificationChannel,
         copy,
       );
-      expect(seed).toBe("Ingress escalation: Alice");
+      expect(seed).toBe("Ingress access request: Alice");
     });
 
     test('prefers "message" over "summary" in context payload', () => {

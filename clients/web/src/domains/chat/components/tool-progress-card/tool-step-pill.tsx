@@ -1,29 +1,27 @@
 /**
  * Button-based tool-call step pill matching Figma node `5010-103193`.
  *
- * A leading glyph (from `ICON_MAP`) + a truncating label + an optional
- * trailing `RiskBadge`. When an `onClick` is supplied the pill renders as a
- * real `<button>` (with hover / focus affordances); otherwise it renders a
- * non-interactive `<span>` with identical layout classes minus the
- * interactive styling, so static / no-action contexts don't get a dead
- * button.
+ * A leading glyph (from `ICON_MAP`) + a truncating label. When an `onClick`
+ * is supplied the pill renders as a real `<button>` (with hover / focus
+ * affordances); otherwise it renders a non-interactive `<span>` with
+ * identical layout classes minus the interactive styling, so static /
+ * no-action contexts don't get a dead button.
  *
- * When both `onClick` and `onRiskBadgeClick` are provided, the pill renders
- * as a `<div>` with `role="button"` so the risk badge can render its own
- * `<button>` without nesting interactive elements (invalid per HTML spec).
+ * The tool call's risk level is NOT shown here — it lives in the tool-detail
+ * drawer's "Reasoning" section (see `ToolDetailBody`), keeping the timeline
+ * pills compact.
  *
  * Props are intentionally PRIMITIVE (icon name + strings) rather than coupled
  * to `ToolCallCardStep`, so the pill is independently testable and reusable
  * outside the card pipeline.
  */
 
-import { useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 
 import { Bolt } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 
@@ -31,22 +29,18 @@ import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-gro
 interface ToolStepPillBaseProps {
   /** Truncating pill label. */
   label: string;
-  tone?: "default" | "error";
   /** Accessible label for the pill. Defaults per-variant. */
   ariaLabel?: string;
 }
 
 /**
  * Default pill: a lucide glyph (from `ICON_MAP`) + label, optionally a button
- * (when `onClick` is set) with an optional trailing `RiskBadge`.
+ * (when `onClick` is set).
  */
 export interface ToolStepPillToolProps extends ToolStepPillBaseProps {
   variant?: "tool";
   iconName: IconName;
-  riskLevel?: string;
   onClick?: () => void;
-  /** Click handler for the risk badge. Opens the trust-rule editor. */
-  onRiskBadgeClick?: () => void;
   /**
    * Selected state — rendered when this pill's tool-detail drawer is open.
    * Mirrors the design-library outlined+active button (primary border, lifted
@@ -86,12 +80,8 @@ const BASE_CLASSES =
 const INTERACTIVE_BASE =
   "transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]";
 
-/** Resting / hover fill for a non-active pill in the given tone. */
-function idleColorClasses(tone: "default" | "error"): string {
-  return tone === "error"
-    ? "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-    : "bg-[var(--surface-overlay)] text-[var(--content-default)]";
-}
+/** Resting / hover fill for a non-active pill. */
+const IDLE_COLOR_CLASSES = "bg-[var(--surface-overlay)] text-[var(--content-default)]";
 
 /**
  * 14px favicon glyph occupying the same slot as the tool variant's lucide icon.
@@ -141,7 +131,6 @@ function WebStepPill({
   url,
   faviconUrl,
   domain,
-  tone = "default",
   ariaLabel,
 }: ToolStepPillWebProps) {
   return (
@@ -152,7 +141,7 @@ function WebStepPill({
       data-testid="tool-step-pill"
       data-variant="web"
       aria-label={ariaLabel ?? `Open ${label}`}
-      className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${idleColorClasses(tone)}`}
+      className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${IDLE_COLOR_CLASSES}`}
     >
       <PillFavicon faviconUrl={faviconUrl} domain={domain} label={label} />
       <Typography
@@ -169,42 +158,22 @@ export function ToolStepPill(props: ToolStepPillProps) {
   if (props.variant === "web") {
     return <WebStepPill {...props} />;
   }
-  const {
-    iconName,
-    label,
-    riskLevel,
-    onClick,
-    onRiskBadgeClick,
-    tone = "default",
-    active = false,
-    ariaLabel,
-  } = props;
+  const { iconName, label, onClick, active = false, ariaLabel } = props;
   // Active = a filled `--surface-active` background with the resting border /
-  // text kept neutral (the colored border read poorly against the card). Active
-  // overrides tone's background wholesale so we never emit conflicting
-  // arbitrary-value classes — Tailwind resolves equal-specificity collisions by
-  // stylesheet order, not class-attribute order.
+  // text kept neutral (the colored border read poorly against the card).
   // No outline. Idle pills carry a `--surface-overlay` fill; the open pill
   // (its drawer showing) reads as active via the stronger `--surface-active`.
   const colorClasses = active
-    ? tone === "error"
-      ? "bg-[var(--surface-active)] text-[var(--system-negative-strong)]"
-      : "bg-[var(--surface-active)] text-[var(--content-default)]"
-    : tone === "error"
-      ? "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
-      : "bg-[var(--surface-overlay)] text-[var(--content-default)]";
+    ? "bg-[var(--surface-active)] text-[var(--content-default)]"
+    : IDLE_COLOR_CLASSES;
 
   const Glyph = ICON_MAP[iconName] ?? Bolt;
-  const iconColor =
-    tone === "error"
-      ? "text-[var(--system-negative-strong)]"
-      : "text-[var(--content-tertiary)]";
 
   const labelContent = (
     <>
       <Glyph
         aria-hidden="true"
-        className={`h-3.5 w-3.5 shrink-0 ${iconColor}`}
+        className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
       />
       <Typography
         variant="body-small-default"
@@ -220,36 +189,6 @@ export function ToolStepPill(props: ToolStepPillProps) {
     // `surface-overlay`, active already there).
     const hoverClass = "hover:bg-[var(--surface-active)]";
 
-    // When onRiskBadgeClick is also provided, use a <div role="button"> as the
-    // outer wrapper so the RiskBadge can render its own <button> without
-    // nesting interactive elements (invalid per HTML spec). The div handles
-    // keyboard activation for the main action; the badge button stops event
-    // propagation to keep the two actions independent.
-    if (onRiskBadgeClick) {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      };
-      return (
-        <div
-          role="button"
-          tabIndex={0}
-          data-testid="tool-step-pill"
-          data-active={active ? "" : undefined}
-          aria-pressed={active}
-          aria-label={ariaLabel ?? `View details: ${label}`}
-          onClick={onClick}
-          onKeyDown={handleKeyDown}
-          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
-        >
-          {labelContent}
-          <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
-        </div>
-      );
-    }
-
     return (
       <button
         type="button"
@@ -261,7 +200,6 @@ export function ToolStepPill(props: ToolStepPillProps) {
         className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
       >
         {labelContent}
-        <RiskBadge level={riskLevel} />
       </button>
     );
   }
@@ -272,7 +210,6 @@ export function ToolStepPill(props: ToolStepPillProps) {
       className={`${BASE_CLASSES} max-w-full ${colorClasses}`}
     >
       {labelContent}
-      <RiskBadge level={riskLevel} />
     </span>
   );
 }

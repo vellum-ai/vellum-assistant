@@ -23,12 +23,11 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
 ) => {
   const url = new URL(request.url);
   // Developer preview mode bypasses the onboarding guard so completed users
-  // can re-walk the privacy/prechat screens without being redirected away.
-  // Restricted to only these two routes to prevent preview from bypassing the
-  // guard on routes with real side effects (e.g. hatching).
+  // can re-walk the privacy screen without being redirected away.
+  // Restricted to prevent preview from bypassing the guard on routes with real
+  // side effects (e.g. hatching).
   const previewableRoutes: Set<string> = new Set([
     routes.onboarding.privacy,
-    routes.onboarding.prechat,
   ]);
   const isPreview = url.searchParams.get("preview") === "true";
   // Developer "Replay Hatch Failure" tool: the hatching screen short-circuits
@@ -50,6 +49,9 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
     buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
     { kind: "route-guard", pathname: url.pathname },
   );
+  // A "wait" decision (still-hydrating state) falls through to next(): the
+  // parent auth middleware owns hydration waits, so rendering is the safe
+  // fallback here.
   if (decision.action === "redirect") throw redirect(decision.to);
   return next();
 };

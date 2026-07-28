@@ -11,11 +11,11 @@
  * retry the loop's per-run backstop refused).
  */
 
-import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
+import type { HookFunction, StopContext } from "@vellumai/plugin-api";
 
 import { clearImageRecoveryAttempted } from "../image-recovery-state-store.js";
 
-const stop: PluginHookFn<StopContext> = async (ctx) => {
+const stop: HookFunction<StopContext> = async (ctx) => {
   clearImageRecoveryAttempted(ctx.conversationId);
 };
 

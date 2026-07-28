@@ -191,6 +191,12 @@ export async function initGatewayDb(): Promise<void> {
 
   const raw = new Database(getDbPath());
   raw.exec("PRAGMA journal_mode=WAL");
+  // FULL (not NORMAL) is intentional here even though the assistant memory DB
+  // runs NORMAL under WAL. The gateway DB holds the security/trust boundary
+  // state (contacts, auto-approve thresholds, admission policy) where an
+  // acknowledged write must survive an OS crash/power loss — losing the last
+  // commit under NORMAL could silently re-open a trust gap. The gateway is not
+  // on a write-heavy hot path, so the per-commit fsync cost is negligible.
   raw.exec("PRAGMA synchronous=FULL");
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec("PRAGMA foreign_keys=ON");

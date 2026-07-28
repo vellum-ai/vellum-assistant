@@ -12,8 +12,7 @@ Add a new entry to the `CATALOG` map with:
 - `credentialProvider` — the credential-store key name used by `getProviderKeyAsync` to retrieve the API key. If the provider shares an API key with another service (e.g. `openai-whisper` shares the `"openai"` key, or `google-gemini` shares the `"gemini"` key), reuse that name; otherwise use the provider's own name (e.g. `"deepgram"` maps to `"deepgram"`).
 - `supportedBoundaries` — the set of `SttBoundaryId` values the provider supports. Valid values are `"daemon-batch"` (post-recording transcription) and `"daemon-streaming"` (real-time streaming transcription during conversation).
 - `conversationStreamingMode` — how the provider handles streaming transcription in conversation mode: `"realtime-ws"` (provider supports real-time streaming natively via WebSocket), `"incremental-batch"` (streaming emulated via throttled polling), or `"none"` (no streaming support). Required for all providers.
-- `telephonyMode` — how the provider participates in real-time telephony STT: `"realtime-ws"`, `"batch-only"`, or `"none"`.
-- `telephonyRouting` — telephony routing metadata that drives Twilio call setup strategy selection. Declare `strategyKind` as `"conversation-relay-native"` or `"media-stream-custom"`. For native providers, include `twilioNativeMapping` with the Twilio `provider` name and `defaultSpeechModel`.
+- `telephonyMode` — how the provider participates in real-time telephony STT: `"realtime-ws"`, `"batch-only"`, or `"none"`. The telephony capability resolver (`resolveTelephonySttCapability()` in `src/providers/speech-to-text/resolve.ts`) reads this field plus credential availability to decide whether phone calls can run with the provider.
 
 ## 2. Type-system registration
 
@@ -84,8 +83,8 @@ Clients derive shared-vs-exclusive key behavior from the catalog automatically: 
 
 Before submitting the PR, verify that:
 
-1. **No stale config references** — grep for any references to a separate telephony transcription config. The telephony routing module (`src/calls/telephony-stt-routing.ts`) reads `services.stt.provider` and maps it to the appropriate Twilio strategy (either `conversation-relay-native` for providers Twilio supports natively, or `media-stream-custom` for server-side transcription).
+1. **No stale config references** — grep for any references to a separate telephony transcription config. Telephony transcription runs daemon-side over the Twilio media-stream transport (`src/calls/media-stream-stt-session.ts`), which reads `services.stt.provider` like every other boundary.
 
-2. **Provider catalog `telephonyRouting` metadata** — the new provider's catalog entry (step 1) includes a `telephonyRouting` object that is the single source of truth for strategy selection in `telephony-stt-routing.ts`. This object declares the `strategyKind` (`"conversation-relay-native"` or `"media-stream-custom"`) and, for native providers, provides a `twilioNativeMapping` with the Twilio `provider` name and `defaultSpeechModel`. The routing module contains no hardcoded provider-to-Twilio maps — it reads these values directly from the catalog.
+2. **Provider catalog telephony metadata** — the new provider's catalog entry (step 1) declares `telephonyMode` and `supportedBoundaries`; these are the single source of truth for the telephony capability check (`resolveTelephonySttCapability()`) and for streaming-vs-batch mode selection in the media-stream STT session. No per-provider routing maps exist.
 
-3. **No duplicate wiring** — a provider should appear only once in `services.stt`. The telephony routing layer consumes the same provider ID; there is no second registration step for telephony.
+3. **No duplicate wiring** — a provider should appear only once in `services.stt`. The telephony layer consumes the same provider ID; there is no second registration step for telephony.

@@ -1,8 +1,6 @@
 import packageJson from "../package.json" with { type: "json" };
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -37,7 +35,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Readiness probe",
           description:
-            "Returns 200 when the gateway is ready to accept traffic. Returns 503 while startup work is incomplete, during graceful shutdown drain, or when the upstream assistant is unavailable.",
+            "Forwards the upstream assistant's readiness. Returns 200 with ready: true when the full stack can serve traffic; 200 with ready: false while assistant DB migrations run (the pod stays in service — orchestrators read the status code, programmatic callers read the body); 503 while gateway startup work is incomplete, during graceful shutdown drain, or when the upstream assistant is unavailable or its migrations failed.",
           operationId: "readyz",
           responses: {
             "200": {
@@ -423,68 +421,11 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      [TWILIO_CONNECT_ACTION_WEBHOOK_PATH]: {
-        post: {
-          summary: "Twilio connect-action webhook",
-          description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
-          operationId: "twilioConnectActionWebhook",
-          security: [{ TwilioSignature: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/x-www-form-urlencoded": {
-                schema: {
-                  type: "object",
-                  additionalProperties: { type: "string" },
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Connect-action callback processed",
-            },
-            "403": {
-              description: "Twilio signature validation failed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "413": {
-              description: "Webhook payload too large",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to forward to runtime",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/webhooks/twilio/voice-verify": {
         post: {
           summary: "Twilio voice verification callback",
           description:
-            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for ConversationRelay setup.",
+            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for media-stream setup.",
           operationId: "twilioVoiceVerifyCallback",
           security: [{ TwilioSignature: [] }],
           parameters: [
@@ -510,7 +451,7 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": {
               description:
-                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded ConversationRelay setup.",
+                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded media-stream setup.",
               content: {
                 "text/xml": {
                   schema: { type: "string" },
@@ -964,46 +905,6 @@ export function buildSchema(): Record<string, unknown> {
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      [TWILIO_RELAY_WEBHOOK_PATH]: {
-        get: {
-          summary: "Twilio ConversationRelay WebSocket",
-          description:
-            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter.",
-          operationId: "twilioRelayWebsocket",
-          parameters: [
-            {
-              name: "callSessionId",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-              description:
-                "Call session identifier used to correlate the WebSocket connection with the runtime relay session.",
-            },
-          ],
-          responses: {
-            "101": {
-              description:
-                "WebSocket upgrade successful — bidirectional frame proxying begins.",
-            },
-            "400": {
-              description: "Missing callSessionId query parameter",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
-                },
-              },
-            },
-            "500": {
-              description: "WebSocket upgrade failed",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
                 },
               },
             },
@@ -1692,7 +1593,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Redeem contacts invite",
           description:
-            "Authenticated gateway endpoint that redeems a contacts invite via the assistant runtime.",
+            "Authenticated gateway endpoint that redeems a contacts invite through the gateway-native redemption engine.",
           operationId: "contactsInvitesRedeemPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2572,6 +2473,80 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/assistant/credentials/enter": {
+        get: {
+          summary: "One-time credential entry page",
+          description:
+            "Self-contained static HTML page for redeeming a one-time credential link. The single-use token rides the URL fragment (never sent over HTTP); the page calls the credential-requests peek/submit routes with the token in POST bodies.",
+          operationId: "credentialEntryPage",
+          responses: {
+            "200": { description: "HTML entry page" },
+            "405": { description: "Method not allowed" },
+          },
+        },
+      },
+      "/v1/credential-requests/peek": {
+        post: {
+          summary: "Validate a credential-request token without consuming it",
+          description:
+            "Unauthenticated: the single-use token in the request body is the credential to act. Returns the service/field/label the link collects. Invalid tokens count as auth failures for the per-IP limiter.",
+          operationId: "credentialRequestsPeek",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["token"],
+                  properties: { token: { type: "string" } },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Credential request details returned" },
+            "400": { description: "Malformed body" },
+            "404": {
+              description: "Invalid, expired, or already-used token",
+            },
+            "413": { description: "Request body too large" },
+          },
+        },
+      },
+      "/v1/credential-requests/submit": {
+        post: {
+          summary: "Consume a credential-request token and store the value",
+          description:
+            "Unauthenticated single-use submission: atomically claims the link, forwards the value to the assistant's credential vault, and marks the link redeemed. The value transits memory only.",
+          operationId: "credentialRequestsSubmit",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["token", "value"],
+                  properties: {
+                    token: { type: "string" },
+                    value: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Credential stored" },
+            "400": { description: "Malformed body" },
+            "404": {
+              description: "Invalid, expired, or already-used token",
+            },
+            "413": { description: "Request body too large" },
+            "502": {
+              description: "The assistant could not store the credential",
+            },
+          },
+        },
+      },
       "/v1/feature-flags": {
         get: {
           summary: "List feature flags",
@@ -3448,6 +3423,95 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/channel-permission-overrides": {
+        get: {
+          summary: "List channel-permission matrix cells",
+          description:
+            "Authenticated gateway endpoint that lists every persisted channel-permission cell (cascade selector × contact-type → RiskThreshold) from the SQLite-backed store. Unset cells fall through the cascade, so the list contains only explicit overrides.",
+          operationId: "channelPermissionOverridesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel permission cells returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary: "Upsert a channel-permission matrix cell",
+          description:
+            "Authenticated gateway endpoint that upserts one channel-permission cell, identified by the selector × contact-type in the body. The selector's adapter must be a known channel id.",
+          operationId: "channelPermissionOverridePut",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel permission cell upserted" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-permission-overrides/resolve": {
+        post: {
+          summary: "Resolve the effective channel-permission threshold",
+          description:
+            "Authenticated gateway endpoint that resolves the cascade for one coordinate (adapter, optional channelType/channelExternalId, contact-type) and returns the winning cell's threshold and scope, or null when no cell matches so the caller falls through to the global thresholds. Read-only; a POST verb path because the composite query travels in the body, same rationale as /delete.",
+          operationId: "channelPermissionResolve",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Resolution returned (resolved or null)" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-permission-overrides/delete": {
+        post: {
+          summary: "Delete a channel-permission matrix cell",
+          description:
+            "Authenticated gateway endpoint that removes one channel-permission cell by its composite key (selector × contact-type), letting the next cascade tier up win. A POST verb path because cells have no row id and DELETE request bodies are unreliable through proxies.",
+          operationId: "channelPermissionOverrideDelete",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel permission cell removal reported" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",
@@ -4228,7 +4292,24 @@ export function buildSchema(): Record<string, unknown> {
           type: "object",
           required: ["status"],
           properties: {
-            status: { type: "string", enum: ["ok"] },
+            status: {
+              type: "string",
+              enum: ["ok", "migrating", "starting"],
+            },
+            ready: { type: "boolean" },
+            reason: { type: "string" },
+            dbMigrations: {
+              type: "object",
+              properties: {
+                ready: { type: "boolean" },
+                state: {
+                  type: "string",
+                  enum: ["not_started", "running", "failed", "ready"],
+                },
+                reason: { type: "string" },
+                error: { type: "string" },
+              },
+            },
           },
         },
         ReadyUnavailableResponse: {

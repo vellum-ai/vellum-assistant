@@ -381,10 +381,14 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const switchConversation = useCallback(
     (key: string) => {
+      useViewerStore.getState().setMainView("chat");
+      // Same-conversation reselect: return to the chat view but keep the
+      // per-conversation process stores — wiping them kills the inline
+      // cards of still-running subagents, which only repopulate from live
+      // SSE events (LUM-2875).
+      if (key === useConversationStore.getState().activeConversationId) return;
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
-      useViewerStore.getState().setMainView("chat");
-      if (key === useConversationStore.getState().activeConversationId) return;
       void navigate(routes.conversation(key));
     },
     [navigate],

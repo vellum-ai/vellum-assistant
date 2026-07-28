@@ -21,7 +21,11 @@
  * renaming the key. Idempotent — only writes when the current value
  * matches `oldValue` exactly.
  */
-export function migrateValue(key: string, oldValue: string, newValue: string): void {
+export function migrateValue(
+  key: string,
+  oldValue: string,
+  newValue: string,
+): void {
   if (typeof window === "undefined") return;
   try {
     if (localStorage.getItem(key) === oldValue) {
@@ -178,13 +182,18 @@ export function runStorageMigrations(): void {
 
   // voice: → vellum:voice:
   migrateKey("voice:permissionPrimerSeen", "vellum:voice:permissionPrimerSeen");
-  migrateKey("voice:conversationTimeoutSeconds", "vellum:voice:conversationTimeoutSeconds");
+  // `voice:conversationTimeoutSeconds` is intentionally not migrated: the
+  // setting was a leftover of the Swift macOS app, and nothing on web has read
+  // it since that client was removed.
   migrateKey("voice:ttsProvider", "vellum:voice:ttsProvider");
   migrateKey("voice:sttProvider", "vellum:voice:sttProvider");
   migrateKey("voice:activationKey", "vellum:voice:activationKey");
 
   // integrations. → vellum:integrations:
-  migrateKey("integrations.bannerDismissed", "vellum:integrations:bannerDismissed");
+  migrateKey(
+    "integrations.bannerDismissed",
+    "vellum:integrations:bannerDismissed",
+  );
 
   // onboarding. → vellum:onboarding:
   migrateKey("onboarding.tosAccepted", "vellum:onboarding:tosAccepted");
@@ -199,6 +208,18 @@ export function runStorageMigrations(): void {
   // vellum_ → vellum:ai: (AI settings page)
   migrateKey("vellum_image_gen_mode", "vellum:ai:imageGenMode");
   migrateKey("vellum_image_gen_model", "vellum:ai:imageGenModel");
+  // Image generation is configured by provider alone; convert a stored
+  // legacy mode into the equivalent provider so a previously-managed
+  // browser does not fall back to the BYOK default before the daemon
+  // config loads.
+  if (localStorage.getItem("vellum:ai:imageGenProvider") === null) {
+    const legacyImageGenMode = localStorage.getItem("vellum:ai:imageGenMode");
+    if (legacyImageGenMode === "managed") {
+      localStorage.setItem("vellum:ai:imageGenProvider", "vellum");
+    } else if (legacyImageGenMode === "your-own") {
+      localStorage.setItem("vellum:ai:imageGenProvider", "gemini");
+    }
+  }
   migrateKey("vellum_web_search_mode", "vellum:ai:webSearchMode");
   migrateKey("vellum_web_search_provider", "vellum:ai:webSearchProvider");
   migrateKey("vellum_email_mode", "vellum:ai:emailMode");
@@ -234,7 +255,10 @@ export function runStorageMigrations(): void {
   migratePrefix("ff:client:", "vellum:ff:");
 
   // Unprefixed per-entity → vellum:
-  migratePrefix("disk-pressure-warning-dismissed-", "vellum:diskPressureDismissed:");
+  migratePrefix(
+    "disk-pressure-warning-dismissed-",
+    "vellum:diskPressureDismissed:",
+  );
 
   // vellum_ per-org → vellum:
   migratePrefix("vellum_current_assistant_id__", "vellum:currentAssistantId:");

@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
+import type {
+  MemoryNode,
+  ScoredNode,
+} from "../plugins/defaults/memory/graph/types.js";
 import {
   assembleContextBlock,
   assembleInjectionBlock,
-} from "../memory/graph/injection.js";
-import type { MemoryNode, ScoredNode } from "../memory/graph/types.js";
+} from "../plugins/defaults/memory/v1/graph/injection.js";
 
 function makeScoredNode(
   overrides: Partial<MemoryNode> & { content: string },
@@ -36,7 +39,6 @@ function makeScoredNode(
       narrativeRole: overrides.narrativeRole ?? null,
       partOfStory: overrides.partOfStory ?? null,
       imageRefs: overrides.imageRefs ?? null,
-      scopeId: overrides.scopeId ?? "default",
     },
     score: 0.8,
     scoreBreakdown: {

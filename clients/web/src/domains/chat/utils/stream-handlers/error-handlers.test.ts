@@ -4,6 +4,7 @@ import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleStreamError,
   handleConversationErrorEvent,
+  handleConversationNoticeEvent,
 } from "@/domains/chat/utils/stream-handlers/error-handlers";
 
 describe("handleStreamError", () => {
@@ -37,7 +38,28 @@ describe("handleConversationErrorEvent", () => {
       reason: "error",
     });
     expect(ctx.setError).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
+  });
+
+  it("keeps the stream alive for a daily-limit billing error (banner only)", () => {
+    const ctx = makeCtx();
+    handleConversationErrorEvent(
+      {
+        type: "conversation_error",
+        conversationId: "conv-1",
+        code: "PROVIDER_BILLING",
+        errorCategory: "daily_limit_reached",
+        userMessage: "Daily credit limit reached",
+        retryable: false,
+      },
+      ctx,
+    );
+    expect(ctx.setError).toHaveBeenCalledWith({
+      message: "Daily credit limit reached",
+      code: "PROVIDER_BILLING",
+      errorCategory: "daily_limit_reached",
+    });
+    // Billing banner errors are surfaced inline without tearing down the stream.
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
   });
 
   it("prefers event.conversationId over streamContext when both differ", () => {
@@ -62,5 +84,31 @@ describe("handleConversationErrorEvent", () => {
       conversationId: "conv-from-event",
       reason: "error",
     });
+  });
+});
+
+describe("handleConversationNoticeEvent", () => {
+  it("sets a non-terminal notice without ending the turn", () => {
+    const ctx = makeCtx();
+    handleConversationNoticeEvent(
+      {
+        type: "conversation_notice",
+        conversationId: "conv-1",
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      },
+      ctx,
+    );
+
+    expect(ctx.setNotice).toHaveBeenCalledWith({
+      message: "You've run out of credits.",
+      code: "PROVIDER_BILLING",
+      errorCategory: "credits_exhausted",
+    });
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+    expect(ctx.setError).not.toHaveBeenCalled();
   });
 });

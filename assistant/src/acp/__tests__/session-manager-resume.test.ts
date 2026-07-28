@@ -12,13 +12,6 @@
 import { tmpdir } from "node:os";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Fake AcpAgentProcess with scriptable capabilities and history replay.
 // ---------------------------------------------------------------------------
@@ -88,7 +81,9 @@ class FakeAcpAgentProcess {
   }
 
   async resumeSession(sessionId: string, cwd: string): Promise<void> {
-    if (resumeSessionGate) await resumeSessionGate;
+    if (resumeSessionGate) {
+      await resumeSessionGate;
+    }
     this.resumeSessionCalls.push({ sessionId, cwd });
   }
 
@@ -99,6 +94,20 @@ class FakeAcpAgentProcess {
       update: {
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text },
+      },
+    });
+  }
+
+  /** Drives a usage_update through the real client handler. */
+  async emitUsage(used: number, size: number, cost?: number): Promise<void> {
+    await this.clientFactory(this).sessionUpdate({
+      sessionId: "proto-old",
+      update: {
+        sessionUpdate: "usage_update",
+        used,
+        size,
+        cost:
+          cost === undefined ? undefined : { amount: cost, currency: "USD" },
       },
     });
   }
@@ -114,6 +123,14 @@ class FakeAcpAgentProcess {
   }
 
   async cancel(): Promise<void> {}
+
+  markStderr(): number {
+    return 0;
+  }
+
+  stderrSince(): string {
+    return "";
+  }
 
   kill(): void {
     this.killed = true;
@@ -139,7 +156,9 @@ mock.module("../prepare-agent-env.js", () => ({
     args: string[];
     env?: Record<string, string | undefined>;
   }) => {
-    if (prepareAgentEnvGate) await prepareAgentEnvGate;
+    if (prepareAgentEnvGate) {
+      await prepareAgentEnvGate;
+    }
     prepareAgentEnvCommands.push(agentConfig.command);
     return {
       ...agentConfig,
@@ -188,10 +207,10 @@ const BUN_BIN = "/usr/local/bin/bun";
 /** Key the exec stub uses for the global install. */
 const BUN_ADD_KEY = `${BUN_BIN} add`;
 
-import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
-import { getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
+import type { AssistantEvent } from "../../api/index.js";
+import { getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";
 import {
   clearHistory,
@@ -221,7 +240,7 @@ function countHistoryRows(): number {
 
 type ManagerInternals = {
   sessions: Map<string, { clientHandler: FakeClient; command: string }>;
-  eventBuffers: Map<string, Array<{ update: AcpSessionUpdate }>>;
+  eventBuffers: Map<string, Array<{ update: AcpSessionUpdateEvent }>>;
   pendingResumes: Map<string, Promise<void>>;
 };
 
@@ -256,7 +275,7 @@ beforeEach(() => {
   which.setWhich({});
 });
 
-const PERSISTED_EVENT: AcpSessionUpdate = {
+const PERSISTED_EVENT: AcpSessionUpdateEvent = {
   type: "acp_session_update",
   acpSessionId: "resume-1",
   updateType: "agent_message_chunk",
@@ -273,7 +292,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     await manager.resumeFromHistory("resume-1", (msg) => sent.push(msg));
 
     const fake = fakeInstances[0]!;
@@ -321,6 +340,34 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(fake.promptCalls).toEqual([
       { sessionId: "proto-old", text: "follow up please" },
     ]);
+  });
+
+  test("live updates after resume continue seq past the persisted max", async () => {
+    fakeCaps.resume = true;
+    // Persisted log whose updates carry seq up to 4.
+    const persisted: AcpSessionUpdateEvent[] = [
+      { ...PERSISTED_EVENT, seq: 2 },
+      { ...PERSISTED_EVENT, seq: 4 },
+    ];
+    insertHistoryRow({
+      id: "resume-seq-1",
+      eventLogJson: JSON.stringify(persisted),
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-seq-1", (msg) => sent.push(msg));
+
+    const fake = fakeInstances[0]!;
+    await fake.emitChunk("live-after-resume");
+
+    // The first live update continues at 5 (max persisted seq + 1), not 1, so
+    // the web client's highWaterMark de-dupe doesn't drop it.
+    const liveUpdates = sent.filter(
+      (m): m is AcpSessionUpdateEvent => m.type === "acp_session_update",
+    );
+    expect(liveUpdates).toHaveLength(1);
+    expect(liveUpdates[0]!.seq).toBe(5);
   });
 
   test("prefers session/resume when advertised and never calls loadSession", async () => {
@@ -595,12 +642,81 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(log[1]!.content).toBe("resumed-run-chunk");
   });
 
+  test("re-terminate after a resume preserves the persisted task/parentToolUseId/usage when no fresh usage_update fires", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({
+      id: "resume-meta-1",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+      task: "Summarize the report",
+      parentToolUseId: "tool-use-123",
+      usedTokens: 4200,
+      contextSize: 200_000,
+      costAmount: 0.0123,
+      costCurrency: "USD",
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-meta-1", () => {});
+    await manager.steer("resume-meta-1", "keep going");
+
+    const fake = fakeInstances[0]!;
+    // No usage_update emitted during the resumed run.
+    fake.resolvePrompt!({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow("resume-meta-1")!;
+    expect(row.status).toBe("completed");
+    // The metadata seeded from the prior row is re-persisted, not NULLed.
+    expect(row.task).toBe("Summarize the report");
+    expect(row.parent_tool_use_id).toBe("tool-use-123");
+    expect(row.used_tokens).toBe(4200);
+    expect(row.context_size).toBe(200_000);
+    expect(row.cost_amount).toBe(0.0123);
+    expect(row.cost_currency).toBe("USD");
+  });
+
+  test("re-terminate after a resume persists fresh usage from a usage_update during the resumed run", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({
+      id: "resume-meta-2",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+      task: "Summarize the report",
+      parentToolUseId: "tool-use-123",
+      usedTokens: 4200,
+      contextSize: 200_000,
+      costAmount: 0.0123,
+      costCurrency: "USD",
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-meta-2", () => {});
+    await manager.steer("resume-meta-2", "keep going");
+
+    const fake = fakeInstances[0]!;
+    // A fresh usage_update lands during the resumed run.
+    await fake.emitUsage(9000, 200_000, 0.05);
+
+    fake.resolvePrompt!({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const row = readHistoryRow("resume-meta-2")!;
+    // Task/parentToolUseId still carried from the seeded state; usage updated.
+    expect(row.task).toBe("Summarize the report");
+    expect(row.parent_tool_use_id).toBe("tool-use-123");
+    expect(row.used_tokens).toBe(9000);
+    expect(row.context_size).toBe(200_000);
+    expect(row.cost_amount).toBe(0.05);
+    expect(row.cost_currency).toBe("USD");
+  });
+
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {
     fakeCaps.resume = true;
     insertHistoryRow({ id: "race-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const [a, b] = await Promise.allSettled([
       manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
       manager.resumeFromHistory("race-1", (msg) => sent.push(msg)),
@@ -746,7 +862,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     insertHistoryRow({ id: "sor-resume-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const result = await manager.steerOrResume(
       "sor-resume-1",
       "continue the work",
@@ -788,7 +904,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     insertHistoryRow({ id: "sor-race-1" });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const [a, b] = await Promise.all([
       manager.steerOrResume("sor-race-1", "first instruction", (msg) =>
         sent.push(msg),
@@ -827,7 +943,7 @@ describe("AcpSessionManager.steerOrResume", () => {
     });
 
     const manager = new AcpSessionManager(4);
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const first = manager.steerOrResume(
       "sor-init-1",
       "first instruction",

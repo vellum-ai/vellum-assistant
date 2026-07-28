@@ -5,18 +5,7 @@ import {
   describe,
   expect,
   it,
-  mock,
 } from "bun:test";
-
-// Mock the logger to avoid side effects during tests
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
 
 const { NetworkRecorder } = await import("./network-recorder.js");
 

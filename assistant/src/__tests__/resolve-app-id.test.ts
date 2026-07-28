@@ -1,11 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AppDefinition } from "../memory/app-store.js";
+import type { AppDefinition } from "../apps/app-store.js";
 
 let appsByConversation: AppDefinition[] = [];
 
-const realStore = await import("../memory/app-store.js");
-mock.module("../memory/app-store.js", () => ({
+const realStore = await import("../apps/app-store.js");
+mock.module("../apps/app-store.js", () => ({
   ...realStore,
   listAppsByConversation: (_conversationId: string) => appsByConversation,
 }));
@@ -21,6 +21,18 @@ function makeApp(id: string, updatedAt: number): AppDefinition {
     htmlDefinition: "",
     createdAt: updatedAt,
     updatedAt,
+  };
+}
+
+/** An app the conversation only reached through a descendant's lineage. */
+function makeInheritedApp(
+  id: string,
+  updatedAt: number,
+  conversationId: string,
+): AppDefinition {
+  return {
+    ...makeApp(id, updatedAt),
+    inheritedConversationIds: [conversationId],
   };
 }
 
@@ -44,6 +56,26 @@ describe("resolveAppId", () => {
   test("returns null when no app_id is given and the conversation has no app", () => {
     appsByConversation = [];
     expect(resolveAppId({}, "conv-1")).toBeNull();
+  });
+
+  test("prefers a direct app over a more recent lineage-linked one", () => {
+    // A background subagent's app is linked into the parent thread and, being
+    // newest, heads the list — it must not capture the parent's implicit call.
+    appsByConversation = [
+      makeInheritedApp("background", 30, "conv-1"),
+      makeApp("foreground", 10),
+    ];
+    expect(resolveAppId({}, "conv-1")).toBe("foreground");
+  });
+
+  test("falls back to a lineage-linked app when the conversation has no direct one", () => {
+    appsByConversation = [makeInheritedApp("background", 30, "conv-1")];
+    expect(resolveAppId({}, "conv-1")).toBe("background");
+  });
+
+  test("an app inherited by another conversation is direct here", () => {
+    appsByConversation = [makeInheritedApp("shared", 30, "conv-other")];
+    expect(resolveAppId({}, "conv-1")).toBe("shared");
   });
 });
 

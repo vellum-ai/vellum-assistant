@@ -17,38 +17,11 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => noopLogger,
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    daemon: { standaloneRecording: true },
-    provider: "mock-provider",
-    permissions: { mode: "workspace" },
-    timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
-    skills: { load: { extraDirs: [] } },
-    secretDetection: { enabled: false, allowOneTimeSend: false },
-    contextWindow: {
-      enabled: true,
-      maxInputTokens: 180000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-    },
-  }),
-  invalidateConfigCache: noop,
-  loadConfig: noop,
-  saveConfig: noop,
-  loadRawConfig: () => ({}),
-  saveRawConfig: noop,
-  getNestedValue: () => undefined,
-  setNestedValue: noop,
-}));
-
 // Conversation store mock
 const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -80,7 +53,7 @@ const mockAttachments: Array<{
 }> = [];
 let mockAttachmentIdCounter = 0;
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   attachFileBackedAttachmentToMessage: (
     _messageId: string,
     _position: number,

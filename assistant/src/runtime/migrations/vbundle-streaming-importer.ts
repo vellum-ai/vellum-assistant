@@ -49,7 +49,7 @@ import { pipeline } from "node:stream/promises";
 
 import { invalidateConfigCache } from "../../config/loader.js";
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
-import { resetDb } from "../../memory/db-connection.js";
+import { resetDb } from "../../persistence/db-connection.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { APP_VERSION } from "../../version.js";

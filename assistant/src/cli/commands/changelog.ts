@@ -23,8 +23,16 @@ import { dirname, join } from "node:path";
 import type { Command } from "commander";
 
 import { getWorkspaceDir } from "../../util/platform.js";
+import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import {
+  CACHE_STABLE_LIMIT,
+  changelogHelp,
+  DEFAULT_LIST_LIMIT,
+  LIST_TTL_MS,
+  REPO,
+} from "./changelog.help.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -61,16 +69,7 @@ interface CacheStore {
 
 // ── Config ───────────────────────────────────────────────────────────
 
-const REPO = "vellum-ai/vellum-assistant";
-const LIST_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_LIST_LIMIT = 30;
 const MAX_LIST_LIMIT = 100;
-/**
- * Maximum number of stable releases we persist in the rolling `recent` slot.
- * Most callers only ever read the latest one or two; capping the cache keeps
- * the file small and the network round-trip predictable.
- */
-const CACHE_STABLE_LIMIT = 5;
 /**
  * When fetching, request a page size that comfortably covers the caller's
  * requested limit plus a small buffer to absorb the occasional draft or
@@ -416,63 +415,32 @@ async function withErrorHandling(fn: () => Promise<void>): Promise<void> {
 
 export function registerChangelogCommand(program: Command): void {
   registerCommand(program, {
-    name: "changelog",
+    name: changelogHelp.name,
     transport: "local",
-    description:
-      "Show release notes of the Vellum Assistant to see what new capabilities you have!",
+    description: changelogHelp.description,
     build: (cmd) => {
-      cmd.addHelpText(
-        "after",
-        `
-Release notes are fetched on demand from the public GitHub Releases of
-${REPO}. The most recent ${CACHE_STABLE_LIMIT} stable releases are cached
-locally for ${LIST_TTL_MS / 60_000} minutes; pass --no-cache to bypass.
-Specific tags are cached indefinitely once seen because release tags are
-immutable.
+      // Shared flags live on the parent (declared in the help data) so
+      // they're inherited by subcommands via `command.optsWithGlobals()`.
+      // Declaring the same flag on both parent and subcommand confuses
+      // commander's option resolution — the parent wins and the
+      // subcommand's copy never gets populated.
+      applyCommandHelp(cmd, changelogHelp);
 
-Examples:
-  $ assistant changelog                       Show the latest release
-  $ assistant changelog --since 0.7.0         Show every release since 0.7.0
-  $ assistant changelog show 0.8.0            Show a specific release
-  $ assistant changelog list                  List recent release tags
-  $ assistant changelog --json                JSON output for tooling`,
-      );
+      cmd.action(async (opts: DefaultOpts) => {
+        await withErrorHandling(() => runDefault(opts));
+      });
 
-      // Shared flags live on the parent so they're inherited by subcommands
-      // via `command.optsWithGlobals()`. Declaring the same flag on both
-      // parent and subcommand confuses commander's option resolution — the
-      // parent wins and the subcommand's copy never gets populated.
-      cmd
-        .option(
-          "--since <version>",
-          "Show notes for every stable release newer than this version (e.g. 0.7.0)",
-        )
-        .option("--no-cache", "Bypass the local cache")
-        .option("--json", "Output structured JSON")
-        .option(
-          "--limit <n>",
-          "Max releases to consider when listing or filtering (1-100)",
-          String(DEFAULT_LIST_LIMIT),
-        )
-        .action(async (opts: DefaultOpts) => {
-          await withErrorHandling(() => runDefault(opts));
-        });
-
-      cmd
-        .command("show <version>")
-        .description("Show release notes for a specific version tag")
-        .action(async (version: string, _opts, command: Command) => {
+      subcommand(cmd, "show").action(
+        async (version: string, _opts, command: Command) => {
           const merged = command.optsWithGlobals() as CommonOpts;
           await withErrorHandling(() => runShow(version, merged));
-        });
+        },
+      );
 
-      cmd
-        .command("list")
-        .description("List recent release tags")
-        .action(async (_opts, command: Command) => {
-          const merged = command.optsWithGlobals() as CommonOpts;
-          await withErrorHandling(() => runList(merged));
-        });
+      subcommand(cmd, "list").action(async (_opts, command: Command) => {
+        const merged = command.optsWithGlobals() as CommonOpts;
+        await withErrorHandling(() => runList(merged));
+      });
     },
   });
 }

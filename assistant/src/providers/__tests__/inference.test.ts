@@ -8,12 +8,12 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import type { DrizzleDb } from "../../memory/db-connection.js";
-import { getSqliteFrom } from "../../memory/db-connection.js";
-import { migrateCreateProviderConnections } from "../../memory/migrations/243-provider-connections.js";
-import { migrateProviderConnectionStatusLabel } from "../../memory/migrations/244-provider-connection-status-label.js";
-import { migrateProviderConnectionBaseUrlAndModels } from "../../memory/migrations/250-provider-connection-base-url-and-models.js";
-import * as schema from "../../memory/schema.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
+import { getSqliteFrom } from "../../persistence/db-connection.js";
+import { migrateCreateProviderConnections } from "../../persistence/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../../persistence/migrations/244-provider-connection-status-label.js";
+import { migrateProviderConnectionBaseUrlAndModels } from "../../persistence/migrations/250-provider-connection-base-url-and-models.js";
+import * as schema from "../../persistence/schema/index.js";
 import { AuthSchema } from "../inference/auth.js";
 import {
   createConnection,
@@ -53,35 +53,42 @@ describe("migrateCreateProviderConnections", () => {
     expect(Array.isArray(rows)).toBe(true);
   });
 
-  test("seeds canonical connections on first run", () => {
+  test("seedCanonicalConnections seeds the provider-agnostic vellum connection", () => {
     const { db } = setupDb();
-    const canonicals = [
-      "anthropic-managed",
-      "openai-managed",
-      "gemini-managed",
-    ];
-    for (const name of canonicals) {
-      const conn = getConnection(db, name);
-      expect(conn).not.toBeNull();
-    }
-  });
-
-  test("canonical connections have correct auth types", () => {
-    const { db } = setupDb();
-    expect(getConnection(db, "anthropic-managed")?.auth.type).toBe("platform");
-    expect(getConnection(db, "openai-managed")?.auth.type).toBe("platform");
-    expect(getConnection(db, "gemini-managed")?.auth.type).toBe("platform");
+    seedCanonicalConnections(db);
+    const vellum = getConnection(db, "vellum");
+    expect(vellum).not.toBeNull();
+    expect(vellum?.provider).toBe("vellum");
+    expect(vellum?.auth.type).toBe("platform");
+    // Derived from MANAGED_CONNECTION_NAMES → write-protected at the route layer.
+    expect(vellum?.isManaged).toBe(true);
   });
 
   test("seedCanonicalConnections is idempotent", () => {
     const { db } = setupDb();
-    // Run twice — should not throw or create duplicates
+    // Run twice — should not throw or create duplicate vellum rows.
     seedCanonicalConnections(db);
     seedCanonicalConnections(db);
-    const managed = listConnections(db, { provider: "anthropic" });
-    expect(managed.filter((c) => c.name === "anthropic-managed").length).toBe(
-      1,
-    );
+    const managed = listConnections(db, { provider: "vellum" });
+    expect(managed.filter((c) => c.name === "vellum").length).toBe(1);
+  });
+
+  test("seedCanonicalConnections does not clobber a user connection named vellum", () => {
+    const { db } = setupDb();
+    // `vellum` was not reserved before consolidation, so an install may already
+    // have a BYOK connection keyed `vellum`. Seeding must not rewrite it to the
+    // platform-auth sentinel.
+    createConnection(db, {
+      name: "vellum",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+
+    seedCanonicalConnections(db);
+
+    const conn = getConnection(db, "vellum");
+    expect(conn?.provider).toBe("anthropic");
+    expect(conn?.auth.type).toBe("api_key");
   });
 });
 
@@ -274,32 +281,36 @@ describe("Mix-and-match: two profiles, same provider, different connections", ()
   test("getConnection returns the right auth for each connection name", () => {
     const { db } = setupDb();
 
-    // anthropic-managed already exists (canonical seed) with platform auth.
-    const managedConn = getConnection(db, "anthropic-managed");
-    expect(managedConn?.auth.type).toBe("platform");
-
-    // Create a personal connection with api_key auth.
+    // Two connections for the same provider with distinct auth resolve
+    // independently: one platform-auth, one personal api_key.
+    createConnection(db, {
+      name: "anthropic-platform",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
     createConnection(db, {
       name: "anthropic-personal",
       provider: "anthropic",
       auth: { type: "api_key", credential: "credential/anthropic/api_key" },
     });
 
-    const personalConn = getConnection(db, "anthropic-personal");
-    expect(personalConn?.auth.type).toBe("api_key");
+    expect(getConnection(db, "anthropic-platform")?.auth.type).toBe("platform");
+    expect(getConnection(db, "anthropic-personal")?.auth.type).toBe("api_key");
 
     // Both connections exist for the same provider.
     const anthropicConns = listConnections(db, { provider: "anthropic" });
     const names = anthropicConns.map((c) => c.name);
-    expect(names).toContain("anthropic-managed");
+    expect(names).toContain("anthropic-platform");
     expect(names).toContain("anthropic-personal");
 
     // Auth is distinct per connection.
-    const managed = anthropicConns.find((c) => c.name === "anthropic-managed");
+    const platform = anthropicConns.find(
+      (c) => c.name === "anthropic-platform",
+    );
     const personal = anthropicConns.find(
       (c) => c.name === "anthropic-personal",
     );
-    expect(managed?.auth.type).toBe("platform");
+    expect(platform?.auth.type).toBe("platform");
     expect(personal?.auth.type).toBe("api_key");
   });
 });

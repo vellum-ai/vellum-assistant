@@ -30,7 +30,7 @@ mock.module("../../oauth/oauth-store.js", () => ({
 let fakeConversationCount = 0;
 let fakeConversationCountThrows = false;
 
-mock.module("../../memory/conversation-queries.js", () => ({
+mock.module("../../persistence/conversation-queries.js", () => ({
   countConversations: (): number => {
     if (fakeConversationCountThrows) {
       throw new Error("DB not initialized");

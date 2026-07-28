@@ -108,6 +108,7 @@ export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
   messageId?: string,
+  at: number = Date.now(),
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
@@ -128,7 +129,7 @@ export function upsertToolCall(
       toolCalls: [toolCall],
       contentOrder: [{ type: "toolCall", id: toolCall.id }],
       contentBlocks: [{ type: "tool_use", toolCall }],
-      timestamp: Date.now(),
+      timestamp: at,
     },
   ];
 }
@@ -153,12 +154,21 @@ export function applyToolResult(
     riskAllowlistOptions?: AllowlistOption[];
     riskScopeOptions?: RiskScopeOption[];
     riskDirectoryScopeOptions?: DirectoryScopeOption[];
+    imageData?: string;
+    imageDataList?: string[];
     /**
      * Structured activity metadata from the tool_result event. Persisted on
      * the tool call so web-search steps can keep rendering after the active
      * turn ends and `liveWebActivity` is cleared.
      */
     activityMetadata?: ToolActivityMetadata;
+    /**
+     * Stable machine-readable error classification from the tool_result event
+     * (only set when `isError`). Persisted on the tool call so surfaces can
+     * branch on a known failure (e.g. `acp_claude_oauth_missing`) after the
+     * turn ends.
+     */
+    errorCode?: string;
     /**
      * Server-stamped completion time (ms). Keeps the final duration on the
      * same clock as the daemon-stamped `startedAt`; falls back to the local
@@ -199,6 +209,14 @@ export function applyToolResult(
   const existingTc = msg.toolCalls![tcIdx];
   if (!existingTc) return prev;
 
+  const imageDataList =
+    opts.imageDataList !== undefined
+      ? opts.imageDataList
+      : opts.imageData !== undefined
+        ? [opts.imageData]
+        : undefined;
+  const imageData =
+    opts.imageData !== undefined ? opts.imageData : imageDataList?.[0];
   const updatedToolCalls = [...msg.toolCalls!];
   const updatedTc = {
     ...existingTc,
@@ -213,9 +231,12 @@ export function applyToolResult(
     riskAllowlistOptions: opts.riskAllowlistOptions,
     riskScopeOptions: opts.riskScopeOptions,
     riskDirectoryScopeOptions: opts.riskDirectoryScopeOptions,
+    ...(imageData !== undefined ? { imageData } : {}),
+    ...(imageDataList !== undefined ? { imageDataList } : {}),
     ...(opts.activityMetadata !== undefined
       ? { activityMetadata: opts.activityMetadata }
       : {}),
+    ...(opts.errorCode !== undefined ? { errorCode: opts.errorCode } : {}),
     completedAt: opts.completedAt ?? Date.now(),
     // The final result supersedes the live stream tail; drop it to free memory
     // and so renderers prefer the complete `result`.

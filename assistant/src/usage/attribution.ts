@@ -1,6 +1,11 @@
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+import { resolveRoutingIdentity } from "../providers/routing-identity.js";
 import { safeStringSlice } from "../util/unicode.js";
 
 const MAX_METADATA_VALUE_LENGTH = 128;
@@ -49,8 +54,8 @@ export interface UsageAttributionSnapshot {
 }
 
 /**
- * The four nullable attribution columns shared by telemetry event rows
- * (`tool_invocations`, `skill_loaded_events`).
+ * The four nullable attribution columns shared by telemetry events
+ * (`tool_invocations` rows, `skill_loaded` outbox payloads).
  */
 export interface UsageAttributionColumns {
   provider: string | null;
@@ -82,13 +87,42 @@ export function toAttributionColumns(
  * values are capped so later forwarding cannot create unbounded headers.
  */
 export function sanitizeUsageMetadataValue(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string") {
+    return null;
+  }
 
   const trimmed = value.trim();
-  if (trimmed.length === 0) return null;
-  if (containsControlCharacter(trimmed)) return null;
+  if (trimmed.length === 0) {
+    return null;
+  }
+  if (containsControlCharacter(trimmed)) {
+    return null;
+  }
 
   return safeStringSlice(trimmed, 0, MAX_METADATA_VALUE_LENGTH);
+}
+
+/**
+ * Attribution records the billed upstream: a routing-identity provider
+ * ("vellum"/"chatgpt") translates to the upstream that actually serves the
+ * request, matching what dispatch resolves. Unroutable identity models fall
+ * back to the stored value rather than throwing — attribution must never
+ * take dispatch down.
+ */
+function attributedProvider(
+  provider: string | undefined,
+  model: string | undefined,
+): string | undefined {
+  if (provider === undefined || !ROUTING_IDENTITY_PROVIDERS.has(provider)) {
+    return provider;
+  }
+  try {
+    return (
+      resolveRoutingIdentity(provider, model)?.expectedProvider ?? provider
+    );
+  } catch {
+    return provider;
+  }
 }
 
 export function resolveUsageAttribution(
@@ -111,7 +145,11 @@ export function resolveUsageAttribution(
       callSiteProfile: null,
       appliedProfile: null,
       profileSource: "unknown",
-      resolvedProvider: resolvedMainAgent.provider,
+      resolvedProvider:
+        attributedProvider(
+          resolvedMainAgent.provider,
+          resolvedMainAgent.model,
+        ) ?? resolvedMainAgent.provider,
       resolvedModel: resolvedMainAgent.model,
       resolvedMixArm: null,
     };
@@ -135,14 +173,15 @@ export function resolveUsageAttribution(
   const callSiteProfile = normalizeProfileId(
     llm.callSites?.[callSite]?.profile,
   );
-  const profile = resolveAppliedProfile({
+  // The resolver's own winner selection is the single source of truth for which
+  // profile applied — attribution must never re-derive precedence and drift
+  // from dispatch.
+  const profile = appliedProfileFromWinnerSelection(
     callSite,
-    profiles: llm.profiles ?? {},
-    activeProfile,
+    llm,
     overrideProfile,
-    forceOverrideProfile: input.forceOverrideProfile === true,
-    callSiteProfile,
-  });
+    input,
+  );
 
   return {
     callSite,
@@ -151,7 +190,9 @@ export function resolveUsageAttribution(
     callSiteProfile,
     appliedProfile: profile.appliedProfile,
     profileSource: profile.profileSource,
-    resolvedProvider: resolved.provider,
+    resolvedProvider:
+      attributedProvider(resolved.provider, resolved.model) ??
+      resolved.provider,
     resolvedModel: resolved.model,
     resolvedMixArm:
       profile.appliedProfile != null
@@ -160,97 +201,27 @@ export function resolveUsageAttribution(
   };
 }
 
-function resolveAppliedProfile(input: {
-  callSite: LLMCallSite;
-  profiles: Record<string, unknown>;
-  activeProfile: string | null;
-  overrideProfile: string | null;
-  forceOverrideProfile: boolean;
-  callSiteProfile: string | null;
-}): Pick<UsageAttributionSnapshot, "appliedProfile" | "profileSource"> {
-  if (input.callSite === "mainAgent") {
-    if (
-      input.overrideProfile != null &&
-      input.profiles[input.overrideProfile] != null
-    ) {
-      return {
-        appliedProfile: input.overrideProfile,
-        profileSource: "conversation",
-      };
-    }
-
-    if (
-      input.activeProfile != null &&
-      input.profiles[input.activeProfile] != null
-    ) {
-      return {
-        appliedProfile: input.activeProfile,
-        profileSource: "active",
-      };
-    }
-
-    if (
-      input.callSiteProfile != null &&
-      input.profiles[input.callSiteProfile] != null
-    ) {
-      return {
-        appliedProfile: input.callSiteProfile,
-        profileSource: "call_site",
-      };
-    }
-
-    return {
-      appliedProfile: null,
-      profileSource: "default",
-    };
-  }
-
-  // Forced override floats above the call-site profile (the resolver's
-  // `forceOverrideProfile` escape hatch), so it wins attribution too.
-  if (
-    input.forceOverrideProfile &&
-    input.overrideProfile != null &&
-    input.profiles[input.overrideProfile] != null
-  ) {
-    return {
-      appliedProfile: input.overrideProfile,
-      profileSource: "conversation",
-    };
-  }
-
-  if (
-    input.callSiteProfile != null &&
-    input.profiles[input.callSiteProfile] != null
-  ) {
-    return {
-      appliedProfile: input.callSiteProfile,
-      profileSource: "call_site",
-    };
-  }
-
-  if (
-    input.overrideProfile != null &&
-    input.profiles[input.overrideProfile] != null
-  ) {
-    return {
-      appliedProfile: input.overrideProfile,
-      profileSource: "conversation",
-    };
-  }
-
-  if (
-    input.activeProfile != null &&
-    input.profiles[input.activeProfile] != null
-  ) {
-    return {
-      appliedProfile: input.activeProfile,
-      profileSource: "active",
-    };
-  }
-
+function appliedProfileFromWinnerSelection(
+  callSite: LLMCallSite,
+  llm: Parameters<typeof selectWinningProfile>[1],
+  overrideProfile: string | null,
+  input: UsageAttributionInput,
+): Pick<UsageAttributionSnapshot, "appliedProfile" | "profileSource"> {
+  const selection = selectWinningProfile(callSite, llm, {
+    ...(overrideProfile != null ? { overrideProfile } : {}),
+    ...(input.selectionSeed != null
+      ? { selectionSeed: input.selectionSeed }
+      : {}),
+  });
+  const sourceBySelection = {
+    override: "conversation",
+    active: "active",
+    call_site: "call_site",
+    default: "default",
+  } as const;
   return {
-    appliedProfile: null,
-    profileSource: "default",
+    appliedProfile: selection.profileName,
+    profileSource: sourceBySelection[selection.source],
   };
 }
 

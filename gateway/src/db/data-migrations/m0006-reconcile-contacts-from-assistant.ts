@@ -17,6 +17,8 @@ import { Database } from "bun:sqlite";
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
 import { assistantDbQuery } from "../assistant-db-proxy.js";
+import { assistantHasContactAclColumns } from "./assistant-contact-acl-columns.js";
+import { assistantInviteIdSelect } from "./assistant-invite-id-column.js";
 
 import type { MigrationResult } from "./index.js";
 
@@ -24,6 +26,15 @@ const log = getLogger("m0006-reconcile-contacts");
 
 function getRawGatewayDb(): Database {
   return (getGatewayDb() as unknown as { $client: Database }).$client;
+}
+
+/**
+ * The escalate policy is removed. This backfill can re-run after
+ * m0017-coerce-escalate-policy has checkpointed, so coerce on import to keep
+ * escalate out of the gateway regardless of ordering (deny = fail-closed).
+ */
+function importedPolicy(policy: string): string {
+  return policy === "escalate" ? "deny" : policy;
 }
 
 interface AssistantContactRow {
@@ -49,9 +60,6 @@ interface AssistantChannelRow {
   invite_id: string | null;
   revoked_reason: string | null;
   blocked_reason: string | null;
-  last_seen_at: number | null;
-  interaction_count: number;
-  last_interaction: number | null;
   created_at: number;
   updated_at: number | null;
 }
@@ -65,6 +73,27 @@ export async function up(): Promise<MigrationResult> {
   );
   if (hasContactsTable.length === 0) {
     log.info("Assistant DB has no contacts table — nothing to reconcile");
+    return "done";
+  }
+
+  // Terminal, not transient: post-assistant-ready runs data migrations only
+  // after the assistant's own migrations, so once 305 ships the columns are
+  // always already gone here and no retry can ever see them. Checkpointing an
+  // empty gateway is real ACL loss, so say so rather than checkpointing quietly.
+  if (!(await assistantHasContactAclColumns())) {
+    const gwContacts = (
+      gwDb.prepare("SELECT count(*) AS n FROM contacts").get() as { n: number }
+    ).n;
+    if (gwContacts === 0) {
+      log.warn(
+        "Assistant DB has no contact ACL columns and the gateway has no contacts — " +
+          "ACL was never reconciled and the source is gone; re-pair to recover",
+      );
+    } else {
+      log.info(
+        "Assistant DB has no contact ACL columns — nothing to reconcile",
+      );
+    }
     return "done";
   }
 
@@ -125,9 +154,9 @@ export async function up(): Promise<MigrationResult> {
   if (hasChannelsTable.length > 0) {
     const assistantChannels = await assistantDbQuery<AssistantChannelRow>(
       `SELECT id, contact_id, type, address, is_primary, external_chat_id,
-              status, policy, verified_at, verified_via, invite_id,
-              revoked_reason, blocked_reason, last_seen_at,
-              interaction_count, last_interaction, created_at, updated_at
+              status, policy, verified_at, verified_via,
+              ${await assistantInviteIdSelect()},
+              revoked_reason, blocked_reason, created_at, updated_at
          FROM contact_channels`,
     );
 
@@ -189,7 +218,7 @@ export async function up(): Promise<MigrationResult> {
             status, policy, verified_at, verified_via, invite_id,
             revoked_reason, blocked_reason, last_seen_at,
             interaction_count, last_interaction, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, NULL, ?, ?)`,
       );
       const txn = gwDb.transaction(() => {
         for (const ch of missingChannels) {
@@ -210,15 +239,12 @@ export async function up(): Promise<MigrationResult> {
             ch.is_primary,
             ch.external_chat_id,
             ch.status,
-            ch.policy,
+            importedPolicy(ch.policy),
             ch.verified_at,
             ch.verified_via,
             ch.invite_id,
             ch.revoked_reason,
             ch.blocked_reason,
-            ch.last_seen_at,
-            ch.interaction_count,
-            ch.last_interaction,
             ch.created_at,
             ch.updated_at,
           );

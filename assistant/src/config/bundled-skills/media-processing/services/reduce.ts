@@ -14,7 +14,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { getMediaAssetById } from "../../../../memory/media-store.js";
+import { getMediaAssetById } from "../../../../persistence/media-store.js";
 import {
   createTimeout,
   extractAllText,

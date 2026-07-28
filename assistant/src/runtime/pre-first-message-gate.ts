@@ -29,7 +29,7 @@
  * row / conversation row is created at all, and rely on the gate inside
  * `runBackgroundJob` as the universal backstop.
  */
-import { rawGet } from "../memory/raw-query.js";
+import { rawGet } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("pre-first-message-gate");
@@ -52,6 +52,7 @@ export function hasReceivedUserMessage(): boolean {
 
   try {
     const row = rawGet<{ one: number }>(
+      "preFirstMsg:hasReceivedUserMessage",
       `SELECT 1 AS one FROM messages m
        JOIN conversations c ON m.conversation_id = c.id
        WHERE m.role = 'user'

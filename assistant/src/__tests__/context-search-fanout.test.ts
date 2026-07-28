@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
-import { formatDeterministicRecallAnswer } from "../memory/context-search/format.js";
-import { runDeterministicRecallSearch } from "../memory/context-search/search.js";
+import { formatDeterministicRecallAnswer } from "../plugins/defaults/memory/context-search/format.js";
+import { runDeterministicRecallSearch } from "../plugins/defaults/memory/context-search/search.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
   RecallSource,
   RecallSourceAdapter,
-} from "../memory/context-search/types.js";
+} from "../plugins/defaults/memory/context-search/types.js";
 
 function makeContext(): RecallSearchContext {
   return {

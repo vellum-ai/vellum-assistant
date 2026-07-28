@@ -7,7 +7,7 @@ any generic account registry:
 
 - `assistant credentials list` for discovering stored credential handles
 - `assistant oauth status <provider>` for discovering OAuth connection handles
-- `assistant credentials set ...` for storing new credentials
+- `assistant credentials prompt ...` for collecting and storing user-supplied secrets (never pass a user-provided value inline to `assistant credentials set` — the CLI refuses it from an agent shell). `assistant credentials set ... --generated` is only for values the assistant machine-generated itself (e.g. `"$(uuidgen)"`, an API exchange result)
 - `assistant mcp auth <name>` when an MCP server needs browser login
 - `assistant platform status` for platform-linked deployment/auth context
 
@@ -16,14 +16,15 @@ session flow, follow that CLI exactly.
 
 # Authenticated Outbound Requests
 
-When a skill needs outbound API calls with a stored credential, use CES tools instead of
-extracting raw tokens into shell commands. CES injects credentials securely without exposing
-secrets to the assistant:
+When a skill needs outbound API calls with a stored credential, use the `bash` tool in
+proxied mode instead of extracting raw tokens into shell commands. The credential is injected
+into the request through the egress proxy without exposing the secret value to the assistant:
 
 1. Discover the credential handle: `assistant credentials list --search <service>`
-2. Use the appropriate CES tool:
-   - `make_authenticated_request` for HTTP API calls (CES injects auth and returns the response)
-   - `run_authenticated_command` for CLI commands needing credential env vars (runs in CES sandbox)
+2. Run the request with `bash` using `network_mode: "proxied"` and `credential_ids: [<handle>]`.
+   The proxy attaches the credential to matching outbound requests and enforces the credential's
+   allowed-domains policy.
 
-Note: `host_bash` is approval-gated and runs outside the CES secrecy boundary. Do not use
-`host_bash` to pass raw credentials to shell commands. Route authenticated work through CES tools.
+Note: `host_bash` is approval-gated and runs outside the proxied-credential boundary. Do not use
+`host_bash` to pass raw credentials to shell commands. Route authenticated work through `bash`
+with `network_mode: "proxied"`.

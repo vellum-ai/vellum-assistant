@@ -3,10 +3,11 @@
  */
 import type { ChannelId } from "../../channels/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import type {
-  ApprovalAction,
-  ApprovalDecisionResult,
-  ApprovalUIMetadata,
+import {
+  type ApprovalAction,
+  type ApprovalDecisionResult,
+  type ApprovalUIMetadata,
+  isApprovalAction,
 } from "../channel-approval-types.js";
 
 /** Canonicalize assistantId for channel ingress paths. */
@@ -35,11 +36,6 @@ export function requiredDecisionKeywords(
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
-  "approve_once",
-  "reject",
-]);
-
 /** Map legacy callback actions to canonical ones for in-flight buttons. */
 const LEGACY_CALLBACK_MAP: Record<string, string> = {
   approve_10m: "approve_once",
@@ -52,11 +48,15 @@ export function parseCallbackData(
   sourceChannel?: string,
 ): ApprovalDecisionResult | null {
   const parts = data.split(":");
-  if (parts.length < 3 || parts[0] !== "apr") return null;
+  if (parts.length < 3 || parts[0] !== "apr") {
+    return null;
+  }
   const requestId = parts[1];
   const rawAction = parts.slice(2).join(":");
   const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
-  if (!requestId || !VALID_ACTIONS.has(action)) return null;
+  if (!requestId || !isApprovalAction(action)) {
+    return null;
+  }
   const source =
     sourceChannel === "whatsapp"
       ? ("whatsapp_button" as const)
@@ -65,7 +65,7 @@ export function parseCallbackData(
         : sourceChannel === "vellum"
           ? ("vellum_surface" as const)
           : ("telegram_button" as const);
-  return { action: action as ApprovalAction, source, requestId };
+  return { action, source, requestId };
 }
 
 // ---------------------------------------------------------------------------
@@ -93,10 +93,14 @@ const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
 export function parseReactionCallbackData(
   data: string,
 ): ApprovalDecisionResult | null {
-  if (!data.startsWith("reaction:")) return null;
+  if (!data.startsWith("reaction:")) {
+    return null;
+  }
   const emoji = data.slice("reaction:".length);
   const action = REACTION_EMOJI_MAP.get(emoji);
-  if (!action) return null;
+  if (!action) {
+    return null;
+  }
   return { action, source: "slack_reaction" };
 }
 

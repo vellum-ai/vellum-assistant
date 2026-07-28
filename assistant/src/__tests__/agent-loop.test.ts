@@ -204,6 +204,7 @@ describe("AgentLoop", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       requestId: "req-1",
       callSite: "mainAgent",
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens,
         overflowRecovery: { enabled: false, safetyMarginRatio: 0 },

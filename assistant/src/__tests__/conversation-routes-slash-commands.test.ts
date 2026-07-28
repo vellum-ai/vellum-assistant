@@ -6,7 +6,11 @@
  *   do NOT trigger the agent loop.
  * - Regular messages pass through to the agent loop unchanged.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { setConfig } from "./helpers/set-config.js";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -17,62 +21,20 @@ const formatCompactResultMock = mock(
     )} tokens`,
 );
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "claude-opus-4-7",
-    provider: "anthropic",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {
-        "short-context": {
-          contextWindow: { maxInputTokens: 150000 },
-        },
-      },
-      callSites: {},
-      pricingOverrides: [],
+// The /context and /compact branches resolve the conversation's override
+// profile ("short-context", via the mocked getConversationOverrideProfile)
+// against the real workspace config. The profile is complete (provider +
+// model) so it is a usable winner; its narrowed context window is what the
+// /context budget must reflect.
+setConfig("llm", {
+  profiles: {
+    "short-context": {
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      contextWindow: { maxInputTokens: 150000 },
     },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
+  },
+});
 
 const addMessageMock = mock(
   async (
@@ -86,19 +48,12 @@ const addMessageMock = mock(
   }),
 );
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-slash-test" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
@@ -110,24 +65,20 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   }),
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
-    setConversationProcessingStartedAt: () => {},
-    isConversationProcessing: () => false,
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -145,14 +96,15 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   updateMetaFile: () => {},
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map(),
   attachmentExists: () => false,
@@ -174,11 +126,10 @@ mock.module("../daemon/conversation-process.js", () => ({
   formatCompactResult: formatCompactResultMock,
 }));
 
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  ...realLocalActorIdentity,
 }));
 
 mock.module("../runtime/trust-context-resolver.js", () => ({
@@ -301,7 +252,17 @@ function makeConversation() {
     runAgentLoop,
     forceCompact,
     setPreactivatedSkillIds,
-    drainQueue: async () => {},
+    drainQueue: async (_reason?: string) => {},
+    // Forwards to drainQueue so tests that replace the drain observe the
+    // route's queue kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
+    warmPromptCache: () => {},
     getMessages: () => messages,
     assistantId: "self",
     trustContext: undefined,
@@ -422,7 +383,9 @@ describe("handleSendMessage slash command interception", () => {
     const { conversation } = makeConversation();
     const drainQueue = mock(async () => {});
     (
-      conversation as unknown as { drainQueue: () => Promise<void> }
+      conversation as unknown as {
+        drainQueue: () => Promise<void>;
+      }
     ).drainQueue = drainQueue;
 
     // Force the user-message persist (the first addMessage in the /compact
@@ -541,5 +504,49 @@ describe("handleSendMessage slash command interception", () => {
     const text = await res.text();
     expect(text).toContain("riskThreshold");
     expect(ipcCallMock).not.toHaveBeenCalled();
+  });
+});
+
+// The first-message wake-up greeting ("Wake up, my friend!") is served as a
+// canned response that skips the agent loop, just like a slash command. Its
+// user row must still carry the client-generated idempotency nonce so the web
+// client can reconcile its optimistic row against the persisted one — otherwise
+// the greeting renders twice (see the "two wakeup messages" staging report).
+describe("handleSendMessage canned wake-up greeting", () => {
+  // `isWakeUpGreeting` resolves BOOTSTRAP.md via getWorkspacePromptPath, which
+  // is rooted at VELLUM_WORKSPACE_DIR (the per-test temp workspace).
+  const bootstrapPath = join(process.env.VELLUM_WORKSPACE_DIR!, "BOOTSTRAP.md");
+
+  beforeEach(() => {
+    addMessageMock.mockClear();
+    // `isWakeUpGreeting` only treats the message as the wake-up greeting when
+    // BOOTSTRAP.md exists at the workspace prompt path (i.e. a first run).
+    writeFileSync(bootstrapPath, "# Bootstrap\n\nFirst run.");
+  });
+
+  afterEach(() => {
+    if (existsSync(bootstrapPath)) {
+      rmSync(bootstrapPath, { force: true });
+    }
+  });
+
+  test("persists the clientMessageId on the user row", async () => {
+    const { conversation, runAgentLoop } = makeConversation();
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
+      makeRequest("Wake up, my friend!", {
+        clientMessageId: "nonce-wake-123",
+      }),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    // Canned greeting path: user + assistant rows persisted, agent loop skipped.
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    const userCall = addMessageMock.mock.calls.find((c) => c[1] === "user");
+    expect(userCall).toBeDefined();
+    const options = userCall?.[3] as { clientMessageId?: string } | undefined;
+    expect(options?.clientMessageId).toBe("nonce-wake-123");
   });
 });

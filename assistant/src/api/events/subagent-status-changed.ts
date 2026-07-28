@@ -22,7 +22,9 @@ import { z } from "zod";
 /**
  * Subagent lifecycle status. Mirrors `SubagentStatus` in
  * `assistant/src/subagent/types.ts`. `aborted` is a terminal state
- * reached via explicit `subagent_abort` request.
+ * reached via explicit `subagent_abort` request; `interrupted` is a
+ * terminal state assigned on daemon restart to a subagent that was
+ * still in flight (it is not auto-resumed).
  */
 export const SubagentStatusSchema = z.enum([
   "pending",
@@ -31,6 +33,7 @@ export const SubagentStatusSchema = z.enum([
   "completed",
   "failed",
   "aborted",
+  "interrupted",
 ]);
 
 export type SubagentStatus = z.infer<typeof SubagentStatusSchema>;

@@ -22,8 +22,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import type { FetchLike } from "../fetch-like.js";
 import {
-  type FetchLike,
   type GitRunner,
   installPlugin,
   InvalidPluginNameError,
@@ -33,6 +33,7 @@ import {
   PluginSourceUnavailableError,
   type PostinstallRunner,
   readInstallMeta,
+  resolveTreeRefPath,
   sanitizePluginName,
 } from "../install-from-github.js";
 
@@ -78,14 +79,20 @@ function makeContentsFetch(opts: {
     const prefix = apiPath ? `${apiPath}/` : "";
     const direct = new Map<string, boolean>();
     for (const key of Object.keys(tree)) {
-      if (!key.startsWith(prefix)) continue;
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
       const remainder = key.slice(prefix.length);
-      if (!remainder) continue;
+      if (!remainder) {
+        continue;
+      }
       const seg = remainder.split("/")[0]!;
       const isDir = remainder.includes("/") || tree[`${prefix}${seg}`] === null;
       direct.set(seg, (direct.get(seg) ?? false) || isDir);
     }
-    if (direct.size === 0) return null;
+    if (direct.size === 0) {
+      return null;
+    }
     return Array.from(direct.entries()).map(([name, isDir]) => {
       const path = `${prefix}${name}`;
       return isDir
@@ -157,7 +164,9 @@ function fakeGitRunner(opts: {
     opts.calls?.push([...args]);
     switch (args[0]) {
       case "fetch": {
-        if (opts.fetchError) throw opts.fetchError;
+        if (opts.fetchError) {
+          throw opts.fetchError;
+        }
         mkdirSync(join(cwd, ".git"), { recursive: true });
         writeFileSync(join(cwd, ".git", "config"), "[core]\n");
         for (const [rel, content] of Object.entries(opts.tree)) {
@@ -321,6 +330,7 @@ describe("installPlugin — install lifecycle", () => {
     expect(meta?.source.ref).toBe(OLD_SHA);
     expect(meta?.source.repo).toBe("caveman");
     expect(meta?.source.owner).toBe("JuliusBrussee");
+    expect(meta?.author).toBe("user");
   });
 
   test("--force preserves the existing install when the clone fails", async () => {
@@ -685,6 +695,114 @@ describe("installPlugin — marketplace resolution", () => {
     expect(hook).not.toContain("description: terse mode");
   });
 
+  test("a trusted pre-resolved source still overlays the curated adapter stub", async () => {
+    // GIVEN caveman's pin already resolved (as the offline bundled catalog
+    // does) — so no marketplace manifest is served — but the real curated
+    // adapter stub IS available to overlay
+    const fetch = makeContentsFetch({ tree: readRealCavemanStub() });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": JSON.stringify({
+          name: "caveman-installer",
+          version: "0.1.0",
+        }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\n---\n\nCAVEMAN MODE. Drop filler words.",
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we install from trusted pre-resolved coordinates
+    const result = await installPlugin(
+      {
+        name: "caveman",
+        trustedSource: {
+          owner: "JuliusBrussee",
+          repo: "caveman",
+          rootPath: "",
+          ref: CAVEMAN_SHA,
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the adapter overlay ran (the stub was NOT skipped): the manifest was
+    // normalized and the pre-model-call hook synthesized from the ruleset
+    const target = join(pluginsDir, "caveman");
+    expect(result.commit).toBe(CAVEMAN_SHA);
+    const pkg = JSON.parse(readFileSync(join(target, "package.json"), "utf-8"));
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+    expect(pkg.scripts?.postinstall).toBeUndefined();
+    const hook = readFileSync(
+      join(target, "hooks", "pre-model-call.ts"),
+      "utf-8",
+    );
+    expect(hook).toContain("CAVEMAN MODE. Drop filler words.");
+  });
+
+  test("fetches the offline adapter stub at the canonical ref, not the external content commit", async () => {
+    // GIVEN caveman's pin already resolved (offline bundled catalog) with the
+    // real curated stub. `trustedSource` names the EXTERNAL content repo, and
+    // its `ref` is caveman's content commit — which does NOT exist in this repo,
+    // where the stub lives. Model production: the canonical repo resolves the
+    // stub only at `main` (DEFAULT_PLUGIN_REF) and 404s any other ref.
+    const base = makeContentsFetch({ tree: readRealCavemanStub() });
+    const stubRefs: string[] = [];
+    const stubContentsPrefix = `https://api.github.com/repos/${CANON_REPO}/contents/plugins/caveman`;
+    const fetch: FetchLike = async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith(stubContentsPrefix)) {
+        const ref = new URL(url).searchParams.get("ref") ?? "";
+        stubRefs.push(ref);
+        if (ref !== "main") {
+          return new Response("No commit found for the ref", { status: 404 });
+        }
+      }
+      return base(url, init);
+    };
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": JSON.stringify({
+          name: "caveman-installer",
+          version: "0.1.0",
+        }),
+        "skills/caveman/SKILL.md":
+          "---\nname: caveman\n---\n\nCAVEMAN MODE. Drop filler words.",
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we install from trusted pre-resolved (external) coordinates
+    await installPlugin(
+      {
+        name: "caveman",
+        trustedSource: {
+          owner: "JuliusBrussee",
+          repo: "caveman",
+          rootPath: "",
+          ref: CAVEMAN_SHA,
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the stub was fetched from the canonical repo at `main`, never at the
+    // external content commit (they live in different repos, so the content SHA
+    // would 404 against this repo and silently skip the overlay)
+    expect(stubRefs.length).toBeGreaterThan(0);
+    expect(stubRefs).not.toContain(CAVEMAN_SHA);
+    for (const ref of stubRefs) {
+      expect(ref).toBe("main");
+    }
+    // AND because the stub resolved, the adapter overlay still ran
+    const pkg = JSON.parse(
+      readFileSync(join(pluginsDir, "caveman", "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("caveman");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeString();
+  });
+
   test("falls back to the stub manifest when the upstream ships no package.json", async () => {
     // GIVEN caveman is whitelisted with the real curated adapter stub
     const fetch = makeContentsFetch({
@@ -939,6 +1057,326 @@ describe("installPlugin — marketplace resolution", () => {
   });
 });
 
+describe("installPlugin — direct (untrusted) install", () => {
+  let ws: string;
+  let pluginsDir: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), "vellum-plugins-direct-"));
+    pluginsDir = join(ws, "plugins");
+    mkdirSync(pluginsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  test("installs from a caller-supplied source, bypassing the marketplace", async () => {
+    // GIVEN no marketplace manifest at all (a direct install must not consult it)
+    const fetch = makeContentsFetch({ tree: {} });
+    const calls: string[][] = [];
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"dev-plugin"}', "hooks/init.ts": "//" },
+      commit: "a".repeat(40),
+      calls,
+    });
+
+    // WHEN we install directly from owner/repo on its default branch (HEAD)
+    const result = await installPlugin(
+      {
+        name: "dev-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "dev-plugin",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the tree is materialized and provenance records the direct source.
+    const target = join(pluginsDir, "dev-plugin");
+    expect(result.target).toBe(target);
+    expect(result.fileCount).toBe(2);
+    // A non-SHA ref (HEAD/branch) does NOT trip the pinned-commit integrity
+    // check — the resolved commit is recorded as-is.
+    expect(result.ref).toBe("HEAD");
+    expect(result.commit).toBe("a".repeat(40));
+
+    const fetchCall = calls.find((c) => c[0] === "fetch");
+    expect(fetchCall?.at(-1)).toBe("HEAD");
+    const remoteCall = calls.find((c) => c[0] === "remote");
+    expect(remoteCall?.at(-1)).toBe("https://github.com/owner/dev-plugin.git");
+
+    const meta = readInstallMeta(target);
+    expect(meta?.source.owner).toBe("owner");
+    expect(meta?.source.repo).toBe("dev-plugin");
+    expect(meta?.source.ref).toBe("HEAD");
+    expect(meta?.commit).toBe("a".repeat(40));
+  });
+
+  test("never overlays a curated adapter stub, even if one matches the name", async () => {
+    // GIVEN a fetch that WOULD serve an adapter stub for the name, and a
+    // postinstall runner that fails the test if it is ever invoked
+    const fetch = makeContentsFetch({
+      tree: {
+        "plugins/caveman/package.json": JSON.stringify({
+          name: "caveman",
+          scripts: { postinstall: "bun ./postinstall.ts" },
+        }),
+        "plugins/caveman/postinstall.ts": "// adapter",
+      },
+    });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman-fork"}' },
+      commit: "b".repeat(40),
+    });
+    const runPostinstall: PostinstallRunner = async () => {
+      throw new Error("adapter stub must not run for a direct install");
+    };
+
+    // WHEN we install directly
+    await installPlugin(
+      {
+        name: "caveman",
+        directSource: {
+          owner: "someone",
+          repo: "caveman-fork",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, runPostinstall, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the upstream manifest is installed verbatim — no stub transform ran
+    const pkg = readFileSync(
+      join(pluginsDir, "caveman", "package.json"),
+      "utf-8",
+    );
+    expect(pkg).toBe('{"name":"caveman-fork"}');
+  });
+
+  test("a direct install from a sub-path copies only that subtree", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"monorepo"}',
+        "packages/leaf/package.json": '{"name":"leaf"}',
+      },
+      commit: "c".repeat(40),
+    });
+
+    const result = await installPlugin(
+      {
+        name: "leaf",
+        directSource: {
+          owner: "owner",
+          repo: "monorepo",
+          rootPath: "packages/leaf",
+          ref: "main",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    const target = join(pluginsDir, "leaf");
+    expect(result.fileCount).toBe(1);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"leaf"}',
+    );
+    expect(existsSync(join(target, "packages"))).toBe(false);
+  });
+
+  test("a direct install pinned to a full SHA still enforces the integrity check", async () => {
+    // GIVEN a pinned SHA whose checked-out commit diverges
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"x"}' },
+      commit: "d".repeat(40),
+    });
+
+    // WHEN the direct ref is a full SHA, the resolved commit must match it
+    await expect(
+      installPlugin(
+        {
+          name: "x",
+          directSource: {
+            owner: "owner",
+            repo: "x",
+            rootPath: "",
+            ref: "e".repeat(40),
+          },
+        },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+
+  test("synthesizes a minimal package.json when the upstream repo ships none", async () => {
+    // GIVEN a plugin tree with no package.json at all
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: { "hooks/init.ts": "//", "README.md": "# bare" },
+      commit: "f".repeat(40),
+    });
+
+    // WHEN we install directly
+    await installPlugin(
+      {
+        name: "bare-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "bare",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN a minimal package.json is synthesized with the install name and
+    // the default plugin-api peer dependency range
+    const pkgPath = join(pluginsDir, "bare-plugin", "package.json");
+    expect(existsSync(pkgPath)).toBe(true);
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    expect(pkg.name).toBe("bare-plugin");
+    expect(pkg.version).toBe("0.0.0");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
+  });
+
+  test("synthesizes a minimal package.json for a marketplace install with no upstream manifest", async () => {
+    // GIVEN a marketplace entry whose upstream tree ships no package.json
+    const NO_PKG_SHA = "5e".repeat(20);
+    const NO_PKG_MANIFEST = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "manifest-less",
+          source: {
+            source: "github",
+            repo: "example-org/manifest-less",
+            ref: NO_PKG_SHA,
+          },
+          description: "A plugin with skills but no Vellum package.json.",
+        },
+      ],
+    };
+    const fetch = makeContentsFetch({
+      tree: {},
+      manifest: NO_PKG_MANIFEST,
+    });
+    const runGit = fakeGitRunner({
+      tree: {
+        "skills/onboarding/SKILL.md": "# Onboarding",
+        "README.md": "# manifest-less",
+      },
+      commit: NO_PKG_SHA,
+    });
+
+    // WHEN we install by name from the marketplace
+    await installPlugin(
+      { name: "manifest-less", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN a minimal package.json is synthesized so the loader does not
+    // silently skip the plugin
+    const pkgPath = join(pluginsDir, "manifest-less", "package.json");
+    expect(existsSync(pkgPath)).toBe(true);
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    expect(pkg.name).toBe("manifest-less");
+    expect(pkg.version).toBe("0.0.0");
+    expect(pkg.peerDependencies["@vellumai/plugin-api"]).toBeDefined();
+  });
+});
+
+describe("installPlugin — dependency installation", () => {
+  let ws: string;
+  let pluginsDir: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), "vellum-plugins-deps-"));
+    pluginsDir = join(ws, "plugins");
+    mkdirSync(pluginsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  test("installs the plugin's declared dependencies into the staged tree", async () => {
+    // GIVEN a plugin whose package.json declares a runtime dependency
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": JSON.stringify({
+          name: "caveman",
+          dependencies: { "date-fns": "3.0.0" },
+        }),
+      },
+      commit: CAVEMAN_SHA,
+    });
+
+    // AND a dependency installer that materializes a node_modules tree in the
+    // directory it is handed (standing in for a real `bun install`)
+    const installedInto: string[] = [];
+    const runInstallDeps = async ({ cwd }: { cwd: string }): Promise<void> => {
+      installedInto.push(cwd);
+      mkdirSync(join(cwd, "node_modules", "date-fns"), { recursive: true });
+      writeFileSync(join(cwd, "node_modules", "date-fns", "index.js"), "x");
+    };
+
+    // WHEN we install
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir, runInstallDeps },
+    );
+
+    // THEN the installer ran against the staging dir, and its node_modules rode
+    // the atomic swap into the installed plugin
+    expect(installedInto).toHaveLength(1);
+    const target = join(pluginsDir, "caveman");
+    expect(
+      existsSync(join(target, "node_modules", "date-fns", "index.js")),
+    ).toBe(true);
+
+    // AND node_modules is excluded from the recorded fingerprint — it is a
+    // derived directory, not tracked source, so it never reads as drift
+    const meta = readInstallMeta(target);
+    const fingerprintPaths = Object.keys(meta?.fingerprint?.files ?? {});
+    expect(fingerprintPaths).toContain("package.json");
+    expect(fingerprintPaths.some((p) => p.startsWith("node_modules"))).toBe(
+      false,
+    );
+  });
+
+  test("skips dependency installation when the plugin declares none", async () => {
+    // GIVEN a plugin with no runtime dependencies
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman"}' },
+      commit: CAVEMAN_SHA,
+    });
+
+    let ran = false;
+    const runInstallDeps = async (): Promise<void> => {
+      ran = true;
+    };
+
+    // WHEN we install
+    await installPlugin(
+      { name: "caveman", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir, runInstallDeps },
+    );
+
+    // THEN the dependency installer is never invoked
+    expect(ran).toBe(false);
+  });
+});
+
 describe("sanitizePluginName", () => {
   test.each([
     ["../escape"],
@@ -959,10 +1397,107 @@ describe("sanitizePluginName", () => {
 
   test.each([
     "default-advisor",
-    "default-memory-retrieval",
+    "default-memory",
     "default-",
     "default-x",
+    "vellum-db",
+    "vellum-memory",
+    "vellum-",
+    "vellum-x",
   ])("rejects reserved prefix name %p", (reserved) => {
     expect(() => sanitizePluginName(reserved)).toThrow(InvalidPluginNameError);
+  });
+});
+
+describe("resolveTreeRefPath", () => {
+  /**
+   * Fake runner that answers `git ls-remote --heads --tags` with the given
+   * branch/tag short-names in GitHub's `<sha>\t<refname>` wire format, and
+   * throws for any other git invocation (these tests only exercise ls-remote).
+   */
+  function lsRemoteRunner(refNames: string[]): GitRunner {
+    return async (args) => {
+      if (args[0] !== "ls-remote") {
+        throw new Error(`unexpected git call: ${args.join(" ")}`);
+      }
+      const stdout = refNames
+        .map(
+          (name, i) =>
+            `${String(i + 1).padStart(40, "0")}\trefs/${
+              name.startsWith("v") ? "tags" : "heads"
+            }/${name}`,
+        )
+        .join("\n");
+      return { stdout };
+    };
+  }
+
+  test("picks the longest leading prefix that names a real branch", async () => {
+    const result = await resolveTreeRefPath(
+      "ZeebBoyBlue",
+      "virlo-integrations",
+      ["feat", "results-viewer", "integrations", "vellum"],
+      lsRemoteRunner(["main", "feat/results-viewer"]),
+    );
+    expect(result).toEqual({
+      ref: "feat/results-viewer",
+      path: "integrations/vellum",
+    });
+  });
+
+  test("prefers the longer of two matching branch prefixes", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["feat", "x", "pkg"],
+      // Both `feat` and `feat/x` exist; the longer wins, mirroring github.com.
+      lsRemoteRunner(["feat", "feat/x"]),
+    );
+    expect(result).toEqual({ ref: "feat/x", path: "pkg" });
+  });
+
+  test("resolves a single-segment ref with the rest as the sub-path", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["main", "packages", "cool"],
+      lsRemoteRunner(["main"]),
+    );
+    expect(result).toEqual({ ref: "main", path: "packages/cool" });
+  });
+
+  test("treats a full commit SHA as the ref without listing refs", async () => {
+    const sha = "d0403988fdf1d3c220c25f7aaf7632359eec4d91";
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      [sha, "sub", "dir"],
+      async () => {
+        throw new Error("ls-remote must not run for a full SHA");
+      },
+    );
+    expect(result).toEqual({ ref: sha, path: "sub/dir" });
+  });
+
+  test("falls back to the first-segment guess when no prefix matches a ref", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["mystery", "sub"],
+      lsRemoteRunner(["main", "develop"]),
+    );
+    expect(result).toEqual({ ref: "mystery", path: "sub" });
+  });
+
+  test("falls back to the guess when the remote can't be listed", async () => {
+    const result = await resolveTreeRefPath(
+      "owner",
+      "repo",
+      ["feat", "x", "sub"],
+      async () => {
+        throw new Error("network down");
+      },
+    );
+    expect(result).toEqual({ ref: "feat", path: "x/sub" });
   });
 });

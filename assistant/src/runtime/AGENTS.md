@@ -12,6 +12,14 @@ The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
 
 Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP).
 
+### Channel inbound honors "queue if busy" via defer-until-idle
+
+Channel inbound turns (Slack/Telegram/etc. — `processChannelMessageInBackground`) obey the same "process when the current turn completes" contract, but they do **not** route through the conversation's queue. A channel turn delivers its reply back through the provider callback URL (streaming session + `finalizeEventDelivery` + processed/delivery bookkeeping); the queue drain fans replies onto the SSE hub only and performs none of that. So a channel turn that arrives while the conversation is mid-turn is **deferred until the processing lock frees** (`withChannelTurnAdmission` in `routes/inbound-stages/channel-turn-admission.ts`: per-conversation single-flight for FIFO ordering + event-driven `waitForIdle`), then run with its delivery orchestration intact.
+
+**Invariant:** do NOT "fix" this by routing channel turns through `conversation.enqueueMessage` — the drain has no channel-callback delivery, so the reply would run but never reach the channel. A channel turn that still hits `CONVERSATION_BUSY_MESSAGE` (a non-channel turn raced in after admission) is re-scheduled for the channel-retry sweep via `deferRetryUntilIdle` — never `recordProcessingFailure` (which `classifyError` treats as fatal → dead-letter → silent drop, JARVIS-1346). The sweep is itself busy-aware: it `deferRetryUntilIdle`s a retry whose conversation is mid-turn. Busy deferral must **not** burn the retry budget: `deferRetryUntilIdle` pushes `retryAfter` forward but never increments `processingAttempts` and never dead-letters, so a conversation that stays busy across many sweeps re-defers indefinitely rather than dropping the reply at `RETRY_MAX_ATTEMPTS` (~10 min). Crash durability: while the in-memory admission waits, the inbound row sits `pending`; a crash mid-wait is recovered at startup by `recoverOrphanedChannelEvents` (`monitoring/recovery/`), which promotes boot-fenced orphan `pending` rows onto the sweep's `failed` retry path.
+
+**Faithful replay:** the sweep reconstructs a turn from the stored raw payload, so it must produce the SAME turn the live ingress path would have run — not an impoverished one. Two invariants, each learned from a live-path hardening change that originally skipped the sweep: (1) **content fencing** — non-guardian content is wrapped in `<external_content>` via the shared `prepareChannelInboundContent` (`routes/inbound-stages/inbound-content-prep.ts`), used by BOTH `inbound-message-handler.ts` and the sweep; replaying raw, unwrapped text would drop the untrusted-content boundary the model relies on (regression window: #30785 wrapped only the live path). (2) **idempotency key + slackMeta** — the live turn captures its `slackInbound` onto the stored payload (`storeInboundSlackMetadata`) and the sweep replays that EXACT object (`parseStoredSlackInbound`), so `deriveIngressIdempotencyKey` yields a byte-identical `client_message_id` (a replay of an already-persisted turn dedups the agent loop) and full slackMeta survives the replay. Dedup is not enough on its own: on a dedup hit the sweep gates `finalizeEventDelivery` on `isDeduplicatedDeliveryOwnedBySibling` — skipping delivery when a sibling event already owns it, so it never double-posts — and, when the deduped turn crashed before writing any reply, completes it with a fresh run rather than delivering nothing. A `buildReplaySlackInbound` fallback reconstructs the key-bearing fields for payloads stored before the capture existed (regression window: #38378 added the key to the live path only, though the sweep IS the "Slack retry" path it targeted). Any future hardening applied at channel ingress must be mirrored in the sweep, or a retried/recovered turn silently loses it.
+
 ### SSE backpressure shedding must be observable
 
 SSE handlers built on `ReadableStream` shed slow subscribers when `controller.desiredSize <= 0` to keep daemon memory bounded. Every shed site must emit a log line + Sentry capture so the daemon-side shed can be time-correlated with the client-side idle watchdog (otherwise stalls are invisible from both sides). See [WHATWG Streams — Backpressure](https://streams.spec.whatwg.org/#pipe-chains) and [Node `monitorEventLoopDelay`](https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions).
@@ -149,28 +157,33 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 
 **Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path and macOS SSE bridge path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
 
-### Channel approvals (Telegram, Slack)
+### Interactive requests on channels (approvals, questions)
 
-Channel approval flows use `requestId` (not `runId`) as the primary identifier:
+**The guardian-request pipeline is the canonical rail for anything interactive on a channel** — cards with buttons, request-code replies, emoji reactions, typed answers. The end-to-end map (promotion → gateway `guardian_requests` row → notification broadcaster → per-channel adapters → reply router → decision primitive → per-kind resolver) lives in [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md). New interactive features extend that pipeline's seams; do NOT add per-feature watchers, callback schemes, or inbound intercepts.
 
-- Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
-- Guardian approval records in `canonicalGuardianRequests` (and their `canonicalGuardianDeliveries`) link via `requestId`.
-- The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
+Identifiers and plumbing notes:
 
-### Channel verification source-of-truth split
+- Channel flows use `requestId` (not `runId`) as the primary identifier. Callback buttons encode `apr:<requestId>:<action>` in `callback_data`; answer-option buttons on question cards use action tokens `answer_<idx>` / `answer_skip` under the same prefix.
+- Guardian request records live in the gateway-owned `guardian_requests` table (and their `guardian_request_deliveries`); the daemon reads/writes them through the `channels/gateway-guardian-requests.ts` client.
+- Legacy in-turn interception (`routes/guardian-approval-interception.ts` + the approval prompt watcher) still serves a guardian's own tool-approval prompts mid-turn, resolving via `conversation.handleConfirmationResponse(requestId, decision)`. It is a legacy rail — the reply router runs first; converge new work on the pipeline.
 
-Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned (`channel-verification-routes.ts`, `channel-verification-service.ts`). The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned.
+### Channel verification: gateway-owned
 
-The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"), and the inbound code-match path (`gateway/src/verification/text-verification.ts`) writes via `upsertVerifiedContactChannel` / `createGuardianBinding` (verifiedVia "challenge"). The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
+Verification SESSION state (sessions, secrets, rate limits, validate+consume) AND the channel-verified OUTCOME (status / verifiedAt / verifiedVia) are both gateway-owned. The gateway holds the `channel_verification_sessions` + `channel_guardian_rate_limits` tables (`gateway/src/db/session-store.ts`) and mints all secrets in `gateway/src/verification/session-service.ts`; the daemon holds no session or rate-limit state (its legacy tables were dropped by gateway data migration m0014).
 
-The `mark_channel_verified` IPC method exists as the daemon/CLI relay surface (symmetric with `mark_channel_revoked`) but has no caller: the trusted-contact CLI path sends codes only, and the outcome arrives via the inbound code-match path.
+The daemon relays session lifecycle operations over the `verification_sessions_*` IPC routes via `assistant/src/channels/gateway-verification-sessions.ts` and keeps what is presentation: message composition and channel delivery (`channel-verification-routes.ts`, `verification-outbound-actions.ts`). `channel-verification-service.ts` retains only guardian-delivery reads (`getGuardianBinding`, `isGuardian`, `isGuardianBoundForChannel`).
+
+The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"); the code-match paths (text and the `verification_sessions_validate_consume` engine route) apply role side effects in-engine — guardian phone binding commits in the same gateway transaction as the consume. The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
 
 ## Rate Limiting & Diagnostics
 
-All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
+Most `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
 
-- **Authenticated**: 300 requests/minute
+- **Authenticated (loopback)**: 1200 requests/minute — desktop app, CLI, anything on the daemon's own host (`127.0.0.0/8`, `::1`). A cold sidebar load at thousands of conversations legitimately bursts far beyond the remote budget.
+- **Authenticated (remote)**: 300 requests/minute — proxied non-loopback clients, keyed by the forwarded client IP. Configurable via `apiRateLimit.authenticatedMaxRequestsPerMinute` (positive integer, defaults to 300 when unset). The budget is seeded at construction and pushed to the live limiter by the config watcher (`refreshAuthenticatedApiRateLimit()`) on a `config.json` change, so an edit applies without a restart and without config-loader work on the per-request path. The loopback and unauthenticated budgets are fixed and unaffected by this setting.
 - **Unauthenticated**: 20 requests/minute
+
+**Exempt endpoints** (`isRateLimitExemptEndpoint`): the SSE stream (`events`) and liveness/readiness probes (`health`, `healthz`, `readyz`) bypass the per-minute limiter entirely. The stream is one long-lived connection, not a burst of requests, and 429-ing it drops the stream — which drives a client reconnect + full re-bootstrap loop that generates far more load than the limiter saves. Liveness probes must always answer or the client treats the assistant as down and reconnects harder. The events route still enforces auth downstream, and stream memory is bounded by SSE backpressure shedding + subscriber caps.
 
 When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid conversation switching, polling, or unexpected request volume.
 

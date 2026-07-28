@@ -16,8 +16,13 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
+import {
+  canonicalizeTimeZone,
+  formatTurnTimestamp,
+  resolveTurnTimezoneContext,
+} from "../../daemon/date-context.js";
 import { readNowScratchpad } from "../../daemon/now-scratchpad.js";
-import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { getConversationByKey } from "../../persistence/conversation-key-store.js";
 import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -64,6 +69,20 @@ async function handleBtw({
   }
 
   const trimmedContent = content.trim();
+  const config = getConfig();
+  const clientTimezone =
+    typeof body?.clientTimezone === "string"
+      ? canonicalizeTimeZone(body.clientTimezone)
+      : null;
+  const timezoneOptions = {
+    configuredUserTimeZone: config.ui?.userTimezone ?? null,
+    clientTimezone,
+    detectedTimezone: config.ui?.detectedTimezone ?? null,
+  };
+  const greetingCacheScope =
+    conversationKey === GREETING_KEY
+      ? resolveTurnTimezoneContext(timezoneOptions).effectiveTimezone
+      : null;
 
   // ----- Empty-state greeting fast-path -----
   // User-authored `## Greetings` win; otherwise replay a cached greeting when
@@ -76,7 +95,7 @@ async function handleBtw({
       log.debug("Returning authored empty-state greeting");
       return streamText(pickRandom(authored));
     }
-    const cached = getCachedEmptyStateGreeting();
+    const cached = getCachedEmptyStateGreeting(greetingCacheScope);
     if (cached) {
       log.debug("Returning cached empty-state greeting");
       return streamText(cached);
@@ -85,23 +104,35 @@ async function handleBtw({
 
   // ----- Greeting context enrichment -----
   let effectiveContent = trimmedContent;
+  if (conversationKey === GREETING_KEY) {
+    effectiveContent = `${effectiveContent}\n\n<turn_context>\ncurrent_time: ${formatTurnTimestamp(
+      timezoneOptions,
+    )}\n</turn_context>`;
+  }
   if (
     conversationKey === GREETING_KEY &&
-    getConfig().memory.retrieval.scratchpadInjection.enabled
+    config.memory.retrieval.scratchpadInjection.enabled
   ) {
     const now = readNowScratchpad();
     if (now) {
-      effectiveContent = `${trimmedContent}\n\n<context>\n${now}\n</context>`;
+      effectiveContent = `${effectiveContent}\n\n<context>\n${now}\n</context>`;
     }
   }
 
-  // Look up an existing conversation or create an ephemeral one.
+  // Look up an existing conversation or create an ephemeral one. An unmapped
+  // key (e.g. "greeting") does not correspond to a real conversation, so the
+  // side-chain runs against an ephemeral in-memory conversation with no
+  // persisted row — keeping the "no messages are persisted" contract and off
+  // the sidebar. A mapped key targets a real conversation and reuses its row.
   const mapping = getConversationByKey(conversationKey);
   const conversationId = mapping?.conversationId ?? conversationKey;
 
   let conversation;
   try {
-    conversation = await getOrCreateConversation(conversationId);
+    conversation = await getOrCreateConversation(
+      conversationId,
+      mapping ? undefined : { ephemeral: true },
+    );
   } catch {
     throw new ServiceUnavailableError("Message processing is not available");
   }
@@ -138,7 +169,7 @@ async function handleBtw({
 
           if (isGreeting && result.text) {
             // setCachedEmptyStateGreeting is a no-op when the TTL is 0.
-            setCachedEmptyStateGreeting(result.text);
+            setCachedEmptyStateGreeting(result.text, greetingCacheScope);
             log.debug("Cached empty-state greeting text");
           }
 
@@ -200,6 +231,10 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe("Conversation key to scope the call"),
       content: z.string().describe("User prompt content"),
+      clientTimezone: z
+        .string()
+        .optional()
+        .describe("IANA timezone reported by the active client"),
     }),
     handler: handleBtw,
   },

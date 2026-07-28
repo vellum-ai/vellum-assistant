@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../memory/db-connection.js";
-import { memoryGraphNodes } from "../../../../memory/schema.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
   ToolContext,
@@ -12,14 +12,16 @@ export async function executePlaybookList(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const scopeId = "default";
   const channelFilter =
     typeof input.channel === "string" ? input.channel : null;
   const categoryFilter =
     typeof input.category === "string" ? input.category : null;
 
   try {
-    const db = getDb();
+    const db = getMemoryDb();
+    if (!db) {
+      return { content: "No playbooks found.", isError: false };
+    }
 
     const rows = db
       .select({
@@ -31,7 +33,6 @@ export async function executePlaybookList(
       .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryGraphNodes.scopeId, scopeId),
           sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
           sql`${memoryGraphNodes.fidelity} != 'gone'`,
         ),

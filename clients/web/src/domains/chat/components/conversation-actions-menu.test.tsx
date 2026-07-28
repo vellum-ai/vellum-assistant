@@ -95,7 +95,9 @@ mock.module("@vellumai/design-library", () => {
 
 import {
     ConversationActionsMenu,
+    ConversationActionsSheet,
     renderConversationMenuItems,
+    renderConversationMenuItemsAsPanelItems,
     type ConversationMenuPrimitive,
 } from "@/domains/chat/components/conversation-actions-menu";
 import { Menu } from "@vellumai/design-library";
@@ -155,19 +157,43 @@ describe("renderConversationMenuItems", () => {
     expect(html).toContain("Unarchive");
   });
 
-  test("hides Mark as unread and Analyze when isReadonly", () => {
+  test("hides Mark as unread when isReadonly", () => {
     const html = renderToStaticMarkup(
       <>{renderConversationMenuItems({
         Primitive: Menu as unknown as ConversationMenuPrimitive,
         isReadonly: true,
         onArchive: () => {},
-        onAnalyze: () => {},
         onMarkUnread: () => {},
       })}</>,
     );
     expect(html).toContain("Archive");
     expect(html).not.toContain("Mark as unread");
-    expect(html).not.toContain("Analyze");
+  });
+
+  test("renders the channel source link item when provided", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        variant: "header",
+        channelSourceLink: {
+          href: "https://slack.com/archives/C01ABC/p1700000000000100",
+          label: "Open in Slack",
+        },
+        onPinToggle: () => {},
+      })}</>,
+    );
+    expect(html).toContain("Open in Slack");
+  });
+
+  test("omits the channel source link item when absent", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        variant: "header",
+        onPinToggle: () => {},
+      })}</>,
+    );
+    expect(html).not.toContain("Open in Slack");
   });
 
   test("renders header variant with correct item order", () => {
@@ -177,16 +203,122 @@ describe("renderConversationMenuItems", () => {
         variant: "header",
         onCopyConversation: () => {},
         onForkConversation: () => {},
-        onAnalyze: () => {},
         onPinToggle: () => {},
         onRename: () => {},
       })}</>,
     );
     expect(html).toContain("Copy full conversation");
     expect(html).toContain("Fork conversation");
-    expect(html).toContain("Analyze conversation");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
+  });
+
+  test("renders Copy conversation ID in both variants when wired", () => {
+    for (const variant of ["sidebar", "header"] as const) {
+      const html = renderToStaticMarkup(
+        <>{renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          variant,
+          onCopyConversationId: () => {},
+        })}</>,
+      );
+      expect(html).toContain("Copy conversation ID");
+    }
+  });
+
+  test("omits Copy conversation ID when not wired", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        onRename: () => {},
+      })}</>,
+    );
+    expect(html).not.toContain("Copy conversation ID");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "Move to group" submenu
+// ---------------------------------------------------------------------------
+
+describe("renderConversationMenuItems — Move to group submenu", () => {
+  test("omitted entirely when move/create handlers are not wired", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        onPinToggle: () => {},
+      })}</>,
+    );
+    expect(html).not.toContain("Move to group");
+  });
+
+  test("shows the submenu with New group… even when there are no groups", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        moveToGroups: [],
+        onMoveToGroup: () => {},
+        onCreateGroupInto: () => {},
+      })}</>,
+    );
+    expect(html).toContain("Move to group");
+    expect(html).toContain("New group…");
+  });
+
+  test("lists existing custom groups as targets", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        moveToGroups: [
+          { id: "g_research", name: "Research" },
+          { id: "g_ideas", name: "Ideas" },
+        ],
+        onMoveToGroup: () => {},
+        onCreateGroupInto: () => {},
+      })}</>,
+    );
+    expect(html).toContain("Research");
+    expect(html).toContain("Ideas");
+    expect(html).toContain("New group…");
+  });
+
+  test("appends Remove from group only when onRemoveFromGroup is provided", () => {
+    const withRemove = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        moveToGroups: [{ id: "g_research", name: "Research" }],
+        onMoveToGroup: () => {},
+        onCreateGroupInto: () => {},
+        onRemoveFromGroup: () => {},
+      })}</>,
+    );
+    expect(withRemove).toContain("Remove from group");
+
+    const withoutRemove = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        moveToGroups: [{ id: "g_research", name: "Research" }],
+        onMoveToGroup: () => {},
+        onCreateGroupInto: () => {},
+      })}</>,
+    );
+    expect(withoutRemove).not.toContain("Remove from group");
+  });
+
+  test("mobile bottom sheet renders the flattened Move to group block", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          moveToGroups: [{ id: "g_research", name: "Research" }],
+          onMoveToGroup: () => {},
+          onCreateGroupInto: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Move to group");
+    expect(html).toContain("Research");
+    expect(html).toContain("New group…");
   });
 });
 
@@ -267,8 +399,12 @@ describe("ConversationActionsMenu — mobile panel details", () => {
       />,
     );
     expect(html).toContain("Mark as unread");
-    expect(html).toContain("pointer-events-none");
-    expect(html).toContain("opacity-50");
+    // Disabled is expressed through PanelItem's own `disabled` prop, which
+    // keeps the row's button semantics, plus the dim styling the design
+    // library's menu surfaces use.
+    expect(html).toContain("disabled=\"\"");
+    expect(html).toContain("cursor-not-allowed");
+    expect(html).toContain("text-[var(--content-disabled)]");
   });
 
   test("hides Open in New Window on native iOS bottom sheet", () => {
@@ -310,16 +446,110 @@ describe("ConversationActionsMenu — mobile panel details", () => {
         variant="header"
         onCopyConversation={() => {}}
         onForkConversation={() => {}}
-        onAnalyze={() => {}}
         onPinToggle={() => {}}
         onRename={() => {}}
       />,
     );
     expect(html).toContain("Copy full conversation");
     expect(html).toContain("Fork conversation");
-    expect(html).toContain("Analyze conversation");
     expect(html).toContain("Pin");
     expect(html).toContain("Rename");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ConversationActionsSheet — shared controlled sheet (row long-press + ellipsis)
+// ---------------------------------------------------------------------------
+
+describe("ConversationActionsSheet", () => {
+  test("renders the actions title and the provided items", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Conversation actions");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("renders a trigger when one is provided (ellipsis path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open={false}
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+        trigger={<button aria-label="Conversation actions" />}
+      />,
+    );
+    expect(html).toContain('aria-label="Conversation actions"');
+    expect(html).toContain("Archive");
+  });
+
+  test("omits a trigger when none is provided (row long-press path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    // No trigger button, but the sheet body still renders the item set.
+    expect(html).not.toContain("<button");
+    expect(html).toContain("Archive");
+  });
+
+  test("hides Open in New Window on native iOS", () => {
+    mockIsNativePlatform = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Open in new window");
+    expect(html).toContain("Pin");
+  });
+});
+
+describe("renderConversationMenuItemsAsPanelItems", () => {
+  test("flattens the item set into panel rows with a close handler", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          onPinToggle: () => {},
+          onRename: () => {},
+          onArchive: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+    expect(html).toContain("Archive");
+  });
+
+  test("renders the channel source link row when provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          variant: "header",
+          channelSourceLink: {
+            href: "https://slack.com/archives/C01ABC/p1700000000000100",
+            label: "Open in Slack",
+          },
+          onPinToggle: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Open in Slack");
   });
 });
 
@@ -330,13 +560,11 @@ describe("ConversationActionsMenu — read-only conversations", () => {
       <ConversationActionsMenu
         isReadonly
         onArchive={() => {}}
-        onAnalyze={() => {}}
         onMarkUnread={() => {}}
       />,
     );
     expect(html).toContain("Archive");
     expect(html).not.toContain("Mark as unread");
-    expect(html).not.toContain("Analyze");
   });
 
   test("Unarchive renders when archived and read-only", () => {

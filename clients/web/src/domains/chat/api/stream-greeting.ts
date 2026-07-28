@@ -13,6 +13,7 @@
  */
 
 import { client } from "@/generated/daemon/client.gen";
+import { getEffectiveTimezone } from "@/utils/effective-timezone";
 
 /** Conversation key the daemon maps to the empty-state greeting call site. */
 const GREETING_CONVERSATION_KEY = "greeting";
@@ -45,12 +46,14 @@ export async function streamEmptyStateGreeting({
   signal,
   onDelta,
 }: StreamGreetingOptions): Promise<string> {
+  const clientTimezone = getEffectiveTimezone();
   const { data, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/btw",
     path: { assistant_id: assistantId },
     body: {
       conversationKey: GREETING_CONVERSATION_KEY,
       content: GREETING_PROMPT,
+      ...(clientTimezone ? { clientTimezone } : {}),
     },
     headers: {
       "Content-Type": "application/json",
@@ -91,7 +94,9 @@ function parseSseFrame(frame: string): ParsedSseFrame | null {
       dataLines.push(line.slice("data:".length).trim());
     }
   }
-  if (dataLines.length === 0) return { event, data: null };
+  if (dataLines.length === 0) {
+    return { event, data: null };
+  }
   try {
     return { event, data: JSON.parse(dataLines.join("\n")) };
   } catch {
@@ -111,7 +116,9 @@ async function readGreetingStream(
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
 
       // SSE frames are separated by a blank line.
@@ -121,7 +128,9 @@ async function readGreetingStream(
         buffer = buffer.slice(sep + 2);
 
         const parsed = parseSseFrame(frame);
-        if (!parsed) continue;
+        if (!parsed) {
+          continue;
+        }
 
         if (parsed.event === "btw_text_delta") {
           const delta =

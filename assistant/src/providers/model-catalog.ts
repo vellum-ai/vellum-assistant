@@ -52,6 +52,13 @@ export interface CatalogModel {
   adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
+  /**
+   * The model's serving surface accepts OpenAI chat-completions `input_audio`
+   * content parts (base64 wav/mp3), so eligible audio attachments are sent
+   * inline instead of as a text placeholder. Daemon-only: not projected into
+   * the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
   /**
@@ -61,6 +68,14 @@ export interface CatalogModel {
    * default.
    */
   maxEffort?: "high" | "xhigh" | "max";
+  /**
+   * Daemon-only: when true, the direct-OpenAI Responses transport sends
+   * explicit prompt-cache breakpoints for this model (GPT-5.6+ semantics:
+   * request-wide `prompt_cache_options: { mode: "explicit" }` plus
+   * block-level `prompt_cache_breakpoint` markers and `prompt_cache_key`).
+   * Not projected into the client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsPromptCacheBreakpoints?: boolean;
   /** When set, this model is only visible when the named feature flag is enabled. */
   featureFlag?: string;
 }
@@ -172,6 +187,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
         id: "claude-opus-4-8",
         displayName: "Claude Opus 4.8",
         contextWindowTokens: 1000000,
@@ -220,6 +252,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 25,
           cacheWritePer1mTokens: 6.25,
           cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
         },
       },
       {
@@ -306,6 +357,96 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open OpenAI Platform",
     },
     models: [
+      // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
+      // discount; cacheWrite is the 1.25x-input rate GPT-5.6+ bills for
+      // prompt tokens written to the cache (reported as `cache_write_tokens`
+      // in usage, tracked as `cacheCreationInputTokens`). Long-context
+      // (>272K input) is 2x input / 1.5x output / 2x cache-read+write for
+      // the whole request, per OpenAI's model cards.
+      {
+        id: "gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
       {
         id: "gpt-5.5",
         displayName: "GPT-5.5",
@@ -445,6 +586,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "gemini-3.6-flash",
+        displayName: "Gemini 3.6 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.5,
+          outputPer1mTokens: 7.5,
+          cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
         id: "gemini-3.5-flash",
         displayName: "Gemini 3.5 Flash",
         contextWindowTokens: 1048576,
@@ -457,6 +613,21 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           inputPer1mTokens: 1.5,
           outputPer1mTokens: 9.0,
           cacheReadPer1mTokens: 0.15,
+        },
+      },
+      {
+        id: "gemini-3.5-flash-lite",
+        displayName: "Gemini 3.5 Flash-Lite",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.3,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.03,
         },
       },
       {
@@ -662,6 +833,22 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "accounts/fireworks/models/kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
         id: "accounts/fireworks/models/kimi-k2p6",
         displayName: "Kimi K2.6",
         contextWindowTokens: 262144,
@@ -854,6 +1041,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "anthropic/claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
         id: "anthropic/claude-opus-4.8",
         displayName: "Claude Opus 4.8",
         contextWindowTokens: 1000000,
@@ -902,6 +1106,25 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 25,
           cacheWritePer1mTokens: 6.25,
           cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "anthropic/claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
         },
       },
       {
@@ -969,17 +1192,208 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.1,
         },
       },
-      // xAI
+      // OpenAI
+      // GPT-5.6 family (Sol / Terra / Luna). The `*-pro` slugs are the same
+      // underlying models served with `reasoning.mode: pro` at identical
+      // rates. cacheWrite is the 1.25x-input rate GPT-5.6+ bills for prompt
+      // tokens written to the cache (reported as `cache_write_tokens` in
+      // usage when the route forwards it, tracked as
+      // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
+      // / 1.5x output / 2x cache-read+write for the whole request, per
+      // OpenAI's model cards.
       {
-        id: "x-ai/grok-4.20-beta",
-        displayName: "Grok 4.20 Beta",
-        contextWindowTokens: 256000,
-        maxOutputTokens: 16000,
+        id: "openai/gpt-5.6-sol",
+        displayName: "GPT-5.6 Sol",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-sol-pro",
+        displayName: "GPT-5.6 Sol Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheWritePer1mTokens: 12.5,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-terra",
+        displayName: "GPT-5.6 Terra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-terra-pro",
+        displayName: "GPT-5.6 Terra Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 2.5,
+          outputPer1mTokens: 15.0,
+          cacheWritePer1mTokens: 3.125,
+          cacheReadPer1mTokens: 0.25,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 5,
+              outputPer1mTokens: 22.5,
+              cacheWritePer1mTokens: 6.25,
+              cacheReadPer1mTokens: 0.5,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-luna",
+        displayName: "GPT-5.6 Luna",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.6-luna-pro",
+        displayName: "GPT-5.6 Luna Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
+            },
+          ],
+        },
+      },
+      // xAI
+      // OpenRouter lists an `input_cache_read` rate for xAI models but its
+      // xAI endpoints report `supports_implicit_caching: false`, and observed
+      // usage never includes cached tokens. `supportsCaching` therefore stays
+      // false; the `cacheReadPer1mTokens` rates below only apply if OpenRouter
+      // starts reporting cached tokens in usage.
+      {
+        id: "x-ai/grok-4.5",
+        displayName: "Grok 4.5",
+        contextWindowTokens: 500000,
+        // xAI publishes no completion cap; 30K is the tracker-reported
+        // single-response limit.
+        maxOutputTokens: 30000,
         supportsThinking: true,
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+        // xAI's Grok 4.5 API accepts only low|medium|high reasoning effort;
+        // clamp Vellum's xhigh/max tiers down so inherited efforts don't 4xx.
+        maxEffort: "high",
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 6,
+          cacheReadPer1mTokens: 0.5,
+        },
       },
       {
         id: "x-ai/grok-4.3",
@@ -990,18 +1404,26 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       {
-        id: "x-ai/grok-4",
-        displayName: "Grok 4",
-        contextWindowTokens: 131072,
+        id: "x-ai/grok-4.20",
+        displayName: "Grok 4.20",
+        contextWindowTokens: 2000000,
         maxOutputTokens: 16000,
         supportsThinking: true,
         supportsCaching: false,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+        pricing: {
+          inputPer1mTokens: 1.25,
+          outputPer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
       },
       // DeepSeek
       {
@@ -1105,6 +1527,18 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 0.5, outputPer1mTokens: 1.5 },
       },
       // Moonshot
+      {
+        id: "moonshotai/kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+      },
       {
         id: "moonshotai/kimi-k2.6",
         displayName: "Kimi K2.6",
@@ -1312,9 +1746,263 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         pricing: { inputPer1mTokens: 0, outputPer1mTokens: 0 },
       },
     ],
-    defaultModel: "x-ai/grok-4.20-beta",
+    defaultModel: "x-ai/grok-4.20",
     apiKeyUrl: "https://openrouter.ai/keys",
     apiKeyPlaceholder: "sk-or-v1-...",
+  },
+  {
+    id: "vercel-ai-gateway",
+    displayName: "Vercel AI Gateway",
+    subtitle:
+      "Route to many LLM providers via a single Vercel AI Gateway API key.",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your Vercel AI Gateway API key to access multiple models.",
+    envVar: "AI_GATEWAY_API_KEY",
+    credentialsGuide: {
+      description:
+        "Open the Vercel dashboard's AI Gateway tab and create an API key.",
+      url: "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+      linkLabel: "Open Vercel Dashboard",
+    },
+    // Model IDs verified 2026-07-07 against Vercel's model directory:
+    // https://vercel.com/ai-gateway/models
+    models: [
+      // Anthropic
+      // The gateway proxies anthropic/* through Anthropic's Messages API, so
+      // prompt caching and cache TTL metadata pass through unchanged and
+      // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-fable-5",
+        displayName: "Claude Fable 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 10,
+          outputPer1mTokens: 50,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-5",
+        displayName: "Claude Opus 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-4.8",
+        displayName: "Claude Opus 4.8",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "anthropic/claude-opus-4.6",
+        displayName: "Claude Opus 4.6",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
+        id: "anthropic/claude-sonnet-5",
+        displayName: "Claude Sonnet 5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Introductory pricing in effect through 2026-08-31 ($2/$10 vs the
+        // $3/$15 standard rate). Bump to standard once the intro window ends.
+        pricing: {
+          inputPer1mTokens: 2,
+          outputPer1mTokens: 10,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
+        },
+      },
+      {
+        id: "anthropic/claude-sonnet-4.6",
+        displayName: "Claude Sonnet 4.6",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 64000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheWritePer1mTokens: 3.75,
+          cacheReadPer1mTokens: 0.3,
+        },
+      },
+      {
+        id: "anthropic/claude-haiku-4.5",
+        displayName: "Claude Haiku 4.5",
+        contextWindowTokens: 200000,
+        maxOutputTokens: 64000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1,
+          outputPer1mTokens: 5,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+        },
+      },
+      // OpenAI
+      {
+        id: "openai/gpt-5.5",
+        displayName: "GPT-5.5",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheReadPer1mTokens: 0.5,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 10,
+              outputPer1mTokens: 45,
+              cacheReadPer1mTokens: 1,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-5.5-pro",
+        displayName: "GPT-5.5 Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 30.0,
+          outputPer1mTokens: 180.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 60,
+              outputPer1mTokens: 270,
+            },
+          ],
+        },
+      },
+      // xAI (Vercel's vendor prefix is `xai/`, not OpenRouter's `x-ai/`)
+      {
+        id: "xai/grok-4.3",
+        displayName: "Grok 4.3",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 16000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 1.25, outputPer1mTokens: 2.5 },
+      },
+      // Moonshot
+      {
+        id: "moonshotai/kimi-k2.6",
+        displayName: "Kimi K2.6",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        // Gateway list rate (blended across routed upstreams).
+        pricing: { inputPer1mTokens: 0.95, outputPer1mTokens: 4.0 },
+      },
+      // DeepSeek
+      {
+        id: "deepseek/deepseek-v4-flash",
+        displayName: "DeepSeek V4 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 384000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.14, outputPer1mTokens: 0.28 },
+      },
+    ],
+    defaultModel: "anthropic/claude-sonnet-4.6",
+    apiKeyUrl:
+      "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+    apiKeyPlaceholder: "vck_...",
+  },
+  {
+    id: "litellm",
+    displayName: "LiteLLM",
+    subtitle:
+      "AI gateway proxy for 100+ LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, etc.).",
+    setupMode: "api-key",
+    setupHint:
+      "Enter your LiteLLM proxy base URL and API key. Models are auto-discovered from the proxy.",
+    envVar: "LITELLM_API_KEY",
+    credentialsGuide: {
+      description:
+        "Set up a LiteLLM proxy, then use the master key or a virtual key.",
+      url: "https://docs.litellm.ai/docs/proxy/quick_start",
+      linkLabel: "LiteLLM Proxy Quick Start",
+    },
+    apiKeyPlaceholder: "sk-...",
+    models: [],
+    defaultModel: "",
   },
   {
     id: "openai-compatible",
@@ -1395,6 +2083,85 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyUrl: "https://www.atlascloud.ai/console",
     apiKeyPlaceholder: "apikey-...",
   },
+  {
+    id: "baseten",
+    displayName: "Baseten",
+    subtitle: "Open models served by Baseten. Requires a Baseten API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Baseten API key to enable Baseten models.",
+    envVar: "BASETEN_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Baseten dashboard and create an API key.",
+      url: "https://app.baseten.co/settings/api_keys",
+      linkLabel: "Open Baseten Dashboard",
+    },
+    models: [
+      {
+        id: "thinkingmachines/inkling",
+        displayName: "Inkling",
+        // Baseten serves Inkling with a 256K-token (262,144) input window.
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        // Inkling ingests audio natively (dMel tokens); Baseten's serving
+        // surface accepts `input_audio` parts for it.
+        supportsAudioInput: true,
+        supportsToolUse: true,
+        // Baseten's reasoning_effort for Inkling tops out at "xhigh" (no
+        // "max"), matching the chat-completions client's default ceiling.
+        maxEffort: "xhigh",
+        pricing: {
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 4.05,
+          cacheReadPer1mTokens: 0.17,
+        },
+      },
+    ],
+    defaultModel: "thinkingmachines/inkling",
+    apiKeyUrl: "https://app.baseten.co/settings/api_keys",
+    apiKeyPlaceholder: "Your Baseten API key",
+  },
+  {
+    id: "poolside",
+    displayName: "Poolside",
+    subtitle:
+      "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Poolside API key to enable Laguna models.",
+    envVar: "POOLSIDE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to Poolside and create an API key.",
+      url: "https://poolside.ai",
+      linkLabel: "Open Poolside",
+    },
+    models: [
+      {
+        id: "poolside/laguna-s-2.1",
+        displayName: "Laguna S 2.1",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+      {
+        id: "poolside/laguna-xs-2.1",
+        displayName: "Laguna XS 2.1",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+      },
+    ],
+    defaultModel: "poolside/laguna-s-2.1",
+    apiKeyUrl: "https://poolside.ai",
+    apiKeyPlaceholder: "Your Poolside API key",
+  },
 ];
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
@@ -1414,14 +2181,47 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
 
-/** Return the unique catalog provider that owns a model ID, if known. */
+/**
+ * Model IDs (across all catalog providers) flagged
+ * `supportsPromptCacheBreakpoints`. Consumed by the OpenAI Responses
+ * transport to gate explicit prompt-cache params, and by the OpenRouter
+ * client to route flagged `openai/*` models onto that transport. IDs are
+ * provider-shaped (bare for direct OpenAI, `openai/`-prefixed for
+ * OpenRouter), so a single set serves both consumers without collisions.
+ */
+export const PROMPT_CACHE_BREAKPOINT_MODEL_IDS: ReadonlySet<string> = new Set(
+  PROVIDER_CATALOG.flatMap((p) =>
+    p.models.flatMap((m) => (m.supportsPromptCacheBreakpoints ? [m.id] : [])),
+  ),
+);
+
+/**
+ * Per-model `reasoning_effort` ceilings for a provider, keyed by model ID and
+ * derived from each model's `maxEffort`. Providers whose per-model APIs accept
+ * a narrower effort range than the provider default (e.g. Fireworks, OpenRouter)
+ * consult this in `resolveMaxReasoningEffort` to clamp Vellum's xhigh/max tiers
+ * down. Models without `maxEffort` are absent and inherit the provider default.
+ */
+export function modelEffortCeilings(
+  providerId: string,
+): ReadonlyMap<string, "high" | "xhigh" | "max"> {
+  return new Map(
+    PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
+      m.maxEffort ? ([[m.id, m.maxEffort]] as const) : [],
+    ) ?? [],
+  );
+}
+
+/**
+ * Return the catalog provider that owns a model ID, if known. When multiple
+ * providers list the same ID (e.g. OpenRouter and the Vercel AI Gateway share
+ * `anthropic/*` IDs), the earliest entry in PROVIDER_CATALOG order wins.
+ */
 export function getCatalogProviderForModel(
   modelId: string,
 ): string | undefined {
-  const matches = PROVIDER_CATALOG.filter((p) =>
-    p.models.some((m) => m.id === modelId),
-  );
-  return matches.length === 1 ? matches[0]?.id : undefined;
+  return PROVIDER_CATALOG.find((p) => p.models.some((m) => m.id === modelId))
+    ?.id;
 }
 
 /**
@@ -1433,5 +2233,17 @@ export function getCatalogProviderForModel(
 export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
   return PROVIDER_CATALOG.some((p) =>
     p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
+}
+
+/**
+ * Whether a model's serving surface accepts OpenAI chat-completions
+ * `input_audio` content parts, driven by the `supportsAudioInput` capability
+ * in the catalog. Matches the model ID across every provider (same pattern as
+ * {@link isAdaptiveThinkingOnlyModel}).
+ */
+export function modelSupportsAudioInput(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some((m) => m.id === modelId && m.supportsAudioInput === true),
   );
 }

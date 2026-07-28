@@ -2,24 +2,14 @@
  * Unit tests for `resolveAnchoredGuardian`.
  *
  * Covers the gateway arms (source-channel match validated against the vellum
- * anchor, vellum-anchor fallback), the LOCAL-store fallback when the gateway
- * list is empty, and the cosmetic `requireAnchorPrincipal` guard.
+ * anchor, vellum-anchor fallback) and the cosmetic `requireAnchorPrincipal`
+ * guard.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
 
-// Local store fallback is mocked so we can drive both arms deterministically.
-let localGuardians: Record<
-  string,
-  { contact: { principalId: string | null; displayName: string }; channel: { address: string; type: string } } | null
-> = {};
-mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: (channelType: string) =>
-    localGuardians[channelType] ?? null,
-}));
-
-const { resolveAnchoredGuardian } = await import("./anchored-guardian.js");
+import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 
 function gw(g: Partial<GuardianDelivery> & { channelType: string; address: string }): GuardianDelivery {
   return {
@@ -28,10 +18,6 @@ function gw(g: Partial<GuardianDelivery> & { channelType: string; address: strin
     ...g,
   };
 }
-
-afterEach(() => {
-  localGuardians = {};
-});
 
 describe("resolveAnchoredGuardian — gateway arm", () => {
   test("source-channel guardian matching the anchor wins", () => {
@@ -80,40 +66,8 @@ describe("resolveAnchoredGuardian — gateway arm", () => {
   });
 });
 
-describe("resolveAnchoredGuardian — local fallback", () => {
-  test("gateway empty + local source-channel match returns the local record", () => {
-    localGuardians = {
-      vellum: { contact: { principalId: "p-local", displayName: "LocalVellum" }, channel: { address: "lv-addr", type: "vellum" } },
-      telegram: { contact: { principalId: "p-local", displayName: "LocalAlice" }, channel: { address: "ltg-addr", type: "telegram" } },
-    };
-    const result = resolveAnchoredGuardian({
-      guardians: null,
-      sourceChannel: "telegram",
-      useLocalFallback: true,
-    });
-    expect(result).toEqual({
-      principalId: "p-local",
-      address: "ltg-addr",
-      displayName: "LocalAlice",
-      channelType: "telegram",
-      source: "source-channel-contact",
-    });
-  });
-
-  test("gateway empty + only local vellum returns the local vellum-anchor", () => {
-    localGuardians = {
-      vellum: { contact: { principalId: "p-local", displayName: "LocalVellum" }, channel: { address: "lv-addr", type: "vellum" } },
-    };
-    const result = resolveAnchoredGuardian({
-      guardians: null,
-      sourceChannel: "telegram",
-      useLocalFallback: true,
-    });
-    expect(result?.source).toBe("vellum-anchor");
-    expect(result?.address).toBe("lv-addr");
-  });
-
-  test("gateway empty + no local + fallback disabled returns null", () => {
+describe("resolveAnchoredGuardian — gateway empty", () => {
+  test("null gateway list returns null", () => {
     const result = resolveAnchoredGuardian({
       guardians: null,
       sourceChannel: "telegram",
@@ -121,11 +75,10 @@ describe("resolveAnchoredGuardian — local fallback", () => {
     expect(result).toBeNull();
   });
 
-  test("nothing anywhere returns null", () => {
+  test("empty gateway list returns null", () => {
     const result = resolveAnchoredGuardian({
       guardians: [],
       sourceChannel: "telegram",
-      useLocalFallback: true,
     });
     expect(result).toBeNull();
   });

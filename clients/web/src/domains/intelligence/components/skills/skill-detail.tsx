@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
@@ -8,8 +8,7 @@ import {
     Loader2,
     Trash2,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useCallback, useState } from "react";
 
 import {
     ContentActionBar,
@@ -18,22 +17,18 @@ import {
     SourcePre,
 } from "@/components/file-editor";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
+import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillIcon } from "@/domains/intelligence/components/skills/skill-icon";
 import { SkillOriginBadge } from "@/domains/intelligence/components/skills/skill-origin-badge";
 import {
     isAvailableSkill,
-    isRemovableSkill,
-    type SkillFileEntry,
     type SkillInfo,
 } from "@/domains/intelligence/skills/types";
-import {
-    skillsByIdFilesContentGetOptions,
-    skillsByIdFilesGetOptions,
-    useWorkspaceWritePostMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import type { SkillsByIdFilesContentGetResponse } from "@/generated/daemon/types.gen";
+import { useWorkspaceWritePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useSkillDetailFiles } from "@/hooks/use-skill-detail-files";
 import { captureError } from "@/lib/sentry/capture-error";
-import { routes } from "@/utils/routes";
+import { openWorkspaceFile } from "@/utils/open-workspace-file";
+import { invalidateSkillsList, isRemovableSkill } from "@/utils/skills";
 import { Button, Card } from "@vellumai/design-library";
 
 interface SkillDetailProps {
@@ -44,6 +39,11 @@ interface SkillDetailProps {
   onRemove?: () => void;
   isInstalling?: boolean;
   isRemoving?: boolean;
+  /**
+   * Source conversation this skill was distilled from (assistant-memory
+   * skills only) — renders a quiet lineage link when present.
+   */
+  sourceConversationId?: string;
 }
 
 export function SkillDetail({
@@ -54,41 +54,21 @@ export function SkillDetail({
   onRemove,
   isInstalling = false,
   isRemoving = false,
+  sourceConversationId,
 }: SkillDetailProps) {
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-
   const available = isAvailableSkill(skill);
   const removable = isRemovableSkill(skill);
 
-  const filesQuery = useQuery({
-    ...skillsByIdFilesGetOptions({
-      path: { assistant_id: assistantId, id: skill.id },
-    }),
-    select: (data) => data ?? null,
-  });
-
-  const fileEntries = useMemo<SkillFileEntry[]>(
-    () => filesQuery.data?.files ?? [],
-    [filesQuery.data],
-  );
-
-  const skillMd = useMemo(
-    () => fileEntries.find((f) => f.name === "SKILL.md"),
-    [fileEntries],
-  );
-
-  const activePath = selectedPath ?? skillMd?.path ?? null;
-
-  const fileContentQuery = useQuery({
-    ...skillsByIdFilesContentGetOptions({
-      path: { assistant_id: assistantId, id: skill.id },
-      query: { path: activePath ?? "" },
-    }),
-    select: (data): SkillsByIdFilesContentGetResponse | null => data ?? null,
-    enabled: Boolean(activePath),
-  });
-
-  const activeFile = fileEntries.find((f) => f.path === activePath);
+  const {
+    fileEntries,
+    setSelectedPath,
+    activePath,
+    activeFile,
+    isFilesLoading,
+    fileContent,
+    isBinary,
+    isContentLoading,
+  } = useSkillDetailFiles(assistantId, skill.id);
 
   return (
     <div className="flex h-[calc(100vh-14rem)] flex-col">
@@ -119,6 +99,10 @@ export function SkillDetail({
               >
                 {skill.description}
               </p>
+              <SkillLineageLink
+                skill={{ origin: skill.origin, sourceConversationId }}
+                className="mt-1"
+              />
             </div>
           </div>
           {available ? (
@@ -170,7 +154,7 @@ export function SkillDetail({
           className="max-h-40 shrink-0 overflow-y-auto border-b p-2 sm:max-h-none sm:border-b-0 sm:border-r"
           style={{ borderColor: "var(--border-base)" }}
         >
-          {filesQuery.isLoading ? (
+          {isFilesLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2
                 className="h-4 w-4 animate-spin"
@@ -222,7 +206,7 @@ export function SkillDetail({
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          {fileContentQuery.isLoading ? (
+          {isContentLoading ? (
             <div className="flex h-full items-center justify-center">
               <Loader2
                 className="h-6 w-6 animate-spin"
@@ -236,8 +220,8 @@ export function SkillDetail({
               skillId={skill.id}
               fileName={activeFile.name}
               filePath={activeFile.path}
-              content={fileContentQuery.data?.content ?? null}
-              isBinary={Boolean(fileContentQuery.data?.isBinary)}
+              content={fileContent}
+              isBinary={isBinary}
               editable={skill.kind === "installed"}
             />
           ) : (
@@ -272,7 +256,6 @@ function SkillFileContent({
   isBinary: boolean;
   editable: boolean;
 }) {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -291,9 +274,7 @@ function SkillFileContent({
         queryKey: [{ _id: "skillsByIdFilesGet" }],
       });
       if (filePath === "SKILL.md") {
-        void queryClient.invalidateQueries({
-          queryKey: [{ _id: "skillsGet" }],
-        });
+        invalidateSkillsList(queryClient, assistantId);
       }
     },
     onError: (error) => {
@@ -350,11 +331,7 @@ function SkillFileContent({
       variant="ghost"
       size="regular"
       iconOnly={<ExternalLink aria-hidden />}
-      onClick={() =>
-        navigate(
-          `${routes.workspace}?file=${encodeURIComponent(workspacePath)}`,
-        )
-      }
+      onClick={() => void openWorkspaceFile(workspacePath)}
       aria-label="Open in Workspace"
       className="hover:bg-[var(--surface-base)]"
     />

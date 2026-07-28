@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { preModelCallSanitize } from "../agent/loop.js";
+import { preModelCallSanitize } from "../context/outbound-sanitize.js";
 import type { Message } from "../providers/types.js";
 
 /**

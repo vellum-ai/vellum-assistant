@@ -105,8 +105,8 @@ export class RangeNotSatisfiableError extends RouteError {
 }
 
 export class FailedDependencyError extends RouteError {
-  constructor(message: string) {
-    super(message, "FAILED_DEPENDENCY", 424);
+  constructor(message: string, details?: unknown) {
+    super(message, "FAILED_DEPENDENCY", 424, details);
     this.name = "FailedDependencyError";
   }
 }
@@ -143,5 +143,22 @@ export class InternalError extends RouteError {
   constructor(message: string) {
     super(message, "INTERNAL_ERROR", 500);
     this.name = "InternalError";
+  }
+}
+
+/**
+ * LLM request logging is turned off via `llmRequestLogs.disabled`, so the
+ * inspector read routes have nothing to serve. Carries a distinct, stable
+ * `code` (`LLM_REQUEST_LOGS_DISABLED`) so clients can branch on it — the web
+ * inspector renders a "logging is off" state with an enable toggle rather than
+ * a generic failure. 403 (rather than 404) so the condition reads as
+ * "deliberately withheld", not "missing".
+ */
+export class LlmRequestLogsDisabledError extends RouteError {
+  constructor(
+    message = "LLM request logging is disabled. Enable it to view request logs.",
+  ) {
+    super(message, "LLM_REQUEST_LOGS_DISABLED", 403);
+    this.name = "LlmRequestLogsDisabledError";
   }
 }

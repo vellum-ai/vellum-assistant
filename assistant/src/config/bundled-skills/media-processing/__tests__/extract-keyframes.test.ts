@@ -21,7 +21,7 @@ mock.module("../services/preprocess.js", () => ({
   },
 }));
 
-mock.module("../../../../memory/media-store.js", () => ({
+mock.module("../../../../persistence/media-store.js", () => ({
   getMediaAssetById: () => ({ filePath: "/tmp/videos/test.mp4" }),
   getKeyframesForAsset: () => [{ id: "kf-1" }, { id: "kf-2" }, { id: "kf-3" }],
 }));

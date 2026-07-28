@@ -17,8 +17,8 @@ import {
   feedItemSchema,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
-import { getConversation } from "../memory/conversation-crud.js";
-import { isBackgroundConversationType } from "../memory/conversation-types.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { readPayloadString } from "./notification-utils.js";
@@ -159,7 +159,7 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",
-  "ingress.escalation": "security",
+  "telegram.webhook_health_alert": "system",
 };
 
 function deriveCategory(signal: NotificationSignal): FeedItemCategory {
@@ -269,8 +269,10 @@ const NOTEWORTHY_EVENT_NAMES: ReadonlySet<string> = new Set([
   "guardian.question",
   "guardian.channel_activation",
   "ingress.access_request",
-  "ingress.escalation",
   "credential.health_alert",
+  // A dark messaging channel is inbox-worthy: the guardian may be waiting on
+  // replies that are silently queueing at Telegram.
+  "telegram.webhook_health_alert",
 ]);
 
 function deriveNoteworthy(signal: NotificationSignal): boolean {

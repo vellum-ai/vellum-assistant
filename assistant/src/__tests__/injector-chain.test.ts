@@ -3,9 +3,10 @@
  *
  * Covers:
  *
- * 1. The default injectors ({@link defaultInjectors}) are listed in the
+ * 1. The registered default injectors are listed in the
  *    documented order (disk-pressure-warning → workspace-context →
  *    background-turn → unified-turn-context → config-quarantine-notice →
+ *    config-validation-reset-notice →
  *    pkb-context → pkb-reminder → memory-v2-static → now-md →
  *    active-documents → document-comments → subagent-status →
  *    slack-messages → thread-focus).
@@ -23,19 +24,22 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // This test exercises v1 PKB injection. `config.memory.v2.enabled`
-// (default `true`) makes the PKB injector go silent — force it off here
+// (default `true`) makes the PKB injector go silent — seed it off for real
 // so the v1 injection chain assertions stay meaningful.
-const realLoader = await import("../config/loader.js");
-const realGetConfig = realLoader.getConfig;
-mock.module("../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => {
-    const real = realGetConfig();
-    return {
-      ...real,
-      memory: { ...real.memory, v2: { ...real.memory.v2, enabled: false } },
-    };
+setConfig("memory", { v2: { enabled: false } });
+
+// Memory code resolves its config through the plugin's own accessor, not
+// getConfig(); mirror the v2-disabled override there.
+const realMemoryConfigModule =
+  await import("../plugins/defaults/memory/config.js");
+const realGetMemoryConfig = realMemoryConfigModule.getMemoryConfig;
+mock.module("../plugins/defaults/memory/config.js", () => ({
+  getMemoryConfig: () => {
+    const real = realGetMemoryConfig();
+    return { ...real, v2: { ...real.v2, enabled: false } };
   },
 }));
 
@@ -55,10 +59,12 @@ const {
   buildSubagentStatusBlock,
   composeInjectorChain,
 } = await import("../daemon/conversation-runtime-assembly.js");
-const { DEFAULT_INJECTOR_ORDER, defaultInjectors } =
-  await import("../plugins/defaults/memory-retrieval/injectors.js");
-const { getInjectorChain } =
-  await import("../plugins/defaults/memory-retrieval/injector-chain.js");
+const { DEFAULT_INJECTOR_ORDER } =
+  await import("../plugins/defaults/injector-order.js");
+const { getRegisteredInjectors } =
+  await import("../plugins/injector-registry.js");
+const { registerDefaultPluginInjectors } =
+  await import("../plugins/defaults/index.js");
 import { eq } from "drizzle-orm";
 
 import {
@@ -66,15 +72,15 @@ import {
   setConversation,
 } from "../daemon/conversation-registry.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { getPkbRoot } from "../memory/pkb/types.js";
-import { conversations, messages } from "../memory/schema.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
-import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
+import { getPkbRoot } from "../plugins/defaults/memory/v1/pkb/types.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/turn-context/unified-turn-context.js";
 import type { TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -162,6 +168,10 @@ function seedWorkspaceContext(
           assistantMessageInterface: interfaceName,
         }
       : undefined,
+    // Mirrors Conversation.getSubagentChildren: the `<active_subagents>` block
+    // is sourced from the live conversation, which delegates to the manager.
+    getSubagentChildren: () =>
+      getSubagentManager().getChildrenOf(TEST_CONVERSATION_ID),
   } as never);
 }
 
@@ -279,6 +289,7 @@ function clearSeededSubagents(): void {
 
 describe("injector chain", () => {
   beforeEach(() => {
+    registerDefaultPluginInjectors();
     clearPkbContent();
     clearNowScratchpad();
     clearConversations();
@@ -292,14 +303,19 @@ describe("injector chain", () => {
       .run();
   });
 
-  test("defaultInjectors lists the defaults in the documented order", () => {
-    const names = defaultInjectors.map((i) => i.name);
+  test("the registered defaults appear in the documented order", () => {
+    // The non-v3 defaults (order < 1000) come from the memory plugin and the
+    // domain plugins; the registry unions and sorts them.
+    const names = getRegisteredInjectors()
+      .filter((i) => i.order < 1000)
+      .map((i) => i.name);
     expect(names).toEqual([
       "disk-pressure-warning",
       "workspace-context",
       "background-turn",
       "unified-turn-context",
       "config-quarantine-notice",
+      "config-validation-reset-notice",
       "pkb-context",
       "pkb-reminder",
       "memory-v2-static",
@@ -313,7 +329,9 @@ describe("injector chain", () => {
   });
 
   test("default injector order constants match the listed order values", () => {
-    const byName = new Map(defaultInjectors.map((i) => [i.name, i.order]));
+    const byName = new Map(
+      getRegisteredInjectors().map((i) => [i.name, i.order]),
+    );
     expect(byName.get("disk-pressure-warning")).toBe(
       DEFAULT_INJECTOR_ORDER.diskPressureWarning,
     );
@@ -328,6 +346,9 @@ describe("injector chain", () => {
     );
     expect(byName.get("config-quarantine-notice")).toBe(
       DEFAULT_INJECTOR_ORDER.configQuarantineNotice,
+    );
+    expect(byName.get("config-validation-reset-notice")).toBe(
+      DEFAULT_INJECTOR_ORDER.configValidationResetNotice,
     );
     expect(byName.get("pkb-context")).toBe(DEFAULT_INJECTOR_ORDER.pkbContext);
     expect(byName.get("pkb-reminder")).toBe(DEFAULT_INJECTOR_ORDER.pkbReminder);
@@ -351,11 +372,11 @@ describe("injector chain", () => {
     // The assembled chain merges the defaults with the two memory-v3
     // injectors and sorts by `order`, so the cards injector (order 1000) and
     // the spotlight injector (order 1001) sit last, in that order.
-    const chain = getInjectorChain();
+    const chain = getRegisteredInjectors();
     const orders = chain.map((i) => i.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
-    expect(chain.map((i) => i.name)).toEqual([
-      ...defaultInjectors.map((i) => i.name),
+    // The two memory-v3 injectors (order 1000 / 1001) sort last, in that order.
+    expect(chain.map((i) => i.name).slice(-2)).toEqual([
       "memory-v3-shadow",
       "memory-v3-spotlight",
     ]);

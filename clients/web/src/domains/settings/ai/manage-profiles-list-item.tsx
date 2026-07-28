@@ -22,6 +22,12 @@ interface DropTarget {
 
 interface ProfileListItemProps {
   profile: ProfileWithName;
+  /**
+   * True when the connection named "vellum" is the managed sentinel row. A
+   * user-owned BYOK row may claim that name (the seeder preserves it), and
+   * profiles bound to it must not present as the managed Vellum route.
+   */
+  vellumIsManaged: boolean;
   isDragging: boolean;
   dropTarget: DropTarget | null;
   isDeleting: boolean;
@@ -54,19 +60,30 @@ function resolveModelDisplayName(
   return lastSlash >= 0 ? modelId.slice(lastSlash + 1) : modelId;
 }
 
-function formatProfileSubtitle(profile: ProfileWithName): string {
+function formatProfileSubtitle(
+  profile: ProfileWithName,
+  vellumIsManaged: boolean,
+): string {
   const parts: string[] = [];
 
   if (profile.description) {
     parts.push(profile.description);
   }
 
+  // Profiles bound to the Vellum-managed connection present as "Vellum" —
+  // the stored provider is a routing detail users never see. A user-owned
+  // row merely named "vellum" keeps its real provider.
+  const displayProvider =
+    profile.provider_connection === "vellum" && vellumIsManaged
+      ? "vellum"
+      : profile.provider;
   const modelProvider: string[] = [];
   if (profile.model) {
-    modelProvider.push(resolveModelDisplayName(profile.provider, profile.model));
+    modelProvider.push(resolveModelDisplayName(displayProvider, profile.model));
   }
-  if (profile.provider) {
-    const providerLabel = PROVIDER_DISPLAY_NAMES[profile.provider] ?? profile.provider;
+  if (displayProvider) {
+    const providerLabel =
+      PROVIDER_DISPLAY_NAMES[displayProvider] ?? displayProvider;
     modelProvider.push(`hosted by ${providerLabel}`);
   }
 
@@ -83,6 +100,7 @@ function formatProfileSubtitle(profile: ProfileWithName): string {
 
 export function ProfileListItem({
   profile,
+  vellumIsManaged,
   isDragging,
   dropTarget,
   isDeleting,
@@ -98,6 +116,7 @@ export function ProfileListItem({
   onStatusToggle,
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
+  const isInvariant = profile.invariant === true;
   const isActive = profile.status !== "disabled";
 
   return (
@@ -132,52 +151,63 @@ export function ProfileListItem({
             {isManaged && (
               <Tag
                 tone="positive"
-                title="Managed by Platform — auth is locked, but you can rename or disable this profile."
+                title="Managed by Platform — this profile cannot be disabled, deleted, or renamed."
               >
                 Platform
               </Tag>
             )}
           </div>
-          {(profile.description || profile.model || profile.provider) ? (
+          {profile.description || profile.model || profile.provider ? (
             <Typography
               variant="body-medium-lighter"
               as="p"
               className="mt-0.5 text-(--content-tertiary)"
             >
-              {formatProfileSubtitle(profile)}
+              {formatProfileSubtitle(profile, vellumIsManaged)}
             </Typography>
           ) : null}
         </div>
 
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-2">
-          <div
-            className="flex shrink-0 items-center"
-            title={
-              isActive
-                ? "Active — toggle to hide from pickers"
-                : "Disabled — toggle to show in pickers"
-            }
-          >
-            <Toggle
-              checked={isActive}
-              onChange={(next) => onStatusToggle(next)}
-              disabled={isToggling}
-              aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
-            />
-          </div>
+          {/* Invariant (managed) profiles cannot be disabled, so an active one
+              gets no toggle. A disabled one keeps it so it can be re-enabled —
+              the daemon accepts the enable direction. */}
+          {(!isInvariant || !isActive) && (
+            <div
+              className="flex shrink-0 items-center"
+              title={
+                isActive
+                  ? "Active — toggle to hide from pickers"
+                  : "Disabled — toggle to show in pickers"
+              }
+            >
+              <Toggle
+                checked={isActive}
+                onChange={(next) => onStatusToggle(next)}
+                disabled={isToggling}
+                aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
+              />
+            </div>
+          )}
           <div className="flex w-[92px] items-center justify-end gap-2">
+            {/* Invariant profiles open in view mode and cannot be deleted.
+                The daemon stamps the wire flag only on managed-source
+                entries, so a user-owned profile sharing a managed name
+                renders as a normal editable profile. */}
             <Button variant="ghost" size="compact" onClick={onEditClick}>
-              {isManaged ? "View" : "Edit"}
+              {isManaged || isInvariant ? "View" : "Edit"}
             </Button>
             <Button
               variant="ghost"
               size="compact"
               iconOnly={<Trash2 />}
               aria-label={`Delete ${profile.label ?? profile.name}`}
-              disabled={isManaged || isDeleting}
+              disabled={isManaged || isInvariant || isDeleting}
               title={
-                isManaged ? "Managed profiles cannot be deleted" : undefined
+                isManaged || isInvariant
+                  ? "Managed profiles cannot be deleted"
+                  : undefined
               }
               onClick={onDeleteClick}
               tintColor="var(--system-negative-strong)"

@@ -7,7 +7,7 @@
  * Without this wrapper the conversation-level provider transport is fixed at
  * construction time, so a per-call-site `llm.callSites.<id>.provider`
  * override only affects the request *metadata* the downstream client sees —
- * the actual HTTP transport still belongs to `llm.default.provider`. That
+ * the actual HTTP transport still belongs to the default provider. That
  * means routing decisions like "send `memoryRetrieval` calls to OpenAI even
  * though the main agent runs on Anthropic" silently fail.
  *
@@ -23,17 +23,20 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
   ConnectionResolutionError,
+  resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
+import { shouldUseNativeWebSearch } from "./registry.js";
 import type {
   Message,
   Provider,
@@ -41,6 +44,7 @@ import type {
   SendMessageOptions,
 } from "./types.js";
 
+const log = getLogger("providers/call-site-routing");
 export class CallSiteRoutingProvider implements Provider {
   public readonly tokenEstimationProvider?: string;
   // Forward native web-search capability so it survives the wrapper chain
@@ -53,10 +57,9 @@ export class CallSiteRoutingProvider implements Provider {
   // both in-flight at the same time on the same provider instance) each see
   // their own value — no clobbering, no premature clear.
   //
-  // During sendMessage, emitLlmCallStartedIfNeeded reads provider.name on the
-  // first text_delta (before the response completes). The getter below returns
-  // the async-context value so streaming trace events carry the routed
-  // provider's name, not the default's.
+  // The getter below returns the async-context value while a routed
+  // sendMessage is in flight, so any code that reads provider.name during
+  // the call sees the routed provider's name, not the default's.
   private readonly _activeProviderContext = new AsyncLocalStorage<string>();
 
   get name(): string {
@@ -113,9 +116,9 @@ export class CallSiteRoutingProvider implements Provider {
 
     const doSend = async (): Promise<ProviderResponse> => {
       const response = await target.sendMessage(messages, options);
-      // Also stamp actualProvider on the response so that handleUsage /
-      // llm_call_finished (which read event.actualProvider, not provider.name)
-      // attribute the call to the right provider.
+      // Also stamp actualProvider on the response so that handleUsage
+      // (which reads event.actualProvider, not provider.name) attributes
+      // the call to the right provider.
       if (isRouted && response.actualProvider == null) {
         return { ...response, actualProvider: target.name };
       }
@@ -123,11 +126,51 @@ export class CallSiteRoutingProvider implements Provider {
     };
 
     // Run inside the async context so that any code reading provider.name
-    // during streaming (e.g. emitLlmCallStartedIfNeeded on text_delta) sees
-    // the routed provider's name for this specific call, not the default.
+    // during streaming sees the routed provider's name for this specific
+    // call, not the default.
     return isRouted
       ? this._activeProviderContext.run(target.name, doSend)
       : doSend();
+  }
+
+  /**
+   * Native web-search capability of the provider/model THIS call routes to.
+   *
+   * `selectProvider` picks the transport from the routed connection, but each
+   * leaf provider's static `supportsNativeWebSearch` was fixed to the DEFAULT
+   * (provider, model) at boot. Resolving the call-site here — same
+   * `resolveCallSiteConfig` inputs `selectProvider` uses — and recomputing
+   * `shouldUseNativeWebSearch(resolved.provider, resolved.model)` yields the
+   * capability of the routed target instead of the construction-time default.
+   *
+   * Falls back to the default provider's static flag when no `callSite` is set
+   * (the legacy short-circuit `selectProvider` also takes).
+   *
+   * Known limitation: this reports the *resolved* target's capability and does
+   * not replay `selectProvider`'s async soft-credential fallback. If the routed
+   * connection has a transient credential failure at send time, `selectProvider`
+   * falls back to the default provider while this probe still reports the routed
+   * target — so a non-native default + native routed target with a credential
+   * blip can attach `web_search` to the fallback non-native provider. The probe
+   * stays sync (the loop assembles tools synchronously) and the worst case is
+   * bounded: the advisor consult that hits it degrades benignly (the unhandled
+   * tool surfaces as a caught failure → "(advisor unavailable)"), not a crash.
+   */
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    const callSite = options?.config?.callSite;
+    if (!callSite) {
+      return this.defaultProvider.supportsNativeWebSearch === true;
+    }
+    const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
+      overrideProfile: options?.config?.overrideProfile,
+      forceOverrideProfile: options?.config?.forceOverrideProfile,
+      selectionSeed: options?.config?.selectionSeed,
+    });
+    return shouldUseNativeWebSearch(
+      getConfig(),
+      resolved.provider,
+      resolved.model,
+    );
   }
 
   /**
@@ -141,18 +184,25 @@ export class CallSiteRoutingProvider implements Provider {
    *      Soft credential failures fall back to the default Provider so
    *      a transient credential blip does not take a conversation
    *      offline.
-   *   3. Resolved profile's `provider` matches the default's name → reuse
-   *      the default provider instance (no connection-aware lookup
-   *      needed; the default IS the connection-aware route).
-   *   4. Resolved profile's `provider` differs from the default but no
-   *      `provider_connection` is set → throw. This is a configuration
+   *   3. No `provider_connection` → auto-resolve a connection for the
+   *      resolved provider and route through it. This runs even when the
+   *      provider matches the default's name: the default transport may
+   *      ride the managed (platform-billed) connection while the profile's
+   *      intent is the user's own key, so a bare name match must not stand
+   *      in for connection resolution.
+   *   4. No connection exists for the provider and it matches the
+   *      default's name → reuse the default provider instance.
+   *   5. Resolved profile's `provider` differs from the default but no
+   *      connection could be resolved → throw. This is a configuration
    *      bug: alternate-provider routing requires a connection.
    */
   private async selectProvider(
     options?: SendMessageOptions,
   ): Promise<Provider> {
     const callSite = options?.config?.callSite;
-    if (!callSite) return this.defaultProvider;
+    if (!callSite) {
+      return this.defaultProvider;
+    }
 
     const overrideProfile = options?.config?.overrideProfile;
     // Forward `forceOverrideProfile` and the per-conversation mix seed so
@@ -170,14 +220,30 @@ export class CallSiteRoutingProvider implements Provider {
 
     let connectionName = resolved.provider_connection;
 
-    // When no connection is set and the provider differs from the default,
-    // auto-resolve a connection for the provider (handles the case where the
-    // profile set provider but not provider_connection, and the merge didn't
-    // inherit one).
+    // A routing-identity provider ("vellum"/"chatgpt") names its own
+    // connection row; the provider-keyed scan below cannot find it (the
+    // chatgpt row stores provider "openai"), so short-circuit to the
+    // canonical name. Unroutable vellum models throw here — loudly —
+    // instead of falling through to the default transport.
+    if (!connectionName) {
+      connectionName = resolveRoutingIdentity(
+        resolved.provider,
+        resolved.model,
+      )?.connectionName;
+    }
+
+    // When no connection is set, auto-resolve one for the resolved provider —
+    // including when the provider matches the default's name. The default
+    // transport may ride the managed (platform-billed) connection, so reusing
+    // it on a bare name match would silently bill managed credits for a
+    // profile whose intent is the user's own key. Mirrors
+    // `resolveConfiguredProvider`, which never takes a name shortcut; when no
+    // connection exists for the provider, the same-name fallthrough below
+    // still reuses the default transport.
     let autoResolveCandidates:
       | import("./inference/auth.js").ProviderConnection[]
       | undefined;
-    if (!connectionName && resolved.provider !== this.defaultProvider.name) {
+    if (!connectionName) {
       try {
         autoResolveCandidates = listConnections(getDb(), {
           provider: resolved.provider,
@@ -199,7 +265,23 @@ export class CallSiteRoutingProvider implements Provider {
         resolved.provider,
         resolved.model,
       );
-      if (connectionProvider) return connectionProvider;
+      if (connectionProvider) {
+        return connectionProvider;
+      }
+      // Soft credential failure: the routed connection yielded no usable
+      // adapter and dispatch is landing on the default transport, which may
+      // be the platform-billed route — keep every such degradation
+      // observable.
+      log.warn(
+        {
+          callSite,
+          connectionName,
+          provider: resolved.provider,
+          model: resolved.model,
+          reason: "credential_unavailable",
+        },
+        "Routed connection yielded no adapter — falling back to the default transport",
+      );
       return this.defaultProvider;
     }
 
@@ -217,6 +299,7 @@ export class CallSiteRoutingProvider implements Provider {
           "<resolved-callsite>",
           "model_incompatible",
           incompatMsg,
+          { model: resolved.model },
         );
       }
     }

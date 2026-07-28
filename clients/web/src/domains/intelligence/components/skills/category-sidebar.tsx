@@ -11,6 +11,8 @@ interface CategorySidebarProps {
   totalCount: number;
   showCounts: boolean;
   categories: CategoryInfo[];
+  /** Accessible label for the rail; callers reusing it (e.g. Plugins) override. */
+  ariaLabel?: string;
 }
 
 export function CategorySidebar({
@@ -20,13 +22,14 @@ export function CategorySidebar({
   totalCount,
   showCounts,
   categories,
+  ariaLabel = "Skill categories",
 }: CategorySidebarProps) {
   const sortedCategories = [...categories].sort((a, b) =>
     a.label.localeCompare(b.label),
   );
 
   return (
-    <nav className="flex flex-col gap-1" aria-label="Skill categories">
+    <nav className="flex flex-col gap-1" aria-label={ariaLabel}>
       <CategoryRow
         icon={LayoutGrid}
         label="All"

@@ -3,57 +3,62 @@ import { describe, expect, it } from "bun:test";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleToolResult,
+  handleToolUsePreviewStart,
   handleToolUseStart,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 
-describe("handleToolUseStart", () => {
-  it("cancels reconciliation and creates tool call with generated id", () => {
+// Post client-sync cutover: these handlers no longer mutate transcript
+// content. The rolling-snapshot reducer owns tool calls, results, output
+// chunks and preview cards. The handlers only stamp the current-assistant
+// anchor ref and drive the turn store.
+
+describe("handleToolUsePreviewStart", () => {
+  it("stamps the current-assistant anchor from event.messageId", () => {
     const ctx = makeCtx();
-    handleToolUseStart(
-      { type: "tool_use_start", toolName: "web_search", input: { query: "test" } },
+    handleToolUsePreviewStart(
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "tc-1",
+        toolName: "bash",
+        messageId: "anchor-1",
+      },
       ctx,
     );
-    expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.turnActions.onToolUseStart).toHaveBeenCalled();
-    expect(ctx.toolCallIdCounterRef.current).toBe(1);
-    expect(ctx.setMessages).toHaveBeenCalled();
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("anchor-1");
   });
 
-  it("uses provided toolUseId when available", () => {
+  it("leaves the anchor ref untouched when messageId is absent", () => {
+    const ctx = makeCtx();
+    ctx.currentAssistantMessageIdRef.current = "prev-anchor";
+    handleToolUsePreviewStart(
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "tc-1",
+        toolName: "bash",
+      },
+      ctx,
+    );
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("prev-anchor");
+  });
+});
+
+describe("handleToolUseStart", () => {
+  it("cancels reconciliation and notifies the turn store", () => {
     const ctx = makeCtx();
     handleToolUseStart(
       {
         type: "tool_use_start",
         toolName: "web_search",
-        input: {},
-        toolUseId: "custom-id",
+        input: { query: "test" },
+        toolUseId: "tc-1",
       },
       ctx,
     );
-    expect(ctx.toolCallIdCounterRef.current).toBe(0);
+    expect(ctx.cancelReconciliation).toHaveBeenCalled();
+    expect(ctx.turnActions.onToolUseStart).toHaveBeenCalled();
   });
 
-  it("creates a new bubble when there is no assistant tail to fold into", () => {
-    const ctx = makeCtx();
-    handleToolUseStart(
-      { type: "tool_use_start", toolName: "web_search", input: {}, toolUseId: "tc-1" },
-      ctx,
-    );
-    expect(ctx.setMessages).toHaveBeenCalled();
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
-      prev: never[],
-    ) => Array<{ role: string; toolCalls: Array<{ id: string }> }>;
-    const next = updater([]);
-    expect(next).toHaveLength(1);
-    expect(next[0]?.role).toBe("assistant");
-    expect(next[0]?.toolCalls).toHaveLength(1);
-    expect(next[0]?.toolCalls[0]?.id).toBe("tc-1");
-  });
-
-  it("forwards event.messageId to the new bubble (adopts as row id, no isOptimistic)", () => {
-    // Anchor protocol: tool_use_start carries messageId from event zero —
-    // the daemon has committed to the assistant message existing. The new
-    // bubble adopts that id rather than being stamped optimistic.
+  it("stamps the current-assistant anchor from event.messageId", () => {
     const ctx = makeCtx();
     handleToolUseStart(
       {
@@ -65,50 +70,27 @@ describe("handleToolUseStart", () => {
       },
       ctx,
     );
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
-      prev: never[],
-    ) => Array<{ id: string; isOptimistic?: boolean }>;
-    const next = updater([]);
-    expect(next[0]?.id).toBe("server-msg-1");
-    expect(next[0]?.isOptimistic).toBeUndefined();
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("server-msg-1");
   });
 
-  it("folds three sequential tool_use_starts with the same messageId into one bubble", () => {
-    // Concrete reproduction of the bug behind the screenshot: three
-    // tool_use_starts arriving back-to-back with the same anchor messageId
-    // must produce ONE assistant row with three tool calls, not three
-    // overlapping bubbles or a duplicate.
+  it("leaves the anchor ref untouched when messageId is absent", () => {
     const ctx = makeCtx();
-    let current: Array<{ id: string; toolCalls?: Array<{ id: string }>; isOptimistic?: boolean }> = [];
-    const setMessages = ctx.setMessages as unknown as { mock: { calls: unknown[][] } };
-
-    for (const [i, toolUseId] of ["tc-1", "tc-2", "tc-3"].entries()) {
-      handleToolUseStart(
-        {
-          type: "tool_use_start",
-          toolName: "web_search",
-          input: {},
-          toolUseId,
-          messageId: "anchor-1",
-        },
-        ctx,
-      );
-      const updater = setMessages.mock.calls[i]![0] as (
-        prev: typeof current,
-      ) => typeof current;
-      current = updater(current);
-    }
-
-    expect(current).toHaveLength(1);
-    expect(current[0]!.id).toBe("anchor-1");
-    expect(current[0]!.isOptimistic).toBeUndefined();
-    expect(current[0]!.toolCalls).toHaveLength(3);
-    expect(current[0]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-1", "tc-2", "tc-3"]);
+    ctx.currentAssistantMessageIdRef.current = "prev-anchor";
+    handleToolUseStart(
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: {},
+        toolUseId: "tc-1",
+      },
+      ctx,
+    );
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("prev-anchor");
   });
 });
 
 describe("handleToolResult", () => {
-  it("dispatches TOOL_RESULT and updates messages", () => {
+  it("notifies the turn store of the tool result", () => {
     const ctx = makeCtx();
     handleToolResult(
       {
@@ -120,10 +102,9 @@ describe("handleToolResult", () => {
       ctx,
     );
     expect(ctx.turnActions.onToolResult).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("routes activityMetadata to onToolActivityMetadata action when present", () => {
+  it("routes activityMetadata to onToolActivityMetadata when toolUseId present", () => {
     const ctx = makeCtx();
     const metadata = {
       webSearch: {
@@ -165,6 +146,20 @@ describe("handleToolResult", () => {
         toolName: "web_search",
         result: "...",
         activityMetadata: { webSearch: undefined },
+      },
+      ctx,
+    );
+    expect(ctx.turnActions.onToolActivityMetadata).not.toHaveBeenCalled();
+  });
+
+  it("does NOT route activityMetadata when metadata is absent", () => {
+    const ctx = makeCtx();
+    handleToolResult(
+      {
+        type: "tool_result",
+        toolName: "web_search",
+        result: "...",
+        toolUseId: "tc-1",
       },
       ctx,
     );

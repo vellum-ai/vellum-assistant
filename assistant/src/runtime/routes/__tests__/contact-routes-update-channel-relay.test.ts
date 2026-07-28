@@ -57,9 +57,8 @@ mock.module("../../../contacts/contact-store.js", () => ({
   updateChannelStatus: contactStoreWriteGuard,
 }));
 
-const { handleUpdateContactChannelRoute, ROUTES } = await import(
-  "../contact-routes.js"
-);
+const { handleUpdateContactChannelRoute, ROUTES } =
+  await import("../contact-routes.js");
 
 describe("update contact channel relay", () => {
   beforeEach(() => {

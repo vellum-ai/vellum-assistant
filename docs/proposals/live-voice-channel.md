@@ -40,7 +40,7 @@ export interface CallTransport {
   sendPlayUrl(url: string): Promise<void>;
   endSession(reason?: string): Promise<void>;
   getConnectionState(): ConnectionState;
-  readonly requiresWavAudio?: boolean;
+  readonly requiresPcmAudio?: boolean;
 }
 ```
 

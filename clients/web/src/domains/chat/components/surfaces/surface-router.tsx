@@ -1,4 +1,5 @@
-import { CheckCircle, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import * as Sentry from "@sentry/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { INHERENTLY_INTERACTIVE_SURFACE_TYPES } from "@/domains/chat/types/types";
@@ -16,6 +17,7 @@ import { FileUploadSurface } from "@/domains/chat/components/surfaces/file-uploa
 import { FormSurface } from "@/domains/chat/components/surfaces/form-surface";
 import { ListSurface } from "@/domains/chat/components/surfaces/list-surface";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
+import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-created-card";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
@@ -36,9 +38,12 @@ export interface SurfaceRouterProps {
    *  `DynamicPageSurface`, which derives whether the surface's originating
    *  tool call has completed before unlocking the app preview. */
   toolCalls?: ChatMessageToolCall[];
+  /** Handler for `vellum://` file links clicked inside a `dynamic_page`
+   *  surface's sandboxed iframe. Threaded to `DynamicPageSurface`. */
+  onVellumLinkClick?: (href: string, linkText: string) => void;
 }
 
-export function SurfaceRouter({
+function SurfaceRouterInner({
   surface,
   onAction,
   assistantId,
@@ -46,6 +51,7 @@ export function SurfaceRouter({
   onOpenApp,
   onOpenDocument,
   toolCalls,
+  onVellumLinkClick,
 }: SurfaceRouterProps) {
   if (surface.completed && INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)) {
     const isCancelled = surface.completionSummary === "Cancelled";
@@ -108,6 +114,7 @@ export function SurfaceRouter({
           assistantId={assistantId}
           onOpenApp={onOpenApp}
           toolCalls={toolCalls}
+          onVellumLinkClick={onVellumLinkClick}
         />
       );
 
@@ -132,6 +139,9 @@ export function SurfaceRouter({
         />
       );
 
+    case "skill_card":
+      return <SkillCreatedCard surface={surface} onAction={onAction} />;
+
     default:
       // Fallback card for unsupported surface types
       return (
@@ -144,4 +154,43 @@ export function SurfaceRouter({
         </SurfaceContainer>
       );
   }
+}
+
+/**
+ * Renders one transcript surface, isolated behind an error boundary so a render
+ * failure inside a single surface — most consequentially the `dynamic_page`
+ * app viewer, whose sandboxed iframe drives async layout changes that can
+ * cascade into a render loop when the surface arrives mid-stream — degrades to
+ * an inline fallback instead of unwinding the whole transcript and
+ * white-screening the assistant.
+ *
+ * The boundary is keyed on `surfaceId`: a surface that crashes stays in the
+ * fallback until it is replaced by a different surface at the same position,
+ * so a surface caught in a render loop is not immediately re-mounted (and
+ * re-looped) by the next stream update to its own data.
+ */
+export function SurfaceRouter(props: SurfaceRouterProps) {
+  const { surface } = props;
+  return (
+    <Sentry.ErrorBoundary
+      key={surface.surfaceId}
+      beforeCapture={(scope) => {
+        scope.setTag("boundary", "chat-surface");
+        scope.setTag("surfaceType", surface.surfaceType ?? "unknown");
+      }}
+      fallback={
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-lift)] px-3 py-2 text-body-small-default text-[var(--content-quiet)]"
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {surface.title
+            ? `"${surface.title}" couldn't be displayed.`
+            : "This content couldn't be displayed."}
+        </div>
+      }
+    >
+      <SurfaceRouterInner {...props} />
+    </Sentry.ErrorBoundary>
+  );
 }

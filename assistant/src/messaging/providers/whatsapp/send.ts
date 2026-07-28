@@ -7,7 +7,7 @@
 
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
-import { getAttachmentContent } from "../../../memory/attachments-store.js";
+import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -37,10 +37,12 @@ const WHATSAPP_VIDEO_MIME_PREFIXES = ["video/mp4", "video/3gpp"];
 const WHATSAPP_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 function resolveMediaType(mimeType: string): WhatsAppMediaType {
-  if (WHATSAPP_IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p)))
+  if (WHATSAPP_IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) {
     return "image";
-  if (WHATSAPP_VIDEO_MIME_PREFIXES.some((p) => mimeType.startsWith(p)))
+  }
+  if (WHATSAPP_VIDEO_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) {
     return "video";
+  }
   return "document";
 }
 
@@ -49,33 +51,51 @@ function resolveMediaType(mimeType: string): WhatsAppMediaType {
  * Tries to split on newlines first, then whitespace, then hard-cuts.
  */
 function splitText(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
+  if (text.length <= maxLen) {
+    return [text];
+  }
 
   const chunks: string[] = [];
   let remaining = text;
 
   while (remaining.length > maxLen) {
     let splitIdx = remaining.lastIndexOf("\n", maxLen);
-    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf(" ", maxLen);
-    if (splitIdx <= 0) splitIdx = maxLen;
+    if (splitIdx <= 0) {
+      splitIdx = remaining.lastIndexOf(" ", maxLen);
+    }
+    if (splitIdx <= 0) {
+      splitIdx = maxLen;
+    }
 
     chunks.push(remaining.slice(0, splitIdx));
     remaining = remaining.slice(splitIdx).trimStart();
   }
 
-  if (remaining.length > 0) chunks.push(remaining);
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
   return chunks;
 }
 
+// Deny-intent actions are pinned when the button cap forces a cut — the
+// guardian must always have a button path to refuse/block.
+const WHATSAPP_PINNED_ACTION_IDS = new Set(["reject", "block"]);
+
 /**
  * Select up to WHATSAPP_MAX_BUTTONS actions for WhatsApp interactive buttons.
- * With only approve_once and reject, this limit is never exceeded, but we
- * keep the cap in case future action types are added.
+ * Introduction cards carry four actions, so when the cap forces a cut the
+ * deny-intent actions (reject/block) are preserved and the remaining slots
+ * are filled in order.
  */
 function selectButtons(
   actions: Array<{ id: string; label: string }>,
 ): Array<{ id: string; label: string }> {
-  return actions.slice(0, WHATSAPP_MAX_BUTTONS);
+  if (actions.length <= WHATSAPP_MAX_BUTTONS) {
+    return actions;
+  }
+  const pinned = actions.filter((a) => WHATSAPP_PINNED_ACTION_IDS.has(a.id));
+  const rest = actions.filter((a) => !WHATSAPP_PINNED_ACTION_IDS.has(a.id));
+  return [...rest.slice(0, WHATSAPP_MAX_BUTTONS - pinned.length), ...pinned];
 }
 
 // ---------------------------------------------------------------------------

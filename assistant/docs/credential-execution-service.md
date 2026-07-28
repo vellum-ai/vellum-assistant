@@ -34,23 +34,15 @@ For local single-user and development deployments, the assistant spawns CES as a
 
 For managed multi-tenant deployments, CES runs as a sidecar container in the same pod. Communication occurs over a **bootstrap Unix socket** mounted at a well-known path in a shared `emptyDir` volume. The sidecar starts independently and the assistant connects to the socket on startup.
 
-## CES Tools
+## CES RPC Operations
 
-CES exposes exactly three tools to the assistant, registered as a **deliberate exception** to the skill-first tool direction (see `AGENTS.md` and `assistant/src/tools/AGENTS.md`). These tools are not skills because they require hard process-boundary isolation that skill scripts cannot provide.
+CES implements three credential-execution RPC operations. Credential values are materialized only inside the CES process (`credential-executor/` package); a caller sends credential handles and receives sanitized results, never plaintext secret material.
 
-| Tool                         | Purpose                                                                                                                                                                                |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run_authenticated_command`  | Execute a shell command with credential environment variables injected by CES. The credential values are set in the CES process environment only — never transmitted to the assistant. |
-| `make_authenticated_request` | Execute an HTTP request with credential-bearing headers/auth injected by CES. CES performs the HTTP call and returns the response body and status to the assistant.                    |
-| `manage_secure_command_tool` | Register and manage secure command tool bundles in the CES toolstore. Handles bundle lifecycle (registration, unregistration) for manifest-driven credential-bearing commands.         |
-
-### Tool registration
-
-CES tools use the standard `class ... implements Tool` registration pattern. These are justified exceptions to the general preference for skills because:
-
-- The security boundary requires that credential materialization happens in a separate process
-- Skill scripts run inside the assistant process and cannot enforce the hard isolation invariant
-- The tools are thin RPC stubs; the actual logic lives in the `credential-executor/` package
+| Operation                    | Purpose                                                                                                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_authenticated_command`  | Execute a shell command with credential environment variables injected by CES. The credential values are set in the CES process environment only — never transmitted to the caller. |
+| `make_authenticated_request` | Execute an HTTP request with credential-bearing headers/auth injected by CES. CES performs the HTTP call and returns the response body and status to the caller.                    |
+| `manage_secure_command_tool` | Register and manage secure command tool bundles in the CES toolstore. Handles bundle lifecycle (registration, unregistration) for manifest-driven credential-bearing commands.      |
 
 ## Locked Decisions
 
@@ -225,47 +217,13 @@ These invariants are enforced by guard tests and code review:
 
 1. **No cross-package source imports**: `assistant/` must not import from `credential-executor/` and vice versa. Communication is RPC only. Shared types flow through `packages/` only.
 2. **No credential values in assistant process memory**: The assistant sends credential handles (not values) to CES. CES materializes and uses them internally.
-3. **CES tools justify tool registrations over skills** for credential-bearing execution because of the hard process-boundary isolation requirement. All other credential use continues through the existing broker for local deployments.
+3. **Credential-bearing execution goes through CES RPC**: operations that must materialize a credential run inside the CES process across the hard process boundary. All other credential use continues through the existing broker for local deployments.
 4. **Grants and audit logs are CES-internal**: The assistant cannot read CES grant tables or audit logs directly. CES exposes grant status and audit summaries via RPC responses.
 5. **No generic authenticated HTTP clients in secure commands**: `curl`, `wget`, `httpie`, interpreters, and shell trampolines are structurally denied as secure command entrypoints. This is checked at manifest validation and re-checked at execution time.
 6. **Managed CES container runs as non-root**: The CES Docker image runs as `uid 1001` (user `ces`). The CES data volume is owned by this user.
 7. **Single active bootstrap connection**: In managed mode, CES accepts one connection on the bootstrap socket and unlinks the socket path while that connection is live, so no second process can connect concurrently. CES is a long-lived sidecar: when the active session ends (the assistant disconnects or its container restarts), CES re-binds the socket and awaits the assistant's reconnection rather than shutting down. At most one connection is ever active; the sidecar only exits on SIGTERM/SIGINT.
 
-## Rollout
-
-CES is rolled out incrementally via feature flags, all defaulting to `false` (off). The flags are ordered to allow progressive enablement without user-facing disruption.
-
-### Feature flag order
-
-Enable flags in this order. Each flag is safe to enable independently, but later flags depend on earlier ones being on for meaningful behavior.
-
-| Order | Flag                  | Gate                                                                                                                                                | Safe to enable alone?                                                                                                           |
-| ----- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | `ces-tools`           | Register CES tools (`run_authenticated_command`, `make_authenticated_request`, `manage_secure_command_tool`) in the agent loop                      | Yes — tools register but are not invoked unless the agent discovers credentials that require CES                                |
-| 2     | `ces-shell-lockdown`  | Enforce shell lockdown for untrusted agents with CES-active credentials; direct shell access to credentialed services is denied                     | Yes — only activates when CES credentials are present                                                                           |
-| 3     | `ces-secure-install`  | Route tool/command installation through CES secure bundle pipeline instead of direct shell                                                          | Yes — falls back to standard install if CES is unavailable                                                                      |
-| 4     | `ces-grant-audit`     | Gate CLI execution of grant listing, grant revocation, and audit inspection commands (commands are always registered but check the flag at runtime) | Yes — read-only inspection surfaces                                                                                             |
-| 5     | `ces-managed-sidecar` | Use managed sidecar transport (Unix socket) instead of local child-process transport                                                                | **No** — requires the CES sidecar container to be present in the pod template. Only enable after the sidecar image is deployed. |
-
-### Dark-launching the managed sidecar
-
-To dark-launch CES in managed deployments without user impact:
-
-1. **Deploy the CES container image** via the `credential_executor_image` field in `POST /v1/internal/assistant-image-releases/`. The warm-pool manager picks it up and includes it in pod templates. The CES container starts, binds its bootstrap socket and health port (8090), but does nothing until an assistant connects.
-
-2. **Verify sidecar health** using kubelet probes: `/healthz` (liveness, returns `{"status": "ok"}`) and `/readyz` (readiness, always returns 200; includes `rpcConnected` field for observability).
-
-3. **Enable `ces-tools`** first on a test cohort. The assistant spawns a local CES child process and registers tools. Verify tool registration, grant creation, and audit logging work end-to-end without affecting existing workflows.
-
-4. **Enable `ces-managed-sidecar`** on the same cohort. The assistant switches from child-process transport to the bootstrap Unix socket. CES `/readyz` always returns 200 with `{"status": "ok", "rpcConnected": <boolean>}`; check the `rpcConnected` field to verify the assistant has connected.
-
-5. **Progressive rollout**: Widen the cohort by enabling flags on more assistants. Monitor for grant failures, materializer errors, and egress proxy issues.
-
-### Local deployment rollout
-
-Local deployments do not require image changes. Enabling `ces-tools` causes the assistant to spawn CES as a child process automatically. The remaining flags can be enabled in any order.
-
-### Guarantees by deployment mode
+## Guarantees by deployment mode
 
 | Guarantee                                  | Local                                                                                                 | Managed                                                                                                                                          |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -275,51 +233,6 @@ Local deployments do not require image changes. Enabling `ces-tools` causes the 
 | Network egress enforcement via proxy       | Moderate (cooperative via HTTP_PROXY/HTTPS_PROXY env vars; host networking is available — see Risk 7) | Moderate (cooperative via env vars; per-container Calico/NetworkPolicy egress restriction is a v2 design goal but not yet enforced — see Risk 7) |
 | Secret scrubbing in HTTP responses         | Defense-in-depth only                                                                                 | Defense-in-depth only                                                                                                                            |
 | `host_bash` restriction                    | Policy-only (trust rules can deny, but the tool exists)                                               | Policy-only (same; managed deployments should deny `host_bash` for untrusted agents)                                                             |
-
-## Rollback
-
-### Disabling CES entirely
-
-Turn off all CES feature flags. The assistant stops registering CES tools and reverts to the pre-CES credential broker for all credential operations. No data migration is needed — CES grant and audit state is CES-private and does not affect the assistant's own tables.
-
-Flag disable order:
-
-> **Important — managed deployments**: In managed containers, the assistant image does not ship the `credential-executor` binary, so local CES transport is unavailable. Disabling `ces-managed-sidecar` while `ces-tools` is still enabled will break credentialed tool execution because the assistant cannot fall back to local discovery. Always disable `ces-tools` before `ces-managed-sidecar` in managed deployments.
-
-**Local deployments** (reverse of enable order):
-
-1. `ces-managed-sidecar` — assistant reverts to local child-process transport
-2. `ces-grant-audit` — inspection surfaces disappear
-3. `ces-secure-install` — tool installation reverts to direct shell
-4. `ces-shell-lockdown` — shell lockdown is lifted
-5. `ces-tools` — CES tools are unregistered from the agent loop
-
-**Managed deployments** (`ces-tools` must be disabled before the sidecar):
-
-1. `ces-grant-audit` — inspection surfaces disappear
-2. `ces-secure-install` — tool installation reverts to direct shell
-3. `ces-shell-lockdown` — shell lockdown is lifted
-4. `ces-tools` — CES tools are unregistered; assistant reverts to the pre-CES credential broker
-5. `ces-managed-sidecar` — sidecar transport is deactivated (safe now that no CES tools are registered)
-
-### Removing the managed sidecar
-
-If the CES sidecar container causes pod scheduling issues or resource pressure:
-
-1. Disable `ces-tools` on all assistants first (prevents the assistant from attempting CES calls).
-2. Disable `ces-managed-sidecar` on all assistants.
-3. Remove the CES container and its volume mounts from the pod template in vembda.
-4. CES grant/audit data on the `/ces-data` volume is orphaned and can be cleaned up at convenience.
-
-The assistant reverts to the pre-CES credential broker once `ces-tools` is disabled.
-
-### Partial rollback
-
-Individual flags can be disabled independently:
-
-- Disabling `ces-shell-lockdown` alone re-allows direct shell access to credentialed services while keeping CES tools available.
-- Disabling `ces-grant-audit` alone removes inspection surfaces without affecting CES execution.
-- Disabling `ces-secure-install` alone reverts tool installation to direct shell without affecting CES command execution.
 
 ## Residual Risks
 

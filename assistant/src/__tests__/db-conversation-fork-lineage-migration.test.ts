@@ -1,20 +1,13 @@
 import { Database } from "bun:sqlite";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 const originalBunTest = process.env.BUN_TEST;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { migrateConversationForkLineage } from "../memory/migrations/183-add-conversation-fork-lineage.js";
-import * as schema from "../memory/schema.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { migrateConversationForkLineage } from "../persistence/migrations/183-add-conversation-fork-lineage.js";
+import * as schema from "../persistence/schema/index.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 function createTestDb() {

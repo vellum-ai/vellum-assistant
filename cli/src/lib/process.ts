@@ -1,7 +1,12 @@
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
 
-import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
+import {
+  httpHealthCheck,
+  type HttpProbeEndpoint,
+  probeDaemonReadinessWithRetry,
+  waitForDaemonReady,
+} from "./http-client.js";
 
 /**
  * Verify that a PID belongs to a vellum-related process by inspecting its
@@ -15,7 +20,7 @@ export function isVellumProcess(pid: number): boolean {
       timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
-    return /vellum-daemon|vellum-cli|vellum-gateway|@vellumai|\/\.?vellum\/|\/daemon\/main|\/\.vellum\/.*qdrant\/bin\/qdrant/.test(
+    return /vellum-daemon|vellum-cli|vellum-gateway|credential-executor|@vellumai|\/\.?vellum\/|\/daemon\/main|\/\.vellum\/.*qdrant\/bin\/qdrant/.test(
       output,
     );
   } catch {
@@ -78,31 +83,43 @@ export async function isProcessHealthy(
 
 /**
  * Outcome of {@link resolveProcessState}. Callers switch on `status`:
- * - `"healthy"` — process is alive and responding; `pid` is the live PID.
+ * - `"healthy"` — process is alive and ready; `pid` is the live PID.
+ * - `"unready"` — process is alive and healthy, but DB migrations were still
+ *   running when the readiness wait elapsed.
+ * - `"migration_failed"` — process is alive and healthy, but its DB migrations
+ *   failed: a terminal state that never recovers without a restart. The
+ *   process is kept alive (same keep-alive rule as `"unready"`).
  * - `"needs_start"` — process was dead, hung (and killed), or a stale PID
  *   was cleaned up. Caller should start a fresh process.
  */
 export type ProcessState =
   | { status: "healthy"; pid: number }
+  | { status: "unready"; pid: number }
+  | { status: "migration_failed"; pid: number }
   | { status: "needs_start"; pid: number | null };
 
 /**
- * Determine whether a PID-tracked process is alive and healthy. If the
- * process exists but is unresponsive, waits up to `readinessWaitMs`
- * (default 60s — matches the spawner's own `waitForDaemonReady` timeout
- * so a concurrent caller never kills a daemon the spawner is still
- * waiting on) for it to finish initializing. If it remains unresponsive,
- * verifies it belongs to Vellum before killing it, then cleans up the
- * PID file.
+ * Determine whether a PID-tracked process is alive and healthy. If the process
+ * exists but is unresponsive, waits up to `readinessWaitMs` (default 60s —
+ * matches the spawner's own `waitForDaemonReady` timeout so a concurrent
+ * caller never kills a process the spawner is still waiting on) for it to
+ * start answering health checks. If it remains unresponsive, verifies it
+ * belongs to Vellum before killing it, then cleans up the PID file.
  *
- * Encapsulates the full health → readiness-wait → guard → kill → cleanup
- * flow so callers don't need to reimplement it.
+ * When callers pass the `"readyz"` readiness endpoint, this also CLASSIFIES
+ * DB migration readiness with a single `/readyz` probe (read from the body —
+ * the status code stays 200 during migrations for k8s). It never waits for
+ * readiness: the kill/keep decision depends only on the health check, and
+ * callers that want to wait out a migration own that wait themselves. A
+ * health-checking process is kept alive when migrations are running or
+ * failed.
  */
 export async function resolveProcessState(
   pidFile: string,
   healthPort: number,
   label: string,
   readinessWaitMs: number = 60_000,
+  readinessEndpoint: HttpProbeEndpoint = "healthz",
 ): Promise<ProcessState> {
   const result = await isProcessHealthy(pidFile, healthPort);
 
@@ -110,29 +127,52 @@ export async function resolveProcessState(
     return { status: "needs_start", pid: null };
   }
 
-  if (result.healthy) {
-    return { status: "healthy", pid: result.pid };
+  if (!result.healthy) {
+    // Alive but not healthy — may still be starting up.
+    const becameHealthy = await waitForDaemonReady(
+      healthPort,
+      readinessWaitMs,
+      "healthz",
+    );
+    if (!becameHealthy) {
+      // Genuinely hung — kill if it belongs to Vellum, otherwise just clean up.
+      if (isVellumProcess(result.pid)) {
+        console.log(
+          `${label} process alive (pid ${result.pid}) but not responding — killing and restarting...`,
+        );
+        await stopProcess(result.pid, label);
+      } else {
+        console.log(
+          `Stale PID file (pid ${result.pid} is not a Vellum process) — cleaning up...`,
+        );
+      }
+      removeFiles(pidFile);
+      return { status: "needs_start", pid: result.pid };
+    }
   }
 
-  // Alive but not healthy — may still be starting up.
-  const becameHealthy = await waitForDaemonReady(healthPort, readinessWaitMs);
-  if (becameHealthy) {
-    return { status: "healthy", pid: result.pid };
+  if (readinessEndpoint !== "healthz") {
+    const readiness = await probeDaemonReadinessWithRetry(healthPort);
+    if (readiness === "failed") {
+      return { status: "migration_failed", pid: result.pid };
+    }
+    if (readiness === "unreachable") {
+      // The daemon answered the health check moments ago but not /readyz —
+      // it may have died in between (e.g. OOM during a heavy migration).
+      // Re-verify liveness before reporting it alive, so callers don't skip
+      // starting a replacement for a dead process.
+      if (!isProcessAlive(pidFile).alive) {
+        removeFiles(pidFile);
+        return { status: "needs_start", pid: result.pid };
+      }
+      return { status: "unready", pid: result.pid };
+    }
+    if (readiness !== "ready") {
+      return { status: "unready", pid: result.pid };
+    }
   }
 
-  // Genuinely hung — kill if it belongs to Vellum, otherwise just clean up.
-  if (isVellumProcess(result.pid)) {
-    console.log(
-      `${label} process alive (pid ${result.pid}) but not responding — killing and restarting...`,
-    );
-    await stopProcess(result.pid, label);
-  } else {
-    console.log(
-      `Stale PID file (pid ${result.pid} is not a Vellum process) — cleaning up...`,
-    );
-  }
-  removeFiles(pidFile);
-  return { status: "needs_start", pid: result.pid };
+  return { status: "healthy", pid: result.pid };
 }
 
 /**

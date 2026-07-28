@@ -7,10 +7,16 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/shared-ui";
+import {
+  ByoServiceCard,
+} from "@/domains/settings/ai/shared-ui";
+import {
+  SaveButton,
+} from "@/components/service-form-controls";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
@@ -23,9 +29,11 @@ import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import {
   configGetOptions,
   configGetSetQueryData,
+  configLlmDefaultproviderGetOptions,
   useConfigPatchMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useQuery } from "@tanstack/react-query";
 
 export function LanguageModelCard() {
@@ -36,6 +44,18 @@ export function LanguageModelCard() {
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     staleTime: 30_000,
   });
+
+  // Older assistants 404 the default-provider route; the gate keeps the
+  // query dark and the notice hidden against them.
+  const supportsDefaultProvider = useSupportsDefaultProviderSettings();
+  const { data: defaultProviderStatus, refetch: refetchDefaultProvider } =
+    useQuery({
+      ...configLlmDefaultproviderGetOptions({
+        path: { assistant_id: assistantId },
+      }),
+      enabled: supportsDefaultProvider,
+    });
+  const availability = defaultProviderStatus?.availability;
 
   const activeProfile = config?.llm?.activeProfile ?? null;
   const advisorProfile = config?.llm?.advisorProfile ?? null;
@@ -109,8 +129,12 @@ export function LanguageModelCard() {
         activeProfile?: string | null;
         advisorProfile?: string | null;
       } = {};
-      if (isProfileDirty) llm.activeProfile = effectiveActiveProfile;
-      if (isAdvisorProfileDirty) llm.advisorProfile = effectiveAdvisorProfile;
+      if (isProfileDirty) {
+        llm.activeProfile = effectiveActiveProfile;
+      }
+      if (isAdvisorProfileDirty) {
+        llm.advisorProfile = effectiveAdvisorProfile;
+      }
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
         body: { llm },
@@ -136,6 +160,17 @@ export function LanguageModelCard() {
         subtitle="Configure the LLMs that power your assistant"
       >
         <div className="space-y-4">
+          {availability && availability.status !== "ok" && (
+            // The server owns the explainable wording — render its message
+            // verbatim. `unknown` is transient (credential store unreachable),
+            // everything else is a config problem the user must fix.
+            <Notice
+              tone={availability.status === "unknown" ? "warning" : "error"}
+            >
+              {availability.message ??
+                "Your default provider is not available."}
+            </Notice>
+          )}
           <div className="space-y-1">
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Default Profile
@@ -244,7 +279,14 @@ export function LanguageModelCard() {
         <ManageProvidersModal
           isOpen={manageProvidersOpen}
           assistantId={assistantId}
-          onClose={() => setManageProvidersOpen(false)}
+          onClose={() => {
+            setManageProvidersOpen(false);
+            // Fixing the problem (adding a key/connection, changing the
+            // default) should clear the notice without a reload.
+            if (supportsDefaultProvider) {
+              void refetchDefaultProvider();
+            }
+          }}
         />
       )}
     </>

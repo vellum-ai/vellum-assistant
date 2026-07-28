@@ -14,13 +14,20 @@ import {
   useMemo,
 } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
+import {
+  clearQueueStatus,
+  markMessageQueued,
+} from "@/domains/chat/utils/stream-updaters/shared";
 import { useTurnStore } from "@/domains/chat/turn-store";
-import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages";
+import { steerToMessage } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
+import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
+import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -29,7 +36,20 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 interface UseMessageQueueParams {
   assistantId: string | null;
   activeConversationId: string | null;
-  messages: DisplayMessage[];
+}
+
+function requestIdForQueuedMessage(messageId: string): string | undefined {
+  const { requestIdToMessageId, snapshot } = useChatSessionStore.getState();
+  for (const [requestId, mappedMessageId] of requestIdToMessageId.entries()) {
+    if (requestId === messageId || mappedMessageId === messageId) {
+      return requestId;
+    }
+  }
+  return snapshot?.messages.find(
+    (message) =>
+      message.queueStatus === "queued" &&
+      messageMatchesKey(message, messageId),
+  )?.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,26 +59,28 @@ interface UseMessageQueueParams {
 export function useMessageQueue({
   assistantId,
   activeConversationId,
-  messages,
 }: UseMessageQueueParams) {
-  const setMessages = useChatSessionStore.use.setMessages();
+  const transcriptMessages = useTranscriptMessages();
+  const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   /** Remove an optimistically-added queued message and its tracking state. */
   const revertQueuedMessage = useCallback(
     (messageId: string) => {
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setOptimisticSends((prev) => prev.filter((m) => m.id !== messageId));
       const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
       const idx = queueIds.indexOf(messageId);
-      if (idx !== -1) queueIds.splice(idx, 1);
+      if (idx !== -1) {
+        queueIds.splice(idx, 1);
+      }
     },
-    [],
+    [setOptimisticSends],
   );
 
   const queuedMessages = useMemo(
     () =>
-      messages
+      transcriptMessages
         .filter((m) => m.role === "user" && m.queueStatus === "queued")
         .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0)),
-    [messages],
+    [transcriptMessages],
   );
 
   const handleCancelQueuedMessage = useCallback(
@@ -66,22 +88,24 @@ export function useMessageQueue({
       if (!assistantId || !activeConversationId) {
         return;
       }
-      let targetRequestId: string | undefined;
-      for (const [reqId, mId] of useChatSessionStore.getState().requestIdToMessageId.entries()) {
-        if (mId === messageId) {
-          targetRequestId = reqId;
-          break;
-        }
-      }
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      const targetRequestId = requestIdForQueuedMessage(messageId);
       if (targetRequestId) {
-        void deleteQueuedMessage(assistantId, activeConversationId, targetRequestId);
+        void confirmQueuedMessageDeletion({
+          assistantId,
+          conversationId: activeConversationId,
+          requestId: targetRequestId,
+          messageId,
+          setOptimisticSends,
+          onDeleted: () => {
+            useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
+            useTurnStore.getState().deleteQueuedMessage();
+          },
+        });
       } else {
         useChatSessionStore.getState().addPendingLocalDeletion(messageId);
-        useTurnStore.getState().deleteQueuedMessage();
       }
     },
-    [assistantId, activeConversationId],
+    [assistantId, activeConversationId, setOptimisticSends],
   );
 
   const handleCancelAllQueued = useCallback(() => {
@@ -95,31 +119,32 @@ export function useMessageQueue({
       if (!assistantId || !activeConversationId) {
         return;
       }
-      let targetRequestId: string | undefined;
-      for (const [reqId, mId] of useChatSessionStore.getState().requestIdToMessageId.entries()) {
-        if (mId === messageId) {
-          targetRequestId = reqId;
-          break;
-        }
-      }
+      const targetRequestId = requestIdForQueuedMessage(messageId);
       if (targetRequestId) {
-        setMessages((prev) => clearQueueStatus(prev, messageId));
+        const queuePosition = queuedMessages.find((message) =>
+          messageMatchesKey(message, messageId),
+        )?.queuePosition;
+        const patchMessageCopies = (
+          updater: (prev: DisplayMessage[]) => DisplayMessage[],
+        ) => {
+          setOptimisticSends(updater);
+          patchTranscriptMessages(updater);
+        };
+        const promoteMessage = (prev: DisplayMessage[]) =>
+          clearQueueStatus(prev, messageId);
+        patchMessageCopies(promoteMessage);
         steerToMessage(assistantId, activeConversationId, targetRequestId).then(
-          (ok) => {
-            if (!ok) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === messageId
-                    ? { ...m, queueStatus: "queued" as const }
-                    : m,
-                ),
-              );
+          (result) => {
+            if (result === "request_failed") {
+              const restoreMessage = (prev: DisplayMessage[]) =>
+                markMessageQueued(prev, messageId, queuePosition);
+              patchMessageCopies(restoreMessage);
             }
           },
         );
       }
     },
-    [assistantId, activeConversationId],
+    [assistantId, activeConversationId, queuedMessages, setOptimisticSends],
   );
 
   const handleEditQueueTail = useCallback(() => {

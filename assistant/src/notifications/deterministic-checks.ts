@@ -14,8 +14,8 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { notificationEvents } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { notificationEvents } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import { composeFallbackCopy } from "./copy-composer.js";
 import type { NotificationSignal } from "./signal.js";

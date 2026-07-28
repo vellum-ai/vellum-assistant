@@ -11,8 +11,8 @@ import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detai
 import {
   getMessages,
   type MessageRow,
-} from "../../memory/conversation-crud.js";
-import { getConversationUsageTotals } from "../../memory/llm-usage-store.js";
+} from "../../persistence/conversation-crud.js";
+import { getConversationUsageTotals } from "../../persistence/llm-usage-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -65,14 +65,11 @@ export function parseSubagentMessages(
   const firstUser = messages.find((m) => m.role === "user");
   if (firstUser) {
     try {
-      const parsed = JSON.parse(firstUser.content);
-      if (Array.isArray(parsed)) {
-        const textBlock = parsed.find(
-          (b: Record<string, unknown>) => isRecord(b) && b.type === "text",
-        );
-        if (textBlock && typeof textBlock.text === "string") {
-          objective = stripForkDirectiveFraming(textBlock.text);
-        }
+      const textBlock = firstUser.content.find(
+        (b) => b.type === "text" && typeof b.text === "string",
+      );
+      if (textBlock && "text" in textBlock) {
+        objective = stripForkDirectiveFraming(textBlock.text);
       }
     } catch {
       /* ignore */
@@ -83,17 +80,15 @@ export function parseSubagentMessages(
   const events: SubagentDetailResult["events"] = [];
   const pendingTools = new Map<string, string>();
   for (const m of messages) {
-    if (m.role !== "assistant" && m.role !== "user") continue;
-    let content: unknown[];
-    try {
-      const parsed = JSON.parse(m.content);
-      content = Array.isArray(parsed) ? parsed : [];
-    } catch {
+    if (m.role !== "assistant" && m.role !== "user") {
       continue;
     }
+    const content: unknown[] = m.content;
 
     for (const block of content) {
-      if (!isRecord(block) || typeof block.type !== "string") continue;
+      if (!isRecord(block) || typeof block.type !== "string") {
+        continue;
+      }
       if (
         m.role === "assistant" &&
         block.type === "text" &&
@@ -117,7 +112,9 @@ export function parseSubagentMessages(
           toolUseId: id || undefined,
           input,
         });
-        if (id) pendingTools.set(id, name);
+        if (id) {
+          pendingTools.set(id, name);
+        }
       } else if (
         block.type === "tool_result" ||
         block.type === "web_search_tool_result" ||
@@ -132,13 +129,15 @@ export function parseSubagentMessages(
               ? (block.content as unknown[])
                   .filter((b): b is Record<string, unknown> => isRecord(b))
                   .map((b) => {
-                    if (b.type === "text" && typeof b.text === "string")
+                    if (b.type === "text" && typeof b.text === "string") {
                       return b.text;
+                    }
                     if (
                       b.type === "web_search_result" &&
                       typeof b.title === "string"
-                    )
+                    ) {
                       return `${b.title}\n${typeof b.url === "string" ? b.url : ""}`;
+                    }
                     return null;
                   })
                   .filter((s): s is string => s != null)
@@ -205,7 +204,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the live in-memory status of all subagents known to the daemon for a given parent conversation. Subagents not in the response are orphaned.",
+      "Returns the live in-memory status of all subagents known to the daemon for a given parent conversation, with the identity fields a client needs to rebuild a store entry it never saw spawn (label, the subagent's own conversation id, and the spawning tool-use id). Subagents not in the response are orphaned.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -219,6 +218,10 @@ export const ROUTES: RouteDefinition[] = [
         z.string(),
         z.object({
           status: z.string(),
+          label: z.string().optional(),
+          /** The subagent's OWN conversation id (not the parent's). */
+          conversationId: z.string().optional(),
+          parentToolUseId: z.string().optional(),
         }),
       ),
     }),
@@ -231,9 +234,22 @@ export const ROUTES: RouteDefinition[] = [
       }
       const manager = getSubagentManager();
       const children = manager.getChildrenOf(parentConversationId);
-      const subagents: Record<string, { status: string }> = {};
+      const subagents: Record<
+        string,
+        {
+          status: string;
+          label?: string;
+          conversationId?: string;
+          parentToolUseId?: string;
+        }
+      > = {};
       for (const child of children) {
-        subagents[child.config.id] = { status: child.status };
+        subagents[child.config.id] = {
+          status: child.status,
+          label: child.config.label,
+          conversationId: child.conversationId,
+          parentToolUseId: child.config.parentToolUseId,
+        };
       }
       return { subagents };
     },
@@ -254,22 +270,32 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "conversationId",
         schema: { type: "string" },
-        description: "Parent conversation ID (required)",
+        description:
+          "The subagent's own conversation ID. Fallback only — when the " +
+          "daemon knows the subagent (live or rehydrated), it resolves the " +
+          "conversation itself and this parameter is ignored.",
       },
     ],
     responseBody: SubagentDetailResponseSchema,
     handler: ({ pathParams, queryParams }) => {
-      const conversationId = queryParams?.conversationId;
+      const manager = getSubagentManager();
+      const state = manager.getState(pathParams!.id);
+
+      // Prefer the authoritative child-conversation id from manager state.
+      // Clients recovering from a missed `subagent_spawned` only know the
+      // PARENT conversation id (that's what `subagent_event` carries), so a
+      // caller-supplied id may point at the wrong conversation entirely.
+      const conversationId =
+        state?.conversationId ?? queryParams?.conversationId;
       if (!conversationId) {
         throw new BadRequestError("conversationId query parameter is required");
       }
 
-      const manager = getSubagentManager();
-      const state = manager.getState(pathParams!.id);
-
       return {
         ...getSubagentDetail(pathParams!.id, conversationId),
         status: state?.status,
+        label: state?.config.label,
+        parentToolUseId: state?.config.parentToolUseId,
       };
     },
   },

@@ -72,6 +72,12 @@ describe("search-provider-catalog", () => {
     expect(SEARCH_PROVIDER_FALLBACK_ORDER).toEqual(sorted);
   });
 
+  test("vellum is a managed provider outside the BYOK fallback chain", () => {
+    expect(getSearchProvider("vellum")?.kind).toBe("managed");
+    expect(BYOK_SEARCH_PROVIDERS.map((p) => p.id)).not.toContain("vellum");
+    expect(SEARCH_PROVIDER_FALLBACK_ORDER).not.toContain("vellum");
+  });
+
   test("getSearchProvider returns the matching entry", () => {
     expect(getSearchProvider("tavily")?.id).toBe("tavily");
     expect(getSearchProvider("brave")?.displayName).toBe("Brave");

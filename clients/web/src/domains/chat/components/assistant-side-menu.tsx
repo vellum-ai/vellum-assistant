@@ -1,42 +1,48 @@
 import {
-    Brain,
-    Calendar,
     Clock,
-    Hash,
-    LayoutGrid,
+    MessageSquare,
     Pin,
-    Rocket,
     Search,
     SquarePen,
     X,
 } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import {
+    useCallback,
+    useLayoutEffect,
+    useRef,
+    useState,
+    type CSSProperties,
+    type ReactNode,
+} from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
+import { CollapsedGroupIcon, getGroupIndicatorState, GroupIndicatorDot } from "@/domains/chat/components/collapsed-group-icon";
 import {
-    ConversationActionsMenu,
-    renderConversationMenuItems,
-    type ConversationMenuItemsProps,
-} from "@/domains/chat/components/conversation-actions-menu";
-import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
-import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
+    ConversationListProvider,
+    type ConversationListContextValue,
+} from "@/domains/chat/components/conversation-list-context";
+import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
+import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
+import { GroupActionsMenu, type GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
+import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
+import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
-import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type PaginatedSection, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
-import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
-import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
+import {
+    DEFAULT_GROUP_ICON,
+    getGroupIcon,
+} from "@/domains/chat/utils/group-icon-registry";
+import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import {
     Button,
-    ContextMenu,
-    PanelItem,
     SideMenu,
 } from "@vellumai/design-library";
-import { cn } from "@vellumai/design-library/utils/cn";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;
@@ -51,15 +57,15 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onSelectConversation: (key: string) => void;
   isIntelligenceActive?: boolean;
   onOpenIntelligence?: () => void;
-  isLibraryActive?: boolean;
-  onOpenLibrary?: () => void;
-  isHomeActive?: boolean;
-  onOpenHome?: () => void;
-  hasUnreadHome?: boolean;
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
+  /**
+   * Rendered above `footerAction` in the rail footer (hidden when collapsed)
+   * and above the floating action pills on the overlay.
+   */
+  tipCard?: ReactNode;
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
@@ -67,7 +73,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
    * Persist a drag-reorder within a section. Receives the section's full
    * conversation list in its new order. When omitted, rows aren't draggable.
    * Only sections that honor `displayOrder` (Pinned, custom groups) offer
-   * drag-reordering — Recents and Slack stay recency-sorted.
+   * drag-reordering — Recents and channel sections stay recency-sorted.
    */
   onReorderConversations?: (conversations: Conversation[]) => void;
   onRenameConversation?: (conversation: Conversation) => void;
@@ -81,18 +87,24 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
-  onAnalyze?: (conversation: Conversation) => void;
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+  /** Move a conversation into an existing custom group. */
+  onMoveToGroup?: (conversation: Conversation, groupId: string) => void;
+  /** Create a new custom group ("New group…") and move the conversation into it. */
+  onCreateGroupInto?: (conversation: Conversation) => void;
+  /** Remove a conversation from its current custom group (back to Recents). */
+  onRemoveFromGroup?: (conversation: Conversation) => void;
 }
 
-function SearchButton({ onClose }: { onClose?: () => void }) {
+function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
+  // Leaves the drawer open: the palette (fixed z-50) covers it, so dismissing
+  // search returns to the menu rather than the chat behind it.
   const handleClick = useCallback(() => {
-    onClose?.();
     toggle();
-  }, [onClose, toggle]);
+  }, [toggle]);
   return (
     <Button
       variant="ghost"
@@ -114,14 +126,23 @@ function SearchButton({ onClose }: { onClose?: () => void }) {
  *     • ───────────────
  *   Body · Pinned section (when non-empty)
  *     • pinned thread
- *   Body · Conversations section
+ *   Body · Chats section
  *     • thread …       — recent conversations inline
  *     • …
  *     • Show more/less — page through recent conversations
- *     • Slack ▾        — collapsible category when Slack conversations exist
+ *     • Channel ▾      — one collapsible section per origin channel
+ *                        (Slack, Telegram, WhatsApp, …)
+ *     • ───────────────
+ *     • Group ▾        — one collapsible section per custom group
  *   Footer
+ *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
  *     • caller-provided action (PreferencesMenu)
+ *
+ * The conversation rows, row lists, and collapsible sections are
+ * components ({@link ConversationRow} / {@link ConversationRowList} /
+ * {@link ConversationNavSection}); their shared action callbacks and state
+ * flow through {@link ConversationListProvider}.
  */
 export function AssistantSideMenu({
   assistantId,
@@ -135,15 +156,11 @@ export function AssistantSideMenu({
   onSelectConversation,
   isIntelligenceActive = false,
   onOpenIntelligence,
-  isLibraryActive = false,
-  onOpenLibrary,
-  isHomeActive = false,
-  onOpenHome,
-  hasUnreadHome = false,
   onOpenApp,
   activeAppId,
   onStartNewConversation,
   footerAction,
+  tipCard,
   onPinConversation,
   onReorderConversations,
   onRenameConversation,
@@ -160,10 +177,12 @@ export function AssistantSideMenu({
   processingConversationIds,
   attentionConversationIds,
   activeConversationProcessing,
-  onAnalyze,
   onOpenInNewWindow,
   onShareFeedback,
   onInspect,
+  onMoveToGroup,
+  onCreateGroupInto,
+  onRemoveFromGroup,
 }: AssistantSideMenuProps) {
   const sidebar = useSidebarState({
     assistantId,
@@ -174,6 +193,45 @@ export function AssistantSideMenu({
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
+  const isCollapsedRail = collapsed && variant === "rail";
+
+  // --- Overlay bottom reserve ---
+  // The overlay's floating bottom column (tip card + action pills) covers the
+  // scrollable body, so the body reserves matching bottom padding to keep the
+  // last conversation rows scrollable clear of it. Measured (not static)
+  // because the tip card appears/disappears and its copy length varies.
+  const overlayBottomColumnRef = useRef<HTMLDivElement | null>(null);
+  const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    if (variant !== "overlay") {
+      setOverlayBottomColumnHeight(0);
+      return;
+    }
+
+    const el = overlayBottomColumnRef.current;
+    if (!el) {
+      return;
+    }
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(el.getBoundingClientRect().height);
+      setOverlayBottomColumnHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [variant]);
+
   // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
 
   const dragReorder = useDragReorder<Conversation>({
@@ -181,447 +239,411 @@ export function AssistantSideMenu({
     onReorder: (_section, ordered) => onReorderConversations?.(ordered),
   });
 
-  const buildDragProps = (
-    section: string | undefined,
-    items: Conversation[],
-    conversation: Conversation,
-  ) => {
-    if (!section || !onReorderConversations || items.length < 2) return {};
-    const { draggingId, dropIndicator } = dragReorder;
-    const edge =
-      dropIndicator?.section === section &&
-      dropIndicator.itemId === conversation.conversationId
-        ? dropIndicator.edge
-        : null;
-    return {
-      ...dragReorder.getItemProps(section, items, conversation),
-      className: cn(
-        draggingId === conversation.conversationId && "opacity-50",
-        edge === "before" && "shadow-[inset_0_2px_0_0_var(--primary-base)]",
-        edge === "after" && "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
-      ),
-    };
-  };
-
-  // --- Render helpers (action wiring, context menu, pin toggle) ---
-
-  const renderThreadPinToggle = (conversation: Conversation): ReactNode => {
-    const isProcessing =
-      conversation.conversationId === activeConversationId
-        ? activeConversationProcessing ?? false
-        : processingConversationIds?.has(conversation.conversationId) ?? false;
-    const needsAttention = attentionConversationIds?.has(conversation.conversationId) ?? false;
-    return (
-      <ThreadPinToggle
-        conversation={conversation}
-        isProcessing={isProcessing}
-        needsAttention={needsAttention}
-        onPinToggle={
-          onPinConversation ? () => onPinConversation(conversation) : undefined
-        }
-      />
-    );
-  };
-
-  const buildConversationMenuProps = (
-    conversation: Conversation,
-  ): ConversationMenuItemsProps => {
-    const isChannel = isChannelConversation(conversation);
-    return {
-      isPinned: isConversationPinned(conversation),
-      isArchived: conversation.archivedAt != null,
-      isReadonly: isChannel,
-      onPinToggle: onPinConversation
-        ? () => onPinConversation(conversation)
-        : undefined,
-      onRename: onRenameConversation
-        ? () => onRenameConversation(conversation)
-        : undefined,
-      onArchive: onArchiveConversation
-        ? () => onArchiveConversation(conversation)
-        : undefined,
-      onUnarchive: onUnarchiveConversation
-        ? () => onUnarchiveConversation(conversation)
-        : undefined,
-      onMarkRead:
-        onMarkConversationRead && canMarkRead(conversation)
-          ? () => onMarkConversationRead(conversation)
-          : undefined,
-      onMarkUnread:
-        onMarkConversationUnread && !canMarkRead(conversation)
-          ? () => onMarkConversationUnread(conversation)
-          : undefined,
-      isMarkUnreadDisabled: !canMarkUnread(conversation),
-      onAnalyze:
-        onAnalyze && conversation.conversationId != null && !isChannel
-          ? () => onAnalyze(conversation)
-          : undefined,
-      onOpenInNewWindow:
-        onOpenInNewWindow && conversation.conversationId != null
-          ? () => onOpenInNewWindow(conversation)
-          : undefined,
-      onShareFeedback,
-      onInspect:
-        onInspect && conversation.conversationId != null
-          ? () => onInspect(conversation)
-          : undefined,
-    };
-  };
-
-  const renderThreadActions = (conversation: Conversation): ReactNode => (
-    <ConversationActionsMenu {...buildConversationMenuProps(conversation)} />
-  );
-
-  const renderThreadRow = (
-    conversation: Conversation,
-    panelItem: ReactNode,
-  ): ReactNode => {
-    const menuProps = buildConversationMenuProps(conversation);
-    return (
-      <ContextMenu.Root key={conversation.conversationId}>
-        <ContextMenu.Trigger>{panelItem}</ContextMenu.Trigger>
-        <ContextMenu.Content
-          onClick={(event) => event.stopPropagation()}
-        >
-          {renderConversationMenuItems({ Primitive: ContextMenu, ...menuProps })}
-        </ContextMenu.Content>
-      </ContextMenu.Root>
-    );
-  };
-
-  const buildGroupContextMenu = (
+  // Header actions for a sidebar section. Every section gets the same shape —
+  // Pinned, Chats, each channel section, and each custom group — so the bulk
+  // actions are identical everywhere and the only per-section difference is
+  // the rename/delete pair that custom groups additionally own.
+  const buildGroupMenu = (
     groupName: string,
     conversations: Conversation[],
-    options?: { onRename?: () => void; onDelete?: () => void },
-  ) => {
-    const hasAnyAction =
-      onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
-    if (!hasAnyAction) return undefined;
-
-    return renderGroupMenuItems({
-      Primitive: ContextMenu,
-      onMarkAllRead: onMarkAllReadInGroup
-        ? () => onMarkAllReadInGroup(conversations)
-        : undefined,
-      hasUnreadConversations: conversations.some(
-        (c) => c.hasUnseenLatestAssistantMessage,
-      ),
-      onArchiveAll: onArchiveAllInGroup
-        ? () => onArchiveAllInGroup(groupName, conversations)
-        : undefined,
-      hasConversations: conversations.length > 0,
-      onRename: options?.onRename,
-      onDelete: options?.onDelete,
-    });
-  };
+    options?: {
+      onRename?: () => void;
+      onDelete?: () => void;
+      onCopyGroupId?: () => void;
+    },
+  ): GroupMenuItemsProps => ({
+    onMarkAllRead: onMarkAllReadInGroup
+      ? () => onMarkAllReadInGroup(conversations)
+      : undefined,
+    hasUnreadConversations: onMarkAllReadInGroup
+      ? conversations.some((c) => c.hasUnseenLatestAssistantMessage)
+      : false,
+    onArchiveAll: onArchiveAllInGroup
+      ? () => onArchiveAllInGroup(groupName, conversations)
+      : undefined,
+    hasConversations: conversations.length > 0,
+    onRename: options?.onRename,
+    onDelete: options?.onDelete,
+    onCopyGroupId: options?.onCopyGroupId,
+  });
 
   const selectAndClose = useCallback(
     (key: string) => { onSelectConversation(key); onClose?.(); },
     [onSelectConversation, onClose],
   );
 
-  // --- Header actions ---
-  // A plain icon button that starts a new conversation on click.
+  // Shared context for every conversation row (Pinned, Recents, channel
+  // sections, custom groups, rail flyout): the action callbacks,
+  // active/processing/attention state, and drag controller the rows read.
+  // Activity dot for a collapsed section header — surfaces processing/unread
+  // conversations that live in a collapsed section (attention already
+  // force-opens the section via effectiveOpen*). Null when the section is idle.
+  const collapsedActivityDot = (conversations: Conversation[]): ReactNode => {
+    const state = getGroupIndicatorState(
+      conversations,
+      processingConversationIds,
+      attentionConversationIds,
+    );
+    return state ? <GroupIndicatorDot state={state} /> : null;
+  };
 
-  const headerActions = onStartNewConversation ? (
-    <Button
-      variant="ghost"
-      size="compact"
-      iconOnly={<SquarePen />}
-      aria-label="New conversation"
-      tooltip="New conversation"
-      tooltipSide="right"
-      onClick={() => {
-        onStartNewConversation();
-        onClose?.();
-      }}
-    />
-  ) : null;
+  const listContext: ConversationListContextValue = {
+    activeConversationId,
+    activeConversationProcessing,
+    processingConversationIds,
+    attentionConversationIds,
+    onSelect: selectAndClose,
+    onPin: onPinConversation,
+    onRename: onRenameConversation,
+    onArchive: onArchiveConversation,
+    onUnarchive: onUnarchiveConversation,
+    onMarkRead: onMarkConversationRead,
+    onMarkUnread: onMarkConversationUnread,
+    onOpenInNewWindow,
+    onShareFeedback,
+    onInspect,
+    conversationGroups,
+    onMoveToGroup,
+    onCreateGroupInto,
+    onRemoveFromGroup,
+    dragReorder,
+    canReorder: !!onReorderConversations,
+  };
 
-  // --- Flat conversation list renderer ---
+  // --- Built-in navigation ---
+  // Pinned apps above the built-in nav, separated by a divider. On the rail
+  // this block lives in the non-scrolling header; on the overlay it renders
+  // at the top of the body so the whole menu scrolls as one surface (Figma
+  // 6764:6745).
 
-  const renderFlatList = (
-    items: Conversation[],
-    pagination?: Pick<
-      PaginatedSection,
-      "showMore" | "onShowMore" | "showLess" | "onShowLess"
-    >,
-    reorderSection?: string,
-  ): ReactNode => (
-    <SideMenu.SubList>
-      {items.map((c) =>
-        renderThreadRow(
-          c,
-          <PanelItem
-            leadingSlot={renderThreadPinToggle(c)}
-            label={c.title ?? "Untitled"}
-            marqueeOnHover
-            active={c.conversationId === activeConversationId}
-            onSelect={() => selectAndClose(c.conversationId)}
-            trailingAction={renderThreadActions(c)}
-            {...buildDragProps(reorderSection, items, c)}
-          />,
-        ),
-      )}
-      {pagination?.showMore ? (
-        <SideMenu.Item
-          label="Show more"
-          size="compact"
-          indent
-          emphasized
-          onSelect={pagination.onShowMore}
-        />
+  const builtInNav = (
+    <>
+      {pinnedApps.length > 0 ? (
+        <>
+          <div className="flex flex-col gap-[4px]">
+            {pinnedApps.map((app) => (
+              <PinnedAppNavItem
+                key={app.appId}
+                app={app}
+                collapsed={collapsed}
+                active={activeAppId === app.appId}
+                onOpen={onOpenApp ? (appId) => { onOpenApp(appId); onClose?.(); } : undefined}
+              />
+            ))}
+          </div>
+          <SideMenu.Separator />
+        </>
       ) : null}
-      {pagination?.showLess ? (
-        <SideMenu.Item
-          label="Show less"
-          size="compact"
-          indent
-          emphasized
-          onSelect={pagination.onShowLess}
+      {/* The assistant cluster: the New Chat row (avatar-tinted, plus +
+          label; icon-only tile on the collapsed rail) with the
+          avatar-colored assistant row beneath it. No divider when
+          expanded; breathing room below instead. On the collapsed rail
+          the separator provides the section break, so the margin drops
+          and the header's own gap (8px) plus the separator's margin keeps
+          the divider ~12px off the cluster (Figma 7257:135812). The
+          overlay drawer skips the New Chat row — its floating New Chat
+          pill already owns that action in the thumb zone. */}
+      <div className={isCollapsedRail ? undefined : "mb-4"}>
+        <AssistantNavItem
+          assistantId={assistantId ?? null}
+          label={assistantName || "Your Assistant"}
+          active={isIntelligenceActive}
+          collapsed={collapsed}
+          onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
+          onNewConversation={
+            variant === "rail" && onStartNewConversation
+              ? () => { onStartNewConversation(); onClose?.(); }
+              : undefined
+          }
         />
-      ) : null}
-    </SideMenu.SubList>
-  );
-
-  // --- Collapsed-rail popover content renderer ---
-
-  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void, emptyState?: ReactNode): ReactNode => (
-    <div className="pb-1">
-      <div className="flex items-center justify-between px-4 py-1">
-        <span className="text-body-small-default text-[var(--content-tertiary)]">{title}</span>
       </div>
-      <div className="px-2">
-        {conversations.length === 0 ? emptyState : null}
-        {conversations.map((c) => (
-          <PanelItem
-            key={c.conversationId}
-            leadingSlot={renderThreadPinToggle(c)}
-            label={c.title ?? "Untitled"}
-            active={c.conversationId === activeConversationId}
-            onSelect={() => { closePopover?.(); selectAndClose(c.conversationId); }}
-            trailingAction={renderThreadActions(c)}
-          />
-        ))}
-      </div>
-    </div>
+      {/* The collapsed rail separates the cluster from the group icons
+          below it (Figma 7257:135826). */}
+      {isCollapsedRail ? <SideMenu.Separator /> : null}
+    </>
   );
 
   // --- JSX ---
 
   return (
-    <SideMenu
-      ariaLabel="Assistant navigation"
-      collapsed={collapsed}
-      variant={variant}
-      width={width}
-      onWidthChange={onWidthChange}
-      className="h-full"
-    >
-      <SideMenu.Header>
-        {variant === "overlay" ? (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+    <ConversationListProvider value={listContext}>
+      <SideMenu
+        ariaLabel="Assistant navigation"
+        collapsed={collapsed}
+        variant={variant}
+        width={width}
+        onWidthChange={onWidthChange}
+        className="relative h-full"
+      >
+        <SideMenu.Header>
+          {variant === "overlay" ? (
+            /* Close on the left, Search pinned to the right so it stays put
+               and always reads as the persistent search affordance
+               (Figma 6788:6749). */
+            <div className="flex items-center justify-between gap-2">
               <Button
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
                 onClick={() => onClose?.()}
               />
-              <SearchButton onClose={onClose} />
+              <SearchButton />
             </div>
-            <div className="flex items-center gap-2">{headerActions}</div>
-          </div>
-        ) : null}
-        {/* 2px row gap to match the conversation list. */}
-        <div className="flex flex-col gap-[2px]">
-          <SideMenu.Item
-            icon={Brain}
-            label={assistantName || "Your Assistant"}
-            showCollapsedTooltip
-            active={isIntelligenceActive}
-            onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
-          />
-          {onOpenLibrary ? (
-            <SideMenu.Item
-              icon={LayoutGrid}
-              label="Library"
-              showCollapsedTooltip
-              active={isLibraryActive}
-              onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
-            />
-          ) : null}
-          {onOpenHome ? (
-            <SideMenu.Item
-              icon={Calendar}
-              label="Activity"
-              showCollapsedTooltip
-              active={isHomeActive}
-              badge={
-                hasUnreadHome && !isHomeActive ? (
-                  <span
-                    className="h-2 w-2 rounded-full bg-[var(--system-negative-strong)]"
-                    aria-hidden="true"
-                  />
-                ) : undefined
-              }
-              onSelect={onOpenHome ? () => { onOpenHome(); onClose?.(); } : undefined}
-            />
-          ) : null}
-          {pinnedApps.map((app) => (
-            <SideMenu.Item
-              key={app.appId}
-              // Apps source their icon as an emoji string on the manifest
-              // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
-              // apps still get a leading icon in the rail.
-              icon={app.icon ?? Rocket}
-              label={app.name}
-              showCollapsedTooltip
-              active={activeAppId === app.appId}
-              onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
-            />
-          ))}
-        </div>
-        <SideMenu.Separator />
-      </SideMenu.Header>
+          ) : (
+            builtInNav
+          )}
+        </SideMenu.Header>
 
-      <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
-        {collapsed && variant === "rail" ? (
-          <div className="flex flex-col items-center gap-1">
-            {headerActions}
-            {sidebar.pinned.length > 0 ? (
+        <SideMenu.Body
+          className={
+            variant === "overlay"
+              /* pb-24 is a coarse floating-column reserve until the measured
+                 inline padding below is applied. */
+              ? "gap-4 pt-3 pb-24 max-md:pt-4"
+              /* The collapsed rail tucks the group icons up under the
+                 cluster separator (~12px to the first icon tile) so they
+                 read as the next section, not a distant island. */
+              : isCollapsedRail
+                ? "gap-4 pt-2"
+                : "gap-4 pt-3 max-md:pt-4"
+          }
+          style={
+            variant === "overlay" && overlayBottomColumnHeight > 0
+              ? {
+                  /* The floating column overlaps the scrollport by its own
+                     height + the safe-area inset (its 1rem bottom offset
+                     cancels against the root's p-4); + 1rem breathing gap. */
+                  "--overlay-bottom-column-h": `${overlayBottomColumnHeight}px`,
+                  paddingBottom:
+                    "calc(var(--overlay-bottom-column-h) + 1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+                } as CSSProperties
+              : undefined
+          }
+        >
+          {variant === "overlay" ? builtInNav : null}
+          {isCollapsedRail ? (
+            <div className="flex flex-col items-center gap-2">
+              {sidebar.pinned.length > 0 ? (
+                <CollapsedGroupIcon
+                  icon={Pin}
+                  label="Pinned"
+                  indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
+                >
+                  {(close) => (
+                    <CollapsedGroupFlyout
+                      title="Pinned"
+                      conversations={sidebar.pinned}
+                      onClosePopover={close}
+                    />
+                  )}
+                </CollapsedGroupIcon>
+              ) : null}
               <CollapsedGroupIcon
-                icon={Pin}
-                label="Pinned"
-                indicatorState={getGroupIndicatorState(sidebar.pinned, processingConversationIds, attentionConversationIds)}
+                icon={Clock}
+                label="Recents"
+                disabled={sidebar.recents.all.length === 0}
+                indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
               >
-                {(close) => renderCollapsedGroupContent("Pinned", sidebar.pinned, close)}
+                {(close) => (
+                  <CollapsedGroupFlyout
+                    title="Recents"
+                    conversations={sidebar.recents.all}
+                    onClosePopover={close}
+                  />
+                )}
               </CollapsedGroupIcon>
-            ) : null}
-            <CollapsedGroupIcon
-              icon={Clock}
-              label="Recents"
-              disabled={sidebar.recents.all.length === 0}
-              indicatorState={getGroupIndicatorState(sidebar.recents.all, processingConversationIds, attentionConversationIds)}
-            >
-              {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
-            </CollapsedGroupIcon>
-            <CollapsedGroupIcon
-              icon={Hash}
-              label="Slack"
-              disabled={sidebar.slack.totalCount === 0}
-              indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
-            >
-              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
-            </CollapsedGroupIcon>
-          </div>
-        ) : (
-          <>
-            {sidebar.pinned.length > 0 ? (
-              <SideMenu.Section title="Pinned">
-                {renderFlatList(sidebar.pinned, undefined, "pinned")}
-              </SideMenu.Section>
-            ) : null}
-
-            <SideMenu.Section
-              title="Conversations"
-              className="gap-1"
-              actions={variant === "overlay" ? undefined : headerActions}
-            >
-              {renderFlatList(sidebar.recents.items, sidebar.recents)}
-
+              {sidebar.channelSections.map((section) => (
+                <CollapsedGroupIcon
+                  key={section.channelId}
+                  icon={getChannelIcon(section.channelId)}
+                  label={getChannelLabel(section.channelId)}
+                  disabled={section.totalCount === 0}
+                  indicatorState={getGroupIndicatorState(section.all, processingConversationIds, attentionConversationIds)}
+                >
+                  {(close) => (
+                    <CollapsedGroupFlyout
+                      title={getChannelLabel(section.channelId)}
+                      conversations={section.all}
+                      onClosePopover={close}
+                    />
+                  )}
+                </CollapsedGroupIcon>
+              ))}
+              {sidebar.customGroups.map((group) => (
+                <CollapsedGroupIcon
+                  key={group.id}
+                  icon={getGroupIcon(group.icon) ?? DEFAULT_GROUP_ICON}
+                  label={group.name}
+                  disabled={group.conversations.length === 0}
+                  indicatorState={getGroupIndicatorState(group.conversations, processingConversationIds, attentionConversationIds)}
+                >
+                  {(close) => (
+                    <CollapsedGroupFlyout
+                      title={group.name}
+                      conversations={group.conversations}
+                      onClosePopover={close}
+                    />
+                  )}
+                </CollapsedGroupIcon>
+              ))}
+            </div>
+          ) : (
+            <>
+              {/* Pinned, Chats, and the channel sections share one accordion
+                  root, so its gap governs every section boundary uniformly.
+                  Their open state lives in two storage buckets (Pinned/Chats
+                  default open); `use-sidebar-state` merges and re-splits it.
+                  New Chat lives in the assistant cluster above, not as a
+                  section-header action. */}
               <CollapsibleNavSection.Root
                 type="multiple"
-                className="gap-1"
-                value={sidebar.effectiveOpenCategories}
-                onValueChange={sidebar.onOpenCategoriesChange}
+                className="gap-3"
+                value={sidebar.effectiveOpenSections}
+                onValueChange={sidebar.onOpenSectionsChange}
               >
-                {sidebar.slack.totalCount > 0 ? (
-                  <CollapsibleNavSection.Section
-                    value="slack"
-                    icon={Hash}
-                    label="Slack"
-                    contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.all)}
-                  >
-                    {renderFlatList(sidebar.slack.items, sidebar.slack)}
-                  </CollapsibleNavSection.Section>
+                {sidebar.pinned.length > 0 ? (
+                  <ConversationNavSection
+                    value="pinned"
+                    icon={Pin}
+                    label="Pinned"
+                    groupMenu={buildGroupMenu("Pinned", sidebar.pinned)}
+                    items={sidebar.pinned}
+                    dragSection="pinned"
+                    collapsedIndicator={collapsedActivityDot(sidebar.pinned)}
+                  />
                 ) : null}
+
+                <ConversationNavSection
+                  value="recents"
+                  icon={MessageSquare}
+                  label="Chats"
+                  groupMenu={buildGroupMenu("Chats", sidebar.recents.all)}
+                  items={sidebar.recents.items}
+                  pagination={sidebar.recents}
+                  collapsedIndicator={collapsedActivityDot(sidebar.recents.all)}
+                />
+
+                {sidebar.channelSections.map((section) => {
+                  const label = getChannelLabel(section.channelId);
+                  return (
+                    <ConversationNavSection
+                      key={section.channelId}
+                      value={channelSectionKey(section.channelId)}
+                      icon={getChannelIcon(section.channelId)}
+                      label={label}
+                      groupMenu={buildGroupMenu(label, section.all)}
+                      items={section.items}
+                      pagination={section}
+                      collapsedIndicator={collapsedActivityDot(section.all)}
+                    />
+                  );
+                })}
               </CollapsibleNavSection.Root>
 
               {sidebar.customGroups.length > 0 ? (
                 <>
                   <SideMenu.Separator />
-                  <SideMenu.Section title="Your Groups">
-                    <CollapsibleNavSection.Root
-                      type="multiple"
-                      className="gap-1"
-                      value={sidebar.effectiveOpenCustomGroups}
-                      onValueChange={sidebar.onOpenCustomGroupsChange}
-                    >
-                      {sidebar.customGroups.map((group) => (
-                        <CollapsibleNavSection.Section
+                  <CollapsibleNavSection.Root
+                    type="multiple"
+                    className="gap-3"
+                    value={sidebar.effectiveOpenCustomGroups}
+                    onValueChange={sidebar.onOpenCustomGroupsChange}
+                  >
+                    {sidebar.customGroups.map((group) => {
+                      const groupMenu = buildGroupMenu(
+                        group.name,
+                        group.conversations,
+                        {
+                          onRename: onRenameGroup
+                            ? () => onRenameGroup(group.id)
+                            : undefined,
+                          onDelete: onDeleteGroup
+                            ? () => onDeleteGroup(group.id)
+                            : undefined,
+                          onCopyGroupId: () =>
+                            copyIdToClipboard(group.id, "Group ID"),
+                        },
+                      );
+                      return (
+                        <ConversationNavSection
                           key={group.id}
                           value={group.id}
+                          icon={getGroupIcon(group.icon)}
                           label={group.name}
+                          /* The "…" button and the header's right-click menu
+                             both render from `groupMenu`. */
                           trailing={
-                            onRenameGroup || onDeleteGroup ? (
-                              <GroupActionsMenu
-                                groupId={group.id}
-                                onRename={onRenameGroup}
-                                onDelete={onDeleteGroup}
-                              />
-                            ) : null
+                            <GroupActionsMenu
+                              label={group.name}
+                              {...groupMenu}
+                            />
                           }
-                          contextMenuContent={buildGroupContextMenu(
-                            group.name,
-                            group.conversations,
-                            {
-                              onRename: onRenameGroup
-                                ? () => onRenameGroup(group.id)
-                                : undefined,
-                              onDelete: onDeleteGroup
-                                ? () => onDeleteGroup(group.id)
-                                : undefined,
-                            },
-                          )}
-                        >
-                          <SideMenu.SubList>
-                            {group.conversations.map((c) =>
-                              renderThreadRow(
-                                c,
-                                <PanelItem
-                                  leadingSlot={renderThreadPinToggle(c)}
-                                  label={c.title ?? "Untitled"}
-                                  marqueeOnHover
-                                  active={c.conversationId === activeConversationId}
-                                  onSelect={() => selectAndClose(c.conversationId)}
-                                  trailingAction={renderThreadActions(c)}
-                                  {...buildDragProps(
-                                    `group:${group.id}`,
-                                    group.conversations,
-                                    c,
-                                  )}
-                                />,
-                              ),
-                            )}
-                          </SideMenu.SubList>
-                        </CollapsibleNavSection.Section>
-                      ))}
-                    </CollapsibleNavSection.Root>
-                  </SideMenu.Section>
+                          groupMenu={groupMenu}
+                          items={group.conversations}
+                          dragSection={`group:${group.id}`}
+                          collapsedIndicator={collapsedActivityDot(group.conversations)}
+                        />
+                      );
+                    })}
+                  </CollapsibleNavSection.Root>
                 </>
               ) : null}
-            </SideMenu.Section>
-          </>
-        )}
-      </SideMenu.Body>
+            </>
+          )}
+        </SideMenu.Body>
 
-      {footerAction ? (
-        <SideMenu.Footer>
-          <SideMenu.Separator />
-          {footerAction}
-        </SideMenu.Footer>
-      ) : null}
-    </SideMenu>
+        {variant === "overlay" ? (
+          /* Overlay: the footer bar is replaced by floating action pills so
+             the primary actions sit in the thumb zone without spending two
+             fixed rows (Figma 6764:6745). `pointer-events-none` on the
+             container keeps the list scrollable between/around the pills.
+             The container offsets itself by the bottom safe-area inset
+             because the overlay sheet runs full-bleed to the physical
+             screen edge — this keeps the pills above the home indicator
+             while letting their drop shadows fade out naturally instead of
+             being clipped at a safe-area boundary. */
+          <div
+            ref={overlayBottomColumnRef}
+            className="pointer-events-none absolute inset-x-4 z-10 flex flex-col gap-4"
+            style={{
+              bottom:
+                "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+            }}
+          >
+            {/* `empty:hidden` collapses the row when the tip card renders
+               null, so the column gap adds no phantom spacing. */}
+            {tipCard ? (
+              <div className="pointer-events-auto empty:hidden">{tipCard}</div>
+            ) : null}
+            <div className="flex items-center justify-center gap-4">
+              {footerAction ? (
+                <div className="pointer-events-auto flex-1">{footerAction}</div>
+              ) : null}
+              {onStartNewConversation ? (
+                <Button
+                  variant="primary"
+                  className="pointer-events-auto h-10 flex-1 rounded-full px-4 shadow-[var(--shadow-lg)]"
+                  leftIcon={<SquarePen />}
+                  onClick={() => {
+                    onStartNewConversation();
+                    onClose?.();
+                  }}
+                >
+                  New Chat
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : footerAction || tipCard ? (
+          <SideMenu.Footer>
+            {/* Tip card first, divider between it and the footer action. The
+               collapsed rail drops both (per design). */}
+            {isCollapsedRail ? null : tipCard}
+            {isCollapsedRail ? null : <SideMenu.Separator />}
+            {footerAction}
+          </SideMenu.Footer>
+        ) : null}
+      </SideMenu>
+    </ConversationListProvider>
   );
 }

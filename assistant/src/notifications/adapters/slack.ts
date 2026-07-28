@@ -3,10 +3,10 @@
  * using native Card blocks for approval notifications.
  *
  * Approval notifications (access requests, tool approvals) render as a
- * single Slack Card block with Approve/Reject action buttons, plus
- * optional companion context blocks for details that exceed the card's
- * character limits. Non-approval notifications use standard Block Kit
- * text sections.
+ * single Slack Card block with Approve/Reject action buttons. Text that
+ * exceeds the card body's 200-character cap continues in a companion
+ * section block below the card. Non-approval notifications use standard
+ * Block Kit text sections.
  *
  * Card block reference:
  * https://docs.slack.dev/reference/block-kit/blocks/card-block
@@ -15,13 +15,17 @@
 import type { Button, CardBlock, ContextBlock, KnownBlock } from "@slack/types";
 
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
+import { APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX } from "../../messaging/providers/slack/withdraw.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  accessRequestCardSubtitle,
+  accessRequestCardTitle,
   type AccessRequestCardView,
   buildAccessRequestCardView,
   buildAccessRequestInviteDirective,
 } from "../access-request-copy.js";
+import type { ToolApprovalSourceView } from "../guardian-question-mode.js";
 import { truncate } from "../notification-utils.js";
 import type {
   ChannelAdapter,
@@ -40,14 +44,41 @@ const log = getLogger("notif-adapter-slack");
 // Slack Card block builders for approval notifications
 // ---------------------------------------------------------------------------
 
-/** Build action buttons for a Slack Card block from approval metadata. */
+/** Translate a surface-agnostic emphasis into Slack's button style token. */
+function slackStyleForEmphasis(
+  emphasis: "primary" | "secondary" | "destructive",
+): { style: "primary" | "danger" } | Record<string, never> {
+  switch (emphasis) {
+    case "primary":
+      return { style: "primary" };
+    case "destructive":
+      return { style: "danger" };
+    case "secondary":
+      return {};
+  }
+}
+
+/**
+ * Build action buttons for a Slack Card block from approval metadata.
+ *
+ * Actions carrying an `emphasis` (introduction cards) render it directly, so
+ * emphasis policy stays in introduction-policy.ts. Actions without one (tool
+ * approvals) fall back to positional styling: first action `primary`,
+ * `reject` `danger`.
+ */
 function buildCardActions(approval: ApprovalUIMetadata): Button[] {
-  return approval.actions.map((action) => ({
+  return approval.actions.map((action, index) => ({
     type: "button",
     text: { type: "plain_text", text: action.label, emoji: true },
     action_id: `apr:${approval.requestId}:${action.id}`,
     value: `apr:${approval.requestId}:${action.id}`,
-    ...(action.id === "reject" ? { style: "danger" } : { style: "primary" }),
+    ...(action.emphasis
+      ? slackStyleForEmphasis(action.emphasis)
+      : action.id === "reject"
+        ? { style: "danger" }
+        : index === 0
+          ? { style: "primary" }
+          : {}),
   }));
 }
 
@@ -63,7 +94,9 @@ function buildAccessRequestSubtitle(view: AccessRequestCardView): string {
     parts.push(`(@${view.username})`);
   }
 
-  if (view.sourceChannel) parts.push(`via ${view.sourceChannel}`);
+  if (view.sourceChannel) {
+    parts.push(`via ${view.sourceChannel}`);
+  }
 
   return truncate(parts.join(" "), 150);
 }
@@ -76,7 +109,30 @@ function buildAccessRequestBody(view: AccessRequestCardView): string {
     const trimmed = truncate(view.messagePreview, 200 - 6);
     return `> _"${trimmed}"_`;
   }
-  return "Requesting access to the assistant";
+  return accessRequestCardSubtitle(view.admitted);
+}
+
+/**
+ * Slack source context block: channel/DM label with a permalink to the
+ * originating message when one is available. Shared by the access-request
+ * and tool-approval cards so the source line renders identically on both.
+ */
+function buildSlackSourceContextBlock(params: {
+  isDm: boolean;
+  chatId: string;
+  permalink: string | undefined;
+}): ContextBlock {
+  const label = params.isDm
+    ? "Source: Slack — Direct message"
+    : `Source: Slack — <#${params.chatId}>`;
+  const sourceText = params.permalink
+    ? `${label} · <${params.permalink}|View message>`
+    : label;
+
+  return {
+    type: "context",
+    elements: [{ type: "mrkdwn", text: sourceText }],
+  };
 }
 
 /** Source-channel context block with Slack permalink when available. */
@@ -87,22 +143,43 @@ function buildSourceContextBlock(
     return undefined;
   }
 
-  const permalink = view.messagePermalink;
+  return buildSlackSourceContextBlock({
+    isDm: view.isSlackDm,
+    chatId: view.conversationExternalId,
+    permalink: view.messagePermalink,
+  });
+}
 
-  let sourceText: string;
-  if (view.isSlackDm) {
-    sourceText = permalink
-      ? `Source: Slack — Direct message · <${permalink}|View message>`
-      : "Source: Slack — Direct message";
-  } else {
-    sourceText = permalink
-      ? `Source: Slack — <#${view.conversationExternalId}> · <${permalink}|View message>`
-      : `Source: Slack — <#${view.conversationExternalId}>`;
+/**
+ * Source context block for a tool-approval card. Slack-originated requests
+ * get the channel/DM-aware label; any other source channel renders its
+ * channel id with the resolved link, so a new channel's approvals link back
+ * to their source as soon as its resolver is registered.
+ */
+function buildToolApprovalSourceContextBlock(
+  view: ToolApprovalSourceView | undefined,
+): ContextBlock | undefined {
+  if (!view) {
+    return undefined;
   }
-
+  if (view.channel === "slack" && view.chatId) {
+    return buildSlackSourceContextBlock({
+      isDm: view.isSlackDm,
+      chatId: view.chatId,
+      permalink: view.permalink,
+    });
+  }
+  if (!view.permalink) {
+    return undefined;
+  }
   return {
     type: "context",
-    elements: [{ type: "mrkdwn", text: sourceText }],
+    elements: [
+      {
+        type: "mrkdwn",
+        text: `Source: ${view.channel} · <${view.permalink}|View message>`,
+      },
+    ],
   };
 }
 
@@ -111,7 +188,9 @@ function buildRequesterIdBlock(
   view: AccessRequestCardView,
 ): ContextBlock | undefined {
   const safeExternalId = view.externalId;
-  if (!safeExternalId) return undefined;
+  if (!safeExternalId) {
+    return undefined;
+  }
 
   if (safeExternalId === view.displayName || safeExternalId === view.username) {
     return undefined;
@@ -151,7 +230,10 @@ function buildAccessRequestCardBlocks(
 
   const card: CardBlock = {
     type: "card",
-    title: { type: "mrkdwn", text: "Access Request" },
+    title: {
+      type: "mrkdwn",
+      text: accessRequestCardTitle(view.admitted),
+    },
     subtitle: { type: "mrkdwn", text: subtitle },
     body: { type: "mrkdwn", text: body },
     actions: buildCardActions(approval),
@@ -171,13 +253,21 @@ function buildAccessRequestCardBlocks(
   }
 
   const sourceContext = buildSourceContextBlock(view);
-  if (sourceContext) blocks.push(sourceContext);
+  if (sourceContext) {
+    blocks.push(sourceContext);
+  }
 
   const idBlock = buildRequesterIdBlock(view);
-  if (idBlock) blocks.push(idBlock);
+  if (idBlock) {
+    blocks.push(idBlock);
+  }
 
+  // Instruction / CTA blocks below are tagged so card withdrawal can strip
+  // them once a decision is recorded — the guardian has nothing left to do,
+  // so the "open invite flow" prompt and verification nudge must disappear.
   blocks.push({
     type: "context",
+    block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:invite`,
     elements: [{ type: "mrkdwn", text: buildAccessRequestInviteDirective() }],
   });
 
@@ -188,6 +278,7 @@ function buildAccessRequestCardBlocks(
   ) {
     blocks.push({
       type: "context",
+      block_id: `${APPROVAL_INSTRUCTION_BLOCK_ID_PREFIX}:verify`,
       elements: [
         {
           type: "mrkdwn",
@@ -204,11 +295,40 @@ function buildAccessRequestCardBlocks(
 // Tool approval card
 // ---------------------------------------------------------------------------
 
+/** Slack caps a card block's `body` text at 200 characters. */
+const CARD_BODY_MAX_LENGTH = 200;
+
+/** Marker signalling the card body continues in the section below. */
+const CARD_BODY_CONTINUATION_MARKER = " ↓";
+
+/**
+ * Split message text so the head fits Slack's card body cap (marker
+ * included) and the tail continues in a companion section below the card.
+ * Splits on the last whitespace inside the budget when there is one, so
+ * neither piece cuts mid-word. Text within the cap needs no split.
+ */
+function splitAtCardBodyLimit(text: string): { head: string; tail?: string } {
+  if (text.length <= CARD_BODY_MAX_LENGTH) {
+    return { head: text };
+  }
+
+  const budget = CARD_BODY_MAX_LENGTH - CARD_BODY_CONTINUATION_MARKER.length;
+  const window = text.slice(0, budget + 1);
+  const lastWhitespace = window.search(/\s\S*$/);
+  const cut = lastWhitespace > 0 ? lastWhitespace : budget;
+
+  return {
+    head: text.slice(0, cut).trimEnd() + CARD_BODY_CONTINUATION_MARKER,
+    tail: text.slice(cut).trimStart(),
+  };
+}
+
 /**
  * Build Slack blocks for a tool approval notification using a native Card block.
  *
  * Layout:
  *   Card — title + subtitle (tool + requester) + body (notification text) + actions
+ *   Section — continuation of body text exceeding the card's 200-char cap
  */
 function buildToolApprovalCardBlocks(
   payload: ChannelDeliveryPayload,
@@ -227,29 +347,37 @@ function buildToolApprovalCardBlocks(
     subtitle = truncate(toolName, 150);
   }
 
-  const needsOverflow = messageText.length > 200;
+  const { head, tail } = splitAtCardBodyLimit(messageText);
   const card: CardBlock = {
     type: "card",
     title: {
       type: "mrkdwn",
       text: details ? "Tool Approval" : "Approval Request",
     },
-    body: {
-      type: "mrkdwn",
-      text: needsOverflow ? truncate(messageText, 197) + " ↓" : messageText,
-    },
+    body: { type: "mrkdwn", text: head },
     actions: buildCardActions(approval),
   };
-  if (subtitle) card.subtitle = { type: "mrkdwn", text: subtitle };
+  if (subtitle) {
+    card.subtitle = { type: "mrkdwn", text: subtitle };
+  }
   blocks.push(card);
 
-  // When the message exceeds the card body limit, show the full text in a
-  // companion section so the approver can see the complete command/context.
-  if (needsOverflow) {
+  // The companion section carries only the remainder — repeating the full
+  // text would render the same message twice (once in the card, once below).
+  if (tail) {
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: truncate(messageText, 3000) },
+      text: { type: "mrkdwn", text: truncate(`… ${tail}`, 3000) },
     });
+  }
+
+  // Link the guardian back to the conversation that triggered the request,
+  // when the broadcaster resolved a source reference.
+  const sourceBlock = buildToolApprovalSourceContextBlock(
+    payload.toolApprovalSource,
+  );
+  if (sourceBlock) {
+    blocks.push(sourceBlock);
   }
 
   return blocks;
@@ -305,9 +433,14 @@ export class SlackAdapter implements ChannelAdapter {
     const messageText = resolveMessageText(payload);
 
     try {
+      // `approval` rides along with the prebuilt card blocks so the send
+      // layer treats a rejected Block Kit payload as an approval prompt:
+      // its block-free retry re-attaches `plainTextFallback` reply
+      // instructions instead of posting text with no way to respond.
       const result = payload.approvalContext
         ? await sendSlackReply(chatId, messageText, {
             blocks: buildApprovalNotificationBlocks(payload, messageText),
+            approval: payload.approvalContext,
           })
         : await sendSlackReply(chatId, messageText, { useBlocks: true });
 

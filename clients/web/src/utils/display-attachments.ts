@@ -7,28 +7,26 @@
 
 import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/types/attachment-types";
+import { deriveDisplayUrls } from "@/utils/attachment-urls";
 
 /**
  * Convert `AssistantOutboundAttachment` objects into `DisplayAttachment`
- * objects suitable for rendering in chat message bubbles. When inline base64
- * data is available, a data-URI `previewUrl` is created for all MIME types so
- * the preview modal can render or download the content without a separate fetch.
- * When only a thumbnail is available (e.g. video with omitted data), the
- * thumbnail is used as a fallback preview. Files with `fileBacked: true` and no
- * inline data rely on the daemon's `/v1/attachments/:id/content` endpoint —
- * the modal fetches content lazily via the assistantId-scoped proxy URL.
+ * objects suitable for rendering in chat message bubbles. URL derivation
+ * (previewUrl vs thumbnailUrl) is shared with the history-reload path via
+ * {@link deriveDisplayUrls} — see that function for the rationale on why
+ * videos always get a null previewUrl (Electron CSP).
  */
 export function toDisplayAttachments(
   attachments: AssistantOutboundAttachment[] | undefined,
 ): DisplayAttachment[] | undefined {
   if (!attachments || attachments.length === 0) return undefined;
   return attachments.map((att) => {
-    let previewUrl: string | null = null;
-    if (att.data) {
-      previewUrl = `data:${att.mimeType};base64,${att.data}`;
-    } else if (att.thumbnailData) {
-      previewUrl = `data:image/jpeg;base64,${att.thumbnailData}`;
-    }
+    const { previewUrl, thumbnailUrl } = deriveDisplayUrls(
+      att.mimeType,
+      att.data,
+      att.thumbnailData,
+      att.id != null,
+    );
     return {
       id: att.id ?? att.filename,
       filename: att.filename,
@@ -36,6 +34,7 @@ export function toDisplayAttachments(
       sizeBytes:
         att.sizeBytes ?? (att.data ? Math.floor((att.data.length * 3) / 4) : 0),
       previewUrl,
+      thumbnailUrl,
     };
   });
 }

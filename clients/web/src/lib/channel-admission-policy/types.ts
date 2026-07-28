@@ -31,7 +31,11 @@ export const INTERNAL_CHANNELS = new Set<string>(["platform", "a2a"]);
  * them into the UI. Mirrors `ADMISSION_POLICY_HIDDEN_CHANNELS` in
  * `packages/gateway-client/src/admission-policy-contract.ts`.
  */
-export const HIDDEN_CHANNELS = new Set<string>(["vellum", "whatsapp"]);
+export const HIDDEN_CHANNELS = new Set<string>([
+  "vellum",
+  "whatsapp",
+  "discord",
+]);
 
 export function isHiddenChannel(channelType: string): boolean {
   return HIDDEN_CHANNELS.has(channelType);
@@ -45,19 +49,25 @@ export interface ChannelPolicyView {
 }
 
 export const POLICY_LABELS: Record<AdmissionPolicy, string> = {
-  no_one: "No one (kill switch)",
-  guardian_only: "Guardian only",
-  trusted_contacts: "Trusted contacts",
+  no_one: "No one",
+  guardian_only: "Only you",
+  trusted_contacts: "Verified contacts",
   any_contact: "Any contact",
   strangers: "Strangers",
 };
 
-export const POLICY_DESCRIPTIONS: Record<AdmissionPolicy, string> = {
-  no_one: "Hard-deny every inbound message on this channel.",
-  guardian_only: "Only messages from the guardian are admitted.",
-  trusted_contacts:
-    "Admit verified contacts and the guardian; deny everyone else.",
-  any_contact:
-    "Admit any matched contact (verified or pending) and the guardian.",
-  strangers: "Admit everyone, including unrecognised senders.",
-};
+/**
+ * Plain-English description of each admission policy, phrased around the
+ * assistant's display name (e.g. "Vex" or "your assistant").
+ */
+export function getPolicyDescriptions(
+  assistantDisplayName: string,
+): Record<AdmissionPolicy, string> {
+  return {
+    no_one: `No one can message ${assistantDisplayName} on this channel — every message is blocked, including yours.`,
+    guardian_only: `Only you can message ${assistantDisplayName}. Everyone else is turned away.`,
+    trusted_contacts: `You and the people you’ve verified can message ${assistantDisplayName}. Anyone else is asked to verify first, and you’re notified.`,
+    any_contact: `You and any known contact can message ${assistantDisplayName}, including contacts you haven’t verified yet. Strangers are asked to verify first.`,
+    strangers: `Anyone can message ${assistantDisplayName}, including complete strangers.`,
+  };
+}

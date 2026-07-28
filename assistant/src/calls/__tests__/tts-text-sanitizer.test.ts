@@ -67,6 +67,28 @@ describe("sanitizeForTts", () => {
       expect(sanitizeForTts("5 * 3 = 15")).toBe("5 * 3 = 15");
     });
 
+    test("preserves multiple arithmetic asterisks in one sentence", () => {
+      expect(sanitizeForTts("5 * 3 is 15 and 4 * 2 is 8")).toBe(
+        "5 * 3 is 15 and 4 * 2 is 8",
+      );
+    });
+
+    test("strips italic whose content contains internal spaces", () => {
+      expect(sanitizeForTts("Hello *wide world* there")).toBe(
+        "Hello wide world there",
+      );
+    });
+
+    test("does not treat whitespace-padded asterisks as italic", () => {
+      expect(sanitizeForTts("Some * italic. still* done.")).toBe(
+        "Some * italic. still* done.",
+      );
+    });
+
+    test("does not treat whitespace-padded underscores as italic", () => {
+      expect(sanitizeForTts("a _ b and c_ d")).toBe("a _ b and c_ d");
+    });
+
     test("preserves identifiers with underscores", () => {
       expect(sanitizeForTts("The my_var variable")).toBe(
         "The my_var variable",

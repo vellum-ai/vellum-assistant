@@ -1,23 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test setup — mock modules
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,
-} from "../memory/tool-usage-store.js";
+} from "../telemetry/tool-usage-store.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +48,8 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 // ---------------------------------------------------------------------------
 
 describe("audit log rotation", () => {
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
   beforeAll(async () => {
     resetDbForTesting();
     await initializeDb();
@@ -63,7 +57,7 @@ describe("audit log rotation", () => {
     getSqlite().run(
       `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`,
     );
-  });
+  }, 30_000);
 
   beforeEach(() => {
     clearTable();

@@ -4,13 +4,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const deliveredMessages: Array<{
   url: string;
   body: Record<string, unknown>;

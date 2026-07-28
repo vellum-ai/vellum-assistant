@@ -14,10 +14,17 @@ export function getPreferredInputDeviceId(): string {
  * Audio constraints for voice capture, honoring the microphone chosen on the
  * Voice settings page. Uses `exact` so Chromium 130+ actually selects the
  * device (ideal constraints are silently ignored since that version).
+ * Always requests echo cancellation, noise suppression, and auto gain so the
+ * mic stays usable while TTS is playing (full-duplex capture).
  */
-export function voiceInputAudioConstraints(): MediaTrackConstraints | true {
+export function voiceInputAudioConstraints(): MediaTrackConstraints {
   const deviceId = getPreferredInputDeviceId();
-  return deviceId ? { deviceId: { exact: deviceId } } : true;
+  return {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+  };
 }
 
 /**
@@ -31,11 +38,12 @@ export async function getVoiceInputMediaStream(): Promise<MediaStream> {
     return await navigator.mediaDevices.getUserMedia({ audio: constraints });
   } catch (err) {
     if (
-      constraints !== true &&
+      constraints.deviceId &&
       err instanceof DOMException &&
       err.name === "OverconstrainedError"
     ) {
-      return navigator.mediaDevices.getUserMedia({ audio: true });
+      const { deviceId: _unpinned, ...fallback } = constraints;
+      return navigator.mediaDevices.getUserMedia({ audio: fallback });
     }
     throw err;
   }

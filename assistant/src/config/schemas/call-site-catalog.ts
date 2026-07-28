@@ -70,12 +70,6 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Compacts conversation history to stay within context limits.",
     domain: "agentLoop",
   },
-  analyzeConversation: {
-    id: "analyzeConversation",
-    displayName: "Analyze Conversation",
-    description: "Analyzes conversation content for summaries and insights.",
-    domain: "agentLoop",
-  },
   callAgent: {
     id: "callAgent",
     displayName: "Call Agent",
@@ -282,29 +276,10 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Infers the category of a skill from its description.",
     domain: "skills",
   },
-  meetConsentMonitor: {
-    id: "meetConsentMonitor",
-    displayName: "Meet Consent Monitor",
-    description: "Monitors meeting consent signals during live calls.",
-    domain: "skills",
-  },
-  meetChatOpportunity: {
-    id: "meetChatOpportunity",
-    displayName: "Meet Chat Opportunity",
-    description: "Identifies opportunities to engage in meeting chat.",
-    domain: "skills",
-  },
   inference: {
     id: "inference",
     displayName: "Inference",
     description: "General-purpose LLM inference call site for skill use.",
-    domain: "skills",
-  },
-  advisor: {
-    id: "advisor",
-    displayName: "Advisor",
-    description:
-      "Stronger reviewer model consulted mid-task to shape or pressure-test the plan.",
     domain: "skills",
   },
   vision: {
@@ -313,6 +288,20 @@ const CATALOG_RECORD: CatalogRecord = {
     description:
       "Captions images via a vision-capable profile for text-only model fallback.",
     domain: "skills",
+  },
+  voiceFrontDecision: {
+    id: "voiceFrontDecision",
+    displayName: "Voice Front Decision",
+    description:
+      "Fast turn-taking and presence decisions during live voice (semantic endpointing, ack generation).",
+    domain: "agentLoop",
+  },
+  voiceFrontDoor: {
+    id: "voiceFrontDoor",
+    displayName: "Voice Front Door",
+    description:
+      "Fast front-door leg fronting live-voice turns under triage-and-escalate: leading-token verdict, holding phrase, or the direct answer.",
+    domain: "agentLoop",
   },
   homeGreeting: {
     id: "homeGreeting",

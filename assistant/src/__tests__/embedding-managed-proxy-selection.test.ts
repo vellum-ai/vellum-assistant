@@ -13,14 +13,6 @@ import { credentialKey } from "../security/credential-key.js";
 // Mocks — must be before importing the module under test
 // ---------------------------------------------------------------------------
 
-// Suppress logger output
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mutable state for managed proxy context
 let mockPlatformBaseUrl = "";
 let mockAssistantApiKey: string | null = null;
@@ -50,8 +42,8 @@ import type { AssistantConfig } from "../config/types.js";
 import {
   clearEmbeddingBackendCache,
   selectEmbeddingBackend,
-} from "../memory/embedding-backend.js";
-import { GeminiEmbeddingBackend } from "../memory/embedding-gemini.js";
+} from "../persistence/embeddings/embedding-backend.js";
+import { GeminiEmbeddingBackend } from "../persistence/embeddings/embedding-gemini.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

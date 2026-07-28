@@ -8,46 +8,35 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { loadRawConfig } from "../config/loader.js";
+import { setConfig } from "./helpers/set-config.js";
+
 // ---------------------------------------------------------------------------
 // Mutable mock state — tests toggle these before each call
 // ---------------------------------------------------------------------------
 
 let mockBotUsername: string | undefined;
 let mockSecureKey: string | undefined;
-let mockConfigWriteCalls: Array<{
-  path: string;
-  value: unknown;
-}> = [];
 
 mock.module("../telegram/bot-username.js", () => ({
   getTelegramBotUsername: () => mockBotUsername,
   getTelegramBotId: () => (mockBotUsername ? "123456" : undefined),
 }));
 
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => ({}),
-  setNestedValue: (
-    _obj: Record<string, unknown>,
-    path: string,
-    value: unknown,
-  ) => {
-    mockConfigWriteCalls.push({ path, value });
-  },
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (_keyId: string) => mockSecureKey,
 }));
 
-// Suppress logger output during tests
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+// ---------------------------------------------------------------------------
+// Real-config assertion helper — the function under test persists the
+// resolved username via the real loader (`loadRawConfig` → `setNestedValue`
+// → `saveRawConfig`), so tests assert against the workspace config file.
+// ---------------------------------------------------------------------------
+
+function readResolvedBotUsername(): unknown {
+  const raw = loadRawConfig() as { telegram?: { botUsername?: unknown } };
+  return raw.telegram?.botUsername;
+}
 
 // ---------------------------------------------------------------------------
 // Global fetch mock — swapped per test
@@ -64,7 +53,9 @@ let fetchCallCount = 0;
 beforeEach(() => {
   mockBotUsername = undefined;
   mockSecureKey = undefined;
-  mockConfigWriteCalls = [];
+  // Clear any username a prior test persisted; all tests share one workspace
+  // config.json, and the file is the write target under test.
+  setConfig("telegram", {});
   mockFetchThrows = undefined;
   mockFetchResponse = {
     ok: true,
@@ -99,7 +90,7 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(0);
-    expect(mockConfigWriteCalls).toHaveLength(0);
+    expect(readResolvedBotUsername()).toBeUndefined();
   });
 
   test("(b) fetches getMe and writes username to config on success", async () => {
@@ -114,12 +105,7 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockConfigWriteCalls).toEqual([
-      {
-        path: "telegram.botUsername",
-        value: "MyNewBot",
-      },
-    ]);
+    expect(readResolvedBotUsername()).toBe("MyNewBot");
   });
 
   test("(c) handles non-200 response gracefully without writing to config", async () => {
@@ -134,7 +120,7 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockConfigWriteCalls).toHaveLength(0);
+    expect(readResolvedBotUsername()).toBeUndefined();
   });
 
   test("(d) handles missing username in response gracefully", async () => {
@@ -149,7 +135,7 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockConfigWriteCalls).toHaveLength(0);
+    expect(readResolvedBotUsername()).toBeUndefined();
   });
 
   test("(e) handles network errors (fetch throws) gracefully", async () => {
@@ -160,7 +146,7 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockConfigWriteCalls).toHaveLength(0);
+    expect(readResolvedBotUsername()).toBeUndefined();
   });
 
   test("(f) no-ops when no bot token is configured", async () => {
@@ -170,7 +156,7 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(0);
-    expect(mockConfigWriteCalls).toHaveLength(0);
+    expect(readResolvedBotUsername()).toBeUndefined();
   });
 
   test("writes to config when bot username not in config", async () => {
@@ -185,12 +171,7 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockConfigWriteCalls).toEqual([
-      {
-        path: "telegram.botUsername",
-        value: "FreshBot",
-      },
-    ]);
+    expect(readResolvedBotUsername()).toBe("FreshBot");
   });
 
   test("writes to config when bot username resolved from API", async () => {
@@ -205,11 +186,6 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockConfigWriteCalls).toEqual([
-      {
-        path: "telegram.botUsername",
-        value: "AnotherBot",
-      },
-    ]);
+    expect(readResolvedBotUsername()).toBe("AnotherBot");
   });
 });
