@@ -106,14 +106,7 @@ Script commands run with the workspace root as the working directory. The assist
 
 **Check for an existing skill before writing one.** An installed skill may already do the work the script is about to reimplement. Before authoring anything non-trivial, search the installed skills for one that covers the task; if there is one, invoke its script rather than writing a second copy.
 
-Resolve the location with `assistant skills inspect <id> --json` and use the `directoryPath` it returns. Do not assume a layout: skills come from several sources and their roots differ, so a hardcoded path works for some skills and fails at fire time for others. Read the path once, when authoring the schedule, and bake the resolved absolute path into the command:
-
-```sh
-# assistant skills inspect my-skill --json | jq -r .skill.directoryPath
-cd "<directoryPath>" && python3 scripts/<file>.py
-```
-
-`cd` first because skill scripts usually assume their own directory for relative paths and sibling imports. A skill's scripts can be rewritten by a later edit to that skill; if a schedule depends on one, prefer a script whose behavior is stable, and expect to fix the schedule if the skill changes underneath it.
+`assistant skills inspect <id> --json` reports where a skill is installed. Resolve that inside the scheduled command rather than baking a path in when the schedule is written: roots differ by skill source, and a skill's directory moves when a workspace is restored elsewhere, so a path that is correct today fails at fire time later. Change into the directory before running the script, since skill scripts usually assume their own directory for relative paths and sibling imports. A skill's scripts can be rewritten by a later edit to that skill; if a schedule depends on one, expect to fix the schedule when the skill changes underneath it.
 
 **Files on disk.** A self-contained command can live directly in the `script` field. A schedule that needs files on disk — a script too large to inline, or state that carries across runs — has a conventional home at `$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID/`. The assistant does not create or manage this directory. Because it is keyed by the schedule id, create the schedule first, read the id from the result, then create and populate `schedules/<id>/`: script files at the top level, run-managed state under `state/`, and a `.gitignore` covering `state/`. At runtime the command may reference the directory by absolute path or `cd` into it — either works. Deleting a schedule does not remove its directory; clean it up separately.
 
