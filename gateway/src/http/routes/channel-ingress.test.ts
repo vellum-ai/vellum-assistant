@@ -94,7 +94,7 @@ describe("approve", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
-      plugin: "meeting-bot",
+      source: "meeting-bot",
       digest,
     });
     expect(getPluginIngressApproval("meeting-bot")?.digest).toBe(digest);
