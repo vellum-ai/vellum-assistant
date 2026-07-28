@@ -21,8 +21,9 @@ mock.module("@/lib/backwards-compat/subagent-recovery", () => ({
   supportsSubagentRecovery: () => selfLookupSupported,
 }));
 
-const { handleSubagentEvent, handleSubagentStatusChanged } =
-  await import("@/domains/chat/utils/stream-handlers/subagent-handlers");
+const { handleSubagentEvent, handleSubagentStatusChanged } = await import(
+  "@/domains/chat/utils/stream-handlers/subagent-handlers"
+);
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 
 const ctx = {} as StreamHandlerContext;
@@ -89,11 +90,7 @@ describe("status-first recovery ordering", () => {
     // `subagent_status_changed` carries no conversationId, so the recovery
     // stub starts un-armed…
     handleSubagentStatusChanged(
-      {
-        type: "subagent_status_changed",
-        subagentId: "sa-1",
-        status: "running",
-      },
+      { type: "subagent_status_changed", subagentId: "sa-1", status: "running" },
       ctx,
     );
     const stub = useSubagentStore.getState().byId["sa-1"];

@@ -48,8 +48,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     Promise.resolve({ data: undefined, response: { ok: false } }),
 }));
 
-const { useConversationChangeEffects } =
-  await import("@/domains/chat/hooks/use-conversation-change-effects");
+const { useConversationChangeEffects } = await import(
+  "@/domains/chat/hooks/use-conversation-change-effects"
+);
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 

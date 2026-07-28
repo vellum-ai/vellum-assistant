@@ -81,7 +81,9 @@ export function useConversationChangeEffects(
           return;
         }
         const store = useSubagentStore.getState();
-        for (const [subagentId, info] of Object.entries(data.subagents ?? {})) {
+        for (const [subagentId, info] of Object.entries(
+          data.subagents ?? {},
+        )) {
           if (store.byId[subagentId]) {
             continue;
           }

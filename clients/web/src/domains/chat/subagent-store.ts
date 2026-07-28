@@ -601,6 +601,14 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       return;
     }
 
+    // A stub awaiting its detail backfill: the daemon-side history the
+    // in-flight fetch returns already contains this event, and appending it
+    // here would make `loadDetail` keep the partial live suffix over the
+    // full timeline (see the `hydrationPending` doc on `SubagentEntry`).
+    if (existing.hydrationPending) {
+      return;
+    }
+
     const eventType = mapInnerEventType(params.event);
 
     let innerContent: string;
@@ -696,6 +704,14 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
             parentToolUseId,
             params.subagentId,
           )
+        : get().byToolUseId;
+
+    // Backfill the spawn anchor for a recovered stub and register it in the
+    // tool-use index so the inline card re-anchors to its exact spawn call.
+    const parentToolUseId = existing.parentToolUseId ?? params.parentToolUseId;
+    const nextByToolUseId =
+      parentToolUseId && !existing.parentToolUseId
+        ? setToolUseAnchor(get().byToolUseId, parentToolUseId, params.subagentId)
         : get().byToolUseId;
 
     set({

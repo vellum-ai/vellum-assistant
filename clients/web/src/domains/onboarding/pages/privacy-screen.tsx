@@ -71,14 +71,7 @@ export function PrivacyScreen() {
 
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
-    saveConsent({
-      userId,
-      tos: tosAccepted,
-      privacy: privacyConsent,
-      shareAnalytics: null,
-      shareDiagnostics: shareDiagnosticsChecked,
-      hasPlatformSession,
-    });
+    saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
     emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
       userId,
     });
