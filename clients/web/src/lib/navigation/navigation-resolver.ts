@@ -300,7 +300,7 @@ export function resolveNavigation(
 // Conceptual layers:
 //   1. Readiness          — is the session ready?
 //   2. Paid return        — a checkout return with nothing provisioned yet
-//   3. Bypass             — gateway auth skips everything
+//   3. Bypass             — gateway auth skips everything but a paid return
 //   4. Identity           — is the user authenticated?
 //   5. Mode boundary      — is this path valid for the user's mode?
 //   6. Setup exemptions   — onboarding/consent paths are always reachable
@@ -384,9 +384,10 @@ function waitForSession(state: NavigationState): NavigationDecision | null {
  * Electron takes the `"native"` checkout return, but its deep-link handler
  * lands on the same in-app billing path carrying `session_id`, so it resolves
  * through this pipeline too.
- * Consent is still enforced: the destination is an onboarding path, and
- * `onboardingCompletedMiddleware` re-runs this pipeline there, where
- * `allowSetupRoutes` bounces an unconsented user to the privacy screen.
+ * Consent is still enforced: re-resolving the destination runs
+ * `allowSetupRoutes`, which bounces an unconsented user to the consent
+ * entrypoint. `allowGatewayAuth` suspends its bypass for exactly these URLs so
+ * a gateway session reaches that step.
  */
 function requirePostCheckoutProvisioning(
   state: NavigationState,
@@ -432,8 +433,25 @@ function requirePostCheckoutProvisioning(
   return { action: "redirect", to: managedProvisioningDestination(state) };
 }
 
-function allowGatewayAuth(state: NavigationState): NavigationDecision | null {
-  return state.isGatewayAuth ? { action: "allow" } : null;
+/**
+ * A gateway session answers for itself, so it skips the rest of the pipeline —
+ * except on a paid return to a provisioning funnel entry.
+ *
+ * The bypass runs before `allowSetupRoutes`, so leaving it unconditional would
+ * let an Electron paid return reach the headless research entry and start the
+ * purchased hatch with no consent recorded. Suspending it only for a
+ * {@link postCheckoutHatchReturnTo} URL keeps every other gateway-auth surface
+ * — including the local adopt flow's unmarked research entry — on today's
+ * bypass, and hands exactly the paid case to the consent steps below.
+ */
+function allowGatewayAuth(
+  state: NavigationState,
+  _path: string,
+  pathnameWithSearch: string,
+): NavigationDecision | null {
+  if (!state.isGatewayAuth) return null;
+  if (postCheckoutHatchReturnTo(pathnameWithSearch)) return null;
+  return { action: "allow" };
 }
 
 function stripRemoteGatewayPublicPathPrefix(
@@ -558,11 +576,31 @@ function allowSetupRoutes(
       return { action: "wait" };
     }
 
-    if (PROVISIONING_FUNNEL_PATHS.has(path) && !hasCompletedOnboarding(state)) {
-      return {
-        action: "redirect",
-        to: consentBounceDestination(state, pathnameWithSearch),
-      };
+    if (PROVISIONING_FUNNEL_PATHS.has(path)) {
+      if (!hasCompletedOnboarding(state)) {
+        return {
+          action: "redirect",
+          to: consentBounceDestination(state, pathnameWithSearch),
+        };
+      }
+      // A stale toggle must be re-reviewed before a hatch the user paid for.
+      // `requireConsent` can't reach this — every onboarding path is allowed
+      // above — so the paid funnel enforces it here, scoped to the paid marker
+      // so the ordinary funnel keeps its exemption. Gated on a live platform
+      // session for the same reason as `requireConsent`: there is nothing to
+      // re-review against without one.
+      if (
+        postCheckoutHatchReturnTo(pathnameWithSearch) &&
+        !state.isPlatformDisabled &&
+        state.platformSession === "present" &&
+        !consentIsCurrent(state)
+      ) {
+        const returnTo = encodeURIComponent(pathnameWithSearch);
+        return {
+          action: "redirect",
+          to: `${routes.reviewTerms}?returnTo=${returnTo}`,
+        };
+      }
     }
     return { action: "allow" };
   }

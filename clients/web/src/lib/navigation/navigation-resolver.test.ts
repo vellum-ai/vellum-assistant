@@ -959,6 +959,96 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/welcome" });
     });
 
+    // A gateway session short-circuits the pipeline to "allow" before any
+    // consent step runs, so the paid funnel entries suspend that bypass —
+    // otherwise an Electron paid return starts the purchased hatch with no
+    // consent recorded. The Electron desktop shape: gateway auth against a
+    // local assistant, with a platform session to provision into.
+    const ELECTRON_PAID = {
+      isGatewayAuth: true,
+      isLocalMode: true,
+      platformSession: "present",
+      ...NO_MANAGED_ASSISTANT,
+    } as const;
+
+    // Local mode's entrypoint is `welcome`, which reads no `returnTo` — the
+    // same bare bounce the hatching screen's own gate already gave this user.
+    test("bounces an unconsented gateway-auth paid return to the local entrypoint", () => {
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(guard(s({ ...ELECTRON_PAID, ...UNCONSENTED }), url)).toEqual({
+          action: "redirect",
+          to: "/assistant/welcome",
+        });
+      }
+    });
+
+    // Suspending the bypass must not bounce a consented paid return: it is the
+    // whole point of the funnel that it reaches the hatch.
+    test("allows a consented gateway-auth paid return", () => {
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(guard(s(ELECTRON_PAID), url)).toEqual(ALLOW);
+      }
+    });
+
+    // Onboarding is complete but a toggle went stale, so the terms are
+    // re-reviewed before the purchased hatch — with the funnel URL as
+    // `returnTo`, so the markers survive and the plan is not lost.
+    test("sends a stale-consent gateway-auth paid return to review-terms", () => {
+      for (const url of [RESEARCH_FUNNEL_URL, HATCHING_FUNNEL_URL]) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, analyticsConsentCurrent: false }), url),
+        ).toEqual({
+          action: "redirect",
+          to: `/assistant/review-terms?returnTo=${encodeURIComponent(url)}`,
+        });
+      }
+      expect(
+        guard(
+          s({ ...ELECTRON_PAID, diagnosticsConsentCurrent: false }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // Only the paid marker suspends the bypass. The local adopt flow reaches
+    // the research entry unmarked and keeps the bypass it has always had.
+    test("keeps the gateway-auth bypass on an unmarked funnel entry", () => {
+      for (const url of [
+        "/assistant/onboarding/research",
+        "/assistant/onboarding/research?hosting=vellum-cloud",
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?post_checkout=0",
+      ]) {
+        expect(
+          guard(s({ ...ELECTRON_PAID, ...UNCONSENTED }), url),
+        ).toEqual(ALLOW);
+      }
+    });
+
+    // A remote-gateway session is gateway auth too. Paired (authenticated), it
+    // passes the pairing step untouched; unpaired it pairs first, and the
+    // pairing `returnTo` keeps the markers so the funnel resumes after.
+    test("leaves remote-gateway pairing intact on a paid funnel entry", () => {
+      expect(
+        guard(
+          s({ ...ELECTRON_PAID, isRemoteGateway: true }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual(ALLOW);
+      expect(
+        guard(
+          s({ ...ELECTRON_PAID, isRemoteGateway: true, isAuthenticated: false }),
+          RESEARCH_FUNNEL_URL,
+        ),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/pair?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
     // The funnel destination must not itself read as a checkout return, or the
     // redirect would loop.
     test("the funnel destination is not treated as a post-checkout return", () => {
