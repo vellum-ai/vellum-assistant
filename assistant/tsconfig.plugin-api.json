@@ -9,5 +9,5 @@
     "outDir": "./.plugin-api-build/dts",
     "rootDir": "./src"
   },
-  "include": ["src/plugin-api/index.ts"]
+  "include": ["src/plugin-api/index.ts", "src/vellum-assistant-namespace.d.ts"]
 }
