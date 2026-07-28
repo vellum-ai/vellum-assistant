@@ -228,15 +228,14 @@ function providerTrigger(): HTMLButtonElement {
   return trigger;
 }
 
-/** The inline ProviderCreateForm's own Provider dropdown (`aria-label`). */
-function createFormProviderTrigger(): HTMLButtonElement {
-  const trigger = document.querySelector<HTMLButtonElement>(
+/**
+ * The inline ProviderCreateForm's own Provider dropdown (`aria-label`), or
+ * null — the sub-form omits it when the outer picker preselected the provider.
+ */
+function createFormProviderTrigger(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-label="Provider"]',
   );
-  if (!trigger) {
-    throw new Error("expected the inline create form's Provider dropdown");
-  }
-  return trigger;
 }
 
 /** Selects a provider in the create-mode Provider dropdown, then a model in
@@ -1070,13 +1069,11 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("Google Gemini");
 
-    // The sub-form is mounted with Gemini already chosen, so the user lands
-    // directly on that provider's API-key field...
-    expect(createFormProviderTrigger().textContent?.trim()).toBe(
-      "Google Gemini",
-    );
+    // The sub-form is mounted with Gemini already fixed, so the user lands
+    // directly on the API-key field with no second Provider dropdown — the
+    // outer picker is the single place the provider reads.
+    expect(createFormProviderTrigger()).toBeNull();
     expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
-    // ...and the outer picker keeps showing what they actually picked.
     expect(optionLabel(providerTrigger())).toBe("Google Gemini");
   });
 
@@ -1084,12 +1081,22 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     renderCreate([]);
 
     selectProvider("Google Gemini");
-    expect(createFormProviderTrigger().textContent?.trim()).toBe(
-      "Google Gemini",
-    );
+    // Gemini's credential ref is seeded into the remounted sub-form.
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+    expect(optionLabel(providerTrigger())).toBe("Google Gemini");
 
     selectProvider("OpenRouter");
-    expect(createFormProviderTrigger().textContent?.trim()).toBe("OpenRouter");
+    expect(getInputByPlaceholder("Enter your API key")).toBeDefined();
+    expect(optionLabel(providerTrigger())).toBe("OpenRouter");
+  });
+
+  test("the generic create-new-provider entry keeps the sub-form's own Provider dropdown", () => {
+    renderCreate([]);
+
+    selectProvider("+ Create new provider");
+
+    const trigger = createFormProviderTrigger();
+    expect(trigger).not.toBeNull();
   });
 
   test("connecting a preselected provider binds it and continues the profile flow", async () => {

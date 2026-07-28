@@ -1064,6 +1064,7 @@ function ProfileEditorModalInner({
           existingNames={effectiveConnections.map((c) => c.name)}
           connections={effectiveConnections}
           defaultProviderType={(pendingCreateProvider ?? provider) || undefined}
+          hideProviderSelect={pendingCreateProvider !== null}
           onCreated={handleProviderCreated}
           onCancel={() => {
             setCreatingProvider(false);

@@ -106,7 +106,7 @@ export async function describeUnavailableProfile({
   ];
   if (escapeHatch) {
     parts.push(
-      "Pass allowUnavailable: true to write it anyway — only do that when intentionally pre-staging config you will finish later.",
+      "Pass --allow-unavailable (allowUnavailable over HTTP) to write it anyway — only do that when intentionally pre-staging config you will finish later.",
     );
   }
   if (repair.kind === "repoint") {

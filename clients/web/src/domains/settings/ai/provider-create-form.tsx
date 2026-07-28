@@ -64,6 +64,12 @@ export interface ProviderCreateFormProps {
   connections?: ProviderConnection[];
   /** Pre-selected provider type. */
   defaultProviderType?: ConnectionProvider;
+  /**
+   * Hide the form's own provider selector. For hosts whose surrounding UI
+   * already names the provider (a picker that preselected it via
+   * `defaultProviderType`), rendering it again reads as a duplicate field.
+   */
+  hideProviderSelect?: boolean;
   onCreated: (connection: ProviderConnection) => void;
   onCancel: () => void;
   /** "modal" wraps the form in Modal chrome; "inline" drops it for embedding. */
@@ -75,6 +81,7 @@ export function ProviderCreateForm({
   existingNames,
   connections,
   defaultProviderType,
+  hideProviderSelect = false,
   onCreated,
   onCancel,
   variant = "modal",
@@ -365,7 +372,8 @@ export function ProviderCreateForm({
 
   const body = (
     <div className="space-y-4">
-      {/* Provider */}
+      {/* Provider — omitted when the host's own picker already fixed it. */}
+      {!hideProviderSelect && (
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
           Provider
@@ -433,6 +441,7 @@ export function ProviderCreateForm({
           </Typography>
         ) : null}
       </div>
+      )}
 
       {/* Name + Base URL + Models — custom providers only. Name leads:
           the user is adding "xAI", not configuring a URL. */}
