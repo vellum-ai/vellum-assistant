@@ -2,7 +2,10 @@ import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
-import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
+import {
+  arePlatformFeaturesEnabled,
+  isPlatformMode,
+} from "../feature-flag-resolver.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
 
@@ -145,7 +148,7 @@ async function resolveExpectedTelegramWebhookUrl(
   //   1. An explicit `ingress.enabled: false` is a decision not to accept
   //      inbound webhooks at all; it precedes both tiers below and actively
   //      deregisters, so `reconcileTelegramWebhook` handles it before calling
-  //      this resolver.
+  //      this resolver. Platform pods are exempt (see the comment there).
   //   2. A configured public ingress URL wins (a self-hosted tunnel, or the
   //      Velay-published URL while the tunnel is registered).
   //   3. Platform-connected assistants (platform pods and local assistants
@@ -208,7 +211,16 @@ export async function reconcileTelegramWebhook(
   // /webhooks/telegram route does not consult this flag. deleteWebhook is
   // idempotent, and pending updates are deliberately kept so re-enabling
   // ingress does not lose queued messages.
-  if (caches?.configFile?.getBoolean("ingress", "enabled") === false) {
+  //
+  // Platform pods are exempt: `hasWebhookRoutingConfigured` resolves the
+  // IS_PLATFORM tier ahead of the explicit-disable check because a pod has no
+  // self-owned ingress to disable, so honoring a stray flag here would delete
+  // the pod's only delivery path while the daemon still reports the channel
+  // as configured (the LUM-2899 divergence in mirror image).
+  if (
+    !isPlatformMode() &&
+    caches?.configFile?.getBoolean("ingress", "enabled") === false
+  ) {
     await callTelegramApi("deleteWebhook", {}, apiOpts);
     log.info(
       "Telegram webhook deregistered: public ingress is explicitly disabled",

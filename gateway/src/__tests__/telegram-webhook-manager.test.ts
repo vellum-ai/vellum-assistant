@@ -21,6 +21,7 @@ const { reconcileTelegramWebhook } =
 afterEach(() => {
   fetchMock = mock(async () => new Response());
   delete process.env.IS_CONTAINERIZED;
+  delete process.env.IS_PLATFORM;
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.ASSISTANT_API_KEY;
 });
@@ -81,8 +82,9 @@ function makeCaches(
     },
     getNumber: () => undefined,
     getBoolean: (section: string, key: string) => {
-      if (section === "ingress" && key === "enabled")
+      if (section === "ingress" && key === "enabled") {
         return opts.ingressEnabled;
+      }
       return undefined;
     },
     getRecord: () => undefined,
@@ -421,6 +423,62 @@ describe("reconcileTelegramWebhook", () => {
     await reconcileTelegramWebhook(caches);
 
     expect(calls).toEqual(["deleteWebhook"]);
+  });
+
+  test("ignores ingress.enabled false on platform pods and registers the managed callback route", async () => {
+    const calls: string[] = [];
+    process.env.IS_PLATFORM = "true";
+    const caches = makeCaches({
+      ingressUrl: undefined,
+      ingressEnabled: false,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "ast-managed-key",
+      platformAssistantId: "11111111-2222-4333-8444-555555555555",
+    });
+
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("/callback-routes/register/")) {
+        calls.push("registerCallbackRoute");
+        return new Response(
+          JSON.stringify({
+            callback_url:
+              "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+          }),
+          { status: 201, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/deleteWebhook")) {
+        calls.push("deleteWebhook");
+        return makeTelegramResponse(true);
+      }
+      if (url.includes("/getWebhookInfo")) {
+        calls.push("getWebhookInfo");
+        return makeTelegramResponse({
+          url: "",
+          has_custom_certificate: false,
+          pending_update_count: 0,
+        });
+      }
+      if (url.includes("/setWebhook")) {
+        calls.push("setWebhook");
+        return makeTelegramResponse(true);
+      }
+      return new Response("Not found", { status: 404 });
+    });
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(calls).toEqual([
+      "registerCallbackRoute",
+      "getWebhookInfo",
+      "setWebhook",
+    ]);
   });
 
   test("does not call Telegram when ingress is disabled but credentials are absent", async () => {
