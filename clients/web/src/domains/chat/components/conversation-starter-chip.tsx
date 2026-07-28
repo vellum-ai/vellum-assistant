@@ -44,11 +44,13 @@ export const ConversationStarterChip = forwardRef<
       className={cn(
         // Override Button's fixed h-8 / single-line / default body size.
         "h-auto whitespace-normal",
-        "min-h-[44px] sm:min-h-[52px]",
-        "px-3 py-2.5 sm:px-4 sm:py-3 rounded-[16px]",
-        "text-body-small-default sm:text-title-small text-center",
+        "min-h-[40px] sm:min-h-[44px]",
+        "px-3 py-2 sm:px-4 sm:py-2.5 rounded-[12px]",
+        // Theme body type in the secondary tone — reads like the app's
+        // buttons rather than heavy title text.
+        "text-body-small-lighter sm:text-body-medium-lighter text-center",
         // Soft white card, no border (Figma 7471-25047).
-        "bg-[var(--surface-lift)] [--vbtn-fg:var(--content-default)]",
+        "bg-[var(--surface-lift)] [--vbtn-fg:var(--content-secondary)]",
       )}
     >
       {/* leading-normal: the title-small token is line-height:1, and
