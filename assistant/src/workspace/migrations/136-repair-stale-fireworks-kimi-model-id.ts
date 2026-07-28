@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
@@ -6,24 +6,18 @@ import type { WorkspaceMigration } from "./types.js";
 /**
  * Repair the stale Fireworks Kimi K2.5 model ID in workspace LLM config.
  *
- * Fireworks withdrew the serverless deployment of
- * `accounts/fireworks/models/kimi-k2p5` (the model page now lists it as
- * on-demand/dedicated only), so serverless chat/completions calls fail with
- * a 404 "Model not found, inaccessible, and/or not deployed". The ID was
- * seeded widely: it was the Fireworks `latency-optimized` intent and the
- * Fireworks provider default, and older migrations (038/040/054/066/073)
- * stamped it into call sites, so affected assistants throw
- * model-not-found on every message routed through those entries
- * (ATL-1164, ATL-1167, ATL-1144, ATL-1142).
+ * `accounts/fireworks/models/kimi-k2p5` has no serverless deployment on
+ * Fireworks (on-demand/dedicated only), so serverless chat/completions
+ * calls fail with a 404 "Model not found, inaccessible, and/or not
+ * deployed". Existing configs can still pin the ID in `llm.default`,
+ * `llm.callSites.*`, and `llm.profiles.*`.
  *
- * Repair known LLM config leaves where clients write model IDs
- * (`llm.default`, `llm.callSites.*`, and `llm.profiles.*`) only on an
- * exact stale match, replacing with `accounts/fireworks/models/
- * deepseek-v4-flash` (the same latency-intent replacement the managed
- * catalog already made, verified serverless-servable).
+ * Repair those leaves only on an exact stale match, replacing with
+ * `accounts/fireworks/models/deepseek-v4-flash`, the catalog's current
+ * Fireworks latency-intent model.
  *
- * Provider guard: the stale ID was a catalog entry owned by the
- * `fireworks` provider and also appears in managed profiles stamped
+ * Provider guard: the stale ID belongs to the `fireworks` provider and
+ * also appears in managed profiles stamped
  * `provider: "vellum"` (which route Fireworks-account model IDs through
  * the managed proxy). A fragment is repaired when its `provider` is
  * `"fireworks"`, `"vellum"`, or absent; an explicit other provider (e.g.
@@ -78,7 +72,13 @@ export const repairStaleFireworksKimiModelIdMigration: WorkspaceMigration = {
       return;
     }
 
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    // Write-then-rename so an interrupted write cannot leave config.json
+    // truncated: a torn in-place write would parse as invalid JSON on the
+    // retry, which the catch above treats as "nothing to do", letting the
+    // runner checkpoint the migration as completed against a corrupt file.
+    const tmpPath = `${configPath}.migration-136.tmp`;
+    writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n");
+    renameSync(tmpPath, configPath);
   },
   down(_workspaceDir: string): void {
     // Forward-only: reintroducing the stale model ID would break Fireworks
