@@ -3,11 +3,21 @@
 // target-specific keys (bundle ID, display name, icon, URL scheme,
 // associated domain).
 
-// MARKETING_VERSION and CURRENT_PROJECT_VERSION are intentionally not set
-// here. Release builds inject them as xcodebuild CLI overrides at archive
-// time (see .github/workflows/release-ios.yaml), so any value committed
-// here would only affect local Xcode builds and quickly go stale after
-// each release.
+// MARKETING_VERSION and CURRENT_PROJECT_VERSION are placeholders that only
+// ever apply to local builds. Release builds inject the real values as
+// xcodebuild CLI overrides at archive time (see
+// .github/workflows/release-ios.yaml), and a command-line build setting beats
+// an xcconfig, so these never reach a shipped build and cannot go stale.
+//
+// They are not optional, despite only mattering locally: an embedded app
+// extension whose Info.plist resolves CFBundleVersion to an empty string
+// fails to install with "Failed to create app extension placeholder /
+// Invalid placeholder attributes", so without a default here no local build
+// of the app can be installed on a simulator or a device at all. Keep this
+// value identical to Extension-Base.xcconfig's — App Store validation
+// requires the appex's version to match its containing app's.
+MARKETING_VERSION = 0.0.0
+CURRENT_PROJECT_VERSION = 1
 
 CODE_SIGN_ENTITLEMENTS = App/App.entitlements
 CODE_SIGN_STYLE = Automatic
