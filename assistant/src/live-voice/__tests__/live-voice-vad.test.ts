@@ -1843,7 +1843,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcementOf(calls)).toBeUndefined();
   });
 
-  test("voice-duplex-handoff on: an active turn at fire time defers the announcement, then gives up", async () => {
+  test("voice-duplex-handoff on: an active turn at fire time announces after the turn becomes idle", async () => {
     setCachedOverrides({ "voice-duplex-handoff": true }, { fromGateway: true });
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeNeverCompletingTurnStarter();
@@ -1866,23 +1866,20 @@ describe("LiveVoiceSession server VAD", () => {
     );
     await waitFor(() => calls.some((c) => c.content === "second question"));
 
-    // The continuation finishes while the follow-up turn is still running: the
-    // first attempt defers, the single retry defers again, and the announcement
-    // is dropped rather than spoken over the assistant.
+    // The continuation finishes while the follow-up turn is still running, so
+    // it remains queued instead of speaking over the assistant.
     continuation.finish("THE_RESULT");
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(announcementOf(calls)).toBeUndefined();
 
-    // The stash still carries it, so the answer is not lost.
+    // Completing the active turn re-arms the silence window and announces the
+    // result without requiring another user turn.
     const followUp = calls.find((c) => c.content === "second question");
     followUp?.callbacks?.assistant_text_delta?.(makeTextDelta("ok"));
     followUp?.callbacks?.message_complete?.(makeMessageComplete());
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
-    await session.handleBinaryAudio(LOUD_CHUNK);
-    await waitFor(() => calls.some((c) => c.content === "third question"));
-    const later = calls.find((c) => c.content === "third question");
-    expect(later?.voiceControlPrompt).toContain("THE_RESULT");
-    expect(announcementOf(calls)).toBeUndefined();
+    await waitFor(() => announcementOf(calls) !== undefined);
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
   test("voice-duplex-handoff on: a client interrupt between finish and fire cancels the announcement", async () => {

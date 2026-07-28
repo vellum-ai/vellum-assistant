@@ -2140,10 +2140,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * has queued runs out, so a continuation finishing at the tail end of a long
    * spoken reply waits for that reply to actually finish playing.
    *
-   * `retry` marks the single re-arm a blocked attempt gets. Beyond that the
-   * announcement is dropped rather than retried forever: the stash path still
-   * delivers the same answer on the user's next turn, so a busy call loses
-   * nothing.
+   * `retry` marks the single re-arm a user-speech blocker gets. An active
+   * assistant turn keeps the announcement queued without polling; releasing
+   * the turn re-arms the timer against the actual playback tail.
    */
   private scheduleContinuationAnnouncement(
     retry = false,
@@ -2184,12 +2183,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         this.scheduleContinuationAnnouncement(retry, drainRearms + 1);
         return;
       }
+      if (blockedBy === "turn_active") {
+        return;
+      }
       if (retry || this.pendingAnnouncement === null) {
         this.pendingAnnouncement = null;
         return;
       }
       this.scheduleContinuationAnnouncement(true, drainRearms);
     }, drainMs + this.continuationAnnounceSilenceMs);
+  }
+
+  private clearActiveAssistantTurn(token: symbol): void {
+    if (this.activeAssistantTurn?.token !== token) {
+      return;
+    }
+    this.activeAssistantTurn = null;
+    if (
+      this.pendingAnnouncement !== null &&
+      !this.isClosed &&
+      this.state !== "failed"
+    ) {
+      this.scheduleContinuationAnnouncement();
+    }
   }
 
   // Why the session must not speak up right now, or null when the call is
@@ -3795,7 +3811,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return true;
       }
       if (current.finalized) {
-        this.activeAssistantTurn = null;
+        this.clearActiveAssistantTurn(token);
         return true;
       }
       // The front-door leg may have handed off before its handle resolved;
@@ -3813,7 +3829,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       this.clearFillerTimers(activeTurn);
-      this.activeAssistantTurn = null;
+      this.clearActiveAssistantTurn(token);
       await this.sendFrame({
         type: "error",
         code: LiveVoiceProtocolErrorCode.InvalidField,
@@ -4443,10 +4459,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
         }
 
-        if (this.activeAssistantTurn?.token === token) {
-          if (currentTurn.handle && currentTurn.finalized) {
-            this.activeAssistantTurn = null;
-          }
+        if (currentTurn.handle && currentTurn.finalized) {
+          this.clearActiveAssistantTurn(token);
         }
 
         // Re-arm only after the terminal tts_done frame so a slow or failing
@@ -4926,7 +4940,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.activeAssistantTurn?.token === turn.token &&
       turn.handle
     ) {
-      this.activeAssistantTurn = null;
+      this.clearActiveAssistantTurn(turn.token);
     }
 
     if (options.rearm ?? true) {
