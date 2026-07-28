@@ -16,6 +16,14 @@ export const MIN_SCRIPT_TIMEOUT_MS = 1_000;
  * budget in scheduler.ts.
  */
 export const MAX_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * How long to wait for the output pipes to drain after the process group is
+ * killed before giving up (ms). A pipe only reaches EOF once every process
+ * holding its write end has exited, so a child that escaped the group via
+ * setsid could otherwise hold the pipe open forever and wedge the scheduler
+ * tick.
+ */
+const DRAIN_TIMEOUT_MS = 5_000;
 
 export interface ScriptResult {
   exitCode: number;
@@ -29,6 +37,11 @@ export interface ScriptResult {
  * Uses Bun.spawn with /bin/sh so the command string supports pipes,
  * redirects, and shell builtins. Output is truncated to
  * {@link MAX_OUTPUT_BYTES} to keep schedule_runs rows bounded.
+ *
+ * The command runs in its own process group, and the whole group is killed
+ * on timeout and swept after exit, so background children cannot outlive the
+ * run. A child that daemonizes itself with setsid leaves the group and
+ * deliberately survives.
  */
 export async function runScript(
   command: string,
@@ -46,6 +59,7 @@ export async function runScript(
 
   const proc = Bun.spawn(["sh", "-c", command], {
     cwd,
+    detached: true,
     stdout: "pipe",
     stderr: "pipe",
     env: {
@@ -59,7 +73,7 @@ export async function runScript(
   });
 
   // Start consuming streams immediately so buffered output is available even on timeout.
-  // When the process is killed the pipe fds close and these promises resolve on their own.
+  // When the process group is killed the pipe fds close and these promises resolve on their own.
   const stdoutPromise = new Response(proc.stdout).text();
   const stderrPromise = new Response(proc.stderr).text();
 
@@ -68,31 +82,23 @@ export async function runScript(
   const timeoutPromise = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => {
       timedOut = true;
-      proc.kill("SIGKILL");
+      killProcessGroup(proc.pid);
       reject(new Error(`Script timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref();
     proc.exited.then(() => clearTimeout(timer));
   });
 
-  /** How long to wait for pipes to drain after SIGKILL before giving up. */
-  const DRAIN_TIMEOUT_MS = 5_000;
-
   let exitCode: number;
   try {
     exitCode = await Promise.race([proc.exited, timeoutPromise]);
   } catch (err) {
     if (!timedOut) throw err;
-    // Collect whatever the process wrote before it was killed.
-    // Race each stream against a short drain window — if a background child
-    // process inherited the pipe fd, the stream would otherwise never reach
-    // EOF and block the scheduler tick indefinitely.
-    const empty = (ms: number): Promise<string> =>
-      new Promise((resolve) => setTimeout(() => resolve(""), ms));
-    const [stdoutStr, stderrStr] = await Promise.all([
-      Promise.race([stdoutPromise, empty(DRAIN_TIMEOUT_MS)]),
-      Promise.race([stderrPromise, empty(DRAIN_TIMEOUT_MS)]),
-    ]);
+    // Collect whatever the process wrote before the group was killed.
+    const [stdoutStr, stderrStr] = await drainStreams(
+      stdoutPromise,
+      stderrPromise,
+    );
     const stdout = truncate(stdoutStr);
     const timeoutMsg = `Script timed out after ${timeoutMs}ms`;
     const stderr = truncate(
@@ -105,8 +111,17 @@ export async function runScript(
     return { exitCode: 124, stdout, stderr };
   }
 
-  const stdout = truncate(await stdoutPromise);
-  const stderr = truncate(await stderrPromise);
+  // Sweep anything the script left running. This reaps orphaned background
+  // children and closes their copies of the pipe fds so the stream reads
+  // below can reach EOF.
+  killProcessGroup(proc.pid);
+
+  const [stdoutStr, stderrStr] = await drainStreams(
+    stdoutPromise,
+    stderrPromise,
+  );
+  const stdout = truncate(stdoutStr);
+  const stderr = truncate(stderrStr);
 
   log.info(
     { command, exitCode, stdoutLen: stdout.length, stderrLen: stderr.length },
@@ -114,6 +129,38 @@ export async function runScript(
   );
 
   return { exitCode, stdout, stderr };
+}
+
+/**
+ * SIGKILL every process in the script's process group. The group is often
+ * already empty, in which case the signal fails with ESRCH and there is
+ * nothing to reap.
+ */
+function killProcessGroup(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // Process group may have already exited.
+  }
+}
+
+/**
+ * Collect both output streams, giving up on any stream that has not reached
+ * EOF within {@link DRAIN_TIMEOUT_MS}.
+ */
+function drainStreams(
+  stdoutPromise: Promise<string>,
+  stderrPromise: Promise<string>,
+): Promise<[string, string]> {
+  const giveUp = (): Promise<string> =>
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(""), DRAIN_TIMEOUT_MS);
+      timer.unref();
+    });
+  return Promise.all([
+    Promise.race([stdoutPromise, giveUp()]),
+    Promise.race([stderrPromise, giveUp()]),
+  ]);
 }
 
 function truncate(text: string): string {
