@@ -6,7 +6,9 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { getDb } from "../persistence/db-connection.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
+import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/354-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   type SubagentRecord,
@@ -27,6 +29,7 @@ function record(over: Partial<SubagentRecord> = {}): SubagentRecord {
     role: "researcher",
     isFork: false,
     sendResultToUser: true,
+    parentToolUseId: null,
     status: "running",
     error: null,
     createdAt: 1000,
@@ -53,6 +56,7 @@ function reconcile(parentConversationId: string) {
 
 beforeEach(() => {
   migrateCreateSubagentsTable();
+  migrateAddSubagentParentToolUseId(getDb());
   resetTestTables("subagents");
   getSubagentManager().disposeAll();
 });
@@ -93,18 +97,22 @@ describe("reconcileSubagents route", () => {
   });
 
   test("includes parentToolUseId only when the spawn recorded one", () => {
-    upsertSubagentRecord(record());
-    const manager = getSubagentManager();
-    manager.rehydrateFromDb();
-    expect(
-      reconcile(PARENT_ID).subagents["sub-1"].parentToolUseId,
-    ).toBeUndefined();
-
-    manager.getState("sub-1")!.config.parentToolUseId = "toolu-abc";
-
-    expect(reconcile(PARENT_ID).subagents["sub-1"].parentToolUseId).toBe(
-      "toolu-abc",
+    upsertSubagentRecord(record({ parentToolUseId: null }));
+    upsertSubagentRecord(
+      record({
+        id: "sub-anchored",
+        conversationId: "child-conv-anchored",
+        label: "anchored",
+        parentToolUseId: "toolu-abc",
+      }),
     );
+    getSubagentManager().rehydrateFromDb();
+
+    const { subagents } = reconcile(PARENT_ID);
+    expect(subagents["sub-1"].parentToolUseId).toBeUndefined();
+    // The anchor is persisted, so it survives the restart `rehydrateFromDb`
+    // models rather than silently dropping out of the response.
+    expect(subagents["sub-anchored"].parentToolUseId).toBe("toolu-abc");
   });
 
   test("returns an empty map for a parent with no known children", () => {
