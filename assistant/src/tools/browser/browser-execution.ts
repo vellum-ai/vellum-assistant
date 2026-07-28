@@ -18,6 +18,7 @@ import {
 } from "../network/url-safety.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
+  type AuthChallenge,
   detectAuthChallenge,
   detectCaptchaChallenge,
   formatAuthChallenge,
@@ -98,6 +99,18 @@ const MAX_EXTRACT_LENGTH = 50_000;
 const MAX_EXTRACT_FENCE_CHARS = MAX_EXTRACT_LENGTH + 10_000;
 
 /**
+ * Character budget for the fenced payload returned by `browser_snapshot`.
+ *
+ * A snapshot's usefulness is all-or-nothing per element: truncating the
+ * list drops trailing element ids the model needs to act on. The AX
+ * transform bounds a snapshot to 150 elements with capped names, values
+ * and attribute strings, so this sits above that worst case and the fence
+ * cannot cut the element list short — while still bounding what a
+ * pathological page can push into context.
+ */
+const MAX_SNAPSHOT_FENCE_CHARS = 100_000;
+
+/**
  * Fence page-derived text before it reaches the model.
  *
  * Everything a browser tool reads out of a live page — titles, accessible
@@ -117,6 +130,24 @@ function fencePageContent(
     sourceDetail: pageUrl,
     ...(maxChars === undefined ? {} : { maxChars }),
   });
+}
+
+/**
+ * Origin to attribute a detected auth challenge to.
+ *
+ * The detector reads the live DOM, which may sit at a different URL than
+ * the one navigation settled on (an SPA login redirect, a modal, the
+ * post-CAPTCHA page). Prefer the URL the detector actually inspected so
+ * the fence metadata names the origin that authored the labels, falling
+ * back to the navigation's final URL when the detector reports none.
+ */
+function authChallengeOrigin(
+  challenge: AuthChallenge,
+  fallbackUrl: string,
+): string {
+  return challenge.url
+    ? sanitizeUrlStringForOutput(challenge.url)
+    : fallbackUrl;
 }
 
 type StatusCheckMode = BrowserStatusMode;
@@ -1157,7 +1188,7 @@ export async function executeBrowserNavigate(
               lines.push(
                 fencePageContent(
                   formatAuthChallenge(postCaptchaAuth),
-                  safeFinalUrl,
+                  authChallengeOrigin(postCaptchaAuth, safeFinalUrl),
                 ),
               );
               lines.push("");
@@ -1192,7 +1223,10 @@ export async function executeBrowserNavigate(
           // the tool's own instructions and stay outside.
           lines.push("");
           lines.push(
-            fencePageContent(formatAuthChallenge(challenge), safeFinalUrl),
+            fencePageContent(
+              formatAuthChallenge(challenge),
+              authChallengeOrigin(challenge, safeFinalUrl),
+            ),
           );
           lines.push("");
           lines.push("Handle this by interacting with the login form:");
@@ -1296,6 +1330,7 @@ export async function executeBrowserSnapshot(
           { url: currentUrl, title },
         ),
         currentUrl,
+        MAX_SNAPSHOT_FENCE_CHARS,
       ),
       isError: false,
     };

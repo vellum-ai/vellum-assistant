@@ -28,6 +28,12 @@ interface FakePage {
   axNodes: unknown[];
   /** Value returned for the auth-detector's DOM probe. */
   authChallenge: { type: string; fields: Array<Record<string, string>> } | null;
+  /**
+   * What `document.location.href` reports, when it differs from the URL
+   * navigation settles on — an SPA login redirect that moves the page
+   * after `navigateAndWait` returns.
+   */
+  locationHref?: string;
 }
 
 function makeFakePage(overrides: Partial<FakePage> = {}): FakePage {
@@ -52,7 +58,9 @@ function makeFakeCdpClient(kind: CdpClientKind, conversationId: string) {
       if (method === "Runtime.evaluate") {
         const expression = String(params?.expression ?? "");
         if (expression === "document.location.href") {
-          return { result: { value: currentPage.url } };
+          return {
+            result: { value: currentPage.locationHref ?? currentPage.url },
+          };
         }
         if (expression === "document.title") {
           return { result: { value: currentPage.title } };
@@ -236,6 +244,38 @@ describe("browser_snapshot fences page-derived content", () => {
     expect(result.content).toContain("&lt;/external_content");
   });
 
+  test("a hostile page cannot push the element list past the fence budget", async () => {
+    // Element count alone does not bound a snapshot — `url` and
+    // `placeholder` carry arbitrary-length page strings. If they were
+    // unbounded, a page like this would blow past the fence budget and
+    // the trailing element ids would be silently truncated away.
+    const hostileHref = `https://evil.example.com/${"x".repeat(50_000)}`;
+    currentPage = makeFakePage({
+      axNodes: Array.from({ length: 150 }, (_, i) => ({
+        nodeId: String(i + 1),
+        role: { value: "link" },
+        name: { value: `Link ${i + 1}` },
+        value: { value: hostileHref },
+        properties: [
+          { name: "url", value: { value: hostileHref } },
+          { name: "placeholder", value: { value: hostileHref } },
+        ],
+        backendDOMNodeId: i + 1,
+      })),
+    });
+
+    const result = await executeBrowserSnapshot({}, makeContext("snap-flood"));
+
+    const envelope = expectSingleEnvelope(result.content);
+    // Nothing was dropped: every element id and the footer survive.
+    expect(envelope.content).toContain("[e1] ");
+    expect(envelope.content).toContain("[e150] ");
+    expect(envelope.content).toContain("150 interactive elements found.");
+    expect(envelope.content).not.toContain("[... truncated at");
+    // ...and the page still could not flood context.
+    expect(result.content.length).toBeLessThan(100_000);
+  });
+
   test("strips credentials from the page URL before echoing it", async () => {
     currentPage = makeFakePage({
       url: "https://user:hunter2@evil.example.com/post",
@@ -378,5 +418,29 @@ describe("browser_navigate fences page-derived content", () => {
     expect(
       result.content.indexOf("Handle this by interacting with the login form:"),
     ).toBeGreaterThan(result.content.indexOf("</external_content>"));
+  });
+
+  test("attributes the auth challenge to the URL the detector inspected", async () => {
+    // The page moves after navigation settles (SPA login redirect), so
+    // the challenge's origin must name where the labels were actually
+    // read from, not where navigation landed.
+    currentPage = makeFakePage({
+      locationHref: "https://evil.example.com/sso/login?next=/post",
+      authChallenge: {
+        type: "login",
+        fields: [{ label: "Password", type: "password" }],
+      },
+    });
+
+    const result = await executeBrowserNavigate(
+      NAV_INPUT,
+      makeContext("nav-auth-origin"),
+    );
+
+    const envelopes = extractEnvelopes(result.content);
+    const challengeEnvelope = parseExternalContentEnvelope(envelopes[1]);
+    expect(challengeEnvelope?.origin).toBe(
+      "https://evil.example.com/sso/login?next=/post",
+    );
   });
 });
