@@ -47,7 +47,6 @@ type WebSearchProvider =
   | "tavily"
   | "firecrawl"
   | "keenable";
-type WebSearchMode = "managed" | "your-own";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
