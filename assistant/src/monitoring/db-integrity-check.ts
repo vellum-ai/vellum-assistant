@@ -18,18 +18,34 @@ import { Database } from "bun:sqlite";
 const MAX_ERRORS = 10;
 
 /**
- * Cap on each error message's length. With MAX_ERRORS rows this bounds the
- * whole error payload well under the 4096-byte watchdog `detail` limit
- * (WATCHDOG_DETAIL_MAX_JSON_BYTES) — an oversized detail is silently dropped
- * by the platform, which would selectively erase the most-corrupted
- * databases from the prevalence metric.
+ * Cap on each error message's UTF-8 byte length. With MAX_ERRORS rows this
+ * bounds the whole error payload well under the 4096-byte watchdog `detail`
+ * limit (WATCHDOG_DETAIL_MAX_JSON_BYTES) — an oversized detail is silently
+ * dropped by the platform, which would selectively erase the most-corrupted
+ * databases from the prevalence metric. Bytes, not `String.length`: ten
+ * 160-character CJK messages would otherwise serialize to ~4.9 KB.
  */
-const MAX_ERROR_CHARS = 160;
+const MAX_ERROR_BYTES = 160;
 
-function boundErrors(messages: string[]): string[] {
+/** Truncate to at most `maxBytes` of UTF-8 without splitting a code point. */
+function truncateToBytes(s: string, maxBytes: number): string {
+  let bytes = 0;
+  let out = "";
+  for (const ch of s) {
+    const b = Buffer.byteLength(ch, "utf8");
+    if (bytes + b > maxBytes) {
+      break;
+    }
+    out += ch;
+    bytes += b;
+  }
+  return out;
+}
+
+export function boundErrors(messages: string[]): string[] {
   return messages
     .slice(0, MAX_ERRORS)
-    .map((m) => (m.length > MAX_ERROR_CHARS ? m.slice(0, MAX_ERROR_CHARS) : m));
+    .map((m) => truncateToBytes(m, MAX_ERROR_BYTES));
 }
 
 export interface IntegritySampleResult {

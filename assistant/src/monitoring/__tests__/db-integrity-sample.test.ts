@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 
 import { assertNotLiveDb } from "../../__tests__/assert-not-live-db.js";
 import {
+  boundErrors,
   type IntegritySampleResult,
   runIntegrityCheck,
 } from "../db-integrity-check.js";
@@ -70,6 +71,15 @@ test("reports corruption instead of throwing", () => {
   const result = runIntegrityCheck(dbPath);
   expect(result?.ok).toBe(false);
   expect(result?.errors.length).toBeGreaterThan(0);
+});
+
+test("boundErrors caps by UTF-8 bytes without splitting code points", () => {
+  const bounded = boundErrors(Array(20).fill("é".repeat(200)));
+  expect(bounded.length).toBe(10);
+  for (const msg of bounded) {
+    expect(Buffer.byteLength(msg, "utf8")).toBeLessThanOrEqual(160);
+    expect(msg.includes("�")).toBe(false);
+  }
 });
 
 test("subprocess entry prints the JSON verdict", () => {
