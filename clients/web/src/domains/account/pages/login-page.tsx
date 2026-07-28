@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
 import {
@@ -8,21 +8,16 @@ import {
   LoginErrorText,
   LoginHeading,
 } from "@/domains/account/components/login-shell";
-import { ReturnToRedirect } from "@/domains/account/components/return-to-redirect";
+import { useReturnToShortCircuit } from "@/domains/account/components/use-return-to-short-circuit";
 import {
   PROVIDER_ID,
   buildProviderCallbackUrl,
 } from "@/domains/account/login-flow";
-import { sanitizeReturnTo } from "@/domains/account/return-to";
 import {
   startAuthFlow,
   startNativeLogin,
   useIsNativePlatform,
 } from "@/runtime/native-auth";
-import {
-  useIsAuthenticated,
-  useIsSessionInitializing,
-} from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library";
 
@@ -166,31 +161,23 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
  * Delegates to `NativeLoginForm` (Capacitor iOS) or `WebLoginForm`
  * (standard browser / Electron) based on platform detection.
  *
- * A `returnTo` means something sent the visitor here on the way somewhere
- * specific (e.g. a marketing pricing CTA), so an existing session skips OAuth
- * and lands there directly. A bare visit always gets the sign-in screen — a
- * signed-in visitor may be there to re-authenticate or switch accounts.
+ * `useReturnToShortCircuit` owns whether an existing session skips OAuth and
+ * lands on the `returnTo` destination directly — the same decision
+ * `SignupPage` makes. Only the loading shell differs.
  */
 export function LoginPage() {
-  const [searchParams] = useSearchParams();
   const isNative = useIsNativePlatform();
-  const isAuthenticated = useIsAuthenticated();
-  const isSessionInitializing = useIsSessionInitializing();
-  const rawReturnTo = searchParams.get("returnTo");
-  const destination = sanitizeReturnTo(rawReturnTo, routes.assistant);
+  const shortCircuit = useReturnToShortCircuit();
 
-  if (rawReturnTo) {
-    if (isSessionInitializing) {
-      return isNative ? (
-        <NativeSplash />
-      ) : (
-        <DarkLoginShell>{null}</DarkLoginShell>
-      );
-    }
-    if (isAuthenticated) return <ReturnToRedirect to={destination} />;
+  if (shortCircuit.kind === "wait") {
+    return isNative ? (
+      <NativeSplash />
+    ) : (
+      <DarkLoginShell>{null}</DarkLoginShell>
+    );
   }
+  if (shortCircuit.kind === "redirect") return shortCircuit.node;
 
-  const returnTo = rawReturnTo ? destination : null;
-  if (isNative) return <NativeLoginForm returnTo={returnTo} />;
-  return <WebLoginForm returnTo={returnTo} />;
+  if (isNative) return <NativeLoginForm returnTo={shortCircuit.returnTo} />;
+  return <WebLoginForm returnTo={shortCircuit.returnTo} />;
 }

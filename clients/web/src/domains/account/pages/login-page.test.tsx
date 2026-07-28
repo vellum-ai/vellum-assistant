@@ -9,12 +9,18 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import * as authStore from "@/stores/auth-store";
 import * as nativeAuth from "@/runtime/native-auth";
+import type { PlatformSessionStatus } from "@/stores/session-status";
 
 const CHECKOUT = "/assistant/checkout?package=super";
+const LOCAL_DESTINATION = "/assistant/settings/general";
 
 let authenticated = false;
 let initializing = false;
 let authFlowCalls: { callbackUrl: string; returnTo: string | null }[] = [];
+
+const setPlatformSession = (platformSession: PlatformSessionStatus) => {
+  authStore.useAuthStore.setState({ platformSession });
+};
 
 mock.module("@/stores/auth-store", () => ({
   ...authStore,
@@ -64,6 +70,7 @@ describe("LoginPage", () => {
     authenticated = false;
     initializing = false;
     authFlowCalls = [];
+    setPlatformSession("present");
   });
 
   afterEach(cleanup);
@@ -74,6 +81,37 @@ describe("LoginPage", () => {
 
     expect(location()).toBe(CHECKOUT);
     expect(screen.queryByText("Sign in to Vellum")).toBeNull();
+    expect(authFlowCalls).toHaveLength(0);
+  });
+
+  test("a platform-dependent returnTo without a platform session still signs in", () => {
+    authenticated = true;
+    setPlatformSession("absent");
+    const entry = `/account/login?returnTo=${encodeURIComponent(CHECKOUT)}`;
+    renderAt(entry);
+
+    expect(location()).toBe(entry);
+    expect(screen.getByText("Sign in to Vellum")).toBeTruthy();
+  });
+
+  test("a platform-dependent returnTo waits out the platform-session probe", () => {
+    authenticated = true;
+    setPlatformSession("unknown");
+    const entry = `/account/login?returnTo=${encodeURIComponent(CHECKOUT)}`;
+    renderAt(entry);
+
+    expect(location()).toBe(entry);
+    expect(screen.queryByText("Sign in to Vellum")).toBeNull();
+  });
+
+  test("a local-only returnTo skips OAuth without a platform session", () => {
+    authenticated = true;
+    setPlatformSession("absent");
+    renderAt(
+      `/account/login?returnTo=${encodeURIComponent(LOCAL_DESTINATION)}`,
+    );
+
+    expect(location()).toBe(LOCAL_DESTINATION);
     expect(authFlowCalls).toHaveLength(0);
   });
 

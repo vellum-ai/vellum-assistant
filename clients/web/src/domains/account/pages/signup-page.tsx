@@ -1,14 +1,6 @@
-import { useSearchParams } from "react-router";
-
-import { ReturnToRedirect } from "@/domains/account/components/return-to-redirect";
 import { SignupScreen } from "@/domains/account/components/signup-screen";
 import { SignupShell } from "@/domains/account/components/signup-shell";
-import { sanitizeReturnTo } from "@/domains/account/return-to";
-import {
-  useIsAuthenticated,
-  useIsSessionInitializing,
-} from "@/stores/auth-store";
-import { routes } from "@/utils/routes";
+import { useReturnToShortCircuit } from "@/domains/account/components/use-return-to-short-circuit";
 
 /**
  * Signup entry. Renders the branded sign-up screen for everyone: a rotating
@@ -16,22 +8,15 @@ import { routes } from "@/utils/routes";
  * WorkOS auth flow (`intent: "signup"`); the post-OAuth name/occupation step
  * lives in `ProviderSignupPage`.
  *
- * A `returnTo` means something sent the visitor here on the way somewhere
- * specific (e.g. a marketing pricing CTA), so an existing session skips OAuth
- * and lands there directly. A bare visit always gets the sign-up screen — a
- * signed-in visitor may be there to create another account.
+ * `useReturnToShortCircuit` owns whether an existing session skips OAuth and
+ * lands on the `returnTo` destination directly — the same decision
+ * `LoginPage` makes. Only the loading shell differs.
  */
 export function SignupPage() {
-  const [searchParams] = useSearchParams();
-  const isAuthenticated = useIsAuthenticated();
-  const isSessionInitializing = useIsSessionInitializing();
-  const rawReturnTo = searchParams.get("returnTo");
-  const destination = sanitizeReturnTo(rawReturnTo, routes.assistant);
+  const shortCircuit = useReturnToShortCircuit();
 
-  if (rawReturnTo) {
-    if (isSessionInitializing) return <SignupShell>{null}</SignupShell>;
-    if (isAuthenticated) return <ReturnToRedirect to={destination} />;
-  }
+  if (shortCircuit.kind === "wait") return <SignupShell>{null}</SignupShell>;
+  if (shortCircuit.kind === "redirect") return shortCircuit.node;
 
-  return <SignupScreen returnTo={rawReturnTo ? destination : null} />;
+  return <SignupScreen returnTo={shortCircuit.returnTo} />;
 }

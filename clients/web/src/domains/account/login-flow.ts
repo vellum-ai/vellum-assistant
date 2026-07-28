@@ -46,6 +46,41 @@ export function requiresFullPageNavigation(destination: string): boolean {
   );
 }
 
+/**
+ * In-SPA destinations that mean nothing without a live platform account: the
+ * checkout / plans / billing funnel and the platform account pages. Each runs
+ * its own platform gate on arrival and bails when the session is missing —
+ * `CheckoutPage` drops the selected package and bounces to plans — so landing
+ * there on a local gateway identity throws the deep link away.
+ */
+const PLATFORM_DEPENDENT_PATHS: readonly string[] = [
+  routes.checkout,
+  routes.plans,
+  routes.settings.usage,
+  routes.settings.upgradeSuccess,
+  routes.settings.upgradeCancel,
+  routes.account.root,
+];
+
+/**
+ * Does landing on `destination` need a live platform session, or is a local
+ * gateway identity enough?
+ *
+ * Anything served by the platform rather than by this SPA needs one — the
+ * Django account routes, the API, the marketing import funnel and any
+ * vellum.ai URL all sit behind the same session. So do the in-app surfaces
+ * above. Everything else is daemon-served and works on a local session.
+ */
+export function requiresPlatformSession(destination: string): boolean {
+  if (requiresFullPageNavigation(destination)) {
+    return true;
+  }
+  const path = destination.split(/[?#]/)[0] ?? destination;
+  return PLATFORM_DEPENDENT_PATHS.some(
+    (candidate) => path === candidate || path.startsWith(`${candidate}/`),
+  );
+}
+
 export function resolvePostLoginDestination(
   returnTo: string | null,
   fallback: string,
