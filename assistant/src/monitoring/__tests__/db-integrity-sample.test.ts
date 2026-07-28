@@ -25,7 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  assertNotLiveDb(dbPath);
+  assertNotLiveDb(dir);
   rmSync(dir, { recursive: true, force: true });
 });
 

@@ -17,6 +17,21 @@ import { Database } from "bun:sqlite";
 /** Cap on quick_check error rows — a wrecked DB reports thousands. */
 const MAX_ERRORS = 10;
 
+/**
+ * Cap on each error message's length. With MAX_ERRORS rows this bounds the
+ * whole error payload well under the 4096-byte watchdog `detail` limit
+ * (WATCHDOG_DETAIL_MAX_JSON_BYTES) — an oversized detail is silently dropped
+ * by the platform, which would selectively erase the most-corrupted
+ * databases from the prevalence metric.
+ */
+const MAX_ERROR_CHARS = 160;
+
+function boundErrors(messages: string[]): string[] {
+  return messages
+    .slice(0, MAX_ERRORS)
+    .map((m) => (m.length > MAX_ERROR_CHARS ? m.slice(0, MAX_ERROR_CHARS) : m));
+}
+
 export interface IntegritySampleResult {
   ok: boolean;
   errors: string[];
@@ -79,7 +94,7 @@ export function runIntegrityCheck(
     }
     return {
       ok: false,
-      errors: [err instanceof Error ? err.message : String(err)],
+      errors: boundErrors([err instanceof Error ? err.message : String(err)]),
       pageCount: 0,
       durationMs: Date.now() - startedAt,
     };
@@ -93,7 +108,7 @@ export function runIntegrityCheck(
     const healthy = messages.length === 1 && messages[0] === "ok";
     return {
       ok: healthy,
-      errors: healthy ? [] : messages,
+      errors: healthy ? [] : boundErrors(messages),
       pageCount: pageCount(db),
       durationMs: Date.now() - startedAt,
     };
@@ -103,7 +118,7 @@ export function runIntegrityCheck(
     }
     return {
       ok: false,
-      errors: [err instanceof Error ? err.message : String(err)],
+      errors: boundErrors([err instanceof Error ? err.message : String(err)]),
       pageCount: pageCount(db),
       durationMs: Date.now() - startedAt,
     };

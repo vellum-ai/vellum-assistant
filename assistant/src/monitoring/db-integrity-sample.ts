@@ -48,6 +48,14 @@ const STAMP_FILENAME = "db-integrity-last-run-at";
  * Returns null — "no sample" — on a non-zero exit, unparseable output, or
  * timeout (the child is killed).
  */
+/**
+ * The in-flight check subprocess, retained so sampler shutdown can kill it —
+ * a non-detached child survives the monitor's exit and would otherwise hold
+ * its SQLite read snapshot for up to CHECK_TIMEOUT_MS while the daemon
+ * restarts.
+ */
+let activeChild: ReturnType<typeof Bun.spawn> | null = null;
+
 async function runCheckSubprocess(
   dbPath: string,
 ): Promise<IntegritySampleResult | null> {
@@ -56,6 +64,7 @@ async function runCheckSubprocess(
     cmd: ["bun", "--smol", "run", entry, dbPath],
     stdio: ["ignore", "pipe", "ignore"],
   });
+  activeChild = child;
   const killTimer = setTimeout(() => child.kill(), CHECK_TIMEOUT_MS);
   killTimer.unref?.();
   try {
@@ -68,6 +77,7 @@ async function runCheckSubprocess(
     return null;
   } finally {
     clearTimeout(killTimer);
+    activeChild = null;
   }
 }
 
@@ -146,7 +156,7 @@ export function startDbIntegritySampler(): void {
   pollTimer.unref?.();
 }
 
-/** Stop the sampler loop. Idempotent. */
+/** Stop the sampler loop and any in-flight check subprocess. Idempotent. */
 export function stopDbIntegritySampler(): void {
   if (bootTimer) {
     clearTimeout(bootTimer);
@@ -156,4 +166,6 @@ export function stopDbIntegritySampler(): void {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  activeChild?.kill();
+  activeChild = null;
 }
