@@ -10,6 +10,7 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 
 import {
+  isTakeoverAvatarStashFresh,
   readTakeoverAvatarStash,
   takeoverAvatarStashVersion,
 } from "@/lib/billing/takeover-avatar-stash";
@@ -69,7 +70,14 @@ export function useTakeoverSurface(
   // Memoized so a sessionStorage re-parse can't hand the avatar a new
   // `components` identity every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the version IS the dep; it stands in for the module state the read touches
-  const stash = useMemo(() => readTakeoverAvatarStash(), [stashVersion]);
+  const stashRecord = useMemo(() => readTakeoverAvatarStash(), [stashVersion]);
+  // The memo can outlive the TTL on a mounted native return (capture, a long
+  // stay in the external browser, then the open), so freshness is rechecked
+  // per render rather than trusted from the cached read.
+  const stash =
+    stashRecord != null && isTakeoverAvatarStashFresh(stashRecord)
+      ? stashRecord
+      : null;
 
   // `useAssistantAvatar(null)` is a disabled query, which reports
   // `isLoading: false` with no data, so the id has to gate settling too.

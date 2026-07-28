@@ -357,7 +357,7 @@ describe("AdjustPlanModal upgrade — checkout intent stash", () => {
     });
     client.setQueryData([...avatarQueryKey("a1"), true], {
       components: BUNDLED_COMPONENTS,
-      traits: { bodyShape: "blob", eyeStyle: "default", color: "purple" },
+      traits: { bodyShape: "blob", eyeStyle: "curious", color: "purple" },
       customImageUrl: null,
     });
 

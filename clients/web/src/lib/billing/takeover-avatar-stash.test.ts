@@ -20,7 +20,7 @@ const STORAGE_KEY = "vellum.pro-takeover-avatar";
 
 const TRAITS: CharacterTraits = {
   bodyShape: "blob",
-  eyeStyle: "default",
+  eyeStyle: "curious",
   color: "purple",
 };
 
@@ -173,19 +173,25 @@ describe("saveTakeoverAvatarStash / readTakeoverAvatarStash", () => {
       "a faceCenterOverride entry without a faceCenter",
       {
         ...BUNDLED_COMPONENTS,
-        faceCenterOverrides: [{ bodyShape: "blob", eyeStyle: "default" }],
+        faceCenterOverrides: [{ bodyShape: "blob", eyeStyle: "curious" }],
       },
+    ],
+
+    [
+      "traits whose bodyShape id is missing from the definitions",
+      BUNDLED_COMPONENTS,
+      { bodyShape: "not-a-shape", eyeStyle: "curious", color: "purple" },
     ],
   ];
 
-  for (const [label, components] of MALFORMED_COMPONENTS) {
+  for (const [label, components, traits] of MALFORMED_COMPONENTS) {
     test(`a stash with ${label} reads as null and self-clears`, () => {
       sessionStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
           assistantId: "a1",
           components,
-          traits: null,
+          traits: traits ?? null,
           savedAt: Date.now(),
         }),
       );
@@ -370,6 +376,31 @@ describe("in-memory mirror on a same-document return", () => {
       Object.defineProperty(globalThis, "sessionStorage", original);
     }
   });
+});
+
+test("a throwing sessionStorage property getter falls back to the mirror", () => {
+  const realStorage = sessionStorage;
+  saveTakeoverAvatarStash({
+    assistantId: "a1",
+    components: BUNDLED_COMPONENTS,
+    traits: TRAITS,
+  });
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    get: () => {
+      throw new Error("SecurityError");
+    },
+  });
+  try {
+    // The save above reached real storage, but with the getter itself throwing
+    // the read must survive and serve the mirror rather than crash the render.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
+  } finally {
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get: () => realStorage,
+    });
+  }
 });
 
 test("a failed overwrite serves the fresh mirror over the stale stored stash", () => {

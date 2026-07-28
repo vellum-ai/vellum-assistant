@@ -5,7 +5,7 @@
  * fetch. The resolved-assistants store is driven through `setState`, as in
  * `provisioning-state.test.tsx`.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { renderHook } from "@testing-library/react";
 
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
@@ -39,7 +39,7 @@ const PURPLE_SURFACE = "#29202e";
 const ORANGE_SURFACE = "#332019";
 
 function traits(color: string): CharacterTraits {
-  return { bodyShape: "blob", eyeStyle: "default", color };
+  return { bodyShape: "blob", eyeStyle: "curious", color };
 }
 
 function seedStash(assistantId: string, color: string): void {
@@ -222,6 +222,28 @@ describe("avatar stash", () => {
     expect(result.current.ready).toBe(true);
     expect(result.current.avatar.traits).toEqual(traits("purple"));
     expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+  });
+
+  test("a stash that expires while the hook stays mounted stops drawing", () => {
+    seedStash("primary-assistant", "purple");
+    avatar.isLoading = true;
+
+    const { result, rerender } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+    expect(result.current.ready).toBe(true);
+
+    // The memoized read outlives the TTL on a mounted native return, so the
+    // per-render freshness check has to retire it without a version bump.
+    const nowSpy = spyOn(Date, "now");
+    nowSpy.mockReturnValue(Date.now() + 31 * 60 * 1000);
+    try {
+      rerender();
+      expect(result.current.ready).toBe(false);
+      expect(result.current.tintHex).toBe(SURFACE_GROUND);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   test("a stash for another assistant never draws", () => {

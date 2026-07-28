@@ -11,7 +11,7 @@ import { clearUserScopedStorage } from "./session-cleanup";
 
 const STASH_TRAITS: CharacterTraits = {
   bodyShape: "blob",
-  eyeStyle: "default",
+  eyeStyle: "curious",
   color: "purple",
 };
 

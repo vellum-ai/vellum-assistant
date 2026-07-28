@@ -130,7 +130,7 @@ const { CheckoutPage } = await import("./checkout-page");
 
 const AVATAR_TRAITS: CharacterTraits = {
   bodyShape: "blob",
-  eyeStyle: "default",
+  eyeStyle: "curious",
   color: "purple",
 };
 

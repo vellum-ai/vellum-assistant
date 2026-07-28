@@ -101,9 +101,6 @@ export function saveTakeoverAvatarStash(
  * empty included.
  */
 export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
-  if (typeof sessionStorage === "undefined") {
-    return readInMemoryStash();
-  }
   // A failed write means the mirror is strictly newer than anything persisted:
   // a stale earlier stash may still sit in storage, and serving it would show
   // the previous capture's avatar over the fresh one.
@@ -112,6 +109,11 @@ export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
   }
   let raw: string | null;
   try {
+    // Even the property getter can throw (SecurityError in embedded
+    // contexts), so the whole acquisition stays inside the guard.
+    if (typeof sessionStorage === "undefined") {
+      return readInMemoryStash();
+    }
     raw = sessionStorage.getItem(STORAGE_KEY);
   } catch {
     // sessionStorage unreachable, fall back to the in-memory mirror.
@@ -252,6 +254,15 @@ function readInMemoryStash(): TakeoverAvatarStash | null {
  * rejects garbage rather than deep-guarding the whole component tree. Each
  * array below is dereferenced unconditionally while rendering the creature.
  */
+/**
+ * True while the record is inside its TTL. Exposed because the surface hook's
+ * memoized read can outlive the deadline on a mounted native return, so
+ * freshness is rechecked per render rather than trusted from the cached read.
+ */
+export function isTakeoverAvatarStashFresh(stash: TakeoverAvatarStash): boolean {
+  return Date.now() - stash.savedAt <= MAX_AGE_MS;
+}
+
 function isTakeoverAvatarStash(value: unknown): value is TakeoverAvatarStash {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -271,12 +282,31 @@ function isTakeoverAvatarStash(value: unknown): value is TakeoverAvatarStash {
     return false;
   }
   const parts = components as Record<string, unknown>;
-  return (
-    isNonEmptyArrayOf(parts.bodyShapes, isBodyShapeEntry) &&
-    isNonEmptyArrayOf(parts.eyeStyles, isEyeStyleEntry) &&
-    isNonEmptyArrayOf(parts.colors, isColorEntry) &&
-    Array.isArray(parts.faceCenterOverrides) &&
-    parts.faceCenterOverrides.every(isFaceCenterOverrideEntry)
+  if (
+    !isNonEmptyArrayOf(parts.bodyShapes, isBodyShapeEntry) ||
+    !isNonEmptyArrayOf(parts.eyeStyles, isEyeStyleEntry) ||
+    !isNonEmptyArrayOf(parts.colors, isColorEntry) ||
+    !Array.isArray(parts.faceCenterOverrides) ||
+    !parts.faceCenterOverrides.every(isFaceCenterOverrideEntry)
+  ) {
+    return false;
+  }
+  // Well-shaped trait ids that are missing from the stashed definitions would
+  // throw in resolveDefinitions, so each one has to resolve here.
+  if (stash.traits !== null) {
+    const traits = stash.traits as CharacterTraits;
+    return (
+      hasEntryWithId(parts.bodyShapes, traits.bodyShape) &&
+      hasEntryWithId(parts.eyeStyles, traits.eyeStyle) &&
+      hasEntryWithId(parts.colors, traits.color)
+    );
+  }
+  return true;
+}
+
+function hasEntryWithId(entries: unknown[], id: string): boolean {
+  return entries.some(
+    (entry) => (entry as Record<string, unknown>).id === id,
   );
 }
 
