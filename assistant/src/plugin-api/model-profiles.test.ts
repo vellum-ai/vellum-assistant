@@ -159,8 +159,10 @@ describe("getModelProfiles", () => {
     expect(result.find((p) => p.key === "quality-optimized")?.description).toBe(
       "High-quality results with the most capable model",
     );
+    // Tier descriptions are intent-only (no model names — LUM-2881), so the
+    // managed and BYOK columns read the same for this tier.
     expect(result.find((p) => p.key === "cost-optimized")?.description).toBe(
-      "Fastest responses at lower cost (DeepSeek V4 Flash)",
+      "Fastest responses at lower cost",
     );
   });
 

@@ -77,7 +77,11 @@ function renderCard() {
     createElement(
       QueryClientProvider,
       { client: queryClient },
-      createElement(LanguageModelCard),
+      createElement(LanguageModelCard, {
+        panel: null,
+        onOpenPanel: () => {},
+        onClosePanel: () => {},
+      }),
     ),
   );
 }
@@ -174,11 +178,15 @@ describe("default-provider availability notice", () => {
       expect(result.baseElement.textContent).toContain("has no API key stored");
     });
 
-    // Open the Providers modal, "fix" the problem server-side, then close —
-    // the close-triggered refetch must clear the notice without a reload.
+    // Open the Providers modal (the Manage action inside the Providers
+    // section), "fix" the problem server-side, then close — the
+    // close-triggered refetch must clear the notice without a reload.
+    const providersSection = [
+      ...result.baseElement.querySelectorAll("section"),
+    ].find((s) => s.querySelector("h3")?.textContent === "Providers");
     const providersButton = [
-      ...result.baseElement.querySelectorAll("button"),
-    ].find((b) => b.textContent === "Providers");
+      ...(providersSection?.querySelectorAll("button") ?? []),
+    ].find((b) => b.textContent === "Manage");
     fireEvent.click(providersButton as HTMLButtonElement);
     await waitFor(() => {
       expect(result.baseElement.textContent).toContain(

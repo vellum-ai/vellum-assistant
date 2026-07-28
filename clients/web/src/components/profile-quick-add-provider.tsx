@@ -16,7 +16,7 @@
  * success toast.
  *
  * The create-persistence here is a re-implementation, not a copy, of
- * `ManageProfilesModal`'s create path: that modal lives in the settings
+ * the retired settings profile-save path: that code lived in the settings
  * domain and uses its `useDaemonConfigMutation` hook, which this provider
  * cannot import (`local/no-cross-domain-imports`). So it persists via the
  * generated SDK functions (`configGet`/`configPatch`), sources `profileOrder`

@@ -1,19 +1,33 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-import { LanguageModelCard } from "@/domains/settings/ai/language-model-card";
-import { WebSearchCard } from "@/domains/settings/ai/web-search-card";
-import { WebFetchCard } from "@/domains/settings/ai/web-fetch-card";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
 import { EmailServiceCard } from "@/domains/settings/ai/email-service-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
-import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
-import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
+import {
+  LanguageModelCard,
+  type LanguageModelPanelState,
+} from "@/domains/settings/ai/language-model-card";
 import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
+import { ProfileDetailPanel } from "@/domains/settings/ai/profile-detail-panel";
+import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
+import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
+import { WebFetchCard } from "@/domains/settings/ai/web-fetch-card";
+import { WebSearchCard } from "@/domains/settings/ai/web-search-card";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // ---------------------------------------------------------------------------
 // AiPage — layout shell
 // ---------------------------------------------------------------------------
 
 export function AiPage() {
+  const assistantId = useActiveAssistantId();
+  const isMobile = useIsMobile();
+
+  // The Language Model sidepanel (profile detail / create). Page-owned so
+  // the drawer can dock beside the whole card stack, schedules-page style.
+  const [lmPanel, setLmPanel] = useState<LanguageModelPanelState | null>(null);
+
   // Scroll to hash target on mount (e.g. deep links to #email).
   useEffect(() => {
     const hash = window.location.hash.slice(1);
@@ -25,11 +39,15 @@ export function AiPage() {
     });
   }, []);
 
-  return (
-    <div className="space-y-5">
+  const section = (
+    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto">
       <ManagedServicesBanner />
 
-      <LanguageModelCard />
+      <LanguageModelCard
+        panel={lmPanel}
+        onOpenPanel={setLmPanel}
+        onClosePanel={() => setLmPanel(null)}
+      />
       <WebSearchCard />
       <WebFetchCard />
       <EmailServiceCard />
@@ -40,5 +58,34 @@ export function AiPage() {
       <TextToSpeechCard />
       <SpeechToTextCard />
     </div>
+  );
+
+  const detailKey =
+    lmPanel?.kind === "profile" ? `profile:${lmPanel.name}` : "create-profile";
+  const detail =
+    lmPanel != null && assistantId ? (
+      <ProfileDetailPanel
+        key={detailKey}
+        assistantId={assistantId}
+        profileName={lmPanel.kind === "profile" ? lmPanel.name : null}
+        onClose={() => setLmPanel(null)}
+      />
+    ) : null;
+
+  // On mobile the detail takes over the whole screen; on desktop it opens as
+  // a drawer beside the card stack.
+  if (detail && isMobile) {
+    return <MobileDetailOverlay>{detail}</MobileDetailOverlay>;
+  }
+
+  return detail ? (
+    <DetailDrawer
+      storageKey="aiSettingsDetailDrawerWidth"
+      detailKey={detailKey}
+      section={section}
+      detail={detail}
+    />
+  ) : (
+    section
   );
 }
