@@ -105,14 +105,52 @@ export function getToolResultFilePath(
   return join(conversationDir, TOOL_RESULT_DIR, `${hash}.txt`);
 }
 
-/** Head/tail stub of `original` with the recovery marker spliced in between. */
+const EXTERNAL_CONTENT_OPEN_TAG = /<external_content\b[^\n>]*>/g;
+const EXTERNAL_CONTENT_CLOSE_TAG = "</external_content>";
+
+function countOccurrences(haystack: string, pattern: RegExp | string): number {
+  if (typeof pattern === "string") {
+    return haystack.split(pattern).length - 1;
+  }
+  return haystack.match(pattern)?.length ?? 0;
+}
+
+/**
+ * Close a fence the prefix cut left hanging open.
+ *
+ * A mixed result (tool-owned lines around one or more embedded
+ * `<external_content>` blocks) can be cut mid-envelope. Without repair
+ * the marker that follows would read as being inside the fence — the
+ * exact placement the model is told to ignore.
+ */
+function closeDanglingEnvelope(chunk: string): string {
+  const opens = countOccurrences(chunk, EXTERNAL_CONTENT_OPEN_TAG);
+  const closes = countOccurrences(chunk, EXTERNAL_CONTENT_CLOSE_TAG);
+  return opens > closes ? `${chunk}\n${EXTERNAL_CONTENT_CLOSE_TAG}` : chunk;
+}
+
+/**
+ * Open a fence the suffix cut left hanging closed, so the marker that
+ * precedes it does not fall inside the resulting envelope.
+ */
+function openDanglingEnvelope(chunk: string): string {
+  const opens = countOccurrences(chunk, EXTERNAL_CONTENT_OPEN_TAG);
+  const closes = countOccurrences(chunk, EXTERNAL_CONTENT_CLOSE_TAG);
+  return closes > opens
+    ? `<external_content source="tool_result">\n${chunk}`
+    : chunk;
+}
+
+/**
+ * Head/tail stub of `original` with the recovery marker spliced in
+ * between, keeping the marker outside any `<external_content>` fence the
+ * cut passed through.
+ */
 function spliceWithMarker(original: string, marker: string): string {
   const half = Math.floor(TARGET_CHARS / 2);
-  const prefix = safeStringSlice(original, 0, half);
-  const suffix = safeStringSlice(
-    original,
-    original.length - half,
-    original.length,
+  const prefix = closeDanglingEnvelope(safeStringSlice(original, 0, half));
+  const suffix = openDanglingEnvelope(
+    safeStringSlice(original, original.length - half, original.length),
   );
   return `${prefix}\n\n...(${marker})\n\n${suffix}`;
 }
@@ -130,12 +168,17 @@ function recoveryMarker(omittedChars: number, filePath: string): string {
  * how to page it back in — the marker is the model's only signal that the
  * omitted content is recoverable at all.
  *
- * When the result is an `<external_content>` envelope (web fetch, browser page
- * text, and anything else fenced per `security/AGENTS.md`), only the fenced
- * data is truncated and the marker is appended after the closing tag. The
- * marker is the daemon's own instruction, and the model is told never to act
- * on instructions inside the fence — spliced in there, the one signal that the
- * omitted content is recoverable is a signal it must ignore.
+ * The marker is the daemon's own instruction, and the model is told never to
+ * act on instructions inside an `<external_content>` fence — placed in there,
+ * the one signal that the omitted content is recoverable becomes a signal it
+ * must ignore. So fenced results (web fetch, browser page text, and anything
+ * else fenced per `security/AGENTS.md`) get the marker outside the fence:
+ *
+ * - A result that is entirely one envelope has its fenced data truncated and
+ *   the marker appended after the closing tag.
+ * - A mixed result (tool-owned lines around embedded envelopes) is spliced as
+ *   usual, with any fence the cut passed through repaired so the marker still
+ *   lands outside it.
  */
 export function buildTruncatedContent(
   original: string,

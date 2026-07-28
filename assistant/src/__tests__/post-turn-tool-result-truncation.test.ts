@@ -518,6 +518,41 @@ describe("buildTruncatedContent on fenced results", () => {
     expect(result).toContain(TRUNCATION_MARKER);
     expect(result).not.toContain("</external_content>");
   });
+
+  test("a cut through an embedded envelope still leaves the marker outside", () => {
+    // Mixed result shape: tool-owned lines wrapped around embedded
+    // envelopes, as `browser_navigate` returns. The prefix cut lands
+    // inside the first envelope and the suffix cut inside the second.
+    const mixed = [
+      "Final URL: https://example.com/login",
+      wrapUntrustedContent("t".repeat(20_000), {
+        source: "web",
+        maxChars: Number.MAX_SAFE_INTEGER,
+      }),
+      "Handle this by interacting with the login form:",
+      wrapUntrustedContent("f".repeat(20_000), {
+        source: "web",
+        maxChars: Number.MAX_SAFE_INTEGER,
+      }),
+    ].join("\n");
+
+    const result = buildTruncatedContent(mixed, "/tmp/full.txt");
+
+    // Every fence in the stub is balanced...
+    const opens = result.match(/<external_content\b[^\n>]*>/g)?.length ?? 0;
+    const closes = result.split("</external_content>").length - 1;
+    expect(opens).toBe(closes);
+
+    // ...and the marker sits between a closed fence and the next open one,
+    // so the model is never told to ignore its only recovery path.
+    const markerIndex = result.indexOf(TRUNCATION_MARKER);
+    expect(markerIndex).toBeGreaterThan(-1);
+    const before = result.slice(0, markerIndex);
+    const opensBefore =
+      before.match(/<external_content\b[^\n>]*>/g)?.length ?? 0;
+    const closesBefore = before.split("</external_content>").length - 1;
+    expect(opensBefore).toBe(closesBefore);
+  });
 });
 
 describe("buildTruncatedContent surrogate-pair safety", () => {
