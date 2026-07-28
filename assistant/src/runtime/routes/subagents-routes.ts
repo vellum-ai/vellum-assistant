@@ -186,6 +186,16 @@ function getSubagentDetail(
 // Route definitions
 // ---------------------------------------------------------------------------
 
+/** `status` is the only guaranteed key; every other field is optional. */
+const ReconciledSubagentSchema = z.object({
+  status: z.string(),
+  conversationId: z.string().optional(),
+  label: z.string().optional(),
+  objective: z.string().optional(),
+  isFork: z.boolean().optional(),
+  parentToolUseId: z.string().optional(),
+});
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "reconcileSubagents",
@@ -197,7 +207,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the live in-memory status of all subagents known to the daemon for a given parent conversation. Subagents not in the response are orphaned.",
+      "Returns the live in-memory state of all subagents known to the assistant for a given parent conversation. Each entry carries enough detail (child conversation id, label, objective) for a client to rebuild its subagent list from scratch, not just refresh statuses. Subagents absent from the response are orphaned or terminal. Only `status` is guaranteed to be present; every other field is optional.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -207,12 +217,7 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      subagents: z.record(
-        z.string(),
-        z.object({
-          status: z.string(),
-        }),
-      ),
+      subagents: z.record(z.string(), ReconciledSubagentSchema),
     }),
     handler: ({ queryParams }) => {
       const parentConversationId = queryParams?.parentConversationId;
@@ -222,10 +227,19 @@ export const ROUTES: RouteDefinition[] = [
         );
       }
       const manager = getSubagentManager();
-      const children = manager.getChildrenOf(parentConversationId);
-      const subagents: Record<string, { status: string }> = {};
-      for (const child of children) {
-        subagents[child.config.id] = { status: child.status };
+      const subagents: Record<
+        string,
+        z.infer<typeof ReconciledSubagentSchema>
+      > = {};
+      for (const child of manager.getChildrenOf(parentConversationId)) {
+        subagents[child.config.id] = {
+          status: child.status,
+          conversationId: child.conversationId,
+          label: child.config.label,
+          objective: child.config.objective,
+          isFork: child.isFork,
+          parentToolUseId: child.config.parentToolUseId,
+        };
       }
       return { subagents };
     },
@@ -248,7 +262,7 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "string" },
         description:
           "The subagent's own conversation ID. Fallback only — when the " +
-          "daemon knows the subagent (live, rehydrated, or in its durable " +
+          "assistant knows the subagent (live, rehydrated, or in its durable " +
           "records), it resolves the conversation itself and this parameter " +
           "is ignored.",
       },

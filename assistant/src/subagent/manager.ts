@@ -1279,6 +1279,7 @@ export class SubagentManager {
         role: state.config.role ?? "general",
         isFork: state.isFork,
         sendResultToUser: state.config.sendResultToUser ?? null,
+        parentToolUseId: state.config.parentToolUseId ?? null,
         status: state.status,
         error: state.error ?? null,
         createdAt: state.createdAt,
@@ -1331,6 +1332,9 @@ export class SubagentManager {
           fork: rec.isFork,
           ...(rec.sendResultToUser != null
             ? { sendResultToUser: rec.sendResultToUser }
+            : {}),
+          ...(rec.parentToolUseId != null
+            ? { parentToolUseId: rec.parentToolUseId }
             : {}),
         },
         status,

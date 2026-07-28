@@ -20,6 +20,11 @@ export interface SubagentRecord {
   isFork: boolean;
   /** Tri-state: null when the spawner left it unset. */
   sendResultToUser: boolean | null;
+  /**
+   * Tool-use id of the call that spawned this subagent; null when the spawn
+   * had no anchoring tool call.
+   */
+  parentToolUseId: string | null;
   status: string;
   error: string | null;
   createdAt: number;
@@ -40,6 +45,7 @@ interface SubagentRow {
   role: string;
   is_fork: number;
   send_result_to_user: number | null;
+  parent_tool_use_id: string | null;
   status: string;
   error: string | null;
   created_at: number;
@@ -61,6 +67,7 @@ function rowToRecord(r: SubagentRow): SubagentRecord {
     isFork: r.is_fork === 1,
     sendResultToUser:
       r.send_result_to_user == null ? null : r.send_result_to_user === 1,
+    parentToolUseId: r.parent_tool_use_id,
     status: r.status,
     error: r.error,
     createdAt: r.created_at,
@@ -82,9 +89,10 @@ export function upsertSubagentRecord(rec: SubagentRecord): void {
     "subagent:upsertRecord",
     `INSERT INTO subagents (
        id, parent_conversation_id, conversation_id, label, objective, role,
-       is_fork, send_result_to_user, status, error, created_at, started_at,
-       completed_at, input_tokens, output_tokens, estimated_cost
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       is_fork, send_result_to_user, parent_tool_use_id, status, error,
+       created_at, started_at, completed_at, input_tokens, output_tokens,
+       estimated_cost
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        error = excluded.error,
@@ -101,6 +109,7 @@ export function upsertSubagentRecord(rec: SubagentRecord): void {
     rec.role,
     rec.isFork ? 1 : 0,
     rec.sendResultToUser == null ? null : rec.sendResultToUser ? 1 : 0,
+    rec.parentToolUseId,
     rec.status,
     rec.error,
     rec.createdAt,
