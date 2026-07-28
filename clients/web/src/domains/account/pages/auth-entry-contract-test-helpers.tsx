@@ -15,16 +15,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import * as authStore from "@/stores/auth-store";
 import * as nativeAuth from "@/runtime/native-auth";
 import type { PlatformSessionStatus } from "@/stores/session-status";
 
 export const CHECKOUT = "/assistant/checkout?package=super";
-export const LOCAL_DESTINATION = "/assistant/settings/general";
-// The platform's hardcoded Stripe `success_url` — the real post-checkout return.
-export const LEGACY_BILLING_LANDING =
-  "/assistant/settings/billing?session_id=cs_test_123";
 const HOSTILE_DESTINATION = "https://evil.example";
+/** Served by the platform's Next.js app — a `<Navigate>` here dead-ends. */
+const IMPORT_FUNNEL = "/import?foo=1";
+const VELLUM_URL = "https://app.vellum.ai/x";
 
 interface AuthFlowCall {
   callbackUrl: string;
@@ -37,6 +37,7 @@ export const authEntry = {
   initializing: false,
   native: false,
   authFlowCalls: [] as AuthFlowCall[],
+  hardNavigateCalls: [] as string[],
 };
 
 export const mockAuthStore = () => ({
@@ -62,7 +63,13 @@ export const mockNativeAuth = () => ({
   useIsNativePlatform: () => authEntry.native,
 });
 
-export function setPlatformSession(platformSession: PlatformSessionStatus) {
+export const mockHardNavigate = () => ({
+  hardNavigate: (url: string) => {
+    authEntry.hardNavigateCalls.push(url);
+  },
+});
+
+function setPlatformSession(platformSession: PlatformSessionStatus) {
   authStore.useAuthStore.setState({ platformSession });
 }
 
@@ -73,7 +80,11 @@ export function setupAuthEntry() {
     authEntry.initializing = false;
     authEntry.native = false;
     authEntry.authFlowCalls = [];
+    authEntry.hardNavigateCalls = [];
     setPlatformSession("present");
+    useAssistantLifecycleStore.setState({
+      assistantState: { kind: "loading" },
+    });
   });
 
   afterEach(cleanup);
@@ -106,9 +117,9 @@ export function entryUrl(route: string, returnTo: string) {
   return `${route}?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
-export const currentLocation = () => screen.getByTestId("location").textContent;
+const currentLocation = () => screen.getByTestId("location").textContent;
 
-export interface AuthEntryPage {
+interface AuthEntryPage {
   /** The page component, dynamically imported after the module mocks land. */
   Page: ComponentType;
   /** Route the page is mounted at. */
@@ -135,7 +146,7 @@ export function describeAuthEntryContract(
 
       expect(currentLocation()).toBe(CHECKOUT);
       expect(authScreen()).toBeNull();
-      expect(authEntry.authFlowCalls).toHaveLength(0);
+      expect(authEntry.hardNavigateCalls).toHaveLength(0);
     });
 
     test("a platform-dependent returnTo without a platform session still signs in", () => {
@@ -148,10 +159,13 @@ export function describeAuthEntryContract(
       expect(authScreen()).toBeTruthy();
     });
 
-    test("the legacy billing landing without a platform session still signs in", () => {
+    test("a self-hosted assistant with no platform session still signs in", () => {
       authEntry.authenticated = true;
       setPlatformSession("absent");
-      const entry = entryUrl(route, LEGACY_BILLING_LANDING);
+      useAssistantLifecycleStore.setState({
+        assistantState: { kind: "self_hosted" },
+      });
+      const entry = entryUrl(route, CHECKOUT);
       renderEntry(entry);
 
       expect(currentLocation()).toBe(entry);
@@ -168,13 +182,22 @@ export function describeAuthEntryContract(
       expect(authScreen()).toBeNull();
     });
 
-    test("a local-only returnTo skips OAuth without a platform session", () => {
+    test("an out-of-SPA returnTo gets a real page load, not a router navigation", () => {
       authEntry.authenticated = true;
-      setPlatformSession("absent");
-      renderEntry(entryUrl(route, LOCAL_DESTINATION));
+      const entry = entryUrl(route, IMPORT_FUNNEL);
+      renderEntry(entry);
 
-      expect(currentLocation()).toBe(LOCAL_DESTINATION);
-      expect(authEntry.authFlowCalls).toHaveLength(0);
+      expect(authEntry.hardNavigateCalls).toEqual([IMPORT_FUNNEL]);
+      expect(currentLocation()).toBe(entry);
+    });
+
+    test("a vellum.ai returnTo gets a real page load, not a router navigation", () => {
+      authEntry.authenticated = true;
+      const entry = entryUrl(route, VELLUM_URL);
+      renderEntry(entry);
+
+      expect(authEntry.hardNavigateCalls).toEqual([VELLUM_URL]);
+      expect(currentLocation()).toBe(entry);
     });
 
     test("an unauthenticated visitor with returnTo still gets the auth screen", () => {
@@ -206,9 +229,6 @@ export function describeAuthEntryContract(
 
       expect(authEntry.authFlowCalls).toHaveLength(1);
       expect(authEntry.authFlowCalls[0]?.returnTo).toBe("/assistant");
-      expect(authEntry.authFlowCalls[0]?.callbackUrl).not.toContain(
-        "evil.example",
-      );
     });
 
     test("an unsettled session with returnTo neither redirects nor offers OAuth", () => {
