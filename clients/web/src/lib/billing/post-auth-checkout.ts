@@ -2,7 +2,7 @@ import {
   clearCheckoutIntent,
   saveCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
-import { routes } from "@/utils/routes";
+import { PACKAGE_PARAM, routes } from "@/utils/routes";
 
 /**
  * Whether a destination is the `/assistant/checkout` deep link, plus the
@@ -22,7 +22,10 @@ function parseCheckoutDestination(destination: string): {
   if (url.pathname !== routes.checkout) {
     return { isCheckout: false, packageKey: null };
   }
-  return { isCheckout: true, packageKey: url.searchParams.get("package") || null };
+  return {
+    isCheckout: true,
+    packageKey: url.searchParams.get(PACKAGE_PARAM) || null,
+  };
 }
 
 /**
@@ -52,7 +55,11 @@ export function resolveSignupCheckoutDestination(args: {
     if (packageKey) {
       // Mark the stash as signup-originated so only the onboarding privacy
       // screen resumes it — an ordinary billing-surface stash stays inert here.
-      saveCheckoutIntent({ kind: "package", packageKey, resumeAfterOnboarding: true });
+      saveCheckoutIntent({
+        kind: "package",
+        packageKey,
+        resumeAfterOnboarding: true,
+      });
     }
     return routes.onboarding.privacy;
   }
