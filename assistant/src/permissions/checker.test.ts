@@ -39,6 +39,7 @@ type MockSkill = {
   id: string;
   directoryPath: string;
   inlineCommandExpansions?: string[];
+  includes?: string[];
 };
 let mockSkillCatalog: MockSkill[] = [];
 let mockResolvedSkill: MockSkill | null = null;
@@ -53,9 +54,9 @@ mock.module("../skills/path-classifier.js", () => ({
   getSkillRoots: () => ["/mock/skills/managed/", "/mock/skills/bundled/"],
 }));
 
-mock.module("../skills/include-graph.js", () => ({
-  indexCatalogById: () => new Map(),
-}));
+// `../skills/include-graph.js` is intentionally left unmocked: it is a pure,
+// side-effect-free traversal, and the `skill_load` predicate tests below need
+// the production include walk to run over `mockSkillCatalog`.
 
 mock.module("../skills/transitive-version-hash.js", () => ({
   computeTransitiveSkillVersionHash: () => "mock-transitive-hash",
@@ -1364,6 +1365,34 @@ describe("Permission Checker (gateway IPC)", () => {
       mockSkillCatalog = [skill];
     }
 
+    /**
+     * Install a `note-taker` parent whose selector resolves, plus whichever
+     * children are given. Children the parent includes but that are absent
+     * from `children` model an include that is not installed locally.
+     */
+    function installGraph(
+      parentIncludes: string[],
+      children: MockSkill[],
+      parentInlineCommandExpansions?: string[],
+    ): void {
+      const parent: MockSkill = {
+        id: "note-taker",
+        directoryPath: "/mock/skills/bundled/note-taker",
+        inlineCommandExpansions: parentInlineCommandExpansions,
+        includes: parentIncludes,
+      };
+      mockResolvedSkill = parent;
+      mockSkillCatalog = [parent, ...children];
+    }
+
+    function child(id: string, overrides: Partial<MockSkill> = {}): MockSkill {
+      return {
+        id,
+        directoryPath: `/mock/skills/bundled/${id}`,
+        ...overrides,
+      };
+    }
+
     test("returns false for a tool other than skill_load", () => {
       installSkill();
       expect(isInstalledStaticSkillLoad("bash", { skill: "note-taker" })).toBe(
@@ -1400,6 +1429,74 @@ describe("Permission Checker (gateway IPC)", () => {
 
     test("returns true for an installed skill with no inline expansions", () => {
       installSkill();
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(true);
+    });
+
+    // ── Transitive include graph ────────────────────────────────────────────
+    // Loading a parent auto-installs its missing includes and renders inline
+    // commands in included children, so the predicate must clear the whole
+    // graph, not just the target.
+
+    test("returns false when an included skill is missing locally", () => {
+      installGraph(["formatting"], []);
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when an included skill has inline expansions", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { inlineCommandExpansions: ["git status"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when a grandchild include is missing locally", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { includes: ["typography"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false when a grandchild include has inline expansions", () => {
+      installGraph(
+        ["formatting"],
+        [
+          child("formatting", { includes: ["typography"] }),
+          child("typography", { inlineCommandExpansions: ["date"] }),
+        ],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns false for a cyclic include graph", () => {
+      installGraph(
+        ["formatting"],
+        [child("formatting", { includes: ["note-taker"] })],
+      );
+      expect(
+        isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
+      ).toBe(false);
+    });
+
+    test("returns true when every transitive include is installed and static", () => {
+      installGraph(
+        ["formatting"],
+        [
+          child("formatting", { includes: ["typography"] }),
+          child("typography"),
+        ],
+      );
       expect(
         isInstalledStaticSkillLoad("skill_load", { skill: "note-taker" }),
       ).toBe(true);

@@ -4,13 +4,17 @@ import { dirname, join, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
+import {
+  loadSkillCatalog,
+  resolveSkillSelector,
+  type SkillSummary,
+} from "../config/skills.js";
 import { ipcClassifyRisk } from "../ipc/gateway-client.js";
 import {
   MEMORY_RETROSPECTIVE_ORIGIN,
   SKILL_MANAGEMENT_SKILL_ID,
 } from "../plugins/defaults/memory/memory-retrospective-constants.js";
-import { indexCatalogById } from "../skills/include-graph.js";
+import { indexCatalogById, validateIncludes } from "../skills/include-graph.js";
 import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
@@ -224,16 +228,23 @@ export function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
 }
 
 /**
+ * Whether a catalog entry carries parsed inline command expansions, which
+ * execute shell commands at load time. Returns false for an absent entry.
+ */
+function summaryHasInlineExpansions(skill: SkillSummary | undefined): boolean {
+  return (
+    skill?.inlineCommandExpansions != null &&
+    skill.inlineCommandExpansions.length > 0
+  );
+}
+
+/**
  * Check whether a skill (by id) has parsed inline command expansions.
  * Returns false when the skill is not found in the catalog.
  */
 function hasInlineExpansions(skillId: string): boolean {
   const catalog = loadSkillCatalog();
-  const skill = catalog.find((s) => s.id === skillId);
-  return (
-    skill?.inlineCommandExpansions != null &&
-    skill.inlineCommandExpansions.length > 0
-  );
+  return summaryHasInlineExpansions(catalog.find((s) => s.id === skillId));
 }
 
 /**
@@ -274,19 +285,47 @@ export function isDynamicSkillLoadInvocation(
 }
 
 /**
- * Whether a `skill_load` invocation resolves to a skill that is already
- * installed locally and carries no inline command expansions. Only such a
- * load is a pure read: it neither auto-installs from the remote catalog
- * (see tools/skills/load.ts `autoInstallFromCatalog`) nor executes embedded
- * shell at load time. Exported for gates that must fail closed on anything
- * that can write local state.
+ * Whether a `skill_load` invocation is a pure read: the target skill and every
+ * skill reachable through its `includes` graph are installed locally and carry
+ * no inline command expansions.
+ *
+ * The whole graph matters because the load executor (tools/skills/load.ts)
+ * auto-installs missing includes from the remote catalog
+ * (`autoInstallFromCatalog`) and renders inline command expansions for both the
+ * target and its included children. So a missing include anywhere in the graph
+ * writes to the workspace, an inline expansion anywhere in it executes shell,
+ * and either makes the load something other than a read.
+ *
+ * Fails closed — a target that is absent from the catalog, a missing include, a
+ * cycle, or an unreadable catalog all return false. Exported for gates that
+ * must not proceed on anything capable of writing local state.
  */
 export function isInstalledStaticSkillLoad(
   toolName: string,
   input: Record<string, unknown>,
 ): boolean {
   const skillId = resolveSkillLoadTargetId(toolName, input);
-  return skillId !== null && !hasInlineExpansions(skillId);
+  if (skillId === null) {
+    return false;
+  }
+  try {
+    const catalogIndex = indexCatalogById(loadSkillCatalog());
+    if (!catalogIndex.has(skillId)) {
+      return false;
+    }
+    // `validateIncludes` is the shared include-graph walk: it reports the first
+    // missing child or cycle, and on success yields every transitively included
+    // id in DFS order.
+    const validation = validateIncludes(skillId, catalogIndex);
+    if (!validation.ok) {
+      return false;
+    }
+    return validation.visited.every(
+      (id) => !summaryHasInlineExpansions(catalogIndex.get(id)),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
