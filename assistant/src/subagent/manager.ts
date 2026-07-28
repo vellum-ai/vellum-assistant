@@ -24,6 +24,7 @@ import {
   deleteAllSubagentRecords,
   deleteSubagentRecordsByParent,
   loadRehydratableSubagentRecords,
+  type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
@@ -39,6 +40,7 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
+  normalizeSubagentLabel,
   SUBAGENT_LIMITS,
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
@@ -64,6 +66,57 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
  * `interrupted` at any age.
  */
 const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
+
+// ── Durable record → state mapping ─────────────────────────────────────
+
+/**
+ * The in-memory view of a durable subagent record. Shared by the startup
+ * rehydration and by the subagent tools' fallback for a record the manager
+ * does not hold, so the two cannot drift.
+ *
+ * An active status is settled to `interrupted`: nothing drives a run the
+ * manager has no entry for, and reporting the stale value would leave the
+ * caller waiting on a subagent that will never finish. The spawn-time
+ * `SubagentConfig` fields that are not persisted (context, prompts, trust,
+ * profile overrides) are absent, so this shape answers lifecycle questions
+ * only.
+ */
+export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
+  const recorded = rec.status as SubagentStatus;
+  return {
+    config: {
+      id: rec.id,
+      parentConversationId: rec.parentConversationId,
+      label: rec.label,
+      objective: rec.objective,
+      role: rec.role as SubagentRole,
+      fork: rec.isFork,
+      ...(rec.sendResultToUser != null
+        ? { sendResultToUser: rec.sendResultToUser }
+        : {}),
+      ...(rec.parentToolUseId != null
+        ? { parentToolUseId: rec.parentToolUseId }
+        : {}),
+    },
+    status: TERMINAL_STATUSES.has(recorded) ? recorded : "interrupted",
+    conversationId: rec.conversationId,
+    isFork: rec.isFork,
+    ...(rec.error != null ? { error: rec.error } : {}),
+    createdAt: rec.createdAt,
+    ...(rec.startedAt != null ? { startedAt: rec.startedAt } : {}),
+    ...(rec.completedAt != null ? { completedAt: rec.completedAt } : {}),
+    usage: {
+      inputTokens: rec.inputTokens,
+      outputTokens: rec.outputTokens,
+      estimatedCost: rec.estimatedCost,
+    },
+  };
+}
+
+/** Recency key shared with the durable queries' `COALESCE(completed_at, created_at)`. */
+function recordSettledAt(rec: SubagentRecord): number {
+  return rec.completedAt ?? rec.createdAt;
+}
 
 // ── Skill ID merge helper ──────────────────────────────────────────────
 
@@ -614,7 +667,7 @@ export class SubagentManager {
     // context, disk-pressure warning) can resolve it by id; subagents are not
     // in the eviction-managed conversation store.
     setSubagentConversation(conversationRecord.id, conversation);
-    const labelKey = `${config.parentConversationId}:${config.label.toLowerCase().trim()}`;
+    const labelKey = `${config.parentConversationId}:${normalizeSubagentLabel(config.label)}`;
     if (this.labelIndex.has(labelKey)) {
       log.warn(
         {
@@ -1153,7 +1206,7 @@ export class SubagentManager {
     label: string,
     parentConversationId: string,
   ): SubagentState | undefined {
-    const key = `${parentConversationId}:${label.toLowerCase().trim()}`;
+    const key = `${parentConversationId}:${normalizeSubagentLabel(label)}`;
     const id = this.labelIndex.get(key);
     return id ? this.getState(id) : undefined;
   }
@@ -1273,7 +1326,7 @@ export class SubagentManager {
     // (guards against stale delete when a newer subagent reused the label).
     const label = managed.state.config.label;
     const parentConvId = managed.state.config.parentConversationId;
-    const labelKey = `${parentConvId}:${label.toLowerCase().trim()}`;
+    const labelKey = `${parentConvId}:${normalizeSubagentLabel(label)}`;
     if (this.labelIndex.get(labelKey) === subagentId) {
       this.labelIndex.delete(labelKey);
     }
@@ -1359,43 +1412,17 @@ export class SubagentManager {
     });
     let interrupted = 0;
     const now = Date.now();
+    // Recency of the record currently holding each label. Precedence is decided
+    // here rather than by the order rows arrive in, so a parent that reused a
+    // label keeps resolving to its newest run whatever the query orders by.
+    const labelClaimedAt = new Map<string, number>();
     for (const rec of records) {
       const wasInFlight = !TERMINAL_STATUSES.has(rec.status as SubagentStatus);
-      const status: SubagentStatus = wasInFlight
-        ? "interrupted"
-        : (rec.status as SubagentStatus);
       if (wasInFlight) {
         interrupted++;
       }
 
-      const state: SubagentState = {
-        config: {
-          id: rec.id,
-          parentConversationId: rec.parentConversationId,
-          label: rec.label,
-          objective: rec.objective,
-          role: rec.role as SubagentRole,
-          fork: rec.isFork,
-          ...(rec.sendResultToUser != null
-            ? { sendResultToUser: rec.sendResultToUser }
-            : {}),
-          ...(rec.parentToolUseId != null
-            ? { parentToolUseId: rec.parentToolUseId }
-            : {}),
-        },
-        status,
-        conversationId: rec.conversationId,
-        isFork: rec.isFork,
-        ...(rec.error != null ? { error: rec.error } : {}),
-        createdAt: rec.createdAt,
-        ...(rec.startedAt != null ? { startedAt: rec.startedAt } : {}),
-        ...(rec.completedAt != null ? { completedAt: rec.completedAt } : {}),
-        usage: {
-          inputTokens: rec.inputTokens,
-          outputTokens: rec.outputTokens,
-          estimatedCost: rec.estimatedCost,
-        },
-      };
+      const state = subagentStateFromRecord(rec);
 
       const managed: ManagedSubagent = {
         conversation: null,
@@ -1405,8 +1432,13 @@ export class SubagentManager {
       };
       this.subagents.set(rec.id, managed);
 
-      const labelKey = `${rec.parentConversationId}:${rec.label.toLowerCase().trim()}`;
-      this.labelIndex.set(labelKey, rec.id);
+      const labelKey = `${rec.parentConversationId}:${normalizeSubagentLabel(rec.label)}`;
+      const settledAt = recordSettledAt(rec);
+      const claimedAt = labelClaimedAt.get(labelKey);
+      if (claimedAt === undefined || settledAt > claimedAt) {
+        labelClaimedAt.set(labelKey, settledAt);
+        this.labelIndex.set(labelKey, rec.id);
+      }
 
       if (!this.parentToChildren.has(rec.parentConversationId)) {
         this.parentToChildren.set(rec.parentConversationId, new Set());

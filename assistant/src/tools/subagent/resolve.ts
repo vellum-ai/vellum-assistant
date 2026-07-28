@@ -1,6 +1,15 @@
 import { z } from "zod";
 
-import { getSubagentManager } from "../../subagent/index.js";
+import {
+  getSubagentRecordById,
+  getSubagentRecordByLabel,
+} from "../../persistence/subagent-store.js";
+import {
+  getSubagentManager,
+  normalizeSubagentLabel,
+  subagentStateFromRecord,
+} from "../../subagent/index.js";
+import type { SubagentState } from "../../subagent/types.js";
 import { nullAsOmitted } from "../shared/zod-tool-schema.js";
 import type { ToolContext } from "../types.js";
 
@@ -37,7 +46,42 @@ export function resolveSubagentId(
       input.label,
       context.conversationId,
     );
-    return state?.config.id;
+    if (state) {
+      return state.config.id;
+    }
+    // The manager's label index covers only the subagents it holds, so a label
+    // whose run was swept or left outside the startup rehydration bound falls
+    // through to the durable rows, newest first like the index itself. Scoped
+    // to the calling conversation, so it can only name its own children.
+    return getSubagentRecordByLabel(
+      context.conversationId,
+      normalizeSubagentLabel(input.label),
+    )?.id;
   }
   return undefined;
+}
+
+/**
+ * The subagent state the read-only subagent tools act on: live manager state,
+ * else the durable row. The manager holds a bounded window (the TTL sweep drops
+ * terminal entries, a restart rebuilds only the most recently finished ones),
+ * and the row outlives both, so this keeps the bound a memory optimization
+ * instead of making an older subagent unaddressable.
+ *
+ * Deliberately not folded into `SubagentManager.getState()`: the route surfaces
+ * read the record themselves and branch on whether live state existed.
+ *
+ * A row-backed state carries `parentConversationId`, so callers apply their
+ * ownership check to it unchanged. Tools that need a live instance
+ * (`subagent_message`) must keep using `getState()` directly.
+ */
+export function resolveSubagentState(
+  subagentId: string,
+): SubagentState | undefined {
+  const live = getSubagentManager().getState(subagentId);
+  if (live) {
+    return live;
+  }
+  const record = getSubagentRecordById(subagentId);
+  return record ? subagentStateFromRecord(record) : undefined;
 }

@@ -1,6 +1,14 @@
-export { mergeSkillIds, SubagentAbortedError } from "./manager.js";
+export {
+  mergeSkillIds,
+  SubagentAbortedError,
+  subagentStateFromRecord,
+} from "./manager.js";
 export type { SubagentRole } from "./types.js";
-export { SUBAGENT_ROLE_REGISTRY, TERMINAL_STATUSES } from "./types.js";
+export {
+  normalizeSubagentLabel,
+  SUBAGENT_ROLE_REGISTRY,
+  TERMINAL_STATUSES,
+} from "./types.js";
 
 import { SubagentManager } from "./manager.js";
 

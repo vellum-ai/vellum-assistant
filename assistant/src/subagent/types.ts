@@ -28,6 +28,17 @@ export type SubagentStatus =
 export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
   new Set<SubagentStatus>(["completed", "failed", "aborted", "interrupted"]);
 
+// ── Label lookup ────────────────────────────────────────────────────────
+
+/**
+ * The comparable form of a subagent label. Labels are addressed by the model,
+ * so lookups are case- and whitespace-insensitive; every label comparison, in
+ * memory or against the durable table, goes through this.
+ */
+export function normalizeSubagentLabel(label: string): string {
+  return label.toLowerCase().trim();
+}
+
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 
 export interface SubagentConfig {

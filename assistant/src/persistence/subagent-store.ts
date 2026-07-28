@@ -195,6 +195,34 @@ export function getSubagentRecordById(id: string): SubagentRecord | undefined {
 }
 
 /**
+ * The most recent subagent a parent spawned under `normalizedLabel`, or
+ * `undefined` when it never used that label. The durable counterpart of the
+ * manager's label index, for a subagent the manager no longer holds; the
+ * caller supplies the label already normalized so this layer stays decoupled
+ * from the subagent domain's normalization rule.
+ *
+ * Newest wins, matching the in-memory index, which a parent reusing a label
+ * across runs otherwise resolves inconsistently. `label` is unindexed, but the
+ * parent predicate is served by `idx_subagents_parent_conversation_id` and one
+ * conversation's subagents are few.
+ */
+export function getSubagentRecordByLabel(
+  parentConversationId: string,
+  normalizedLabel: string,
+): SubagentRecord | undefined {
+  const row = rawGet<SubagentRow>(
+    "subagent:getByLabel",
+    `SELECT * FROM subagents
+       WHERE parent_conversation_id = ? AND lower(trim(label)) = ?
+       ORDER BY COALESCE(completed_at, created_at) DESC
+       LIMIT 1`,
+    parentConversationId,
+    normalizedLabel,
+  );
+  return row ? rowToRecord(row) : undefined;
+}
+
+/**
  * Subagent records spawned under `parentConversationId`. Durable rows outlive
  * the manager's in-memory metadata, the TTL sweep evicts terminal entries with
  * `keepRecord: true`, so this is the only way to enumerate a parent's

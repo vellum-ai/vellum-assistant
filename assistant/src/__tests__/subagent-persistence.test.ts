@@ -168,6 +168,43 @@ describe("SubagentManager.rehydrateFromDb", () => {
     mgr.disposeAll();
   });
 
+  test("a label reused across runs resolves to the newest one", () => {
+    // The durable query hands terminal rows back newest-first, so a label
+    // claimed unconditionally as the loop walks them ends up held by the
+    // OLDEST run and `subagent_read`/`subagent_status` answer for a stale one.
+    upsertSubagentRecord(
+      record({
+        id: "reused-old",
+        conversationId: "conv-reused-old",
+        label: "Reused worker",
+        status: "completed",
+        createdAt: 1000,
+        completedAt: 2000,
+      }),
+    );
+    upsertSubagentRecord(
+      record({
+        id: "reused-new",
+        conversationId: "conv-reused-new",
+        label: "Reused worker",
+        status: "completed",
+        createdAt: 3000,
+        completedAt: 4000,
+      }),
+    );
+
+    const mgr = new SubagentManager();
+    mgr.rehydrateFromDb();
+
+    expect(mgr.getByLabel("Reused worker", "parent-1")?.config.id).toBe(
+      "reused-new",
+    );
+    // Both runs stay addressable by id; only the label moved.
+    expect(mgr.getState("reused-old")?.status).toBe("completed");
+
+    mgr.disposeAll();
+  });
+
   test("loads only the most recent terminal records, plus every unsettled one", () => {
     // Rows live as long as the parent conversation, so an old chat accumulates
     // them without limit and a boot that materialized the lot would scale its

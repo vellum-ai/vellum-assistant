@@ -1,7 +1,11 @@
 import { getSubagentManager } from "../../subagent/index.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { resolveSubagentId, subagentRefInputSchema } from "./resolve.js";
+import {
+  resolveSubagentId,
+  resolveSubagentState,
+  subagentRefInputSchema,
+} from "./resolve.js";
 
 export const subagentStatusInputSchema = subagentRefInputSchema;
 
@@ -27,7 +31,7 @@ export async function executeSubagentStatus(
   }
 
   if (subagentId) {
-    const state = manager.getState(subagentId);
+    const state = resolveSubagentState(subagentId);
     if (
       !state ||
       state.config.parentConversationId !== context.conversationId
