@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import type { ResolvedAssistant } from "@/stores/resolved-assistants-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -11,6 +12,7 @@ import {
   clearTakeoverAvatarStash,
   readTakeoverAvatarStash,
   saveTakeoverAvatarStash,
+  takeoverAvatarStashVersion,
 } from "./takeover-avatar-stash";
 
 const STORAGE_KEY = "vellum.pro-takeover-avatar";
@@ -37,8 +39,15 @@ beforeEach(() => {
   sessionStorage.clear();
   // Reset the module-level in-memory mirror so it can't leak across tests.
   clearTakeoverAvatarStash();
-  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+  });
 });
+
+function assistant(id: string): ResolvedAssistant {
+  return { id, isLocal: false, isPlatformHosted: true };
+}
 
 describe("saveTakeoverAvatarStash / readTakeoverAvatarStash", () => {
   test("round-trips the payload and stamps savedAt", () => {
@@ -190,6 +199,35 @@ describe("clearTakeoverAvatarStash", () => {
   });
 });
 
+describe("takeoverAvatarStashVersion", () => {
+  // A same-document reader snapshots the stash and re-reads when this moves,
+  // so a write that leaves it flat would strand that reader on a stale copy.
+  test("advances on save", () => {
+    const before = takeoverAvatarStashVersion();
+
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+    });
+
+    expect(takeoverAvatarStashVersion()).toBeGreaterThan(before);
+  });
+
+  test("advances on clear", () => {
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+    });
+    const before = takeoverAvatarStashVersion();
+
+    clearTakeoverAvatarStash();
+
+    expect(takeoverAvatarStashVersion()).toBeGreaterThan(before);
+  });
+});
+
 describe("in-memory mirror on a same-document return", () => {
   test("the mirror serves the stash back after a throwing setItem", () => {
     // The native path: checkout opens in an external browser, so the document
@@ -288,6 +326,41 @@ describe("captureTakeoverAvatarStash", () => {
       assistantId: "a1",
       traits: null,
     });
+  });
+
+  test("stashes when the org holds exactly one assistant", () => {
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [assistant("a1")],
+    });
+    seed("a1", {
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+      customImageUrl: null,
+    });
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toMatchObject({ assistantId: "a1" });
+  });
+
+  test("clears instead of stashing when a second assistant exists", () => {
+    // The takeover targets the onboarding payload's primary, which need not be
+    // the active assistant, and it draws before that target resolves.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [assistant("a1"), assistant("a2")],
+    });
+    seed("a1", {
+      components: BUNDLED_COMPONENTS,
+      traits: TRAITS,
+      customImageUrl: null,
+    });
+    preexistingStash();
+
+    captureTakeoverAvatarStash(queryClient);
+
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("clears a pre-existing stash when there is no active assistant", () => {

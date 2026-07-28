@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo } from "react";
 
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
@@ -7,7 +7,10 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 
-import { readTakeoverAvatarStash } from "./takeover-avatar-stash";
+import {
+  readTakeoverAvatarStash,
+  takeoverAvatarStashVersion,
+} from "./takeover-avatar-stash";
 
 /**
  * The avatar payload the takeover draws: the live query's once it lands, or the
@@ -61,16 +64,23 @@ export function useTakeoverSurface(
   const resolvedId = assistantId === undefined ? activeId : assistantId;
   const { components, traits, customImageUrl, isLoading } =
     useAssistantAvatar(resolvedId);
-  // Per-mount is enough: the stash is written immediately before a full-page
-  // navigation to Stripe, so every surface that could draw it mounts after.
-  const [stash] = useState(readTakeoverAvatarStash);
+  // Tracking the version, not just mounting once: native checkout opens an
+  // external browser without unloading the page, so the billing modal hosting
+  // this hook is already mounted when the stash is written. Re-reading on the
+  // takeover's open flip is enough; no subscription needed.
+  const stashVersion = takeoverAvatarStashVersion();
+  // Memoized so a sessionStorage re-parse can't hand the avatar a new
+  // `components` identity every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the version IS the dep; it stands in for the module state the read touches
+  const stash = useMemo(() => readTakeoverAvatarStash(), [stashVersion]);
 
   // `useAssistantAvatar(null)` is a disabled query, which reports
   // `isLoading: false` with no data, so the id has to gate settling too.
   const liveSettled = resolvedId != null && !isLoading;
-  // While the provisioning hook has not named a target the stash may stand in;
-  // once one resolves, only a matching stash may draw. Either way the wrong
-  // assistant never reaches the screen.
+  // While the provisioning hook has not named a target the stash may stand in,
+  // safe because a stash is only ever captured in a single-assistant org, so
+  // there is no second creature the unresolved target could turn out to be.
+  // Once a target does resolve, only a matching stash may draw.
   const stashUsable =
     stash != null && (resolvedId == null || resolvedId === stash.assistantId);
   const liveDrawable =

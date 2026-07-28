@@ -261,6 +261,26 @@ describe("avatar stash", () => {
     expect(result.current.tintHex.toLowerCase()).toBe(ORANGE_SURFACE);
   });
 
+  test("picks up a stash written after the hook already mounted", () => {
+    // The native return: checkout opens an external browser, so the billing
+    // modal hosting this hook is mounted (and already read an empty stash)
+    // before the redirect writes one.
+    avatar.isLoading = true;
+
+    const { rerender, result } = renderHook(() =>
+      useTakeoverSurface("primary-assistant"),
+    );
+    expect(result.current.ready).toBe(false);
+    expect(result.current.tintHex).toBe(SURFACE_GROUND);
+
+    seedStash("primary-assistant", "purple");
+    rerender();
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.avatar.traits).toEqual(traits("purple"));
+    expect(result.current.tintHex.toLowerCase()).toBe(PURPLE_SURFACE);
+  });
+
   test("a settle with no data at all keeps the stash", () => {
     // The daemon erroring while the machine restarts settles the query empty.
     // The stashed creature beats falling through to the bundled green one.
