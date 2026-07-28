@@ -27,6 +27,9 @@ let nextResponse: ProviderResponse;
 let sendMessageImpl: (() => Promise<ProviderResponse>) | undefined;
 let getConfiguredProviderOptions: ConfiguredProviderOptions | undefined;
 let sendMessageOptions: SendMessageOptions | undefined;
+// Connection the stubbed resolution reports, mirroring the real resolver:
+// the connection is chosen while resolving the provider, not while sending.
+let resolutionConnectionName: string | undefined;
 
 mock.module("../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async (
@@ -34,6 +37,11 @@ mock.module("../../../providers/provider-send-message.js", () => ({
     options: ConfiguredProviderOptions,
   ) => {
     getConfiguredProviderOptions = options;
+    if (resolutionConnectionName) {
+      recordProviderRequestDiagnostics({
+        connection_name: resolutionConnectionName,
+      });
+    }
     return {
       name: "stub",
       sendMessage: async (_messages: unknown, options: SendMessageOptions) => {
@@ -87,6 +95,7 @@ beforeEach(() => {
   sendMessageImpl = undefined;
   getConfiguredProviderOptions = undefined;
   sendMessageOptions = undefined;
+  resolutionConnectionName = undefined;
 });
 
 describe("inference_send profile routing", () => {
@@ -133,6 +142,26 @@ describe("inference_send evidence", () => {
     expect(result.evidence).toEqual({
       resolved_endpoint: "https://inference.example.test/v1",
     });
+  });
+
+  test("surfaces the connection recorded while the provider is resolved", async () => {
+    /**
+     * Tests that diagnostics recorded during provider resolution reach the
+     * evidence payload. The connection backing the request is chosen while
+     * resolving the provider, so resolution has to run inside the diagnostics
+     * scope or "which key was this?" goes unanswered on every probe.
+     */
+
+    // GIVEN resolution picks a named connection for the request
+    resolutionConnectionName = "gemini-personal";
+
+    // WHEN the inference_send handler processes a request
+    const result = (await inferenceSendHandler()({
+      body: { message: "hi" },
+    })) as { evidence?: { connection_name?: string } };
+
+    // THEN the evidence names the connection that authenticated the send
+    expect(result.evidence?.connection_name).toBe("gemini-personal");
   });
 
   test("omits evidence entirely when the provider surfaces no endpoint", async () => {

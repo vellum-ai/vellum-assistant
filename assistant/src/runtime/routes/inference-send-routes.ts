@@ -80,22 +80,23 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
     }
   }
 
-  const provider = await getConfiguredProvider("inference", {
-    overrideProfile: profile,
-    selectionSeed,
-  });
-  if (!provider) {
-    throw new BadRequestError(
-      "No LLM provider is configured. Connect a provider (assistant credentials) or set llm.defaultProvider to choose one.",
-    );
-  }
-
   // Diagnostics are collected around the send, not inside it, so the failure
   // path carries the same evidence as the success path: a probe of a broken
   // profile must report the URL that was actually requested and the verbatim
   // upstream body, rather than only the message the SDK managed to extract.
-  const attempt = await runWithProviderRequestDiagnostics(() =>
-    provider.sendMessage([userMessage(message)], {
+  // Provider resolution runs inside the same scope because that is where the
+  // connection backing the request is chosen.
+  const attempt = await runWithProviderRequestDiagnostics(async () => {
+    const provider = await getConfiguredProvider("inference", {
+      overrideProfile: profile,
+      selectionSeed,
+    });
+    if (!provider) {
+      throw new BadRequestError(
+        "No LLM provider is configured. Connect a provider (assistant credentials) or set llm.defaultProvider to choose one.",
+      );
+    }
+    return provider.sendMessage([userMessage(message)], {
       systemPrompt,
       config: {
         callSite: "inference",
@@ -104,8 +105,8 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
         overrideProfile: profile,
         selectionSeed,
       },
-    }),
-  );
+    });
+  });
 
   if (!attempt.ok) {
     throw upstreamFailure(attempt.error, attempt.diagnostics);
