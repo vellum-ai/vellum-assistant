@@ -35,7 +35,6 @@ import {
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
-import { isNativePlatform } from "@/runtime/native-auth";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
@@ -251,7 +250,9 @@ export function HatchingScreen() {
       setPhase("ready");
       phaseRef.current = "ready";
       navigateTimer = setTimeout(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         // The hatch succeeded and we're leaving this screen for good. Release
         // the module-level guards so a later onboarding session (e.g. after
         // retiring this assistant) hatches a brand-new one instead of reusing
@@ -259,16 +260,7 @@ export function HatchingScreen() {
         releaseHatchGuards();
         void (async () => {
           await lifecycleService.checkAssistant();
-          if (cancelled) return;
-          if (isNativePlatform()) {
-            // Native flow skips the pre-chat screen, so there's no
-            // typed message to drive the auto-greet gate. Mark the
-            // lifecycle one-shot so the destination chat mount shows
-            // the loading gate until the server greeting arrives.
-            lifecycleService.markExpectingFirstMessage();
-            void navigate(`${routes.assistant}?onboarding=1`, {
-              replace: true,
-            });
+          if (cancelled) {
             return;
           }
           // A local hatch feeds the research/personality flow. The assistant is

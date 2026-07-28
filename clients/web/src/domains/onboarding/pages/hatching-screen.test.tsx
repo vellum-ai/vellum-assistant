@@ -278,7 +278,6 @@ mock.module("@/assistant/lifecycle", () => ({
 mock.module("@/assistant/lifecycle-service", () => ({
   lifecycleService: {
     checkAssistant: async () => {},
-    markExpectingFirstMessage: () => {},
   },
 }));
 
@@ -347,10 +346,6 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => false,
 }));
 
-mock.module("@/runtime/native-auth", () => ({
-  isNativePlatform: () => false,
-}));
-
 mock.module("@/assistant/selection", () => ({
   setSelectedAssistant: () => {},
 }));
@@ -403,7 +398,6 @@ mock.module("@/utils/avatar-svg-compositor", () => ({
 
 mock.module("@/utils/routes", () => ({
   routes: {
-    assistant: "/assistant",
     onboarding: {
       research: "/onboarding/research",
       hosting: "/onboarding/hosting",
@@ -512,6 +506,9 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalled(), {
       timeout: 5000,
+    });
+    expect(navigateMock).toHaveBeenCalledWith("/onboarding/research", {
+      replace: true,
     });
     // Not a Pro subscription: the resize phase is never entered.
     expect(screen.queryByText(RESIZE_LABEL)).toBeNull();
