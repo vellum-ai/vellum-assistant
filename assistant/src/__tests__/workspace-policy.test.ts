@@ -536,6 +536,47 @@ describe("isControlPlaneWorkspaceWrite / prompt surfaces", () => {
     );
   });
 
+  // The section override layer: any `<section-id>.md` under prompts/system/
+  // replaces the bundled section of the same id — or, stripped to nothing,
+  // silences it — including the security-policy sections. A brand-new id
+  // adds a workspace-only section, so the whole directory is a prompt
+  // surface, not just the bundled ids.
+  test.each([
+    ["a security-section override", "prompts/system/06-credential-security.md"],
+    [
+      "the non-guardian boundary override",
+      "prompts/system/10a-non-guardian-boundary.md",
+    ],
+    ["a workspace-only addition", "prompts/system/99-injected-section.md"],
+    [
+      "the container /workspace form",
+      "/workspace/prompts/system/07-external-content.md",
+    ],
+  ])("blocks %s — %s", (_label, path) => {
+    expect(isControlPlaneWorkspaceWrite("file_write", { path }, wsRoot)).toBe(
+      true,
+    );
+    expect(isControlPlaneWorkspaceWrite("file_edit", { path }, wsRoot)).toBe(
+      true,
+    );
+  });
+
+  // Drift guard: the override path for every bundled section id must be
+  // covered, so adding a section cannot silently open a writable override
+  // for it.
+  test("covers the override path of every bundled system section", () => {
+    expect(BUNDLED_SYSTEM_SECTIONS.length).toBeGreaterThan(0);
+    for (const section of BUNDLED_SYSTEM_SECTIONS) {
+      expect(
+        isControlPlaneWorkspaceWrite(
+          "file_write",
+          { path: `prompts/system/${section.id}.md` },
+          wsRoot,
+        ),
+      ).toBe(true);
+    }
+  });
+
   // A surface that is itself a symlink is read through the link by the
   // renderer, so a write to either name rewrites the prompt — the baselines
   // canonicalize like the targets do.

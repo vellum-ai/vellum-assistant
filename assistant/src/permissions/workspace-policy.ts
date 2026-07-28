@@ -9,6 +9,7 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
   getWorkspaceSkillsDir,
+  getWorkspaceSystemPromptDir,
   getWorkspaceToolsDir,
   getWorkspaceWorkflowsDir,
 } from "../util/platform.js";
@@ -276,7 +277,15 @@ export function isControlPlaneWorkspaceWrite(
     ) ||
     PROMPT_SURFACE_DIRS.some((dir) =>
       isAtOrUnderCanonicalDir(target, canonicalize(`${root}/${dir}`)),
-    )
+    ) ||
+    // The system-section override layer: a `<section-id>.md` under
+    // `prompts/system/` replaces the bundled section of the same id — or,
+    // stripped to nothing, silences it — including the security-policy
+    // sections (credential handling, external content, the non-guardian
+    // boundary). A brand-new id adds a workspace-only section, so the whole
+    // directory is a prompt surface. The baseline is the getter the renderer
+    // itself resolves, like {@link executableSinkDirs}.
+    isAtOrUnderCanonicalDir(target, canonicalize(getWorkspaceSystemPromptDir()))
   );
 }
 
