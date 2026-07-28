@@ -14,7 +14,14 @@ import {
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
+import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
+import { CHECKOUT_CONTINUE_PARAM } from "@/lib/billing/checkout-continuation";
+import {
+    clearCheckoutIntent,
+    readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
 import { isLocalMode } from "@/lib/local-mode";
+import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
 import {
     usePrivacyConsent,
     useShareDiagnostics,
@@ -41,12 +48,11 @@ export function PrivacyScreen() {
   const [tosAccepted, setTosAcceptedReal] = useTosAccepted();
   const [privacyConsent, setPrivacyConsentReal] = usePrivacyConsent();
   const hasPlatformSession = useHasPlatformSession();
+  const takeover = useMarketingPricingTakeover();
 
   useEffect(() => {
-    if (!isNative) {
-      getOnboardingFunnelSessionId();
-    }
-  }, [isNative]);
+    getOnboardingFunnelSessionId();
+  }, []);
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);
@@ -66,10 +72,23 @@ export function PrivacyScreen() {
     // Analytics isn't asked here — the server keeps share_analytics null
     // until the user opts in via settings or review-terms.
     saveConsent({ userId, tos: tosAccepted, privacy: privacyConsent, shareAnalytics: null, shareDiagnostics: shareDiagnosticsChecked, hasPlatformSession });
-    if (!isNative) {
-      emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
-        userId,
-      });
+    emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+      userId,
+    });
+
+    // A completed checkout with nothing provisioned is funneled to the hatching
+    // screen; an unconsented user is bounced here, and the funnel URL rides
+    // along as `returnTo`. With consent now recorded, resume it rather than the
+    // standard onboarding step: that step carries neither the managed-hatch nor
+    // the paid-return marker, so the purchased machine and storage would never
+    // be waited for. Money has already changed hands, which is why this outranks
+    // the pending-package resume below.
+    const paidHatchReturnTo = postCheckoutHatchReturnTo(
+      searchParams.get("returnTo"),
+    );
+    if (paidHatchReturnTo) {
+      void navigate(paidHatchReturnTo);
+      return;
     }
 
     const hostingParam = searchParams.get("hosting");
@@ -87,18 +106,52 @@ export function PrivacyScreen() {
     const isLocalHatch =
       isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
     const destination = onboardingDestinationAfterConsent({
-      isNative,
       isLocalHatch,
     });
-    void navigate(`${destination}${qs ? `?${qs}` : ""}`);
+    const onboardingNext = `${destination}${qs ? `?${qs}` : ""}`;
+
+    // A pricing-CTA signup stashes its chosen package (see navigation-resolver
+    // post-auth). With consent now recorded, resume checkout so payment happens
+    // after consent and before the assistant hatches. Resume ONLY a
+    // signup-marked intent (`resumeAfterOnboarding`): an ordinary billing-surface
+    // stash (an abandoned CheckoutPage/takeover checkout) carries no marker, so
+    // it's ignored here and left untouched for its own flow — onboarding proceeds
+    // normally. The checkout route owns the marked stash's lifecycle from here —
+    // re-stashing on a Stripe redirect, clearing it on an already-Pro no_op — so
+    // this screen just hands off. Resuming only from this explicit Start click —
+    // never a render effect — keeps consent and checkout from looping.
+    // A positively-off `marketing-pricing-takeover` drops the dead package and
+    // continues onboarding: handing off would bounce through a gated checkout
+    // route and out of the funnel before research runs. An unresolved flag still
+    // resumes, carrying the onboarding step this click would otherwise have
+    // taken: if the flag lands off, checkout returns the user there instead of
+    // the plans takeover, so a pending→disabled race stays inside the funnel.
+    const checkoutIntent = readCheckoutIntent();
+    if (
+      checkoutIntent?.kind === "package" &&
+      checkoutIntent.resumeAfterOnboarding === true
+    ) {
+      if (takeover === "disabled") {
+        clearCheckoutIntent();
+      } else {
+        const checkoutParams = new URLSearchParams({
+          package: checkoutIntent.packageKey,
+          [CHECKOUT_CONTINUE_PARAM]: onboardingNext,
+        });
+        void navigate(`${routes.checkout}?${checkoutParams.toString()}`);
+        return;
+      }
+    }
+
+    void navigate(onboardingNext);
   }, [
     privacyConsent,
     hasPlatformSession,
-    isNative,
     isPreview,
     navigate,
     searchParams,
     shareDiagnosticsChecked,
+    takeover,
     tosAccepted,
     userId,
   ]);

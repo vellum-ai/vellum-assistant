@@ -677,6 +677,58 @@ interface InsertMessageCoreParams {
  * WAL contention. The timestamp is recomputed each attempt so a late
  * retry doesn't persist a stale `updatedAt`.
  */
+/**
+ * Guard: a message whose blocks are ALL `ui_surface` cards is invisible to
+ * the model — every provider drops cards when serializing history, and the
+ * contract (see `notifications/approval-card-builder.ts`) is that the
+ * producer pairs a card with a model-readable sibling block (for cards whose
+ * meaning the model needs, a `_surfaceFallback` text block; surfaces appended
+ * to a normal turn ride alongside its text/tool blocks and need nothing).
+ *
+ * Voice call summaries shipped without the sibling and the model silently
+ * lost those turns (LUM-2869) — nothing enforced the contract. In tests this
+ * throws, so a producer that forgets the pairing fails its own suite before
+ * merge; in production it only warns, per the daemon's never-block posture —
+ * a degraded card row beats a dropped guardian notification.
+ */
+function warnOnModelInvisibleContent(
+  content: string,
+  conversationId: string,
+): void {
+  // Fast path: the overwhelmingly common non-surface message never parses.
+  if (!content.includes('"ui_surface"')) {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return; // legacy plain-string content — not this guard's concern
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return;
+  }
+  const allCards = parsed.every(
+    (block) =>
+      typeof block === "object" &&
+      block !== null &&
+      (block as { type?: unknown }).type === "ui_surface",
+  );
+  if (!allCards) {
+    return;
+  }
+  const surfaceTypes = parsed
+    .map((block) => (block as { surfaceType?: unknown }).surfaceType)
+    .filter((t): t is string => typeof t === "string");
+  const message =
+    "Persisting a message whose only content is ui_surface blocks — the model cannot see it. " +
+    "Pair the card with a model-readable sibling (e.g. a _surfaceFallback text block).";
+  if (process.env.NODE_ENV === "test") {
+    throw new Error(`${message} (surfaceTypes: ${surfaceTypes.join(", ")})`);
+  }
+  log.warn({ conversationId, surfaceTypes }, message);
+}
+
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
@@ -689,6 +741,7 @@ async function insertMessageCore(
     clientMessageId,
     id,
   } = params;
+  warnOnModelInvisibleContent(content, conversationId);
   const db = getDb();
   // Time-ordered UUIDv7 so server-generated message ids append to the tail of
   // the WITHOUT ROWID `messages` primary key instead of scattering (v4).

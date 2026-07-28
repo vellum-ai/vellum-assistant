@@ -7149,10 +7149,12 @@ components:
       enum:
       - no_active_pro
       - no_targets
+      - no_provisionable_assistants
       type: string
       description: |-
         * `no_active_pro` - no_active_pro
         * `no_targets` - no_targets
+        * `no_provisionable_assistants` - no_provisionable_assistants
     EnsureProvisionedResponse:
       type: object
       description: |-
@@ -7164,7 +7166,10 @@ components:
         including a machine/PVC rollout still completing after the targets already
         read as satisfied — or a submission still in flight from an earlier call).
         ``already_done`` is terminal: every target is satisfied and no resize
-        rollout remains active. ``reason`` is set only for ``not_applicable``.
+        rollout remains active. ``reason`` is set only for ``not_applicable``, and
+        ``no_provisionable_assistants`` means the org holds the entitlement but has
+        no settled platform-hosted assistant to apply it to — nothing to converge,
+        so nothing was provisioned.
       properties:
         state:
           $ref: '#/components/schemas/EnsureProvisionedResponseStateEnum'

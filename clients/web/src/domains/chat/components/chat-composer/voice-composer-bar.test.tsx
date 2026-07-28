@@ -2,7 +2,7 @@
  * Tests for `VoiceComposerBar`.
  *
  * The bar is purely presentational, so tests drive it prop-by-prop: state
- * label mapping, send-button enablement, callback wiring, and accessibility
+ * label mapping, control presence, callback wiring, and accessibility
  * attributes. The embedded `VoiceListeningWaves` is SVG + a rAF loop writing
  * a CSS var — inert under happy-dom, so no harness is needed here.
  */
@@ -22,9 +22,9 @@ function renderBar(state: LiveVoiceSessionState, overrides?: {
   muted?: boolean;
   onToggleMute?: () => void;
   onEnd?: () => void;
-  onSend?: () => void;
   onStop?: () => void;
   onExpand?: () => void;
+  standalone?: boolean;
 }) {
   return render(
     <VoiceComposerBar
@@ -33,9 +33,9 @@ function renderBar(state: LiveVoiceSessionState, overrides?: {
       muted={overrides?.muted ?? false}
       onToggleMute={overrides?.onToggleMute ?? (() => {})}
       onEnd={overrides?.onEnd ?? (() => {})}
-      onSend={overrides?.onSend ?? (() => {})}
       onStop={overrides?.onStop}
       onExpand={overrides?.onExpand}
+      standalone={overrides?.standalone}
     />,
   );
 }
@@ -51,7 +51,7 @@ describe("VoiceComposerBar — state label", () => {
   ];
 
   for (const [state, label] of labels) {
-    test(`renders "${label}" for the ${state} state`, () => {
+    test(`announces "${label}" for the ${state} state`, () => {
       renderBar(state);
       expect(screen.getByText(label)).toBeTruthy();
     });
@@ -62,30 +62,32 @@ describe("VoiceComposerBar — state label", () => {
     const label = screen.getByText("Listening…");
     expect(label.getAttribute("aria-live")).toBe("polite");
   });
+
+  test("the state label is visually hidden, not painted", () => {
+    // The mic glyph and the animating waves carry "listening" on their own,
+    // so the text stays in the tree for assistive tech only.
+    renderBar("listening");
+    expect(screen.getByText("Listening…").className).toContain("sr-only");
+  });
 });
 
-describe("VoiceComposerBar — send enablement", () => {
-  test("send is enabled while listening", () => {
-    renderBar("listening");
-    const send = screen.getByRole("button", { name: "Send now" });
-    expect((send as HTMLButtonElement).disabled).toBe(false);
+describe("VoiceComposerBar — no manual send", () => {
+  test("offers no send control in any state", () => {
+    // Turns release themselves (server VAD hands-free, auto-release in the
+    // manual fallback), so a send control would name an action nobody takes.
+    for (const state of [
+      "connecting",
+      "listening",
+      "transcribing",
+      "thinking",
+      "speaking",
+      "ending",
+    ] as LiveVoiceSessionState[]) {
+      const { unmount } = renderBar(state);
+      expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+      unmount();
+    }
   });
-
-  const nonListening: LiveVoiceSessionState[] = [
-    "connecting",
-    "transcribing",
-    "thinking",
-    "speaking",
-    "ending",
-  ];
-
-  for (const state of nonListening) {
-    test(`send is disabled while ${state}`, () => {
-      renderBar(state);
-      const send = screen.getByRole("button", { name: "Send now" });
-      expect((send as HTMLButtonElement).disabled).toBe(true);
-    });
-  }
 
   test("end stays enabled in every session state", () => {
     for (const state of ["connecting", "listening", "speaking", "ending"] as const) {
@@ -105,19 +107,6 @@ describe("VoiceComposerBar — callbacks", () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
-  test("clicking send while listening fires onSend", () => {
-    const onSend = mock(() => {});
-    renderBar("listening", { onSend });
-    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
-    expect(onSend).toHaveBeenCalledTimes(1);
-  });
-
-  test("clicking send while disabled does not fire onSend", () => {
-    const onSend = mock(() => {});
-    renderBar("thinking", { onSend });
-    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
-    expect(onSend).not.toHaveBeenCalled();
-  });
 });
 
 describe("VoiceComposerBar — mute toggle", () => {
@@ -146,14 +135,6 @@ describe("VoiceComposerBar — stop response", () => {
       screen.getByRole("button", { name: "Stop assistant response" }),
     );
     expect(onStop).toHaveBeenCalledTimes(1);
-  });
-
-  test("■ takes the send slot while speaking (send absent)", () => {
-    renderBar("speaking", { onStop: () => {} });
-    expect(
-      screen.getByRole("button", { name: "Stop assistant response" }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
   });
 
   test("no ■ outside speaking, or without onStop (manual session)", () => {
@@ -200,11 +181,41 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     ).toBeTruthy();
   });
 
-  test("both control buttons carry aria labels", () => {
+  test("standalone supplies its own top padding", () => {
+    // When the textarea collapses away for the session the bar is the card's
+    // only row, so it can no longer lean on the textarea's top padding.
+    const { unmount } = renderBar("listening", { standalone: true });
+    expect(
+      screen.getByRole("group", { name: "Voice session" }).className,
+    ).toContain("pt-3");
+    unmount();
+
     renderBar("listening");
     expect(
-      screen.getByRole("button", { name: "End voice session" }),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Send now" })).toBeTruthy();
+      screen.getByRole("group", { name: "Voice session" }).className,
+    ).not.toContain("pt-3");
+  });
+
+  test("wave strip fades at both edges instead of hard-clipping", () => {
+    // Includes the -webkit- prefix: the iOS client is a WKWebView and drops
+    // the unprefixed property, which would silently disable the fade there.
+    const { container } = renderBar("listening");
+    const strip = container.querySelector(
+      ".voice-listening-waves--inline",
+    )?.parentElement;
+    expect(strip?.className).toContain("mask-image:linear-gradient");
+    expect(strip?.className).toContain("-webkit-mask-image:linear-gradient");
+  });
+
+  test("resting bar is exactly mute + expand + end", () => {
+    renderBar("listening", { onExpand: () => {} });
+    const names = screen
+      .getAllByRole("button")
+      .map((b) => b.getAttribute("aria-label"));
+    expect(names).toEqual([
+      "Mute microphone",
+      "Open voice room",
+      "End voice session",
+    ]);
   });
 });

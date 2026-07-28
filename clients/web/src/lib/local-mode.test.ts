@@ -18,10 +18,18 @@ const loadLockfileHost = mock(async () => {
   throw new Error("host down");
 });
 
+const saveLockfileAssistantHost = mock(
+  async (_assistant: Record<string, unknown>, _activeId?: string) => ({
+    ok: true as const,
+    lockfile: { assistants: [], activeAssistant: null },
+  }),
+);
+
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
   replacePlatformAssistantsHost,
   loadLockfileHost,
+  saveLockfileAssistantHost,
 }));
 
 import {
@@ -30,6 +38,7 @@ import {
   getLocalAssistants,
   getLockfile,
   getPlatformAssistants,
+  getPlatformRuntimeUrl,
   getSelectedAssistant,
   isCliWakeableAssistant,
   isLocalAssistant,
@@ -39,6 +48,7 @@ import {
   loadLockfile,
   primeLocalGatewayConnection,
   reconcileSelectedAssistant,
+  saveManagedLockfileAssistant,
   syncPlatformAssistantsToLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
@@ -86,6 +96,7 @@ afterEach(() => {
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
   replacePlatformAssistantsHost.mockClear();
+  saveLockfileAssistantHost.mockClear();
 });
 
 describe("remote gateway mode", () => {
@@ -161,6 +172,33 @@ describe("syncPlatformAssistantsToLockfile", () => {
     expect(replacePlatformAssistantsHost).toHaveBeenCalledTimes(1);
     expect(useLockfileStore.getState().lockfile).toBeNull();
     expect(localStorage.getItem(LOCKFILE_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("saveManagedLockfileAssistant", () => {
+  test("writes the platform entry every managed hatch shares", async () => {
+    await saveManagedLockfileAssistant("ast-1", "Research", "org-1");
+
+    expect(saveLockfileAssistantHost).toHaveBeenCalledTimes(1);
+    const [entry, activeId] = saveLockfileAssistantHost.mock.calls[0]!;
+    // The written entry also becomes the lockfile's active assistant.
+    expect(activeId).toBe("ast-1");
+    expect(entry).toMatchObject({
+      assistantId: "ast-1",
+      name: "Research",
+      cloud: "vellum",
+      runtimeUrl: getPlatformRuntimeUrl(),
+      organizationId: "org-1",
+    });
+    expect(Number.isNaN(Date.parse(entry.hatchedAt as string))).toBe(false);
+  });
+
+  test("omits an unresolved organization", async () => {
+    await saveManagedLockfileAssistant("ast-1", undefined, undefined);
+
+    const [entry] = saveLockfileAssistantHost.mock.calls[0]!;
+    expect(entry.organizationId).toBeUndefined();
+    expect(entry.name).toBeUndefined();
   });
 });
 

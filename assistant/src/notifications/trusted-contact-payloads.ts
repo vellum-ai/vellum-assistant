@@ -31,10 +31,9 @@ const TrustedContactIdentitySchema = z.object({
 });
 
 /**
- * Payload for `ingress.trusted_contact.guardian_decision` and
- * `ingress.trusted_contact.denied` — the guardian's verdict on an access
- * request. The deny path emits both events from one object; the approve path
- * emits `guardian_decision` with `decision: "approved"` (identical shape).
+ * Payload for `ingress.trusted_contact.guardian_decision` — the guardian's
+ * verdict on an access request. `decision` distinguishes the deny path from
+ * an approve (identical shape).
  */
 export const TrustedContactDecisionPayloadSchema =
   TrustedContactIdentitySchema.extend({

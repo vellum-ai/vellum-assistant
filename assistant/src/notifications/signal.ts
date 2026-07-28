@@ -84,10 +84,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Guardian decided on trusted contact request",
   },
   {
-    id: "ingress.trusted_contact.denied",
-    description: "Trusted contact request denied",
-  },
-  {
     id: "ingress.trusted_contact.verification_sent",
     description: "Verification sent to trusted contact",
   },
@@ -125,6 +121,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "credential.health_alert",
     description:
       "OAuth credential health issue detected (expired, revoked, missing scopes)",
+  },
+  {
+    id: "telegram.webhook_health_alert",
+    description:
+      "Telegram webhook is not delivering (unregistered, or failing per getWebhookInfo)",
   },
 ] as const;
 

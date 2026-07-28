@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
+import {
+  getWorkspacePromptPath,
+  getWorkspaceSystemPromptDir,
+} from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   BUNDLED_SYSTEM_SECTIONS,
@@ -24,21 +27,6 @@ const log = getLogger("system-prompt-sections");
  * interpolation.
  */
 export type SectionRenderContext = Record<string, unknown>;
-
-/**
- * Workspace override location for user-authored system prompt sections.
- * Layout: `<workspace>/prompts/system/<NN-name>.md`.
- *
- * The bundled section registry (`templates/system-sections.ts`) is the
- * source of default truth; this directory is an optional override layer.
- * Drop a file with the same id as a bundled section to replace its body,
- * or drop a file with a brand-new `<NN-name>` to add a workspace-only
- * section.  Either path is opt-in — the directory may not exist on a
- * fresh install, and the renderer will simply use bundled defaults.
- */
-export function getWorkspaceSystemPromptDir(): string {
-  return join(getWorkspaceDir(), "prompts", "system");
-}
 
 /**
  * Render static sections in id-sort order, then dynamic sections in id-sort

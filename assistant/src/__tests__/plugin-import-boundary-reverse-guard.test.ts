@@ -71,10 +71,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/daemon/conversation-runtime-assembly.ts",
     "src/daemon/conversation.ts",
   ],
-  "history-repair": [
-    "src/daemon/conversation-error.ts",
-    "src/daemon/conversation.ts",
-  ],
   "image-recovery": ["src/daemon/conversation-error.ts"],
   memory: [
     "src/cli/commands/memory/memory-retrospective.ts",

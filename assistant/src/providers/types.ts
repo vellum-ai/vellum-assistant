@@ -128,6 +128,36 @@ export interface WebSearchToolResultContent {
   content: unknown; // Opaque — encrypted_content in search results is provider-specific
 }
 
+/**
+ * A client-rendered UI card persisted into conversation history: call
+ * summaries, guardian approval cards, skill cards, wake notices, document
+ * previews.
+ *
+ * This is a rendering instruction, not model context — providers drop it when
+ * serializing history. Producers therefore pair the surface with a sibling
+ * `text` block flagged `_surfaceFallback` (see
+ * `notifications/approval-card-builder.ts`); that text is what feeds the model,
+ * search indexing, CLI display, and channel replies.
+ *
+ * `data` is deliberately opaque: its concrete shape is selected by
+ * `surfaceType` and owned by `daemon/message-types/surfaces.ts`.
+ */
+export interface UiSurfaceContent {
+  type: "ui_surface";
+  surfaceId: string;
+  surfaceType: string;
+  title?: string;
+  data?: Record<string, unknown>;
+  actions?: unknown[];
+  /**
+   * Free-form, matching `CurrentTurnSurface.display` — NOT the `inline` /
+   * `panel` enum of the `ui_surface_show` wire event. Persisted surfaces carry
+   * whatever the `ui_show` tool wrote, so this must not narrow.
+   */
+  display?: string;
+  completed?: boolean;
+}
+
 export type ContentBlock =
   | TextContent
   | ThinkingContent
@@ -137,7 +167,8 @@ export type ContentBlock =
   | ToolUseContent
   | ToolResultContent
   | ServerToolUseContent
-  | WebSearchToolResultContent;
+  | WebSearchToolResultContent
+  | UiSurfaceContent;
 
 export interface Message {
   role: "user" | "assistant";

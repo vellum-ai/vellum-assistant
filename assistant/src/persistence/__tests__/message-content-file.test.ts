@@ -9,6 +9,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { contentBlockArraySchema } from "../../providers/content-block-schema.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import {
@@ -170,15 +171,69 @@ describe("resolveMessageContentBlocks", () => {
   });
 
   test("passes typed blocks outside the union through untouched", () => {
-    // Persisted kinds like ui_surface live outside the provider union;
-    // their renderers own their shape, so repair must not rewrite them.
+    // A persisted kind the union does not model still passes through: its
+    // renderer owns the shape, so repair must not rewrite it.
     const historical = [
       textBlock("kept as-is"),
-      { type: "ui_surface", surfaceType: "call_summary", data: { x: 1 } },
       { type: "some_retired_block_kind", payload: 1 },
     ];
     expect(resolveMessageContentBlocks(JSON.stringify(historical))).toEqual(
       historical as ContentBlock[],
+    );
+  });
+
+  test("validates ui_surface blocks without entering the repair path", () => {
+    // ui_surface is a first-class union member (LUM-2869). Before it was
+    // modelled, every read of a row holding a card failed schema validation
+    // and paid a per-block repair that changed nothing — the read-path noise
+    // that spiked with voice GA. Asserting schema success (not just a clean
+    // round trip) is what proves the repair path can no longer fire, since
+    // repair passes these blocks through unchanged either way.
+    const surfaceRow = [
+      {
+        type: "ui_surface",
+        surfaceId: "call-1",
+        surfaceType: "call_summary",
+        completed: true,
+        display: "inline",
+        data: { summaryText: "**Call completed** (42s).", events: [] },
+      },
+      {
+        type: "text",
+        text: "**Call completed** (42s).",
+        _surfaceFallback: true,
+      },
+    ];
+    expect(contentBlockArraySchema.safeParse(surfaceRow).success).toBe(true);
+    // `data` stays opaque and internal riders survive the round trip.
+    expect(resolveMessageContentBlocks(JSON.stringify(surfaceRow))).toEqual(
+      surfaceRow as unknown as ContentBlock[],
+    );
+  });
+
+  test("validates an LLM-emitted surface with an arbitrary display value", () => {
+    // Surfaces written by the `ui_show` tool carry whatever the model chose:
+    // `CurrentTurnSurface.display` is a bare string, NOT the inline/panel enum
+    // of the `ui_surface_show` wire event. Narrowing it here would send every
+    // LLM surface back through the per-block repair — the read-path noise this
+    // variant exists to stop. Daemon-only riders must survive too.
+    const llmSurfaceRow = [
+      {
+        type: "ui_surface",
+        surfaceId: "surface-1",
+        surfaceType: "card",
+        title: "Pick one",
+        data: { title: "Pick one", options: ["a", "b"] },
+        actions: [{ id: "a", label: "A" }],
+        display: "modal",
+        persistent: true,
+        toolCallId: "tu-1",
+        activationMoment: "commit",
+      },
+    ];
+    expect(contentBlockArraySchema.safeParse(llmSurfaceRow).success).toBe(true);
+    expect(resolveMessageContentBlocks(JSON.stringify(llmSurfaceRow))).toEqual(
+      llmSurfaceRow as unknown as ContentBlock[],
     );
   });
 

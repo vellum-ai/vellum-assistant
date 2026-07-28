@@ -11,7 +11,7 @@ import {
 } from "../apps/app-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { migrateBackfillAppConversationLineage } from "../persistence/migrations/353-backfill-app-conversation-lineage.js";
+import { migrateBackfillAppConversationLineage } from "../persistence/migrations/354-backfill-app-conversation-lineage.js";
 import { rawRun } from "../persistence/raw-query.js";
 
 // Initialize db once for all tests

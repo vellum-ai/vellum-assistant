@@ -1,14 +1,10 @@
 import { isInviteCodeRedemptionEnabled } from "@vellumai/gateway-client";
-import {
-  normalizePublicBaseUrl,
-  resolveTwilioPublicBaseUrl,
-} from "@vellumai/service-contracts/twilio-ingress";
 import { z } from "zod";
 
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
-import { getIsPlatform } from "../config/env-registry.js";
 import { getNestedValue, loadRawConfig } from "../config/loader.js";
+import { hasWebhookRoutingConfigured } from "../config/webhook-routing.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
@@ -113,41 +109,6 @@ function scopeGrantCheck(rawHeader: string | null): ReadinessCheckResult {
     `Bot token carries all ${SLACK_REQUIRED_BOT_SCOPES.length} required scopes`,
     `Bot token is missing ${missing.length} of ${SLACK_REQUIRED_BOT_SCOPES.length} required scopes (${missing.join(", ")}) — open the app at https://api.slack.com/apps, accept the update prompt, then OAuth & Permissions → Reinstall to Workspace`,
   );
-}
-
-function hasIngressConfigured(options: { twilio?: boolean } = {}): boolean {
-  try {
-    const raw = loadRawConfig();
-    const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    const effectiveBaseUrl = options.twilio
-      ? (resolveTwilioPublicBaseUrl(ingress) ?? "")
-      : (normalizePublicBaseUrl(ingress.publicBaseUrl) ?? "");
-    const enabled =
-      (ingress.enabled as boolean | undefined) ??
-      (effectiveBaseUrl ? true : false);
-    return enabled && effectiveBaseUrl.trim().length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function hasWebhookRoutingConfigured(
-  allowManagedCallbacks = false,
-  options: { twilio?: boolean } = {},
-): {
-  configured: boolean;
-  usesManagedCallbacks: boolean;
-} {
-  const ingressConfigured = hasIngressConfigured(options);
-  if (ingressConfigured) {
-    return { configured: true, usesManagedCallbacks: false };
-  }
-
-  const usesManagedCallbacks = allowManagedCallbacks && getIsPlatform();
-  return {
-    configured: usesManagedCallbacks,
-    usesManagedCallbacks,
-  };
 }
 
 // ── Shared check helpers ────────────────────────────────────────────────────

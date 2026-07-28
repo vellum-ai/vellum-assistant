@@ -28,8 +28,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 import { installQueryPressureProbe } from "@/lib/commit-pressure";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 import { queryRetryDelay, shouldRetryQuery } from "@/utils/query-retry";
+import { requestScopeKey } from "@/utils/request-scope-key";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -81,11 +82,16 @@ function ScopeKeyedQueryClientProvider({
 }) {
   const isAuthenticated = useIsAuthenticated();
   const user = useAuthStore.use.user();
-  const currentOrganizationId =
-    useOrganizationStore.use.currentOrganizationId();
-  const scopeKey = `${
-    isAuthenticated ? `user:${user?.id ?? "unknown"}` : "anonymous"
-  }:org:${currentOrganizationId ?? "none"}`;
+  // The organization is the one requests carry, which is the store's resolved
+  // selection or the persisted id standing in for it. Both are store slices,
+  // so the key recomputes whenever the identity behind the cache moves and a
+  // response is never read as the answer for an identity that replaced it.
+  const organizationId = useRequestOrganizationId();
+  const scopeKey = requestScopeKey({
+    isAuthenticated,
+    userId: user?.id,
+    organizationId,
+  });
 
   return (
     <RequestScopedQueryClientProvider key={scopeKey}>

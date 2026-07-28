@@ -14,7 +14,7 @@ function setProactiveTipsFlag(value: "off" | "on") {
   act(() => {
     useClientFeatureFlagStore
       .getState()
-      .setStringFlags({ proactiveTips: value });
+      .setStringFlags({ proactiveTips: value }, null);
   });
 }
 
