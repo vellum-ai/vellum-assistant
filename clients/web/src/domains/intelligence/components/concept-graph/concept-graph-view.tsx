@@ -23,11 +23,13 @@ import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
+import { CenteredMessage } from "./centered-message";
 import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
 import { CLUSTER_PALETTE, EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
 import { detectClusters } from "./detect-clusters";
+import { MemoryUpgradePrompt } from "./memory-upgrade-prompt";
 import { RecencyLens, type RecencyWindow } from "./recency-lens";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
@@ -178,21 +180,6 @@ export interface ConceptGraphViewProps {
    * create). A plain prop rather than forwardRef so callers that don't need
    * it never see a ref signature. */
   handleRef?: React.Ref<ConceptGraphViewHandle>;
-}
-
-function CenteredMessage({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <p className="text-body-medium-default" style={{ color: "var(--content-default)" }}>
-        {title}
-      </p>
-      {detail ? (
-        <p className="max-w-sm text-body-small-default" style={{ color: "var(--content-tertiary)" }}>
-          {detail}
-        </p>
-      ) : null}
-    </div>
-  );
 }
 
 /**
@@ -1329,10 +1316,12 @@ export function ConceptGraphView({
       />
     );
   } else if (query.data?.kind === "unsupported") {
+    // Not a dead end: the prompt reads the memory tier to say WHY there's no
+    // graph (Memory switched off vs. a pre-v3 engine) and offers the fix.
     body = (
-      <CenteredMessage
-        title="Memory graph isn't available"
-        detail="The active memory backend doesn't expose a concept graph."
+      <MemoryUpgradePrompt
+        assistantId={assistantId}
+        onOpenThread={onOpenThread}
       />
     );
   } else if (!ready) {

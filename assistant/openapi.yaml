@@ -17747,7 +17747,9 @@ paths:
         "Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
         identity Memory card. Counts concept pages only and never builds the memory-concept graph. Also reports
         graph_supported: whether the memory-concept graph is available for this assistant (memory enabled and v3 live),
-        so callers can gate the graph entry point without building the graph."
+        so callers can gate the graph entry point without building the graph, plus tier: the coarse memory tier
+        explaining why the graph is unavailable (off = the user's Memory opt-out, v1/v2 = a legacy engine that has not
+        migrated to v3)."
       tags:
         - memory
       responses:
@@ -17764,9 +17766,18 @@ paths:
                   graph_supported:
                     type: boolean
                     description: Whether the memory-concept graph is available (memory enabled and v3 live)
+                  tier:
+                    type: string
+                    enum:
+                      - off
+                      - v1
+                      - v2
+                      - v3
+                    description: Coarse memory tier for this assistant; graph_supported is exactly tier === 'v3'
                 required:
                   - concepts
                   - graph_supported
+                  - tier
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:

@@ -103,6 +103,12 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../config/assistant-feature-flags.js",
     "../../../../config/default-profile-catalog.js",
     "../../../../config/loader.js",
+    // Sibling of the already-sanctioned memory-v3-gate: `memoryTier()` is
+    // defined as fully derived from that module's predicates, and the stats
+    // route reports both (`graph_supported` is exactly `tier === "v3"`).
+    // Re-deriving the tier inside the plugin would reintroduce exactly the
+    // drift the shared module exists to prevent. No plugin-api equivalent.
+    "../../../../config/memory-tier.js",
     "../../../../config/memory-v3-gate.js",
     "../../../../config/schema.js",
     "../../../../config/schemas/memory-v2.js",
