@@ -405,7 +405,7 @@ describe("PlansPage — current-plan state", () => {
     // Only the Mighty column is the current plan.
     expect(count(html, /Current Plan/g)).toBe(1);
     // Free sits below Mighty, so its CTA becomes a downgrade.
-    expect(html).toContain("Downgrade to Free");
+    expect(html).toContain("Downgrade to Base");
     expect(html).not.toContain("Start Free");
     // Super and Ultra sit above Mighty, so they keep their upgrade CTAs.
     expect(html).toContain("Go Super");
@@ -604,10 +604,10 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const { findByRole, findByText, findByTestId, getByTestId } =
       renderInteractive(proSuperSubscription());
 
-    // Below Super, Free reads "Downgrade to Free". Clicking it opens the confirm
+    // Below Super, Base reads "Downgrade to Base". Clicking it opens the confirm
     // dialog — not an immediate portal redirect.
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
-    await findByText("Downgrade to Free?");
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByText("Downgrade to Base?");
     expect(openedUrl).toBeNull();
     expect(portalSessionCall).toBeNull();
 
@@ -628,12 +628,12 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const { findByRole, findByText, getByRole, queryByText } =
       renderInteractive(proSuperSubscription());
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
-    await findByText("Downgrade to Free?");
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByText("Downgrade to Base?");
 
     // The confirm dialog's Cancel closes it without creating a portal session.
     fireEvent.click(getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(queryByText("Downgrade to Free?")).toBeNull());
+    await waitFor(() => expect(queryByText("Downgrade to Base?")).toBeNull());
     expect(portalSessionCall).toBeNull();
     expect(openedUrl).toBeNull();
   });
@@ -648,8 +648,8 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       { plans },
     );
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
-    await findByText("Downgrade to Free?");
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByText("Downgrade to Base?");
     await findByText("Managed email");
     await findByText("Custom domain");
   });
@@ -662,7 +662,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       proMightySubscription(),
     );
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
     fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
 
     // The portal request is in flight and never settles: every other plan
@@ -857,7 +857,7 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
   test("a Custom sub's Free card is a downgrade and no named card is current", () => {
     const html = renderStatic(proCustomizedMightySubscription(), fullCatalog());
     // Pro → Free is always a downgrade.
-    expect(html).toContain("Downgrade to Free");
+    expect(html).toContain("Downgrade to Base");
     expect(html).not.toContain("Start Free");
     // A Custom sub has no catalog rank, so no named column card is its current
     // plan. The Custom row's own current-plan tag is gated on the onboarding

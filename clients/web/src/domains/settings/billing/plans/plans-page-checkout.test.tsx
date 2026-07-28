@@ -387,7 +387,7 @@ describe("PlansPage checkout — base subscriber", () => {
 });
 
 describe("PlansPage checkout — Pro subscriber", () => {
-  // Below Mighty, Free reads "Downgrade to Free". Downgrading a Pro org to the
+  // Below Mighty, Base reads "Downgrade to Base". Downgrading a Pro org to the
   // Free plan is a subscription cancellation, not a package switch — clicking it
   // opens a confirm step (then the Stripe billing portal, the same destination
   // as the adjust-plan modal's "Downgrade to Base"). The full confirm → portal
@@ -397,7 +397,7 @@ describe("PlansPage checkout — Pro subscriber", () => {
   test("a Free downgrade CTA never starts a Stripe checkout", () => {
     const { getByRole } = renderPage(proMightySubscription());
 
-    fireEvent.click(getByRole("button", { name: "Downgrade to Free" }));
+    fireEvent.click(getByRole("button", { name: "Downgrade to Base" }));
 
     expect(upgradeCall).toBeNull();
     expect(readCheckoutIntent()).toBeNull();
