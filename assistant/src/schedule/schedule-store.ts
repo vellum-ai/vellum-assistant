@@ -76,8 +76,8 @@ export interface ScheduleJob {
   /**
    * Sidebar group (`conversation_groups` id) for conversations created by
    * the schedule's runs; null = the default `system:scheduled`. Resolve via
-   * {@link resolveScheduleConversationGroupId} — the group may have been
-   * deleted since it was set.
+   * {@link resolveScheduleConversationGroupId}, since the group may have
+   * been deleted since it was set.
    */
   groupId: string | null;
   createdFromConversationId: string | null;
@@ -250,9 +250,9 @@ export async function createSchedule(params: {
 
 /**
  * Sidebar group for conversations created by a schedule's runs. The job's
- * `groupId` wins only while the group still exists — a schedule may outlive
+ * `groupId` wins only while the group still exists: a schedule may outlive
  * its custom group, and creating a conversation with a dangling group id
- * would violate the conversations→conversation_groups FK.
+ * would violate the conversations->conversation_groups FK.
  */
 export function resolveScheduleConversationGroupId(
   job: Pick<ScheduleJob, "groupId">,

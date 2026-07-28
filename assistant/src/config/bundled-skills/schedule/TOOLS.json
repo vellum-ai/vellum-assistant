@@ -114,7 +114,7 @@
           },
           "group": {
             "type": "string",
-            "description": "Sidebar group (name or id) that conversations created by this schedule's runs are filed into, instead of the default Scheduled section. Must reference an existing group — create one first with conversation_group_create (conversation-groups skill) if needed."
+            "description": "Sidebar group (name or id) that conversations created by this schedule's runs are filed into, instead of the default Scheduled section. Must reference an existing group. Create one first with conversation_group_create (conversation-groups skill) if needed."
           }
         },
         "required": ["name", "description"]
@@ -237,7 +237,7 @@
           },
           "group": {
             "type": ["string", "null"],
-            "description": "Sidebar group (name or id) that conversations created by future runs are filed into. Pass null to revert to the default Scheduled section. Existing conversations stay where they are — move them with conversation_move_to_group if asked."
+            "description": "Sidebar group (name or id) that conversations created by future runs are filed into. Pass null to revert to the default Scheduled section. Existing conversations stay where they are; move them with conversation_move_to_group if asked."
           }
         },
         "required": ["job_id"]

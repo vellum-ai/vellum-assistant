@@ -125,7 +125,7 @@ Execute-mode runs use the default `mainAgent` model selection unless the schedul
 
 ## Conversation Group
 
-Conversations created by a schedule's runs land in the sidebar's Scheduled section by default. Pass `group` (a group name or id) on create or update to file them into a custom sidebar group instead — e.g. a "Briefs" group for a morning digest. The group must already exist (create it with the conversation-groups skill); pass `group: null` on update to revert to the default. If the group is later deleted, runs fall back to the Scheduled section. Changing the group affects future runs only — move an existing conversation with `conversation_move_to_group`.
+Conversations created by a schedule's runs land in the sidebar's Scheduled section by default. Pass `group` (a group name or id) on create or update to file them into a custom sidebar group instead, e.g. a "Briefs" group for a morning digest. The group must already exist (create it with the conversation-groups skill); pass `group: null` on update to revert to the default. If the group is later deleted, runs fall back to the Scheduled section. Changing the group affects future runs only; move an existing conversation with `conversation_move_to_group`.
 
 ## Conversation Reuse
 
