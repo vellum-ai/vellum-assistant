@@ -831,6 +831,13 @@ describe("resolveNavigation", () => {
 
     const UNCONSENTED = { tosAccepted: false, privacyConsent: false } as const;
 
+    // Either toggle going stale forces the same re-review, so the cases below
+    // assert against both.
+    const STALE_TOGGLES = [
+      { analyticsConsentCurrent: false },
+      { diagnosticsConsentCurrent: false },
+    ] as const;
+
     // Consent is enforced at the destination, not skipped: both funnel entries
     // are onboarding paths, and re-resolving one bounces an unconsented user on.
     test("consent is still enforced once the funnel destination is resolved", () => {
@@ -917,10 +924,7 @@ describe("resolveNavigation", () => {
     // `returnTo` so the plan is not lost on the round trip. The marker is what
     // scopes this — an ordinary research visit keeps its onboarding exemption.
     test("sends a stale-consent paid research return to review-terms", () => {
-      for (const stale of [
-        { analyticsConsentCurrent: false },
-        { diagnosticsConsentCurrent: false },
-      ]) {
+      for (const stale of STALE_TOGGLES) {
         expect(guard(s({ ...EMPTY_ORG, ...stale }), RESEARCH_FUNNEL_URL)).toEqual({
           action: "redirect",
           to: `/assistant/review-terms?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
@@ -1077,10 +1081,7 @@ describe("resolveNavigation", () => {
     // re-reviewed before the purchased hatch — with the funnel URL as
     // `returnTo`, so the markers survive and the plan is not lost.
     test("sends a stale-consent gateway-auth paid research return to review-terms", () => {
-      for (const stale of [
-        { analyticsConsentCurrent: false },
-        { diagnosticsConsentCurrent: false },
-      ]) {
+      for (const stale of STALE_TOGGLES) {
         expect(
           guard(s({ ...ELECTRON_PAID, ...stale }), RESEARCH_FUNNEL_URL),
         ).toEqual({
@@ -1095,10 +1096,7 @@ describe("resolveNavigation", () => {
     // client still points — resolves `allow` here and re-reviews stale terms at
     // the screen's own `hatch-gate` instead.
     test("leaves a stale-consent paid hatching return on its allow", () => {
-      for (const stale of [
-        { analyticsConsentCurrent: false },
-        { diagnosticsConsentCurrent: false },
-      ]) {
+      for (const stale of STALE_TOGGLES) {
         expect(
           guard(s({ ...ELECTRON_PAID, ...stale }), HATCHING_FUNNEL_URL),
         ).toEqual(ALLOW);

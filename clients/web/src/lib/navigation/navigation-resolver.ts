@@ -546,10 +546,9 @@ function enforceModeBoundary(
  * finishes the hatch at the baseline plan. Every other funnel bounce gets the
  * bare entrypoint.
  *
- * Local mode is a deliberate exception to that carry: its entrypoint is
- * `welcome`, which reads no `returnTo`, so an unconsented local paid return
- * finishes the hatch at baseline and the server-side post-hatch reconcile
- * applies the purchased specs. That is the parity local mode has always had.
+ * Local mode is a deliberate exception to that carry: its `welcome` entrypoint
+ * reads no `returnTo`, so the hatch finishes at baseline and the server-side
+ * post-hatch reconcile applies the purchased specs.
  */
 function consentBounceDestination(
   state: NavigationState,
@@ -579,12 +578,14 @@ function allowSetupRoutes(
     return null;
   }
 
-  return enforceFunnelConsent(state, path, pathnameWithSearch) ?? { action: "allow" };
+  return enforceFunnelConsent(state, path, pathnameWithSearch);
 }
 
 /**
  * Consent for the two provisioning funnel entries, which `requireConsent` never
- * reaches — every onboarding path is allowed before it runs.
+ * reaches — every onboarding path is allowed before it runs. It decides every
+ * onboarding path outright: anything that is not a funnel entry is plainly
+ * allowed.
  *
  * The hatching entry keeps exactly the gate it has always had — reached from
  * in-app navigation and from the native paid return, it decides on the flags in
@@ -597,9 +598,9 @@ function enforceFunnelConsent(
   state: NavigationState,
   path: string,
   pathnameWithSearch: string,
-): NavigationDecision | null {
+): NavigationDecision {
   if (!PROVISIONING_FUNNEL_PATHS.has(path)) {
-    return null;
+    return { action: "allow" };
   }
 
   if (path === routes.onboarding.research) {
@@ -616,7 +617,7 @@ function enforceFunnelConsent(
     // un-onboarded and restart their funnel. Fail open to the entry's
     // unconditional contract instead; a hydrated read still gates.
     if (state.consentHydrationTimedOut) {
-      return null;
+      return { action: "allow" };
     }
   }
 
@@ -648,7 +649,7 @@ function enforceFunnelConsent(
     };
   }
 
-  return null;
+  return { action: "allow" };
 }
 
 function requireAssistant(
