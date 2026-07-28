@@ -19,9 +19,12 @@
  *   ring replay.
  *
  * Drafts are excluded — a conversation the server has never seen has no
- * subagents to reconcile against. Both triggers fire freely: the store
- * throttles per parent conversation, so a flapping stream costs one round-trip
- * per window rather than one per reopen.
+ * subagents to reconcile against. Both triggers fire freely; the store decides
+ * what actually goes out. A conversation-load pass is throttled per parent, so
+ * a re-run costs nothing, while a reopen is issued even inside that window:
+ * the stream it replaces is the one that may have dropped the terminal status,
+ * and a reconcile skipped there is never retried. Reopens landing together
+ * still collapse into a single round-trip.
  *
  * The version gate is read reactively rather than snapshotted: the assistant
  * version arrives asynchronously and is cleared on every assistant switch, so
@@ -34,7 +37,10 @@
 
 import { useCallback, useEffect } from "react";
 
-import { useSubagentStore } from "@/domains/chat/subagent-store";
+import {
+  type SubagentReconcileTrigger,
+  useSubagentStore,
+} from "@/domains/chat/subagent-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useSupportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import type { BusEventPayload } from "@/lib/event-bus";
@@ -55,33 +61,36 @@ export function useSubagentReconcile(
 ): void {
   const supportsReconcile = useSupportsSubagentsReconcile();
 
-  const resync = useCallback(() => {
-    if (
-      !supportsReconcile ||
-      !assistantId ||
-      !conversationId ||
-      !conversationExistsOnServer
-    ) {
-      return;
-    }
-    void useSubagentStore
-      .getState()
-      .reconcileFromDaemon(assistantId, conversationId);
-  }, [
-    supportsReconcile,
-    assistantId,
-    conversationId,
-    conversationExistsOnServer,
-  ]);
+  const resync = useCallback(
+    (trigger: SubagentReconcileTrigger) => {
+      if (
+        !supportsReconcile ||
+        !assistantId ||
+        !conversationId ||
+        !conversationExistsOnServer
+      ) {
+        return;
+      }
+      void useSubagentStore
+        .getState()
+        .reconcileFromDaemon(assistantId, conversationId, trigger);
+    },
+    [
+      supportsReconcile,
+      assistantId,
+      conversationId,
+      conversationExistsOnServer,
+    ],
+  );
 
   useEffect(() => {
-    resync();
+    resync("mount");
   }, [resync]);
 
   useBusSubscription("sse.opened", ({ assistantId: openedFor, cause }) => {
     if (!RESYNC_CAUSES.has(cause) || openedFor !== assistantId) {
       return;
     }
-    resync();
+    resync("reopen");
   });
 }

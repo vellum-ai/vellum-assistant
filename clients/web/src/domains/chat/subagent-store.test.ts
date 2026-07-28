@@ -52,6 +52,18 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   subagentsByIdAbortPost: mock(async () => ({ data: undefined, response: { ok: true } })),
 }));
 
+const actualDiagnostics = await import("@/lib/diagnostics");
+const recordedDiagnostics: Array<{
+  kind: string;
+  details: Record<string, unknown>;
+}> = [];
+mock.module("@/lib/diagnostics", () => ({
+  ...actualDiagnostics,
+  recordDiagnostic: (kind: string, details: Record<string, unknown> = {}) => {
+    recordedDiagnostics.push({ kind, details });
+  },
+}));
+
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 // Imported after the SDK mock so it binds to the same mocked store module.
 const { reconcileSubagentStoreFromNotifications } = await import(
@@ -77,6 +89,13 @@ function advancePastReconcileWindow() {
   setSystemTime(new Date(Date.now() + 10_000));
 }
 
+/** Every `subagent_reconcile_kick` recorded since the current test started. */
+function reconcileKicks() {
+  return recordedDiagnostics.filter(
+    (event) => event.kind === "subagent_reconcile_kick",
+  );
+}
+
 beforeEach(() => {
   setSystemTime();
   getState().reset();
@@ -87,6 +106,7 @@ beforeEach(() => {
   subagentsReconcileGet.mockClear();
   reconcileRequests.length = 0;
   reconcileReply = { ok: true, subagents: {} };
+  recordedDiagnostics.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -2187,6 +2207,95 @@ describe("reconcileFromDaemon", () => {
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
     expect(subagentsReconcileGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("issues a reopen-triggered reconcile inside the window", async () => {
+    // The dropped stream may have straddled a terminal status, and a reconcile
+    // skipped here is never retried — the row would stay `running` forever.
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+
+    expect(subagentsReconcileGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("still shares one request between concurrent reopens", async () => {
+    await Promise.all([
+      getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen"),
+      getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen"),
+    ]);
+
+    expect(subagentsReconcileGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a reopen take the window so the reconnect's load pass is a no-op", async () => {
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    expect(subagentsReconcileGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps each parent's reopen on its own window", async () => {
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+    await getState().reconcileFromDaemon("assistant-1", "conv-other");
+
+    expect(reconcileRequests).toHaveLength(2);
+  });
+
+  it("does not settle a candidate re-parented mid-round-trip", async () => {
+    // `ensureEntry` guesses the conversation on screen as parent, so a later
+    // `subagent_event` can re-attribute the stub. This response describes the
+    // conversation it asked about, not the one the row now belongs to.
+    getState().spawnSubagent({
+      subagentId: "sa-moved",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      parentConversationId: "conv-parent",
+      timestamp: NOW,
+    });
+    reconcileReply = { ok: true, subagents: {} };
+
+    const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    getState().setParentConversationId("sa-moved", "conv-other");
+    await pending;
+
+    expect(getState().byId["sa-moved"]?.status).toBe("running");
+  });
+
+  it("records no kick diagnostic when the assistant predates the route", async () => {
+    reconcileSupported = false;
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    expect(reconcileKicks()).toHaveLength(0);
+  });
+
+  it("records one kick diagnostic per round-trip, tagged with its trigger", async () => {
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+    // Throttled and single-flighted calls issue nothing, so they record
+    // nothing.
+    await Promise.all([
+      getState().reconcileFromDaemon("assistant-1", "conv-parent"),
+      getState().reconcileFromDaemon("assistant-1", "conv-parent", "unknown_id"),
+    ]);
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
+
+    expect(reconcileKicks().map((event) => event.details.trigger)).toEqual([
+      "mount",
+      "reopen",
+    ]);
+  });
+
+  it("tags an unknown-id kick with its own trigger", async () => {
+    await getState().reconcileFromDaemon(
+      "assistant-1",
+      "conv-parent",
+      "unknown_id",
+    );
+
+    expect(reconcileKicks()).toEqual([
+      { kind: "subagent_reconcile_kick", details: { trigger: "unknown_id" } },
+    ]);
   });
 
   it("skips an item whose status is not a known subagent status", async () => {

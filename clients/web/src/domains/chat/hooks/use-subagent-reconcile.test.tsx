@@ -4,9 +4,9 @@
  * so each trigger is a countable round-trip; the reconcile's effect on the
  * store is covered by `subagent-store.test.ts`.
  *
- * The store throttles per parent conversation, so a trigger that fires inside
- * the previous one's window is a deliberate no-op. Tests that want a second
- * round-trip step the clock past it.
+ * The store throttles the conversation-load pass per parent conversation, but
+ * not a reopen: a stream replaced after a drop is the one that may have lost a
+ * terminal status, so its reconcile is issued inside the window too.
  */
 import {
   afterEach,
@@ -63,11 +63,6 @@ function mount(
   );
 }
 
-/** Step past the store's per-parent reconcile window. */
-function advancePastReconcileWindow() {
-  setSystemTime(new Date(Date.now() + 10_000));
-}
-
 beforeEach(() => {
   getCalls = 0;
   reconcileSupported = true;
@@ -120,26 +115,34 @@ describe("useSubagentReconcile", () => {
   test("reconciles again when the SSE stream reopens on resume", async () => {
     mount();
     await waitFor(() => expect(getCalls).toBe(1));
-    advancePastReconcileWindow();
 
     publish("sse.opened", { assistantId: ASSISTANT, cause: "resume" });
 
     await waitFor(() => expect(getCalls).toBe(2));
   });
 
-  test("a reconnect flap costs one round-trip per window, not one per reopen", async () => {
-    // A stream that drops and re-opens repeatedly used to bypass the kick
-    // throttle entirely: it lives on the store's triggers, not the kick path.
+  test("reconciles on a reopen inside the load pass's throttle window", async () => {
+    // The dropped stream may have straddled a terminal status, and nothing
+    // retries a reconcile the window swallowed — the row stays `running`
+    // forever. The reactive version gate makes this the common case: the load
+    // pass often runs late, moments before the reopen.
+    mount();
+    await waitFor(() => expect(getCalls).toBe(1));
+
+    publish("sse.opened", { assistantId: ASSISTANT, cause: "error" });
+
+    await waitFor(() => expect(getCalls).toBe(2));
+  });
+
+  test("a flap that reopens repeatedly in one tick costs one round-trip", async () => {
+    // Bypassing the throttle doesn't mean one request per reopen: the store
+    // single-flights per parent conversation.
     mount();
     await waitFor(() => expect(getCalls).toBe(1));
 
     for (const cause of ["error", "watchdog", "resume"] as const) {
       publish("sse.opened", { assistantId: ASSISTANT, cause });
     }
-    await waitFor(() => expect(getCalls).toBe(1));
-
-    advancePastReconcileWindow();
-    publish("sse.opened", { assistantId: ASSISTANT, cause: "error" });
 
     await waitFor(() => expect(getCalls).toBe(2));
   });
