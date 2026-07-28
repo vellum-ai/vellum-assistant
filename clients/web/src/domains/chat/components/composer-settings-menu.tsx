@@ -248,7 +248,10 @@ export function ComposerSettingsMenu({
   // persist the stash as a per-conversation override. Draft stubs (`draft:
   // true`, added optimistically on first send) are skipped — the send path owns
   // their stash and applies it to the conversation it mints.
-  const promotingProfileRef = useRef<Set<string>>(new Set());
+  // Keyed by conversation id, holding the in-flight promotion promise so a
+  // direct selection can serialize behind it (see handleProfileSelect). The
+  // promise never rejects — failures are swallowed below.
+  const promotingProfileRef = useRef<Map<string, Promise<void>>>(new Map());
   useEffect(() => {
     if (!conversationId) {
       return;
@@ -264,8 +267,7 @@ export function ComposerSettingsMenu({
       return;
     }
     const id = conversationId;
-    promotingProfileRef.current.add(id);
-    void (async () => {
+    const promotion = (async () => {
       try {
         await conversationsByIdInferenceprofilePut({
           path: { assistant_id: assistantId, id },
@@ -294,6 +296,7 @@ export function ComposerSettingsMenu({
         promotingProfileRef.current.delete(id);
       }
     })();
+    promotingProfileRef.current.set(id, promotion);
   }, [conversationId, assistantId, pendingDraftProfiles, queryClient]);
 
   // ---------------------------------------------------------------------------
@@ -434,6 +437,16 @@ export function ComposerSettingsMenu({
       useConversationStore
         .getState()
         .clearPendingDraftProfile(capturedConversationId);
+
+      // Serialize behind an in-flight promotion PUT for this conversation:
+      // if the older promotion write landed after ours, the persisted
+      // override would silently revert to the stashed value. The promotion
+      // promise never rejects, so awaiting it is safe.
+      const inflightPromotion =
+        promotingProfileRef.current.get(capturedConversationId);
+      if (inflightPromotion) {
+        await inflightPromotion;
+      }
 
       try {
         await conversationsByIdInferenceprofilePut({
