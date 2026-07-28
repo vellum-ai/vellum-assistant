@@ -7,6 +7,7 @@ import {
 } from "@/lib/billing/checkout-intent";
 
 import {
+  postCheckoutHatchReturnTo,
   resolveNavigation,
   resolveLoginReturnTo,
   type NavigationState,
@@ -850,6 +851,40 @@ describe("resolveNavigation", () => {
       ).toEqual({ action: "redirect", to: "/assistant/welcome" });
     });
 
+    // The research route is the headless paid provisioning entry, so it bounces
+    // and carries exactly like the hatching entry does.
+    const RESEARCH_FUNNEL_URL =
+      "/assistant/onboarding/research?hosting=vellum-cloud&post_checkout=1";
+
+    test("carries a paid research destination through the consent bounce", () => {
+      expect(
+        guard(s({ ...EMPTY_ORG, ...UNCONSENTED }), RESEARCH_FUNNEL_URL),
+      ).toEqual({
+        action: "redirect",
+        to: `/assistant/onboarding/privacy?returnTo=${encodeURIComponent(RESEARCH_FUNNEL_URL)}`,
+      });
+    });
+
+    // Closes a consent gap: an unconsented user could previously walk the
+    // research funnel directly, which provisions an assistant.
+    test("bounces an unconsented bare research visit to the entrypoint", () => {
+      expect(guard(s(UNCONSENTED), "/assistant/onboarding/research")).toEqual({
+        action: "redirect",
+        to: "/assistant/onboarding/privacy",
+      });
+      expect(
+        guard(s({ isLocalMode: true, ...UNCONSENTED }), "/assistant/onboarding/research"),
+      ).toEqual({ action: "redirect", to: "/assistant/welcome" });
+    });
+
+    test("allows a consented user on the research route", () => {
+      expect(guard(s({}), "/assistant/onboarding/research")).toEqual(ALLOW);
+      expect(
+        guard(s({ hasAssistants: false }), "/assistant/onboarding/research"),
+      ).toEqual(ALLOW);
+      expect(guard(s({}), RESEARCH_FUNNEL_URL)).toEqual(ALLOW);
+    });
+
     // The funnel destination must not itself read as a checkout return, or the
     // redirect would loop.
     test("the funnel destination is not treated as a post-checkout return", () => {
@@ -1204,6 +1239,69 @@ describe("resolveNavigation", () => {
       expect(
         resolveLoginReturnTo(s({}), "/assistant/onboarding/hosting"),
       ).toBe("/assistant/onboarding/hosting");
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // postCheckoutHatchReturnTo
+  // -----------------------------------------------------------------------
+  describe("postCheckoutHatchReturnTo", () => {
+    const RESEARCH_FUNNEL_URL =
+      "/assistant/onboarding/research?hosting=vellum-cloud&post_checkout=1";
+    const HATCHING_FUNNEL_URL =
+      "/assistant/onboarding/hatching?hosting=vellum-cloud&post_checkout=1";
+
+    test("accepts the headless research funnel entry", () => {
+      expect(postCheckoutHatchReturnTo(RESEARCH_FUNNEL_URL)).toBe(
+        RESEARCH_FUNNEL_URL,
+      );
+    });
+
+    // A `returnTo` stashed on the privacy screen by an older client names the
+    // hatching entry; it must still resume rather than drop the paid markers.
+    test("accepts the foreground hatching funnel entry", () => {
+      expect(postCheckoutHatchReturnTo(HATCHING_FUNNEL_URL)).toBe(
+        HATCHING_FUNNEL_URL,
+      );
+    });
+
+    test("rejects any other path, even carrying the marker", () => {
+      for (const url of [
+        "/assistant/onboarding/privacy?post_checkout=1",
+        "/assistant/settings/billing?post_checkout=1",
+        "/assistant?post_checkout=1",
+        "/assistant/onboarding/research-mock?post_checkout=1",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects a funnel path without the paid marker", () => {
+      for (const url of [
+        "/assistant/onboarding/research",
+        "/assistant/onboarding/research?hosting=vellum-cloud",
+        "/assistant/onboarding/research?post_checkout=0",
+        "/assistant/onboarding/hatching",
+        "/assistant/onboarding/hatching?hosting=vellum-cloud",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects absolute and protocol-relative URLs", () => {
+      for (const url of [
+        "https://evil.example.com/assistant/onboarding/research?post_checkout=1",
+        "//evil.example.com/assistant/onboarding/research?post_checkout=1",
+        "http://localhost/assistant/onboarding/hatching?post_checkout=1",
+      ]) {
+        expect(postCheckoutHatchReturnTo(url)).toBeNull();
+      }
+    });
+
+    test("rejects absent values", () => {
+      expect(postCheckoutHatchReturnTo(null)).toBeNull();
+      expect(postCheckoutHatchReturnTo(undefined)).toBeNull();
+      expect(postCheckoutHatchReturnTo("")).toBeNull();
     });
   });
 });
