@@ -149,6 +149,9 @@ export function useBackgroundHatch(
   // resolve immediately, and the pending poll timer is cleared.
   const abortedRef = useRef(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set by `retry()`, so the org-header wait can tell a user-driven second
+  // attempt from the first one. See `awaitOrgHeader`.
+  const retriedRef = useRef(false);
 
   useEffect(() => {
     // Reset on (re)mount so StrictMode's simulated unmount doesn't abort the
@@ -194,6 +197,7 @@ export function useBackgroundHatch(
     }
     startedRef.current = true;
 
+    const isRetryAttempt = retriedRef.current;
     const startMs = Date.now();
     const timedOut = () => Date.now() - startMs >= MAX_HATCH_WAIT_MS;
     // Parks the pending handle so unmount can clear it. Once aborted the wait
@@ -220,8 +224,17 @@ export function useBackgroundHatch(
     // Resolves true once the header source can answer, which on a warm store is
     // the first synchronous check. False means the sequence must stop: aborted,
     // or settled without an id — terminal but retryable, since `retry()` re-runs
-    // this wait. Resolution that already concluded without an id is re-run once
-    // per attempt, so "Try again" has something new to wait on.
+    // this wait.
+    //
+    // Each attempt re-triggers resolution once so "Try again" has something new
+    // to wait on. Resolution that already concluded without an id gets that kick
+    // on any attempt: nothing else is coming. Resolution still in flight only
+    // gets it on a RETRY — a first attempt must not race the store's own
+    // cold-boot hydration, but by the time the user presses "Try again" a fetch
+    // still pending past the ceiling is a stalled request, and the store neither
+    // times out nor dedupes, so a fresh one supersedes it. Without that, every
+    // retry re-runs the same timeout and the hatch can't recover from a hung
+    // request even after connectivity returns.
     const awaitOrgHeader = async (): Promise<boolean> => {
       const waitStartMs = Date.now();
       let refetched = false;
@@ -233,7 +246,7 @@ export function useBackgroundHatch(
         if (readiness === "ready") {
           return true;
         }
-        if (readiness === "unavailable" && !refetched) {
+        if (!refetched && (readiness === "unavailable" || isRetryAttempt)) {
           refetched = true;
           void useOrganizationStore.getState().fetchOrganizations();
         } else if (
@@ -481,6 +494,7 @@ export function useBackgroundHatch(
   ]);
 
   const retry = useCallback(() => {
+    retriedRef.current = true;
     startedRef.current = false;
     settledRef.current = null;
     setError(null);

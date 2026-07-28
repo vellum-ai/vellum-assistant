@@ -880,6 +880,69 @@ describe("useBackgroundHatch", () => {
     expect(hatchAssistantMock).not.toHaveBeenCalled();
   });
 
+  test("the first attempt waits out in-flight resolution without kicking it", async () => {
+    orgReadiness = "resolving";
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(ORG_HEADER_MESSAGE));
+    // A cold boot resolves the org on its own; a duplicate request here would
+    // only race the store's own hydration.
+    expect(fetchOrganizationsMock).not.toHaveBeenCalled();
+  });
+
+  test("a retry supersedes resolution still in flight past the ceiling", async () => {
+    orgReadiness = "resolving";
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(ORG_HEADER_MESSAGE));
+
+    act(() => {
+      result.current.retry();
+    });
+
+    // A fetch still pending past the ceiling is a stalled request the store
+    // will never time out, so the retry replaces it rather than waiting again.
+    await waitFor(() => expect(fetchOrganizationsMock).toHaveBeenCalledTimes(1));
+    // The replacement answering mid-wait lets the held hatch proceed.
+    orgReadiness = "ready";
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.error).toBeNull();
+    expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a retry whose replacement fetch also hangs fails once more", async () => {
+    orgReadiness = "resolving";
+
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(ORG_HEADER_MESSAGE));
+
+    act(() => {
+      result.current.retry();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(ORG_HEADER_MESSAGE));
+    // One kick per attempt — a wedged network can't turn the wait into a
+    // request loop.
+    expect(fetchOrganizationsMock).toHaveBeenCalledTimes(1);
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+  });
+
   test("unmounting during the org wait settles nothing", async () => {
     orgReadiness = "resolving";
 
