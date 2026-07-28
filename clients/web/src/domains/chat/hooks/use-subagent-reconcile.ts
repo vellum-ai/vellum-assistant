@@ -18,7 +18,7 @@
  *   owns the initial load, and an anchored reopen is caught up by the daemon's
  *   ring replay.
  *
- * Drafts are excluded — a conversation the server has never seen has no
+ * Drafts are excluded: a conversation the server has never seen has no
  * subagents to reconcile against. Both triggers fire freely; the store decides
  * what actually goes out. A conversation-load pass is throttled per parent, so
  * a re-run costs nothing, while a reopen is issued even inside that window:
@@ -30,7 +30,7 @@
  * version arrives asynchronously and is cleared on every assistant switch, so
  * a cold load routinely mounts this hook before it is known. Holding the
  * conversation-load pass until the version resolves is the difference between
- * that pass running late and it never running at all — the SSE trigger skips
+ * that pass running late and it never running at all, the SSE trigger skips
  * `"fresh"` opens, and the unknown-id kick only fires for subagents that
  * stream something.
  */

@@ -41,7 +41,7 @@ describe("reconcileSubagentStoreFromNotifications", () => {
   });
 
   test("keeps a terminal entry reconcile recovered but no notification mentions", () => {
-    // A silent run — one that streamed nothing — is recovered from the daemon's
+    // A silent run, one that streamed nothing, is recovered from the daemon's
     // durable rows as `interrupted`, so it appears in no history notification.
     // Hydration is additive; deleting it would make its visibility depend on
     // which request finished first. Cross-conversation cleanup belongs to the
@@ -84,7 +84,7 @@ describe("reconcileSubagentStoreFromNotifications", () => {
       NOW,
     );
     expect(store().byId["settled"]?.status).toBe("interrupted");
-    // The non-status fields still land — the notification remains a valid
+    // The non-status fields still land, the notification remains a valid
     // source for identity/conversation wiring.
     expect(store().byId["settled"]?.conversationId).toBe("child-conv");
     expect(store().byId["settled"]?.parentConversationId).toBe(PARENT);

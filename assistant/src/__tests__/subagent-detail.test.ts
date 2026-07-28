@@ -1,6 +1,6 @@
 /**
  * Tests for parseSubagentMessages — verifies that tool result content is
- * correctly extracted from both string and array formats — and for the
+ * correctly extracted from both string and array formats, and for the
  * getSubagentDetail route handler's server-side resolution of the subagent's
  * own conversation id.
  */
@@ -8,7 +8,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mocks — must be registered before importing the module under test
+// Mocks: must be registered before importing the module under test
 // ---------------------------------------------------------------------------
 
 /** conversationId → messages, so a wrong id yields a visibly wrong transcript. */
@@ -57,7 +57,7 @@ const durableRecords = new Map<
 >();
 
 // The mock replaces the whole module for the process, so every export the
-// routes file imports from it has to be present — a missing one reads as
+// routes file imports from it has to be present: a missing one reads as
 // `undefined` and only fails when a route calls it.
 mock.module("../persistence/subagent-store.js", () => ({
   getSubagentRecordById: (id: string) => durableRecords.get(id),
@@ -235,7 +235,7 @@ describe("parseSubagentMessages", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getSubagentDetail route — server-side conversation resolution
+// getSubagentDetail route: server-side conversation resolution
 // ---------------------------------------------------------------------------
 
 const detailRoute = ROUTES.find((r) => r.operationId === "getSubagentDetail")!;
@@ -283,7 +283,7 @@ describe("getSubagentDetail route resolution", () => {
       config: { label: "Live label" },
     });
 
-    // The client sends the PARENT id — server-side resolution must win.
+    // The client sends the PARENT id. server-side resolution must win.
     const result = fetchDetail("sub-live", "parent-conv");
 
     expect(result.events.map((e) => e.content)).toContain("child transcript");
@@ -338,7 +338,7 @@ describe("getSubagentDetail route resolution", () => {
     // `setDbReady(true)` precedes `rehydrateFromDb()` during daemon startup, so
     // a record can still carry its pre-crash status while the manager knows
     // nothing about it. Nothing runs without an in-memory entry, so `running`
-    // on an orphaned row is stale — report what the rehydration will write.
+    // on an orphaned row is stale: report what the rehydration will write.
     seedConversation("orphan-child-conv", "orphan transcript");
     durableRecords.set("sub-orphaned", {
       conversationId: "orphan-child-conv",

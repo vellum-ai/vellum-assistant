@@ -1,7 +1,7 @@
 /**
  * Can a subagent entry address its own detail fetch?
  *
- * One rule, one spelling — shared by every caller that has to answer it: the
+ * One rule, one spelling, shared by every caller that has to answer it: the
  * store (arming a stub for backfill, resolving the fetch), the conversation
  * auto-fetch, and the detail panel's open-fetch. They previously each spelled
  * their own variant, which is how a stub armed with only a parent conversation

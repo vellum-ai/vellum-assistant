@@ -250,7 +250,7 @@ export async function getOrCreateConversation(
  * deleted conversation and trip FK constraints.
  *
  * `keepSubagentRecords` leaves the children's durable rows behind for the
- * caller to delete once its own destructive work has committed — see
+ * caller to delete once its own destructive work has committed, see
  * `SubagentManager.disposeAllForParent`.
  */
 export function destroyActiveConversation(
@@ -292,10 +292,12 @@ export function stopConversations(): void {
  */
 export function clearAllActiveConversations(): number {
   const count = conversationCount();
-  // Dispose subagents across ALL parents, not just the in-memory ones — an
+  // Tear down subagents across ALL parents, not just the in-memory ones: an
   // evicted parent still retains its terminal children, and clear-all must
-  // take their records with it.
-  getSubagentManager().disposeAllForAllParents();
+  // reach them. Pass `keepRecords` so the rows themselves are deleted by the
+  // following `clearAll()` DB wipe in retry-safe order (conversations first,
+  // then subagents); an eager delete here would lose them if that wipe throws.
+  getSubagentManager().disposeAllForAllParents({ keepRecords: true });
   for (const id of conversationIds()) {
     removeFromEvictor(id);
   }

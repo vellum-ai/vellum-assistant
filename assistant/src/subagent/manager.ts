@@ -1008,17 +1008,24 @@ export class SubagentManager {
    * durable records. For clear-all: every conversation's data is going away,
    * including retained children of parents that are no longer in the in-memory
    * conversation store.
+   *
+   * `keepRecords` tears down the in-memory side only, leaving every row for the
+   * caller to delete. Clear-all passes it so the ordered persistence wipe that
+   * follows owns row deletion (conversations first, then subagents), matching
+   * the retry-safe pattern already on `disposeAllForParent`: an eager delete
+   * here would lose the rows if that wipe throws. Without it, behavior is
+   * unchanged and the records are deleted here.
    */
-  disposeAllForAllParents(): void {
+  disposeAllForAllParents(opts?: { keepRecords?: boolean }): void {
     for (const parentId of [...this.parentToChildren.keys()]) {
-      this.disposeAllForParent(parentId);
+      this.disposeAllForParent(parentId, undefined, opts);
     }
     // `parentToChildren` only names parents that still hold in-memory children,
-    // and the TTL sweep drops a child's entry while keeping its row — so a
+    // and the TTL sweep drops a child's entry while keeping its row, so a
     // parent whose children were all swept has no key to iterate. Clearing the
     // table is the only way to take every retained row with the data it
     // belongs to.
-    if (!this.shuttingDown) {
+    if (!this.shuttingDown && !opts?.keepRecords) {
       try {
         deleteAllSubagentRecords();
       } catch (err) {
@@ -1452,7 +1459,7 @@ export class SubagentManager {
         { subagentId: id },
         "Sweeping expired terminal subagent metadata",
       );
-      // Metadata only — the durable row outlives the sweep so a client that
+      // Metadata only: the durable row outlives the sweep so a client that
       // missed `subagent_spawned` can still resolve the child conversation.
       this.dispose(id);
     }

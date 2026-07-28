@@ -1,7 +1,7 @@
 /**
  * A conversation's durable subagent rows are purged only after the conversation
  * delete commits. The rows are a child's only durable metadata, so dropping
- * them first would lose them for good when the delete throws — while the
+ * them first would lose them for good when the delete throws, while the
  * conversation they describe survives, intact for a retried delete.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -25,7 +25,9 @@ import { migrateCreateSubagentsTable } from "../persistence/migrations/311-creat
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/355-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
+  deleteAllSubagentRecords,
   getSubagentRecordById,
+  loadAllSubagentRecords,
   type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
@@ -53,6 +55,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
 const { ROUTES } =
   await import("../runtime/routes/conversation-management-routes.js");
 const deleteRoute = ROUTES.find((r) => r.operationId === "deleteConversation")!;
+
+// Deferred until after the mocks so the manager and its transitive deps load
+// against the same module registry the routes above use.
+const { SubagentManager } = await import("../subagent/manager.js");
 
 function seedRow(id: string, parentConversationId: string): void {
   const rec: SubagentRecord = {
@@ -85,7 +91,7 @@ function deleteConversationViaRoute(id: string): Promise<unknown> {
   } as Parameters<typeof deleteRoute.handler>[0]) as Promise<unknown>;
 }
 
-describe("DELETE /conversations/:id — subagent row purge order", () => {
+describe("DELETE /conversations/:id - subagent row purge order", () => {
   beforeEach(() => {
     migrateCreateSubagentsTable();
     migrateAddSubagentParentToolUseId(getDb());
@@ -121,5 +127,47 @@ describe("DELETE /conversations/:id — subagent row purge order", () => {
     // only durable metadata has to still be there too.
     expect(getConversation(conv.id)).not.toBeNull();
     expect(getSubagentRecordById("child-kept")).toBeDefined();
+  });
+});
+
+describe("clear-all defers subagent-row deletion to the DB wipe", () => {
+  beforeEach(() => {
+    migrateCreateSubagentsTable();
+    migrateAddSubagentParentToolUseId(getDb());
+    resetTestTables("subagents");
+  });
+
+  test("keepRecords teardown leaves the rows for the ordered DB wipe", () => {
+    // clear-all tears the manager down in memory first, then `clearAll()` wipes
+    // the DB in retry-safe order (conversations, then subagents). If the
+    // in-memory teardown deleted the rows eagerly, a `clearAll()` that threw
+    // would strand conversations with no subagent metadata, so the teardown
+    // must leave the rows for the ordered wipe.
+    seedRow("child-a", "parent-1");
+    seedRow("child-b", "parent-1");
+    seedRow("child-c", "parent-2");
+
+    const manager = new SubagentManager();
+    manager.disposeAllForAllParents({ keepRecords: true });
+
+    // The in-memory teardown has run, but no DB wipe has followed, so every
+    // durable row is still addressable.
+    expect(loadAllSubagentRecords()).toHaveLength(3);
+    expect(getSubagentRecordById("child-a")).toBeDefined();
+    expect(getSubagentRecordById("child-b")).toBeDefined();
+    expect(getSubagentRecordById("child-c")).toBeDefined();
+  });
+
+  test("the deferred DB wipe still removes the rows", () => {
+    // Happy path: once the teardown has kept the rows, the `clearAll()` DB wipe
+    // (its `DELETE FROM subagents`) is what actually clears them.
+    seedRow("child-a", "parent-1");
+
+    const manager = new SubagentManager();
+    manager.disposeAllForAllParents({ keepRecords: true });
+    expect(loadAllSubagentRecords()).toHaveLength(1);
+
+    deleteAllSubagentRecords();
+    expect(loadAllSubagentRecords()).toHaveLength(0);
   });
 });

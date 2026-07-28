@@ -4,13 +4,13 @@
  *
  * Routing: the `subagent_event` envelope carries the PARENT conversation id
  * and the inner event carries the subagent's own (CHILD) id. They land in
- * separate entry fields — `parentConversationId` scopes the Active-Subagents
- * overlay, `conversationId` addresses the detail fetch — so neither can be
+ * separate entry fields: `parentConversationId` scopes the Active-Subagents
+ * overlay, `conversationId` addresses the detail fetch, so neither can be
  * mistaken for the other.
  *
  * Recovery: a `subagent_event` or `subagent_status_changed` for an id the
  * store has never seen must materialize a stub instead of being silently
- * dropped — a dropped event chain is how the inline subagent card dies (the
+ * dropped: a dropped event chain is how the inline subagent card dies (the
  * avatar row expands to nothing and the detail panel can't open). The
  * backwards-compat gate decides whether a stub that only knows the parent id
  * is armed for detail backfill: only 0.11.0+ daemons resolve the subagent's
@@ -97,7 +97,7 @@ describe("handleSubagentSpawned", () => {
   });
 });
 
-describe("handleSubagentEvent — known subagent id", () => {
+describe("handleSubagentEvent: known subagent id", () => {
   function spawn() {
     useSubagentStore.getState().spawnSubagent({
       subagentId: "sa-1",
@@ -235,7 +235,7 @@ describe("handleSubagentEvent — unknown subagent id", () => {
   });
 });
 
-describe("handleSubagentStatusChanged — unknown subagent id", () => {
+describe("handleSubagentStatusChanged: unknown subagent id", () => {
   it("materializes a stub carrying the status instead of dropping it", () => {
     handleSubagentStatusChanged(
       {
@@ -318,7 +318,7 @@ describe("unknown-id reconcile kick", () => {
     await Promise.resolve();
 
     expect(reconcileCalls).toBe(1);
-    // Every id still got its own stub — the kick is additive, not a substitute.
+    // Every id still got its own stub: the kick is additive, not a substitute.
     expect(useSubagentStore.getState().orderedIds).toEqual([
       "sa-1",
       "sa-2",

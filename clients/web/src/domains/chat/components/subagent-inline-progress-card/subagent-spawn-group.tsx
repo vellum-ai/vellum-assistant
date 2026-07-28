@@ -28,7 +28,7 @@ export function SubagentSpawnGroup({
   const reduce = useReducedMotion();
 
   // Expanding is the first moment the user asks to see this group's timelines,
-  // so fetch each member's detail now — bounded to the handful in this group,
+  // so fetch each member's detail now, bounded to the handful in this group,
   // not the whole conversation on load. Settled cards with no events show a
   // loading state until this lands, then their real steps (see `detailSettled`).
   const handleExpand = () => {

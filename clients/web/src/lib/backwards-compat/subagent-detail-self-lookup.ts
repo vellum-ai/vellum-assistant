@@ -11,7 +11,7 @@
  * `subagent_spawned` only knows the PARENT conversation id (that's what
  * `subagent_event` carries at the top level), so fetching detail against an
  * old assistant with that id would parse the parent conversation's messages
- * as if they were the subagent's — a wrong objective and a garbage timeline.
+ * as if they were the subagent's: a wrong objective and a garbage timeline.
  *
  * Gate stub-entry detail hydration on this check: below the minimum the
  * stub renders from live stream events only (generic label, no history
@@ -22,7 +22,7 @@ import { assistantSupports } from "@/lib/backwards-compat/utils";
 const MIN_VERSION = "0.11.0";
 
 /**
- * Snapshot check (safe outside React — stream handlers, store actions):
+ * Snapshot check (safe outside React, stream handlers, store actions):
  * `true` when the connected assistant resolves the subagent conversation
  * itself, making detail hydration safe with only a parent conversation id.
  */

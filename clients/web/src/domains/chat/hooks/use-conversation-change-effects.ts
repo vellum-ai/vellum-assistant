@@ -27,9 +27,9 @@ import { isActiveStatus } from "@/utils/subagent-status";
  * An entry with an empty timeline that the daemon can be asked about, and
  * that can't afford to wait for the user to open its panel:
  *
- * - **Active** — its card is on screen showing live progress, so the timeline
+ * - **Active**: its card is on screen showing live progress, so the timeline
  *   has to be there before the next event extends it.
- * - **`hydrationPending`** — it is dropping live events until the backfill
+ * - **`hydrationPending`**: it is dropping live events until the backfill
  *   lands, so nothing else would ever un-stick it.
  *
  * A settled entry is deliberately excluded. Reconcile materializes every

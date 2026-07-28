@@ -1783,7 +1783,7 @@ describe("loadDetail identity backfill", () => {
 });
 
 // ---------------------------------------------------------------------------
-// fetchDetailIfNeeded — which conversation id addresses the subagent
+// fetchDetailIfNeeded: which conversation id addresses the subagent
 // ---------------------------------------------------------------------------
 
 describe("fetchDetailIfNeeded conversation id", () => {
@@ -1841,7 +1841,7 @@ describe("fetchDetailIfNeeded conversation id", () => {
 });
 
 // ---------------------------------------------------------------------------
-// fetchDetailIfNeeded — detailSettled marks a completed fetch
+// fetchDetailIfNeeded: detailSettled marks a completed fetch
 // ---------------------------------------------------------------------------
 
 describe("fetchDetailIfNeeded detailSettled", () => {
@@ -2004,7 +2004,7 @@ describe("fetchGroupDetail", () => {
 });
 
 // ---------------------------------------------------------------------------
-// loadDetail — child conversation id resolved by the daemon
+// loadDetail: child conversation id resolved by the daemon
 // ---------------------------------------------------------------------------
 
 describe("loadDetail conversation id", () => {
@@ -2142,7 +2142,7 @@ describe("reconcileFromDaemon", () => {
   });
 
   // Absence is authoritative because the daemon's snapshot spans live,
-  // rehydrated AND durably-recorded children — a run whose terminal metadata
+  // rehydrated AND durably-recorded children, a run whose terminal metadata
   // the retention sweep evicted still reports its terminal status, so only a
   // subagent the daemon has no record of at all goes missing.
   it("settles an active entry the daemon no longer knows about", async () => {
@@ -2172,7 +2172,7 @@ describe("reconcileFromDaemon", () => {
         timestamp: NOW,
       });
     }
-    // `sa-swept` is terminal in the daemon's durable rows only — its
+    // `sa-swept` is terminal in the daemon's durable rows only, its
     // in-memory metadata is long gone. It reports `completed`; `sa-gone` has
     // no row at all, so its absence is still the real thing.
     reconcileReply = {
@@ -2231,7 +2231,7 @@ describe("reconcileFromDaemon", () => {
   it("leaves an entry hydration materialized mid-flight alone", async () => {
     // A history page landing during the round-trip describes rows the daemon
     // was never asked about, so their absence from this response is not
-    // evidence — the next pass, which does see them, decides.
+    // evidence: the next pass, which does see them, decides.
     reconcileReply = { ok: true, subagents: {} };
 
     const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
@@ -2378,7 +2378,7 @@ describe("reconcileFromDaemon", () => {
 
   it("issues a reopen-triggered reconcile inside the window", async () => {
     // The dropped stream may have straddled a terminal status, and a reconcile
-    // skipped here is never retried — the row would stay `running` forever.
+    // skipped here is never retried, the row would stay `running` forever.
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
     await getState().reconcileFromDaemon("assistant-1", "conv-parent", "reopen");
 
@@ -2681,7 +2681,7 @@ describe("reconcileFromDaemon", () => {
       },
     };
 
-    // A settled entry already in the store — enough to make a reset-based
+    // A settled entry already in the store, enough to make a reset-based
     // hydration bump the generation and throw the snapshot away.
     getState().spawnSubagent({
       subagentId: "sa-prior",
@@ -2694,7 +2694,7 @@ describe("reconcileFromDaemon", () => {
 
     const pending = getState().reconcileFromDaemon("assistant-1", "conv-parent");
     // History for the SAME conversation arrives while the request is out.
-    // Hydration is a pure upsert — it never resets — so it cannot invalidate
+    // Hydration is a pure upsert, it never resets, so it cannot invalidate
     // the snapshot that recovers a run history never heard about.
     reconcileSubagentStoreFromNotifications(
       getState(),
@@ -2725,7 +2725,7 @@ describe("reconcileFromDaemon", () => {
 });
 
 // ---------------------------------------------------------------------------
-// reconcileFromDaemon — identity backfill onto placeholder rows
+// reconcileFromDaemon: identity backfill onto placeholder rows
 // ---------------------------------------------------------------------------
 
 describe("reconcileFromDaemon identity backfill", () => {
@@ -2809,7 +2809,7 @@ describe("reconcileFromDaemon identity backfill", () => {
 });
 
 // ---------------------------------------------------------------------------
-// reconcileFromDaemon — arming materialized rows against the live stream
+// reconcileFromDaemon: arming materialized rows against the live stream
 // ---------------------------------------------------------------------------
 
 describe("reconcileFromDaemon hydration arming", () => {
@@ -2854,7 +2854,7 @@ describe("reconcileFromDaemon hydration arming", () => {
     expect(getState().byId["sa-1"]?.hydrationPending).toBe(false);
   });
 
-  it("leaves a settled row un-armed — nothing races it and nothing fetches it", async () => {
+  it("leaves a settled row un-armed: nothing races it and nothing fetches it", async () => {
     reconcileReply = {
       ok: true,
       subagents: {
@@ -2882,7 +2882,7 @@ describe("reconcileFromDaemon hydration arming", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ensureEntry — parent scoping falls back to the conversation on screen
+// ensureEntry: parent scoping falls back to the conversation on screen
 // ---------------------------------------------------------------------------
 
 describe("ensureEntry parent scoping", () => {

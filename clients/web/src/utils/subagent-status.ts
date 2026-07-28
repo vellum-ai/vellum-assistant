@@ -14,8 +14,8 @@ export function isActiveStatus(status: SubagentStatus): boolean {
 /**
  * Whether an out-of-band status may overwrite the one the store already holds.
  *
- * Both out-of-band sources — the `subagents/reconcile` snapshot and history
- * notifications — are a round-trip old, so either can still report `running`
+ * Both out-of-band sources, the `subagents/reconcile` snapshot and history
+ * notifications, are a round-trip old, so either can still report `running`
  * for a subagent whose terminal event has since landed over SSE. A settled
  * entry therefore only ever moves between terminal states: an interrupted run
  * emits nothing further, so a regression to an active status would stick the

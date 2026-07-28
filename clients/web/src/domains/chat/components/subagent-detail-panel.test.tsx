@@ -222,7 +222,7 @@ describe("SubagentDetailPanel — timeline empty state", () => {
  * conversation-load auto-fetch only covers live rows, so this is the single
  * fetch trigger for everything reconcile materializes as terminal.
  */
-describe("SubagentDetailPanel — detail fetch on open", () => {
+describe("SubagentDetailPanel: detail fetch on open", () => {
   function requestedIdsFor(entry: Partial<SubagentEntry>): string[] {
     const requested: string[] = [];
     render(

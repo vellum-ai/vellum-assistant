@@ -172,7 +172,7 @@ export function parseSubagentMessages(
 
 /**
  * The usage worth putting on the wire, shared by the detail and reconcile
- * routes. A child that has spent nothing reports no usage at all — an all-zero
+ * routes. A child that has spent nothing reports no usage at all, an all-zero
  * snapshot tells a client nothing its own tally doesn't already say. Cost with
  * no counted tokens is still spend, so all three fields must be empty before
  * the field is dropped.
@@ -231,7 +231,7 @@ const ReconciledSubagentSchema = z.object({
   parentToolUseId: z.string().optional(),
   /**
    * Terminal metadata a client can otherwise only learn from the
-   * `subagent_status_changed` event — which is exactly the event a
+   * `subagent_status_changed` event, which is exactly the event a
    * reconciling client may have missed. Carried here so the snapshot can
    * restore final token/cost totals and a failure reason instead of leaving
    * them owned by a lost event.
@@ -244,7 +244,7 @@ const ReconciledSubagentSchema = z.object({
  * Settle the status of a durable row that no live manager entry answers for.
  *
  * Invariant: a subagent runs from an in-memory entry, so a durable row without
- * one can only describe a run that is no longer executing — whatever the row
+ * one can only describe a run that is no longer executing, whatever the row
  * says, nothing is driving it. Its pre-crash `pending`/`running`/
  * `awaiting_input` is therefore stale and reported as `interrupted`, exactly
  * what `SubagentManager.rehydrateFromDb()` writes for the same row. Terminal
@@ -255,7 +255,7 @@ const ReconciledSubagentSchema = z.object({
  * the DB gate while the manager is still empty and read rows the rehydration
  * has not yet normalized. Without the coercion a client reconciling on its SSE
  * reopen adopts `running`, and the later rehydration flips the row to
- * `interrupted` with no status event to say so — leaving the UI stuck.
+ * `interrupted` with no status event to say so, leaving the UI stuck.
  *
  * Only ever applied to record-derived statuses; live state is authoritative
  * and never coerced.
@@ -289,7 +289,7 @@ function settledRecordStatus(
  * conversation and `SubagentManager.rehydrateFromDb()` loads every one of them
  * back into memory, so both sides of an old chat hold every subagent it ever
  * spawned; a client rebuilding its list needs the recent ones, not the full
- * history. Subagents that are not terminal are never capped — a client's
+ * history. Subagents that are not terminal are never capped, a client's
  * stuck-active entry has to be settled at any age.
  */
 const MAX_RECONCILED_TERMINAL_RECORDS = 20;
@@ -325,7 +325,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Reconcile subagent live status",
     description:
-      "Returns the subagents the assistant knows for a given parent conversation — live, rehydrated, and durably recorded, including recently finished runs whose in-memory metadata the retention sweep has already evicted. Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
+      "Returns the subagents the assistant knows for a given parent conversation (live, rehydrated, and durably recorded), including recently finished runs whose in-memory metadata the retention sweep has already evicted. Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports, so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be present; every other field is optional.",
     tags: ["subagents"],
     queryParams: [
       {
@@ -352,11 +352,11 @@ export const ROUTES: RouteDefinition[] = [
       // Durable rows first, so the live pass below overwrites any id it also
       // holds. The retention sweep evicts terminal in-memory metadata while
       // deliberately keeping the row, so a run that completed more than a TTL
-      // ago is absent from memory — and a client settling orphans by absence
+      // ago is absent from memory, and a client settling orphans by absence
       // would rewrite its `completed` entry to `interrupted`. That cover is
       // bounded rather than total: a completion older than the recent-terminal
       // window appears in neither pass, so a client settling by absence can
-      // still re-mark it `interrupted`. Acceptable — a run that far back is no
+      // still re-mark it `interrupted`. Acceptable: a run that far back is no
       // longer surfaced anywhere else either.
       const records = getSubagentRecordsByParent(parentConversationId, {
         terminalStatuses: [...TERMINAL_STATUSES],
@@ -380,7 +380,7 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       // The live pass carries the same bound. `rehydrateFromDb()` loads every
-      // durable row — terminal ones included — back into the manager, so for a
+      // durable row, terminal ones included, back into the manager, so for a
       // whole retention window after a restart the in-memory children of an old
       // parent are exactly as unbounded as the table the query above capped.
       const liveTerminal: SubagentState[] = [];
@@ -400,7 +400,7 @@ export const ROUTES: RouteDefinition[] = [
       for (const child of liveTerminal) {
         const id = child.config.id;
         // An id the durable pass already surfaced costs nothing to overwrite
-        // with the fresher live state — it is in the payload either way.
+        // with the fresher live state, it is in the payload either way.
         if (!recentLiveTerminal.has(id) && subagents[id] === undefined) {
           continue;
         }
@@ -426,7 +426,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "conversationId",
         schema: { type: "string" },
         description:
-          "The subagent's own conversation ID. Fallback only — when the " +
+          "The subagent's own conversation ID. Fallback only: when the " +
           "assistant knows the subagent (live, rehydrated, or in its durable " +
           "records), it resolves the conversation itself and this parameter " +
           "is ignored.",
@@ -436,9 +436,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams, queryParams }) => {
       const manager = getSubagentManager();
       const state = manager.getState(pathParams!.id);
-      // Durable rows outlive manager state — the TTL sweep evicts in-memory
+      // Durable rows outlive manager state, the TTL sweep evicts in-memory
       // metadata but keeps the row, and after a restart the row answers until
-      // `rehydrateFromDb()` runs — so they supply the conversation, label,
+      // `rehydrateFromDb()` runs, so they supply the conversation, label,
       // status and spawn anchor once the live state is gone.
       const record = state ? undefined : getSubagentRecordById(pathParams!.id);
 

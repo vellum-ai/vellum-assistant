@@ -4,7 +4,7 @@
  * From assistant 0.10.0, `GET /subagents/reconcile` reports the live status
  * of a parent conversation's subagents. Assistants older than that 404 the
  * route, and the reconcile triggers fire on every conversation mount and
- * SSE reopen — an unconditional call would produce a steady stream of
+ * SSE reopen, an unconditional call would produce a steady stream of
  * failed requests against older installations.
  *
  * Response *enrichment* (label/objective/child conversation id, added in
@@ -20,7 +20,7 @@ import {
 const MIN_VERSION = "0.10.0";
 
 /**
- * Snapshot check (safe outside React — stream handlers, store actions):
+ * Snapshot check (safe outside React, stream handlers, store actions):
  * `true` when the connected assistant serves `GET /subagents/reconcile`.
  */
 export function supportsSubagentsReconcile(): boolean {

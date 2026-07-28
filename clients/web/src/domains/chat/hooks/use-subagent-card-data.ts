@@ -533,7 +533,7 @@ export function deriveSubagentCardData(
   { steps, toolMeta }: { steps: ToolCallCardStep[]; toolMeta: Array<ToolMeta | undefined> },
 ): ToolCallCardData {
   // A settled (terminal) entry whose timeline hasn't been fetched yet: don't
-  // claim "0 steps" — the subagent DID have steps, they just haven't loaded.
+  // claim "0 steps": the subagent DID have steps, they just haven't loaded.
   // Render a loading state until the fetch lands (see `detailSettled`), at
   // which point the honest truth (its steps, or a resting empty state) takes
   // over. `!isActiveStatus` so live cards keep their streaming "Working" state;

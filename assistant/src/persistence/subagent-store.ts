@@ -148,7 +148,7 @@ export function getSubagentRecordByConversationId(
 
 /**
  * Look up a subagent record by its own id. This is the durable fallback for
- * subagents the live SubagentManager no longer holds — evicted by the TTL sweep
+ * subagents the live SubagentManager no longer holds, evicted by the TTL sweep
  * or not yet rehydrated after a restart.
  */
 export function getSubagentRecordById(id: string): SubagentRecord | undefined {
@@ -162,8 +162,8 @@ export function getSubagentRecordById(id: string): SubagentRecord | undefined {
 
 /**
  * Subagent records spawned under `parentConversationId`. Durable rows outlive
- * the manager's in-memory metadata — the TTL sweep evicts terminal entries with
- * `keepRecord: true` — so this is the only way to enumerate a parent's
+ * the manager's in-memory metadata, the TTL sweep evicts terminal entries with
+ * `keepRecord: true`, so this is the only way to enumerate a parent's
  * subagents that finished long enough ago to have been swept.
  *
  * Rows live as long as the parent conversation, so a long-lived chat
@@ -203,7 +203,7 @@ export function getSubagentRecordsByParent(
 /**
  * Delete every subagent record spawned under `parentConversationId`. A row
  * lives as long as its parent conversation, and the TTL sweep drops a child's
- * in-memory entry while keeping the row — so deleting by id alone strands the
+ * in-memory entry while keeping the row, so deleting by id alone strands the
  * swept children when the parent goes away. Served by
  * `idx_subagents_parent_conversation_id`.
  */

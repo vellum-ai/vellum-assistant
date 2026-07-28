@@ -70,7 +70,7 @@ describe("SubagentSpawnGroup", () => {
 
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(ids);
-    // The expand still happens — the fetch is a side-effect, not a gate.
+    // The expand still happens. the fetch is a side-effect, not a gate.
     expect(await findAllByTestId("inline-process-card")).toHaveLength(3);
 
     spy.mockRestore();

@@ -75,7 +75,7 @@ describe("migration 354: subagents.parent_tool_use_id", () => {
     expect(toolUseIdOf(sqlite, "sub-new")).toBe("toolu-abc");
   });
 
-  test("is idempotent — re-run is a no-op", () => {
+  test("is idempotent: re-run is a no-op", () => {
     const { sqlite, db } = createTestDb();
 
     migrateAddSubagentParentToolUseId(db);

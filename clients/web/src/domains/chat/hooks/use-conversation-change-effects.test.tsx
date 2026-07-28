@@ -12,8 +12,8 @@
  *
  * 2. The conversation-switch reset clears a still-running subagent. Reconcile-
  *    on-hydration (`reconcileSubagentStoreFromNotifications`) is a pure upsert
- *    that never deletes — it is one additive evidence source among SSE and the
- *    reconcile snapshot — so this reset is the *only* thing that stops a
+ *    that never deletes, it is one additive evidence source among SSE and the
+ *    reconcile snapshot, so this reset is the *only* thing that stops a
  *    subagent in conversation A from leaking into conversation B.
  *
  * 3. The auto-fetch reaches a stub recovered from a missed `subagent_spawned`
@@ -122,7 +122,7 @@ describe("useConversationChangeEffects — subagent reset on conversation switch
   });
 });
 
-describe("useConversationChangeEffects — stub detail auto-fetch", () => {
+describe("useConversationChangeEffects: stub detail auto-fetch", () => {
   function Harness() {
     useConversationChangeEffects("asst-1", "conv-A");
     return null;

@@ -70,7 +70,7 @@ export function handleSubagentEvent(
   // `wrappedSendToClient` in `assistant/src/subagent/manager.ts`); the
   // subagent's own id rides on the inner event, where
   // `SubagentInnerEventSchema`'s passthrough preserves it without declaring it
-  // on the inferred type — hence the narrow cast.
+  // on the inferred type: hence the narrow cast.
   const parentConversationId = event.conversationId || undefined;
   const innerConversationId = (inner as { conversationId?: string })
     .conversationId;

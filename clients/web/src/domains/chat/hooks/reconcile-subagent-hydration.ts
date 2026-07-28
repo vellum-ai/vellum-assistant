@@ -28,12 +28,12 @@ export interface SubagentNotificationLike {
 /**
  * Apply history subagent notifications to the store as a pure upsert.
  *
- * Hydration never deletes. It is one additive evidence source among several —
- * live SSE and the `/subagents/reconcile` snapshot are the others — and it is
+ * Hydration never deletes. It is one additive evidence source among several,
+ * live SSE and the `/subagents/reconcile` snapshot are the others, and it is
  * the least complete of them: in-flight state streams over SSE rather than
  * appearing in history, and a run that streamed nothing at all (recovered from
  * the daemon's durable rows) has no notification to be represented by. A reset
- * here would delete exactly what the other two recover — a silent run that
+ * here would delete exactly what the other two recover: a silent run that
  * reconcile resurrected as terminal survives no rebuild-from-notifications,
  * and which one wins would come down to whichever request finished first.
  *
@@ -42,7 +42,7 @@ export interface SubagentNotificationLike {
  * effect and `switchConversation`), staleness by reconcile's generation guard,
  * and stuck-active settling by reconcile's orphan pass.
  *
- * `parentConversationId` is the conversation being hydrated — it scopes the
+ * `parentConversationId` is the conversation being hydrated, it scopes the
  * Active-Subagents overlay. A notification's own `conversationId` is the
  * subagent's (child) conversation, used only for detail fetch.
  */
@@ -59,12 +59,12 @@ export function reconcileSubagentStoreFromNotifications(
     const existing = priorById[n.subagentId];
     if (existing) {
       // An unparseable status carries no information about an entry we
-      // already hold — keep what SSE or reconcile told us rather than
+      // already hold: keep what SSE or reconcile told us rather than
       // flipping it terminal.
       if (parsed.success && shouldApplyStatus(existing.status, parsed.data)) {
         store.changeStatus({ subagentId: n.subagentId, status: parsed.data });
       }
-      // A stub materialized from a bare status event is "known" but blank —
+      // A stub materialized from a bare status event is "known" but blank:
       // the notification is the first thing to name it. Placeholder yields,
       // established identity wins.
       store.backfillIdentity({

@@ -6,8 +6,8 @@ import { isActiveStatus } from "@/utils/subagent-status";
 /**
  * Active (running | pending | awaiting_input) subagent ids for `conversationId`,
  * in stable `orderedIds` order. The store is global (all conversations'
- * subagents), so the results are scoped by the entry's `parentConversationId` —
- * the conversation whose turn spawned it, assigned at spawn or hydration — to
+ * subagents), so the results are scoped by the entry's `parentConversationId`,
+ * the conversation whose turn spawned it, assigned at spawn or hydration, to
  * keep one spawned in another conversation from surfacing here. (The entry's
  * own `conversationId` is the subagent's child conversation, used only for
  * detail fetch; it never equals the viewed conversation.) An entry without a

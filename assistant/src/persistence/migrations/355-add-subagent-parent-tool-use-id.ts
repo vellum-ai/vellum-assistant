@@ -13,7 +13,7 @@ const COLUMN_DEFINITION = "parent_tool_use_id TEXT";
  * inline subagent card to the exact spawn tool call. Persisting it keeps that
  * anchor resolvable once the live state is gone: `rehydrateFromDb()` restores
  * it onto rebuilt children, and both routes read it straight off the row for a
- * subagent the retention sweep has already evicted — so a client reloading
+ * subagent the retention sweep has already evicted, so a client reloading
  * after an assistant restart still lands the card on the right tool call.
  *
  * Nullable with no backfill: the id is only known at spawn time and rows

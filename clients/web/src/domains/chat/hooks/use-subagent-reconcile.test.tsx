@@ -1,5 +1,5 @@
 /**
- * Tests for `useSubagentReconcile` — when the hook asks the daemon to resync
+ * Tests for `useSubagentReconcile`, when the hook asks the daemon to resync
  * this conversation's subagents. Mocks the generated `subagentsReconcileGet`
  * so each trigger is a countable round-trip; the reconcile's effect on the
  * store is covered by `subagent-store.test.ts`.
@@ -97,8 +97,8 @@ describe("useSubagentReconcile", () => {
 
   test("holds the load pass until the assistant version resolves", async () => {
     // A cold load mounts before the identity fetch lands, so the gate reads
-    // `false` first. Snapshotted once, the conversation-load pass — the only
-    // trigger a silent run has — would be skipped for the whole session.
+    // `false` first. Snapshotted once, the conversation-load pass, the only
+    // trigger a silent run has, would be skipped for the whole session.
     reconcileSupported = false;
     const { rerender } = mount();
     await waitFor(() => expect(getCalls).toBe(0));
@@ -123,7 +123,7 @@ describe("useSubagentReconcile", () => {
 
   test("reconciles on a reopen inside the load pass's throttle window", async () => {
     // The dropped stream may have straddled a terminal status, and nothing
-    // retries a reconcile the window swallowed — the row stays `running`
+    // retries a reconcile the window swallowed, the row stays `running`
     // forever. The reactive version gate makes this the common case: the load
     // pass often runs late, moments before the reopen.
     mount();
@@ -147,7 +147,7 @@ describe("useSubagentReconcile", () => {
     await waitFor(() => expect(getCalls).toBe(2));
   });
 
-  test("ignores a fresh open — the mount effect already owns that load", async () => {
+  test("ignores a fresh open: the mount effect already owns that load", async () => {
     mount();
     await waitFor(() => expect(getCalls).toBe(1));
 

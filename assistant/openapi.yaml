@@ -29335,8 +29335,8 @@ paths:
           schema:
             type: string
           description:
-            The subagent's own conversation ID. Fallback only — when the assistant knows the subagent (live,
-            rehydrated, or in its durable records), it resolves the conversation itself and this parameter is ignored.
+            "The subagent's own conversation ID. Fallback only: when the assistant knows the subagent (live,
+            rehydrated, or in its durable records), it resolves the conversation itself and this parameter is ignored."
       responses:
         "200":
           description: Successful response
@@ -29497,8 +29497,8 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        "Returns the subagents the assistant knows for a given parent conversation — live, rehydrated, and durably
-        recorded, including recently finished runs whose in-memory metadata the retention sweep has already evicted.
+        "Returns the subagents the assistant knows for a given parent conversation (live, rehydrated, and durably
+        recorded), including recently finished runs whose in-memory metadata the retention sweep has already evicted.
         Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal
         state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child
         conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from

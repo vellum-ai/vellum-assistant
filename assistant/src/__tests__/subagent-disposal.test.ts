@@ -439,7 +439,7 @@ describe("durable record lifetime across disposal paths", () => {
       null,
     );
 
-    // The parent conversation's data is going away — the child goes with it.
+    // The parent conversation's data is going away. the child goes with it.
     manager.disposeAllForParent("parent-sess-1");
 
     expect(manager.getState("sub-parent-gone")).toBeUndefined();
@@ -464,7 +464,7 @@ describe("durable record lifetime across disposal paths", () => {
     )!.retainedUntil = Date.now() - 1000; // expired
 
     // The sweep frees the in-memory entry, so `parentToChildren` no longer
-    // names this child — only a by-parent delete can still reach its row.
+    // names this child: only a by-parent delete can still reach its row.
     asInternals(manager).sweepTerminal();
     expect(getSubagentRecordById("sub-swept-then-deleted")).toBeDefined();
 

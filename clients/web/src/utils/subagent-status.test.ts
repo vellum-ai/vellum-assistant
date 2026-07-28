@@ -1,5 +1,5 @@
 /**
- * `shouldApplyStatus` is the one rule two out-of-band evidence sources share —
+ * `shouldApplyStatus` is the one rule two out-of-band evidence sources share:
  * the `subagents/reconcile` snapshot and history notifications. Both are a
  * round-trip old, so both can report an active status for a run that has since
  * settled; letting either land would stick the Active-Subagents overlay and
@@ -37,7 +37,7 @@ describe("shouldApplyStatus", () => {
   });
 
   test("a settled entry still moves between terminal states", () => {
-    // A truer terminal state — `failed` over a provisional `interrupted` —
+    // A truer terminal state, `failed` over a provisional `interrupted`,
     // must still land.
     for (const existing of TERMINAL) {
       for (const incoming of TERMINAL) {

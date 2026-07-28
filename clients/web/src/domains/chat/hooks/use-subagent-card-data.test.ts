@@ -100,10 +100,10 @@ describe("computeSubagentCardData — state derivation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Loading state — terminal card whose detail hasn't been fetched yet
+// Loading state: terminal card whose detail hasn't been fetched yet
 // ---------------------------------------------------------------------------
 
-describe("computeSubagentCardData — unfetched-timeline loading state", () => {
+describe("computeSubagentCardData: unfetched-timeline loading state", () => {
   test("terminal addressable entry with 0 events and !detailSettled → loading, no step count", () => {
     const data = computeSubagentCardData(
       makeEntry({
@@ -139,7 +139,7 @@ describe("computeSubagentCardData — unfetched-timeline loading state", () => {
       makeEntry({
         status: "completed",
         conversationId: "conv-child",
-        // No detailSettled flag — events alone prove the timeline is loaded.
+        // No detailSettled flag: events alone prove the timeline is loaded.
         events: [makeEvent({ type: "text", content: "hello" })],
       }),
     );
@@ -157,7 +157,7 @@ describe("computeSubagentCardData — unfetched-timeline loading state", () => {
       }),
     );
     // Running still maps to a `loading` visual state, but it must go through
-    // the normal streaming path — not the unfetched-timeline branch.
+    // the normal streaming path, not the unfetched-timeline branch.
     expect(data.state).toBe("loading");
     expect(data.currentStepTitle).toBe("Working");
   });

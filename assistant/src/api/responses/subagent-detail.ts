@@ -74,7 +74,7 @@ export const SubagentDetailResponseSchema = z.object({
   parentToolUseId: z.string().optional(),
   /**
    * The resolved child conversation id, so a client recovering from a missed
-   * spawn can learn it — the id the daemon actually read the transcript from,
+   * spawn can learn it, the id the daemon actually read the transcript from,
    * which may differ from the `conversationId` the caller passed.
    */
   conversationId: z.string().optional(),

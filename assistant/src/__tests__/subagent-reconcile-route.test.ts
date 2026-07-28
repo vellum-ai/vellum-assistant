@@ -1,5 +1,5 @@
 /**
- * Tests for the `subagents/reconcile` route handler — verifies that the
+ * Tests for the `subagents/reconcile` route handler, verifies that the
  * per-child payload carries enough detail (child conversationId, label,
  * objective, fork flag) for a client to rebuild its subagent list from
  * scratch after a reload, not just refresh statuses of entries it already has.
@@ -246,7 +246,7 @@ describe("reconcileSubagents route", () => {
     manager.rehydrateFromDb();
     // A live entry means something IS driving the run, so its active status is
     // current rather than stale. `getState` hands back the manager's own state
-    // object — the very one the route's live pass reads.
+    // object, the very one the route's live pass reads.
     manager.getState("sub-1")!.status = "running";
 
     expect(reconcile(PARENT_ID).subagents["sub-1"].status).toBe("running");
@@ -254,7 +254,7 @@ describe("reconcileSubagents route", () => {
 
   test("bounds the durable pass to the most recent terminal runs", () => {
     // Rows live as long as the conversation, so an old chat holds every
-    // subagent it ever spawned — the snapshot must not ship the lot.
+    // subagent it ever spawned, the snapshot must not ship the lot.
     for (let i = 0; i < 25; i++) {
       upsertSubagentRecord(
         record({
@@ -338,7 +338,7 @@ describe("reconcileSubagents route", () => {
     );
     const manager = getSubagentManager();
     manager.rehydrateFromDb();
-    // Something is driving this run again, so the live entry is authoritative —
+    // Something is driving this run again, so the live entry is authoritative,
     // and the oldest child of the parent, which the recency cap must not reach.
     manager.getState("sub-old-active")!.status = "running";
 
