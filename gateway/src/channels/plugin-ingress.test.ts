@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -88,6 +94,57 @@ describe("parsePluginIngressManifest", () => {
     }
   });
 
+  it("rejects percent-encoded traversal", () => {
+    // Velay decodes before matching, so `%2e%2e/` would escape the
+    // declaring plugin's namespace despite passing a literal-segment check.
+    for (const path of [
+      "%2e%2e/other/hook",
+      "%2E%2E/other/hook",
+      "a/%2e%2e/b",
+    ]) {
+      expect(() =>
+        parsePluginIngressManifest({
+          routes: [{ path, kind: "http", description: "d" }],
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("rejects an encoded path separator", () => {
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [{ path: "a%2fb", kind: "http", description: "d" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects malformed percent-encoding", () => {
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [{ path: "100%", kind: "http", description: "d" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects non-canonical segments that would clean to a different path", () => {
+    // `a//b` cleans to `a/b`, so it would collide with a separate `a/b`
+    // declaration that the exact-string duplicate check treats as distinct.
+    for (const path of ["a//b", "a/./b"]) {
+      expect(() =>
+        parsePluginIngressManifest({
+          routes: [{ path, kind: "http", description: "d" }],
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("accepts a canonical multi-segment path", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [{ path: "a/b/c", kind: "http", description: "d" }],
+    });
+    expect(manifest.routes[0]!.path).toBe("a/b/c");
+  });
+
   it("rejects a trailing slash", () => {
     expect(() =>
       parsePluginIngressManifest({
@@ -175,6 +232,34 @@ describe("discoverPluginIngress", () => {
     writeFileSync(join(pluginDir, ".disabled"), "");
 
     expect(discoverPluginIngress({ workspaceDir }).plugins).toEqual([]);
+  });
+
+  it("discovers a plugin installed as a symlinked root", () => {
+    // Plugins may be installed by symlinking a checkout into place, where
+    // Dirent.isDirectory() is false but the target is a directory.
+    const workspaceDir = makeWorkspace();
+    const external = makeWorkspace();
+    const target = join(external, "meeting-bot");
+    mkdirSync(join(target, "channels"), { recursive: true });
+    writeFileSync(join(target, PLUGIN_INGRESS_MANIFEST_RELPATH), VALID);
+
+    mkdirSync(join(workspaceDir, "plugins"), { recursive: true });
+    symlinkSync(target, join(workspaceDir, "plugins", "meeting-bot"));
+
+    const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+    expect(problems).toEqual([]);
+    expect(plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
+  });
+
+  it("ignores a plain file sitting in the plugins directory", () => {
+    const workspaceDir = makeWorkspace();
+    mkdirSync(join(workspaceDir, "plugins"), { recursive: true });
+    writeFileSync(join(workspaceDir, "plugins", ".DS_Store"), "");
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+
+    const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+    expect(problems).toEqual([]);
+    expect(plugins.map((p) => p.plugin)).toEqual(["meeting-bot"]);
   });
 
   it("reports a malformed declaration without dropping the others", () => {
