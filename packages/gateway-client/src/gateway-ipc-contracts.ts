@@ -341,3 +341,100 @@ export const GetGuardianContactIpcResponseSchema = z.object({
 export type GetGuardianContactIpcResponse = z.infer<
   typeof GetGuardianContactIpcResponseSchema
 >;
+
+// ---------------------------------------------------------------------------
+// Plugin ingress (guardian approval of plugin-declared public routes)
+// ---------------------------------------------------------------------------
+
+export const PluginIngressRouteSchema = z.object({
+  /** Path relative to the plugin's namespace, as declared. */
+  path: z.string(),
+  kind: z.enum(["http", "websocket"]),
+  description: z.string(),
+  /** Absolute public path the gateway would serve. */
+  publicPath: z.string(),
+});
+
+export type PluginIngressRoute = z.infer<typeof PluginIngressRouteSchema>;
+
+export const PluginIngressDeclarationSchema = z.object({
+  plugin: z.string(),
+  /** Digest identifying this exact set of routes; what an approval binds to. */
+  digest: z.string(),
+  approved: z.boolean(),
+  routes: z.array(PluginIngressRouteSchema),
+});
+
+export type PluginIngressDeclaration = z.infer<
+  typeof PluginIngressDeclarationSchema
+>;
+
+export const PluginIngressProblemSchema = z.object({
+  plugin: z.string(),
+  reason: z.string(),
+});
+
+export const PluginIngressListIpcParamsSchema = z
+  .object({})
+  .strict()
+  .default({});
+
+export type PluginIngressListIpcParams = z.infer<
+  typeof PluginIngressListIpcParamsSchema
+>;
+
+export const PluginIngressListIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  declarations: z.array(PluginIngressDeclarationSchema),
+  /** Declarations that failed validation and are served to nobody. */
+  problems: z.array(PluginIngressProblemSchema),
+});
+
+export type PluginIngressListIpcResponse = z.infer<
+  typeof PluginIngressListIpcResponseSchema
+>;
+
+export const PluginIngressApproveIpcParamsSchema = z
+  .object({
+    plugin: z.string().min(1),
+    /**
+     * Digest of the declaration being approved. Required, and checked
+     * against what the plugin currently declares, so an approval is always
+     * a decision about something the approver has seen.
+     */
+    digest: z.string().min(1),
+  })
+  .strict();
+
+export type PluginIngressApproveIpcParams = z.infer<
+  typeof PluginIngressApproveIpcParamsSchema
+>;
+
+export const PluginIngressApproveIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  plugin: z.string(),
+  digest: z.string(),
+  approvedAt: z.number(),
+});
+
+export type PluginIngressApproveIpcResponse = z.infer<
+  typeof PluginIngressApproveIpcResponseSchema
+>;
+
+export const PluginIngressRevokeIpcParamsSchema = z
+  .object({ plugin: z.string().min(1) })
+  .strict();
+
+export type PluginIngressRevokeIpcParams = z.infer<
+  typeof PluginIngressRevokeIpcParamsSchema
+>;
+
+export const PluginIngressRevokeIpcResponseSchema = z.object({
+  ok: z.boolean(),
+  /** False when the plugin had no approval to remove. */
+  revoked: z.boolean(),
+});
+
+export type PluginIngressRevokeIpcResponse = z.infer<
+  typeof PluginIngressRevokeIpcResponseSchema
+>;
