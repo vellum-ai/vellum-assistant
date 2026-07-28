@@ -1562,16 +1562,17 @@ async function main() {
     // ── Channel ingress approval ──
     // Guardian-only, and deliberately absent from the IPC surface: approving
     // ingress is the one decision the assistant must not make for itself. No
-    // assistant-scoped variant — the guardian reaches these directly.
+    // assistant-scoped variant — the guardian reaches these directly. POST
+    // verb paths, matching channel-permission-overrides above.
     {
-      path: /^\/v1\/channel-ingress\/plugins\/([^/]+)\/?$/,
-      method: "PUT",
+      path: /^\/v1\/channel-ingress\/([^/]+)\/approve\/?$/,
+      method: "POST",
       auth: "edge-guardian",
       handler: (req, params) => handleChannelIngressApprove(req, params[0]!),
     },
     {
-      path: /^\/v1\/channel-ingress\/plugins\/([^/]+)\/?$/,
-      method: "DELETE",
+      path: /^\/v1\/channel-ingress\/([^/]+)\/revoke\/?$/,
+      method: "POST",
       auth: "edge-guardian",
       handler: (req, params) => handleChannelIngressRevoke(req, params[0]!),
     },

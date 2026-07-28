@@ -8,9 +8,8 @@
  * Guardian auth's loopback fallback still admits a tokenless same-host caller;
  * that is being closed in `edge-guardian` itself rather than worked around.
  *
- * Plugins are the only source of declarations today, hence the
- * `/plugins/{plugin}` segment; another source would sit beside it rather than
- * change this path.
+ * The path segment names the ingress source. Plugins are the only source
+ * today, so it resolves against plugin declarations.
  */
 
 import {
@@ -29,7 +28,7 @@ const log = getLogger("channel-ingress");
 const DIGEST_PATTERN = /^[0-9a-f]{32}$/;
 
 /**
- * PUT /v1/channel-ingress/plugins/:plugin — approve a declaration.
+ * POST /v1/channel-ingress/:plugin/approve — approve a declaration.
  *
  * The body's digest must match what the plugin declares right now, so an
  * approval is always a decision about routes the guardian has seen. Without
@@ -107,7 +106,7 @@ export function createChannelIngressApproveHandler(
 }
 
 /**
- * DELETE /v1/channel-ingress/plugins/:plugin — revoke a grant.
+ * POST /v1/channel-ingress/:plugin/revoke — revoke a grant.
  *
  * Unlike approve this does not consult the declaration: a grant must be
  * withdrawable even when the plugin's manifest has since become unreadable.

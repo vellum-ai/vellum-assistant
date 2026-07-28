@@ -213,7 +213,8 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "/v1/speech/tts/stream",
   // Guardian-only ingress approval — kept out of the generated SDK so the
   // plugin-facing API surface stays as small as possible
-  "/v1/channel-ingress/plugins/{param1}",
+  "/v1/channel-ingress/{param1}/approve",
+  "/v1/channel-ingress/{param1}/revoke",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

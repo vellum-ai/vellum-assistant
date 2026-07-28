@@ -53,10 +53,16 @@ function writePlugin(plugin: string, routes: unknown = ROUTES): void {
   );
 }
 
-function putRequest(body: unknown): Request {
-  return new Request("http://gateway/v1/channel-ingress/plugins/meeting-bot", {
-    method: "PUT",
+function approveRequest(body: unknown): Request {
+  return new Request("http://gateway/v1/channel-ingress/meeting-bot/approve", {
+    method: "POST",
     body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
+function revokeRequest(): Request {
+  return new Request("http://gateway/v1/channel-ingress/meeting-bot/revoke", {
+    method: "POST",
   });
 }
 
@@ -84,7 +90,7 @@ describe("approve", () => {
     writePlugin("meeting-bot");
     const digest = ingressDeclarationDigest(ROUTES);
 
-    const res = await approve(putRequest({ digest }), "meeting-bot");
+    const res = await approve(approveRequest({ digest }), "meeting-bot");
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
@@ -100,7 +106,7 @@ describe("approve", () => {
     writePlugin("meeting-bot");
 
     const res = await approve(
-      putRequest({ digest: "0".repeat(32) }),
+      approveRequest({ digest: "0".repeat(32) }),
       "meeting-bot",
     );
 
@@ -112,7 +118,10 @@ describe("approve", () => {
   });
 
   it("refuses a plugin that declares nothing", async () => {
-    const res = await approve(putRequest({ digest: "0".repeat(32) }), "ghost");
+    const res = await approve(
+      approveRequest({ digest: "0".repeat(32) }),
+      "ghost",
+    );
 
     expect(res.status).toBe(404);
     expect(getPluginIngressApproval("ghost")).toBeUndefined();
@@ -122,7 +131,7 @@ describe("approve", () => {
     writePlugin("meeting-bot", [{ path: "/absolute", kind: "http" }]);
 
     const res = await approve(
-      putRequest({ digest: "0".repeat(32) }),
+      approveRequest({ digest: "0".repeat(32) }),
       "meeting-bot",
     );
 
@@ -134,7 +143,7 @@ describe("approve", () => {
     writePlugin("meeting-bot");
 
     for (const digest of ["", "not-hex", "ABC", 42, null]) {
-      const res = await approve(putRequest({ digest }), "meeting-bot");
+      const res = await approve(approveRequest({ digest }), "meeting-bot");
       expect(res.status).toBe(400);
     }
     expect(getPluginIngressApproval("meeting-bot")).toBeUndefined();
@@ -143,7 +152,7 @@ describe("approve", () => {
   it("rejects a body that is not JSON", async () => {
     writePlugin("meeting-bot");
 
-    const res = await approve(putRequest("{not json"), "meeting-bot");
+    const res = await approve(approveRequest("{not json"), "meeting-bot");
 
     expect(res.status).toBe(400);
     expect(getPluginIngressApproval("meeting-bot")).toBeUndefined();
@@ -158,7 +167,7 @@ describe("revoke", () => {
       digest: ingressDeclarationDigest(ROUTES),
     });
 
-    const res = await revoke(new Request("http://gateway/"), "meeting-bot");
+    const res = await revoke(revokeRequest(), "meeting-bot");
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ revoked: true });
@@ -166,7 +175,7 @@ describe("revoke", () => {
   });
 
   it("reports honestly when there was nothing to revoke", async () => {
-    const res = await revoke(new Request("http://gateway/"), "meeting-bot");
+    const res = await revoke(revokeRequest(), "meeting-bot");
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ revoked: false });
@@ -178,7 +187,7 @@ describe("revoke", () => {
     approvePluginIngress({ plugin: "meeting-bot", digest: "a".repeat(32) });
     writePlugin("meeting-bot", [{ path: "/absolute", kind: "http" }]);
 
-    const res = await revoke(new Request("http://gateway/"), "meeting-bot");
+    const res = await revoke(revokeRequest(), "meeting-bot");
 
     expect(await res.json()).toMatchObject({ revoked: true });
     expect(getPluginIngressApproval("meeting-bot")).toBeUndefined();
