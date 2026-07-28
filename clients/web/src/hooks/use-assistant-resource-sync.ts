@@ -161,6 +161,7 @@ export function useAssistantResourceSync(
     void queryClient.invalidateQueries({
       queryKey: configGetQueryKey(pathOpts),
     });
+    invalidateMemoryQueries(queryClient, assistantId);
     void queryClient.invalidateQueries({
       queryKey: soundsConfigGetQueryKey(pathOpts),
     });
