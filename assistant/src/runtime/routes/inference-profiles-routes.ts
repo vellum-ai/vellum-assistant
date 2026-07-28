@@ -171,6 +171,7 @@ function validateModel(
   provider: string,
   model: string,
   allowUnlisted: boolean,
+  connectionName?: string,
 ): string[] {
   // Routing identities key no catalog entries; they validate against their
   // route's actual reach — the same checks dispatch applies per-request.
@@ -189,11 +190,24 @@ function validateModel(
   if (isModelInCatalog(provider, model)) {
     return [];
   }
+  // The named connection's advertised model list is authoritative for models
+  // the code-owned catalog doesn't know — a custom (openai-compatible)
+  // endpoint declares its own models at connection-create time.
+  if (connectionName) {
+    const connection = getConnection(getDb(), connectionName);
+    if (connection?.models?.some((m) => m.id === model)) {
+      return [];
+    }
+  }
   if (!allowUnlisted) {
+    const remedy =
+      provider === "openai-compatible"
+        ? `Pass allowUnlisted to create it anyway, or declare the model on the connection ` +
+          `("assistant inference providers update <name> --model ${model}").`
+        : `Pass allowUnlisted to create it anyway, or run ` +
+          `"assistant inference models list --provider ${provider}" to see valid ids.`;
     throw new BadRequestError(
-      `Model "${model}" is not in the catalog for provider "${provider}". ` +
-        `Pass allowUnlisted to create it anyway, or run ` +
-        `"assistant inference models list --provider ${provider}" to see valid ids.`,
+      `Model "${model}" is not in the catalog for provider "${provider}". ${remedy}`,
     );
   }
   return [
@@ -429,14 +443,15 @@ async function handleCreateProfile({ body = {} }: RouteHandlerArgs) {
   }
 
   assertValidProvider(input.provider);
+  if (input.connection) {
+    assertConnectionExists(input.connection);
+  }
   const warnings = validateModel(
     input.provider,
     input.model,
     input.allowUnlisted ?? false,
+    input.connection,
   );
-  if (input.connection) {
-    assertConnectionExists(input.connection);
-  }
 
   const entry: Record<string, unknown> = {
     ...fragmentFromBody(body as Record<string, unknown>),
@@ -527,6 +542,14 @@ async function handleUpdateProfile({
     assertValidProvider(input.provider);
   }
   let warnings: string[] = [];
+  if (input.connection) {
+    assertConnectionExists(input.connection);
+  }
+  const nextConnection =
+    input.connection ??
+    (typeof existing.provider_connection === "string"
+      ? existing.provider_connection
+      : undefined);
   if (
     (input.provider !== undefined || input.model !== undefined) &&
     typeof nextProvider === "string" &&
@@ -536,10 +559,8 @@ async function handleUpdateProfile({
       nextProvider,
       nextModel,
       input.allowUnlisted ?? false,
+      nextConnection,
     );
-  }
-  if (input.connection) {
-    assertConnectionExists(input.connection);
   }
 
   const merged: Record<string, unknown> = {

@@ -212,6 +212,32 @@ describe("POST inference/profiles (create) validation", () => {
     ).rejects.toThrow(/Codex models only/);
   });
 
+  test("accepts a model advertised by the named connection", async () => {
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "stub-local",
+        provider: "openai-compatible",
+        auth: JSON.stringify({ type: "none" }),
+        baseUrl: "http://localhost:9123/v1",
+        models: JSON.stringify([{ id: "stub-model" }]),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .onConflictDoNothing()
+      .run();
+    const result = (await call("inference_profiles_create", {
+      body: {
+        name: "stub-fast",
+        provider: "openai-compatible",
+        model: "stub-model",
+        connection: "stub-local",
+      },
+    })) as { ok: true; warnings: string[] };
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
   test("rejects an uncataloged model without allowUnlisted", async () => {
     await expect(
       call("inference_profiles_create", {
