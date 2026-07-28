@@ -324,15 +324,18 @@ describe("PlansPage — full catalog render", () => {
   test("renders the headline and all four tier names", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Give your assistant more power");
-    expect(html).toContain("Free");
+    expect(html).toContain("Base");
     expect(html).toContain("Mighty");
     expect(html).toContain("Super");
     expect(html).toContain("Ultra");
   });
 
-  test("formats prices from the catalog totals (and $0 for free)", () => {
+  test("formats prices from the catalog totals (and 'Free' for the base tier)", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    expect(html).toContain("$0/month");
+    // Anchored on the price element: "Free" also appears in CTA copy, so a bare
+    // substring match would pass without the price label rendering at all.
+    expect(html).toContain(">Free</span>");
+    expect(html).not.toContain("$0/month");
     expect(html).toContain("$30/month");
     expect(html).toContain("$100/month");
     expect(html).toContain("$200/month");
