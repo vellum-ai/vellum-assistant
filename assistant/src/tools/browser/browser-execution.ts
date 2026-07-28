@@ -2,6 +2,7 @@ import { optimizeImageForTransport } from "../../agent/image-optimize.js";
 import { getConfig } from "../../config/loader.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import type { ImageContent } from "../../providers/types.js";
+import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import { safeStringSlice } from "../../util/unicode.js";
@@ -13,6 +14,7 @@ import {
   resolveHostAddresses,
   resolveRequestAddress,
   sanitizeUrlForOutput,
+  sanitizeUrlStringForOutput,
 } from "../network/url-safety.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -86,6 +88,36 @@ const ACTION_TIMEOUT_MS = 10_000;
 const MAX_WAIT_MS = 30_000;
 
 const MAX_EXTRACT_LENGTH = 50_000;
+
+/**
+ * Character budget for the fenced payload returned by `browser_extract`.
+ * Sized above {@link MAX_EXTRACT_LENGTH} so the innerText cap stays the
+ * effective limit for body text, while still bounding the header and the
+ * page-controlled (otherwise unbounded) links list.
+ */
+const MAX_EXTRACT_FENCE_CHARS = MAX_EXTRACT_LENGTH + 10_000;
+
+/**
+ * Fence page-derived text before it reaches the model.
+ *
+ * Everything a browser tool reads out of a live page — titles, accessible
+ * names, body text, link labels, form-field labels — is authored by
+ * whoever controls that page, so it carries the same prompt-injection risk
+ * as an inbound email or a fetched web page. `wrapUntrustedContent` marks
+ * it as third-party data, escapes attempts to close the fence from inside,
+ * and caps its size.
+ */
+function fencePageContent(
+  content: string,
+  pageUrl: string,
+  maxChars?: number,
+): string {
+  return wrapUntrustedContent(content, {
+    source: "web",
+    sourceDetail: pageUrl,
+    ...(maxChars === undefined ? {} : { maxChars }),
+  });
+}
 
 type StatusCheckMode = BrowserStatusMode;
 
@@ -1037,10 +1069,12 @@ export async function executeBrowserNavigate(
 
     const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
     const title = await getPageTitle(cdp, context.signal);
+    // The document title is page-authored, so it is fenced separately
+    // from the tool's own scaffolding lines.
     const lines: string[] = [
       `Requested URL: ${safeRequestedUrl}`,
       `Final URL: ${safeFinalUrl}`,
-      `Title: ${title || "(none)"}`,
+      fencePageContent(`Title: ${title || "(none)"}`, safeFinalUrl),
     ];
 
     if (navigationTimedOut) {
@@ -1099,12 +1133,13 @@ export async function executeBrowserNavigate(
                 "Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window. The browser will automatically detect when you're done and resume.",
               bringToFront: true,
             });
-            const newUrl = await getCurrentUrl(cdp, context.signal);
+            const newUrl = sanitizeUrlStringForOutput(
+              await getCurrentUrl(cdp, context.signal),
+            );
             const newTitle = await getPageTitle(cdp, context.signal);
             lines.push("");
-            lines.push(
-              `CAPTCHA solved by user. Current page: ${newTitle} (${newUrl})`,
-            );
+            lines.push("CAPTCHA solved by user. Current page:");
+            lines.push(fencePageContent(`${newTitle} (${newUrl})`, newUrl));
 
             // Re-check for auth challenges - the page behind the CAPTCHA may have a login form
             const postCaptchaAuth = await detectAuthChallenge(
@@ -1113,7 +1148,12 @@ export async function executeBrowserNavigate(
             );
             if (postCaptchaAuth) {
               lines.push("");
-              lines.push(formatAuthChallenge(postCaptchaAuth));
+              lines.push(
+                fencePageContent(
+                  formatAuthChallenge(postCaptchaAuth),
+                  safeFinalUrl,
+                ),
+              );
               lines.push("");
               lines.push("Handle this by interacting with the login form:");
               lines.push(
@@ -1141,8 +1181,13 @@ export async function executeBrowserNavigate(
         } else {
           // Login / 2FA / OAuth - the agent should handle these itself
           // using browser operations + stored credentials. Don't hand off.
+          // The service name and field labels come from the page, so the
+          // formatted challenge is fenced; the remediation steps below are
+          // the tool's own instructions and stay outside.
           lines.push("");
-          lines.push(formatAuthChallenge(challenge));
+          lines.push(
+            fencePageContent(formatAuthChallenge(challenge), safeFinalUrl),
+          );
           lines.push("");
           lines.push("Handle this by interacting with the login form:");
           lines.push("1. Take a snapshot to find the sign-in form elements");
@@ -1209,7 +1254,9 @@ export async function executeBrowserSnapshot(
   const { cdp, browserMode } = acquired;
 
   try {
-    const currentUrl = await getCurrentUrl(cdp, context.signal);
+    const currentUrl = sanitizeUrlStringForOutput(
+      await getCurrentUrl(cdp, context.signal),
+    );
     const title = await getPageTitle(cdp, context.signal);
 
     // Pull the full accessibility tree via CDP and fold it into typed
@@ -1230,10 +1277,17 @@ export async function executeBrowserSnapshot(
       backendNodeMap,
     );
 
+    // The whole snapshot is page-authored — element roles, accessible
+    // names, attribute values and the title all come from the DOM — so
+    // the entire payload goes inside the fence. Element ids stay usable:
+    // fencing marks the block as data, it does not hide it.
     return {
-      content: formatAxSnapshot(
-        { elements, selectorMap: backendNodeMap },
-        { url: currentUrl, title },
+      content: fencePageContent(
+        formatAxSnapshot(
+          { elements, selectorMap: backendNodeMap },
+          { url: currentUrl, title },
+        ),
+        currentUrl,
       ),
       isError: false,
     };
@@ -2088,7 +2142,9 @@ export async function executeBrowserExtract(
   if (acquired.errorResult) return acquired.errorResult;
   const cdp = acquired.cdp;
   try {
-    const currentUrl = await getCurrentUrl(cdp, context.signal);
+    const currentUrl = sanitizeUrlStringForOutput(
+      await getCurrentUrl(cdp, context.signal),
+    );
     const title = await getPageTitle(cdp, context.signal);
 
     let textContent = await evaluateExpression<string>(
@@ -2120,12 +2176,21 @@ export async function executeBrowserExtract(
         lines.push("");
         lines.push("Links:");
         for (const link of links) {
-          lines.push(`  [${link.text || "(no text)"}](${link.href})`);
+          lines.push(
+            `  [${link.text || "(no text)"}](${sanitizeUrlStringForOutput(link.href)})`,
+          );
         }
       }
     }
 
-    return { content: lines.join("\n"), isError: false };
+    return {
+      content: fencePageContent(
+        lines.join("\n"),
+        currentUrl,
+        MAX_EXTRACT_FENCE_CHARS,
+      ),
+      isError: false,
+    };
   } catch (err) {
     const diagnosticMessage = formatCdpSendDiagnostics(
       err,
