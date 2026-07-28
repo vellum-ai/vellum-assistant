@@ -57,7 +57,9 @@ type PersistedBlock = {
  */
 function getLatestAssistantBlocks(conversationId: string): PersistedBlock[] {
   const rows = getMessages(conversationId).filter((m) => {
-    if (m.role !== "assistant") return false;
+    if (m.role !== "assistant") {
+      return false;
+    }
     const blocks = m.content as unknown as PersistedBlock[];
     return (
       Array.isArray(blocks) &&
@@ -82,7 +84,9 @@ function getLatestAssistantText(conversationId: string): string {
     .filter((b) => b.type === "text")
     .map((b) => b.text ?? "")
     .join("");
-  if (text) return text;
+  if (text) {
+    return text;
+  }
   return parsed
     .filter((b) => b.type === "ui_surface" && b.surfaceType === "call_summary")
     .map((b) => b.data?.summaryText ?? "")
