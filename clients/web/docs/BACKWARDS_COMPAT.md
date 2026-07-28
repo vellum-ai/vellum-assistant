@@ -170,6 +170,8 @@ Each module owns one feature's old/new split. Current registry:
 | `channel-access-controls.ts`        | `0.11.0`                          | Channel list renders without Assistant Access controls (no tier badges, picker, or legend card)           | Two-level Assistant Access picker on the Channels tab, backed by the assistant-side collapse contract |
 | `subagent-recovery.ts`              | `0.11.0`                          | Recovered subagent stubs render from live stream events only (generic label, no history backfill)         | Detail + reconcile routes carry per-child identity; missed-spawn subagents rebuild fully    |
 | `use-supports-image-gen-vellum-provider.ts` | `0.11.0`                  | Vellum image-gen selection persists as legacy `{ mode: "managed" }` with no provider field                | Save path writes `provider: "vellum"`, which the config enum accepts                        |
+| `use-supports-new-chat-plugins.ts`  | `0.12.0`                          | New-chat plugin picker hidden; the send path omits the per-chat plugin set (older daemons ignore it)      | Picker renders and the send path includes the per-chat plugin set the daemon applies        |
+| `use-supports-inchat-plugin-edit.ts` | `0.12.0`                         | In-chat plugin pill hidden; the conversation GET omits `enabledPlugins` so per-chat scope is unreadable   | Pill renders the conversation's plugin scope and edits it via `PUT /conversations/:id/enabledplugins` |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.
