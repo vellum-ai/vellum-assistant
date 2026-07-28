@@ -284,10 +284,19 @@ export function useBackgroundHatch(
         }
         try {
           let result = await getAssistant(hatchedAssistantId);
+          // Re-checked after every await here, not just at the loop head: the
+          // branch below writes the lockfile — which sets the ACTIVE assistant
+          // — and that write is not guarded by `settleReady`.
+          if (abortedRef.current) {
+            return;
+          }
           // A stale hatched id (404) falls back to list-based discovery.
           if (hatchedAssistantId && !result.ok && result.status === 404) {
             hatchedAssistantId = undefined;
             result = await getAssistant();
+            if (abortedRef.current) {
+              return;
+            }
           }
           const state = resolveAssistantLifecycleState(result);
           if (state.kind === "active" && result.ok) {
@@ -375,6 +384,12 @@ export function useBackgroundHatch(
             pollTimerRef.current = timer;
           },
         });
+        // A cancellation landing mid-healthz past the deadline also reports
+        // `"health_timeout"`, and nobody is waiting on this hatch any more —
+        // reporting it would be a false alarm.
+        if (abortedRef.current) {
+          return;
+        }
         if (outcome === "health_timeout") {
           // The assistant never answered healthz after the resize; completing
           // would hand the user an unreachable assistant.

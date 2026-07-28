@@ -22,11 +22,13 @@ interface HatchErrorOverlayProps {
  * so that case offers the local-assistant off-ramp instead.
  *
  * Portaled to `document.body` so no step's stacking or clipping context can
- * bury it — which also puts it outside the app shell's safe-area padding, so it
- * owns its own inset. Anchored to the top strip, which every step reserves for
- * chrome: bottom-anchored it would sit exactly over the results step's
- * viewport-pinned Continue, the only way forward from there. The offset clears
- * both the notch and `OnboardingTopBar`'s chevrons (`top-6` + `h-10`).
+ * bury it. Onboarding routes suppress the shell's top inset entirely (see
+ * `utils/status-banner-visibility.ts`), so nothing upstream reserves the notch
+ * and this banner adds it itself. Anchored to the top strip, which every step
+ * reserves for chrome: bottom-anchored it would sit exactly over the results
+ * step's viewport-pinned Continue, the only way forward from there. The offset
+ * stacks the inset on top of `OnboardingTopBar`'s un-inset chevrons (`top-6` +
+ * `h-10`), so it clears both them and the notch.
  */
 export function HatchErrorOverlay({ error, onRetry }: HatchErrorOverlayProps) {
   const platformHostedDisabled = error === PLATFORM_HOSTED_DISABLED_MESSAGE;

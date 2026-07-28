@@ -301,7 +301,6 @@ mock.module("@/domains/onboarding/plugin-attribution", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => isLocalModeValue,
-  getPlatformRuntimeUrl: () => "https://runtime.example",
   loadLockfile: async () => {},
   primeLocalGatewayConnection: async () => {},
   probeLocalGatewayReady: async () => true,

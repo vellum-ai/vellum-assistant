@@ -1101,10 +1101,17 @@ export function ResearchOnboardingRoute() {
             pluginCatalog={research.pluginCatalog}
             // Hold the handoff until a resumed done journey's guard settles, so
             // it can't fire against an established assistant before the verdict
-            // — and while the hatch is dead, since a resumed COMPLETED snapshot
-            // lands straight here (past the gated carousel) and the handoff
-            // would clear the snapshot and navigate to a null assistant.
-            disabled={resumeGuardPending || hatchError !== null}
+            // — and until the hatch has a live assistant to hand off to, since a
+            // resumed COMPLETED snapshot lands straight here (past the gated
+            // carousel) and the handoff would clear the snapshot and navigate to
+            // a null assistant. Readiness is its own condition: a retry clears
+            // the error while the fresh attempt is still provisioning.
+            disabled={
+              resumeGuardPending ||
+              hatchError !== null ||
+              !hatchReady ||
+              hatchedAssistantId === null
+            }
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
@@ -1133,8 +1140,6 @@ export function ResearchOnboardingRoute() {
             suggestions={research.suggestions}
             loading={researchLoading}
             installedPlugins={research.installedPlugins}
-            // Same terminal-handoff hold as LetsChatReadyStep above.
-            disabled={hatchError !== null}
             onSuggestionClick={async (suggestion) => {
               // Terminal step: the handoff leaves via enterAssistant, not
               // goForwardTo, so emit the suggestions completion here (mirrors the

@@ -705,7 +705,6 @@ export function SuggestionsStep({
   onSkip,
   onBack,
   onForward,
-  disabled = false,
 }: {
   /** Parsed research suggestions (streams in; may be empty while running). */
   suggestions: ResearchSuggestion[];
@@ -724,11 +723,6 @@ export function SuggestionsStep({
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
-  /**
-   * Externally hold both terminal handoffs (e.g. a dead background hatch, which
-   * has no assistant to hand off to). Back-navigation stays interactive.
-   */
-  disabled?: boolean;
 }) {
   // Constant dark surface for the UI; the avatar tone is only for the pills.
   const tone = DARK_TONE;
@@ -827,8 +821,7 @@ export function SuggestionsStep({
               <button
                 type="button"
                 onClick={onSkip}
-                disabled={disabled}
-                className="cursor-pointer underline underline-offset-2 transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60"
+                className="cursor-pointer underline underline-offset-2 transition-opacity hover:opacity-80"
                 style={{ color: tone.fg }}
               >
                 Skip to Chat
@@ -845,13 +838,12 @@ export function SuggestionsStep({
               key={`${i}-${s.suggestion}`}
               type="button"
               onClick={() => onSuggestionClick(s)}
-              disabled={disabled}
               initial={reduce ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={
                 reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
               }
-              className="cursor-pointer rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 enabled:hover:scale-[1.01] enabled:active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+              className="cursor-pointer rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
               style={{
                 backgroundColor: tone.isLight
                   ? "rgba(0,0,0,0.06)"

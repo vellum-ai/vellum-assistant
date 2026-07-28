@@ -783,6 +783,52 @@ describe("authMiddleware — hydration timeout", () => {
     }
   });
 
+  // The consent wait runs first, so a fetch that reports just after it — while
+  // the assistants wait is still running — leaves a settled "not consented" by
+  // the time the guard recurses. Carrying the expired stall forward would fail
+  // the gate open on a hydration that has since landed.
+  test("bounces an unconsented research entry when consent lands during the assistants wait", async () => {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "present",
+    });
+    consentPrefs.tos = false;
+    consentPrefs.privacy = false;
+    const priorConsentHydrated = useOnboardingStore.getState().consentHydrated;
+    const priorAssistantsHydrated =
+      useResolvedAssistantsStore.getState().assistantsHydrated;
+    useOnboardingStore.setState({ consentHydrated: false });
+    useResolvedAssistantsStore.setState({
+      assistants: [],
+      assistantsHydrated: false,
+    });
+
+    try {
+      const pending = runMiddleware(managedFunnel);
+      // Past the (clamped) consent wait but inside the assistants one, which
+      // never reports.
+      setTimeout(
+        () => {
+          useOnboardingStore.setState({ consentHydrated: true });
+        },
+        WAIT_TIMEOUT_CLAMP_MS + 30,
+      );
+
+      const res = await pending;
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe(
+        `${routes.onboarding.privacy}?returnTo=${encodeURIComponent(managedFunnel)}`,
+      );
+    } finally {
+      useOnboardingStore.setState({ consentHydrated: priorConsentHydrated });
+      useResolvedAssistantsStore.setState({
+        assistantsHydrated: priorAssistantsHydrated,
+      });
+    }
+  });
+
   // Both fetches hang, so the consent wait times out on its own account and the
   // entry falls back to its unconditional admission.
   test("admits the research entry when both hydration waits stall", async () => {

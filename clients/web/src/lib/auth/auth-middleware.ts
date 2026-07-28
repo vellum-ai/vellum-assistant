@@ -167,11 +167,19 @@ const resolveWithGuard = async (
           !useResolvedAssistantsStore.getState().assistantsHydrated;
       }
     }
+    // Consent is re-read here rather than trusted from its own wait: the
+    // assistants wait runs after it, and consent that lands during that window
+    // is a settled read by the time the recursion decides. Reporting the stale
+    // "still pending" would force the consent gate open for a genuinely
+    // unconsented user on the strength of a stall that has since cleared.
     return resolveWithGuard(
       { request, context } as Parameters<MiddlewareFunction>[0],
       next,
       {
-        consentHydration: timedOut.consentHydration || consentStillPending,
+        consentHydration:
+          timedOut.consentHydration ||
+          (consentStillPending &&
+            !useOnboardingStore.getState().consentHydrated),
         assistantsHydration:
           timedOut.assistantsHydration || assistantsStillPending,
         platformProbe: timedOut.platformProbe || platformProbeStillUnknown,
