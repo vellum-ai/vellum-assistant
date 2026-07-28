@@ -1,0 +1,14 @@
+{
+  "name": "default-visualize",
+  "version": "1.0.0",
+  "description": "Inline visuals: diagrams, illustrated explainers, and small interactive widgets rendered in chat.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}

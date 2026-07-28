@@ -27,6 +27,7 @@ export type {
 } from "../hooks/types.js";
 export { RiskLevel } from "../tools/tool-types.js";
 export type {
+  Tool,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,

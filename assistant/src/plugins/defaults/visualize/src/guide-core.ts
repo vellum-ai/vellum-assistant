@@ -1,0 +1,225 @@
+/**
+ * Core visual-authoring guidance returned by `visualize_guide` on every call,
+ * ahead of the requested module docs.
+ *
+ * Embedded as a string constant rather than a markdown asset so it travels
+ * with the compiled module and needs no filesystem access at call time.
+ * Written without backticks or template placeholders so the literal stays
+ * escape-free.
+ */
+export const CORE_GUIDE = `# Vellum inline visuals — core design system
+
+You are authoring a self-contained HTML fragment that visualize_render displays inline in the
+chat transcript, directly beneath the paragraph you are writing. It renders in a sandboxed frame
+that is sized to your content, with the host's design tokens injected, so it looks native in both
+light and dark mode.
+
+## Division of labour
+
+Prose goes in your reply. The visual goes in the tool.
+
+- No titles, headings, intros, captions, or explanatory paragraphs inside the fragment. The chat
+  message around it carries all of that.
+- After the tool returns, keep writing normally. Do not describe what the visual contains — the
+  user is looking at it.
+- One visual per call. Two visuals means two calls with a paragraph of prose between them.
+
+## Philosophy
+
+- Seamless — the user should not be able to tell where the chat ends and the visual begins.
+- Flat — no gradients, shadows, blur, glow, or texture. Flat fills and hairline borders only.
+- Compact — show the essential, explain the rest in prose.
+- Honest — every number on screen is one you actually have or actually computed.
+
+## Sandbox constraints (hard)
+
+The frame has no network access. Anything external is blocked and fails silently, leaving a
+broken visual on screen.
+
+- No script src, no link rel=stylesheet, no CSS @import, no remote images, no web fonts, no
+  fetch / XMLHttpRequest / WebSocket. There is no CDN.
+- No charting library, no icon webfont, no diagram library. Charts and diagrams are hand-drawn
+  in inline SVG.
+- Images: inline SVG only. Do not paste photo data URIs — they blow the size budget.
+- Fragment only: no DOCTYPE, no html, head, or body element.
+- Hard cap 48000 characters. Aim for well under 8000.
+- No comments of any kind. They cost tokens and buy nothing.
+- No emoji anywhere.
+- No position fixed or sticky — frame height is derived from in-flow content, so out-of-flow
+  elements collapse it.
+- No nested scrollbars. The frame auto-sizes; let content determine height.
+- No localStorage, sessionStorage, or cookies. Hold state in JS variables.
+
+## Fragment structure
+
+Write in this order — style first, script last, so the markup is meaningful the moment it lands:
+
+1. A visually hidden h2 with class sr-only carrying one sentence describing the visual.
+2. A short style block (under about 20 lines) for rules you would otherwise repeat.
+3. The content markup, using inline style attributes for one-off styling.
+4. A single script element at the very end.
+
+Include this rule verbatim whenever you use the sr-only heading:
+
+    .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+The container is about 680px wide and display block. Your content fills it — no wrapper div
+needed. Add padding: 0.5rem 0 to the first element if you want vertical breathing room. Keep the
+outer background transparent; the host supplies the chat background.
+
+## Height
+
+Pass height to visualize_render as your best estimate of the rendered pixel height. The host
+measures the real content afterwards and adjusts, so a rough number is fine — it only avoids a
+visible jump on first paint. Typical values: small chart 260, stepper 380, diagram 320.
+
+## Design tokens
+
+Two families. Knowing the difference is the single biggest defence against dark-mode bugs.
+
+### Theme-aware tokens — flip automatically between light and dark
+
+Use these for every surface, every piece of body text, every border, and every status colour.
+
+Surfaces
+- --surface-base — chat page background
+- --surface-lift — raised card background
+- --surface-sunken — recessed panel or metric tile background
+- --surface-hover — translucent hover wash
+
+Text
+- --content-default — body text
+- --content-strong — emphasised text
+- --content-secondary — supporting text and labels
+- --content-tertiary — hints and axis labels
+- --content-quiet — the faintest still-readable text
+
+Borders
+- --border-base — hairline default
+- --border-subtle — softer than base
+- --border-element — visible control border
+- --border-hover — border on hover
+
+Status, each a strong foreground paired with a weak tinted background
+- --system-positive-strong / --system-positive-weak
+- --system-negative-strong / --system-negative-weak
+- --system-mid-strong / --system-mid-weak (warning)
+- --system-info-strong / --system-info-weak
+
+Type
+- --font-sans (DM Sans, the default), --font-mono (DM Mono), --font-serif (Instrument Serif —
+  editorial pull-quote moments only, never UI chrome)
+
+Radius
+- --radius-sm 4px, --radius-md 8px, --radius-lg 12px, --radius-xl 16px, --radius-pill 999px
+
+### Fixed palette ramps — do NOT flip with the theme
+
+Every stop is one constant colour in both modes. They exist for categorical encoding, never for
+page surfaces or body text.
+
+- --color-moss-50 through --color-moss-950 — cool neutral
+- --color-stone-50 through --color-stone-950 — warm neutral
+- --color-forest-100 through --color-forest-950 — green
+- --color-emerald-100 through --color-emerald-950 — green (same values as forest)
+- --color-danger-100 through --color-danger-950 — orange-red
+- --color-amber-100 through --color-amber-950 — yellow
+
+Stops run 100 lightest to 950 darkest (moss and stone also have a 50).
+
+Because a ramp does not flip, always use a matched triple so it reads correctly in both modes:
+
+    background: var(--color-forest-100); border-color: var(--color-forest-600); color: var(--color-forest-900);
+
+Title text on a tinted fill uses the 900 stop; secondary text on that fill uses 800. Never put
+--content-default (which flips) on a ramp fill (which does not) — it vanishes in one of the two
+modes.
+
+Never hardcode a hex value for text, background, border, or SVG fill. Every colour comes from a
+token above.
+
+## Colour discipline
+
+- Colour encodes meaning, not sequence. Do not walk the ramps step 1 green, step 2 amber, step 3
+  red. Group by category: everything of one kind shares one ramp.
+- At most two accent ramps per visual, plus neutral. The palette is deliberately narrow — moss or
+  stone for structure, one accent for the thing that matters, a second only when the contrast
+  between two categories is the point.
+- Use the system tokens when the meaning is genuinely success, failure, warning, or information.
+  Use ramps for everything else categorical.
+- If colour carries meaning, add a one-line legend.
+
+## Typography
+
+- Default: 14px, weight 400, line-height 1.6, --font-sans.
+- Sizes: 18px section label, 15px item title, 14px body, 12px secondary, 11px floor. No others.
+- Weights: 400 and 500 only. Never 600 or 700 — they read heavy against the host UI.
+- Sentence case everywhere, including SVG labels and table headers. Never Title Case, never ALL
+  CAPS.
+- Identifiers, column names, code, and tabular numbers go in --font-mono.
+- No bold mid-sentence. Bold is for labels and headings.
+
+## Shape and spacing
+
+- Borders: 1px solid var(--border-base); use --border-element when the edge must stay visible
+  against a lift surface.
+- Card: background var(--surface-lift), 1px border, border-radius var(--radius-lg), padding
+  1rem 1.25rem.
+- Tile (metric, stat): background var(--surface-sunken), no border, border-radius
+  var(--radius-md), padding 1rem.
+- Controls: border-radius var(--radius-sm) or var(--radius-md).
+- Never round a single-sided border. A border-left accent gets border-radius 0.
+- Vertical rhythm in rem (0.5, 1, 1.5, 2). Internal gaps in px (8, 12, 16).
+- No box-shadow except a functional focus ring.
+
+## Numbers
+
+Round every number that reaches the screen. Floating-point math leaks artefacts — 0.1 + 0.2
+renders as 0.30000000000000004. Put every displayed value through Math.round, toFixed(n), or
+toLocaleString: integers for counts, one or two decimals for percentages, toLocaleString for
+currency. Give range inputs an explicit step so the control itself emits round values.
+
+## sendPrompt(text)
+
+A global function is available inside the frame:
+
+    sendPrompt('Show me the same breakdown for last quarter')
+
+It sends text to the chat as though the user typed it, and you answer it on the next turn. Use it
+for anything that needs you to think. Do not use it for filtering, sorting, toggling, or
+recomputing — do those in local JS so they are instant.
+
+- A control that calls sendPrompt gets a trailing arrow glyph so the user knows it starts a turn.
+- sendPrompt requires a real user click. Never call it on load, on a timer, or from a script that
+  runs by itself.
+
+## Links
+
+An anchor with an https href works — clicks are intercepted and confirmed by the host. Keep links
+rare.
+
+## Accessibility
+
+- HTML fragment: open with the visually hidden sr-only h2 one-sentence summary.
+- SVG fragment: the root svg carries role="img" with title and desc as its first two children,
+  and no sr-only heading.
+- Every interactive control is a real button or input, never a clickable div. Glyph-only controls
+  need aria-label.
+- Toggle state lives on aria-pressed or aria-selected, not only on colour.
+- Never distinguish categories by colour alone — pair colour with a label, a shape, or a dash
+  pattern.
+
+## Complexity budget (hard limits)
+
+- Item and node subtitles: 5 words maximum. Detail belongs in your prose or behind sendPrompt.
+- One horizontal row: at most 4 items at full width. Five or more means shrink them, wrap to two
+  rows, or split into two visuals.
+- Ramps: 2 maximum.
+- Diagram nodes: 5 maximum. Beyond that, draw two diagrams with prose between them.
+- Over roughly 8000 characters means you are building too much.
+
+## When nothing fits
+
+Pick the nearest module pattern and adapt it. Explanatory content defaults to an editorial layout
+with no card wrapper; a bounded object defaults to a single card.
+`;

@@ -3,8 +3,11 @@ import { describe, expect, it } from "bun:test";
 import {
   buildLinkInterceptorScript,
   buildStoragePolyfill,
+  buildWidgetHeightReporterScript,
+  buildWidgetPromptScript,
   injectBridge,
   injectScript,
+  injectWidgetBridge,
   jsonForScript,
   preparePreviewHtml,
   prependScript,
@@ -333,5 +336,90 @@ describe("preparePreviewHtml", () => {
     expect(out).toContain("overflow:hidden");
     expect(out).toContain("<div>content</div>");
     expect(out.indexOf("storageShim")).toBeLessThan(out.indexOf("<div>content</div>"));
+  });
+});
+describe("buildWidgetHeightReporterScript", () => {
+  it("posts vellum_widget_height bound to the frame id", () => {
+    const out = buildWidgetHeightReporterScript(FRAME_ID);
+    expect(out).toContain("<script>");
+    expect(out).toContain("vellum_widget_height");
+    expect(out).toContain(`frameId: "${FRAME_ID}"`);
+    expect(out).toContain("window.parent.postMessage");
+  });
+
+  it("observes size changes and coalesces them through a frame", () => {
+    const out = buildWidgetHeightReporterScript(FRAME_ID);
+    expect(out).toContain("ResizeObserver");
+    expect(out).toContain("requestAnimationFrame");
+  });
+
+  it("measures the body, not the root element", () => {
+    // documentElement.scrollHeight is floored at the viewport, so a widget
+    // whose content shrinks could never report a smaller height.
+    const out = buildWidgetHeightReporterScript(FRAME_ID);
+    expect(out).toContain("document.body");
+    expect(out).not.toContain("documentElement");
+  });
+
+  it("escapes a frame id that would break out of the script context", () => {
+    const out = buildWidgetHeightReporterScript("</script><script>alert(1)");
+    expect(out).toContain("<\\/script>");
+    expect(out.indexOf("</script>")).toBe(out.lastIndexOf("</script>"));
+  });
+});
+
+describe("buildWidgetPromptScript", () => {
+  it("exposes sendPrompt and posts vellum_widget_prompt with the frame id", () => {
+    const out = buildWidgetPromptScript(FRAME_ID);
+    expect(out).toContain("window.sendPrompt");
+    expect(out).toContain("vellum_widget_prompt");
+    expect(out).toContain(`frameId: "${FRAME_ID}"`);
+  });
+
+  it("coerces and trims the prompt, dropping empty relays", () => {
+    const out = buildWidgetPromptScript(FRAME_ID);
+    expect(out).toContain("String(text).trim()");
+    expect(out).toContain("if (!prompt) return;");
+  });
+
+  it("escapes a frame id that would break out of the script context", () => {
+    const out = buildWidgetPromptScript("</script><script>alert(1)");
+    expect(out).toContain("<\\/script>");
+    expect(out.indexOf("</script>")).toBe(out.lastIndexOf("</script>"));
+  });
+});
+
+describe("injectWidgetBridge", () => {
+  it("prepends the polyfill and head markup, appending the widget scripts", () => {
+    const html = "<html><head></head><body><div>widget</div></body></html>";
+    const out = injectWidgetBridge(html, FRAME_ID, "<style>:root{--a:1}</style>");
+
+    expect(out).toContain("storageShim");
+    expect(out).toContain("<style>:root{--a:1}</style>");
+    expect(out).toContain("vellum_widget_height");
+    expect(out).toContain("window.sendPrompt");
+    expect(out).toContain("window.open");
+    expect(out).toContain("<div>widget</div>");
+
+    const headOpen = out.indexOf("<head>");
+    const stylesIdx = out.indexOf("<style>:root{--a:1}</style>");
+    const bodyClose = out.lastIndexOf("</body>");
+    expect(stylesIdx).toBeGreaterThan(headOpen);
+    expect(stylesIdx).toBeLessThan(out.indexOf("<div>widget</div>"));
+    expect(out.indexOf("vellum_widget_height")).toBeLessThan(bodyClose);
+  });
+
+  it("omits the fetch proxy — a visual is not an app", () => {
+    const out = injectWidgetBridge("<div>widget</div>", FRAME_ID);
+    expect(out).not.toContain("vellum_fetch_request");
+    expect(out).not.toContain("window.vellum");
+  });
+
+  it("handles fragments without head/body tags", () => {
+    const out = injectWidgetBridge("<svg></svg>", FRAME_ID, "<style>x</style>");
+    expect(out.startsWith("<script>")).toBe(true);
+    expect(out).toContain("<svg></svg>");
+    expect(out.indexOf("<style>x</style>")).toBeLessThan(out.indexOf("<svg></svg>"));
+    expect(out.indexOf("vellum_widget_height")).toBeGreaterThan(out.indexOf("<svg></svg>"));
   });
 });

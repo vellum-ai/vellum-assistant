@@ -21,6 +21,7 @@ import {
   containsInlineThinkingTag,
   parseInlineThinkingTags,
 } from "@/domains/chat/utils/parse-inline-thinking";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 /**
  * One item inside a blocks-driven `activity` run, reusing the server block
@@ -89,7 +90,7 @@ function splitInlineThinkingBlocks(
   return blocks.flatMap((block): ConversationContentBlock[] => {
     const segments =
       block.type === "text" ? parseInlineThinkingTags(block.text) : null;
-    if (!segments) return [block];
+    if (!segments) {return [block];}
     return segments.map((seg) =>
       seg.type === "thinking"
         ? { type: "thinking", thinking: seg.thinking }
@@ -184,16 +185,19 @@ export function groupContentBlocks(
  * Project an activity group's ordered items into the card-rendering shape:
  * ordered `ToolCallCardItem`s (thinking text interleaved with tool calls)
  * plus the flat tool-call list. Empty thinking segments and suppressed UI
- * tools are dropped. Single source of truth for the transcript's
- * `MultiActivityGroup` props and the activity-steps side panel's live
- * re-derivation, so the two views cannot drift.
+ * tools are dropped, and in-flight visual renders are split out into
+ * `pendingVisuals` for the render body's shimmer placeholder. Single source of
+ * truth for the transcript's `MultiActivityGroup` props and the activity-steps
+ * side panel's live re-derivation, so the two views cannot drift.
  */
 export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
   cardItems: ToolCallCardItem[];
   toolCalls: ChatMessageToolCall[];
+  pendingVisuals: ChatMessageToolCall[];
 } {
   const cardItems: ToolCallCardItem[] = [];
   const toolCalls: ChatMessageToolCall[] = [];
+  const pendingVisuals: ChatMessageToolCall[] = [];
   for (const item of items) {
     if (item.type === "thinking") {
       if (item.thinking) {
@@ -210,10 +214,16 @@ export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
     if (isSuppressedUiTool(tc)) {
       continue;
     }
+    if (isSuppressedVisualizeRender(tc)) {
+      if (isToolCallRunning(tc)) {
+        pendingVisuals.push(tc);
+      }
+      continue;
+    }
     toolCalls.push(tc);
     cardItems.push({ kind: "toolCall", toolCall: tc });
   }
-  return { cardItems, toolCalls };
+  return { cardItems, toolCalls, pendingVisuals };
 }
 
 /**
@@ -230,6 +240,28 @@ export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
   );
 }
 
+/** Tool name the visualize plugin registers for inline visual renders. */
+export const VISUALIZE_RENDER_TOOL_NAME = "visualize_render";
+
+/**
+ * A `visualize_render` call whose chip the transcript owns rather than the
+ * activity card: the rendered surface *is* the UI while the call is in flight
+ * or has succeeded, so a chip beside it would be redundant machinery. The
+ * render body shows a shimmer placeholder for the in-flight case.
+ *
+ * A failed call keeps its chip — nothing rendered, so the failure has to be
+ * visible — as does one carrying a pending confirmation, which needs the chip
+ * to host the inline confirmation card. `visualize_guide` is untouched; it
+ * loads guidance and reads as ordinary tool work.
+ */
+export function isSuppressedVisualizeRender(tc: ChatMessageToolCall): boolean {
+  return (
+    tc.name === VISUALIZE_RENDER_TOOL_NAME &&
+    !tc.pendingConfirmation &&
+    !tc.isError
+  );
+}
+
 /**
  * Detect whether a tool call is a `subagent_spawn` invocation. The daemon
  * exposes `subagent_spawn` as a bundled-skill tool, which means the LLM
@@ -241,10 +273,10 @@ export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
  * miss every spawn and leave inline subagent cards unrendered.
  */
 export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name === "subagent_spawn") return true;
-  if (toolCall.name !== "skill_execute") return false;
+  if (toolCall.name === "subagent_spawn") {return true;}
+  if (toolCall.name !== "skill_execute") {return false;}
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") return false;
+  if (input == null || typeof input !== "object") {return false;}
   return (input as Record<string, unknown>).tool === "subagent_spawn";
 }
 
@@ -257,10 +289,10 @@ export function isSubagentSpawnCall(toolCall: ChatMessageToolCall): boolean {
  * every launch and leave the inline workflow card unrendered.
  */
 export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name === "run_workflow") return true;
-  if (toolCall.name !== "skill_execute") return false;
+  if (toolCall.name === "run_workflow") {return true;}
+  if (toolCall.name !== "skill_execute") {return false;}
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") return false;
+  if (input == null || typeof input !== "object") {return false;}
   return (input as Record<string, unknown>).tool === "run_workflow";
 }
 
@@ -274,10 +306,10 @@ export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
  * unrendered.
  */
 export function isAcpSpawnCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name === "acp_spawn") return true;
-  if (toolCall.name !== "skill_execute") return false;
+  if (toolCall.name === "acp_spawn") {return true;}
+  if (toolCall.name !== "skill_execute") {return false;}
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") return false;
+  if (input == null || typeof input !== "object") {return false;}
   return (input as Record<string, unknown>).tool === "acp_spawn";
 }
 
@@ -288,9 +320,9 @@ export function isAcpSpawnCall(toolCall: ChatMessageToolCall): boolean {
  * real `bash`/`host_bash` tool, so we match the raw tool name plus the flag.
  */
 export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
-  if (toolCall.name !== "bash" && toolCall.name !== "host_bash") return false;
+  if (toolCall.name !== "bash" && toolCall.name !== "host_bash") {return false;}
   const input = toolCall.input;
-  if (input == null || typeof input !== "object") return false;
+  if (input == null || typeof input !== "object") {return false;}
   return (input as Record<string, unknown>).background === true;
 }
 

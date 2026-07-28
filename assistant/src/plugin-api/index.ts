@@ -62,6 +62,8 @@
  *   pre-tagged per hook with the hook name and owning plugin
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
+ * - {@link Tool} — a `ToolDefinition` with every field supplied, the element
+ *   type of a plugin's `tools` contribution
  * - {@link ToolContext} — passed to a plugin tool's `execute` method
  * - {@link ToolExecutionResult} — return shape of a plugin tool's `execute`
  */
@@ -115,6 +117,7 @@ export type {
   PreModelCallContext,
   ShutdownContext,
   StopContext,
+  Tool,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,

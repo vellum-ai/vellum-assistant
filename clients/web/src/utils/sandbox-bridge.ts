@@ -29,6 +29,9 @@
  * 5. **Safe injection** — `injectScript()` inserts `<script>` tags using
  *    `lastIndexOf` to avoid hijacking when app JS contains literal close-tag
  *    sequences.
+ * 6. **Widget bridge** — the reduced surface for inline visuals: an auto-height
+ *    reporter and a `sendPrompt(text)` global, composed by
+ *    `injectWidgetBridge()`. No fetch proxy, no `window.vellum` namespace.
  *
  * All sandboxed iframes that render untrusted HTML must use these utilities.
  * The storage polyfill is required even for non-interactive preview iframes.
@@ -188,6 +191,124 @@ export function buildLinkInterceptorScript(frameId: string): string {
     }, false);
 })();
 </script>`;
+}
+
+// ---------------------------------------------------------------------------
+// Widget bridge (inline visual surfaces)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `<script>` tag that reports the widget's content height to the
+ * parent so an inline visual sizes itself instead of guessing.
+ *
+ * The measurement anchors on `document.body` rather than
+ * `document.documentElement`: the root element's `scrollHeight` is floored at
+ * the viewport, so a widget whose content shrinks could never report a
+ * smaller height. With the widget base styles zeroing body margin, the body's
+ * scroll height *is* the content height in both directions.
+ *
+ * Updates are coalesced through `requestAnimationFrame` and suppressed below a
+ * one-pixel delta, so a `ResizeObserver` firing on every layout pass — including
+ * the pass caused by the parent applying the previous report — settles instead
+ * of oscillating.
+ *
+ * @param frameId The iframe identifier, echoed back so the parent can reject
+ *   messages from any other frame.
+ */
+export function buildWidgetHeightReporterScript(frameId: string): string {
+  return `<script>
+(function() {
+  var lastHeight = 0;
+  var scheduled = false;
+  function measure() {
+    var body = document.body;
+    if (!body) return;
+    var height = Math.max(
+      body.scrollHeight,
+      body.offsetHeight,
+      Math.ceil(body.getBoundingClientRect().height)
+    );
+    if (!height || Math.abs(height - lastHeight) < 2) return;
+    lastHeight = height;
+    window.parent.postMessage({
+      type: 'vellum_widget_height',
+      frameId: ${jsonForScript(frameId)},
+      height: height
+    }, '*');
+  }
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    var run = function() { scheduled = false; measure(); };
+    if (typeof requestAnimationFrame === 'function') { requestAnimationFrame(run); } else { setTimeout(run, 16); }
+  }
+  if (typeof ResizeObserver === 'function' && document.body) {
+    new ResizeObserver(schedule).observe(document.body);
+  }
+  window.addEventListener('load', schedule);
+  window.addEventListener('resize', schedule);
+  schedule();
+})();
+</script>`;
+}
+
+/**
+ * Build a `<script>` tag exposing the widget's `sendPrompt(text)` global.
+ *
+ * A widget calls it to hand a follow-up question back to the assistant — the
+ * parent turns the message into a real user turn. The parent additionally
+ * requires an active user activation, so a widget cannot relay prompts on load
+ * or in a loop; sending from anywhere but a click handler is silently dropped.
+ *
+ * @param frameId The iframe identifier, echoed back so the parent can reject
+ *   messages from any other frame.
+ */
+export function buildWidgetPromptScript(frameId: string): string {
+  return `<script>
+(function() {
+  window.sendPrompt = function(text) {
+    if (text == null) return;
+    var prompt = String(text).trim();
+    if (!prompt) return;
+    window.parent.postMessage({
+      type: 'vellum_widget_prompt',
+      frameId: ${jsonForScript(frameId)},
+      prompt: prompt
+    }, '*');
+  };
+})();
+</script>`;
+}
+
+/**
+ * Inject the widget bridge into an inline visual's HTML.
+ *
+ * Unlike {@link injectBridge} there is no fetch proxy and no `window.vellum`
+ * namespace — a visual is a self-contained illustration, not an app. It gets
+ * the storage polyfill, the shared link interceptor, the height reporter and
+ * `sendPrompt`.
+ *
+ * @param head Markup prepended alongside the storage polyfill — the resolved
+ *   design tokens and inlined brand fonts.
+ */
+export function injectWidgetBridge(
+  html: string,
+  frameId: string,
+  head = "",
+): string {
+  return prependScript(
+    injectScript(
+      html,
+      buildWidgetHeightReporterScript(frameId) +
+        buildWidgetPromptScript(frameId) +
+        buildLinkInterceptorScript(frameId),
+      // A visual is often a bare fragment (`<svg>…`, `<div>…`); the height
+      // reporter has to sit after it so `document.body` is populated when the
+      // first measurement runs.
+      { fallback: "append" },
+    ),
+    buildStoragePolyfill() + head,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -372,15 +493,30 @@ export function buildBridgeScript(
 // HTML injection
 // ---------------------------------------------------------------------------
 
+export interface InjectScriptOptions {
+  /**
+   * Where the script goes when the HTML is a bare fragment with no `</body>`
+   * or `</head>`. `"prepend"` (the default) puts it ahead of the fragment so
+   * app code can rely on the bridge during parsing; `"append"` puts it after,
+   * which is what a widget wants — its scripts observe content that must
+   * already exist.
+   */
+  fallback?: "prepend" | "append";
+}
+
 /**
  * Safely inject a script string into HTML at the end of the document.
  *
  * Insertion priority: before the last `</body>`, then after the last
- * `</head>`, then prepended. Uses `lastIndexOf` so that literal close-tag
- * sequences inside `<script>` blocks (comments, strings) can't hijack the
- * injection site.
+ * `</head>`, then per `options.fallback`. Uses `lastIndexOf` so that literal
+ * close-tag sequences inside `<script>` blocks (comments, strings) can't
+ * hijack the injection site.
  */
-export function injectScript(html: string, script: string): string {
+export function injectScript(
+  html: string,
+  script: string,
+  options?: InjectScriptOptions,
+): string {
   const BODY_CLOSE = "</body>";
   const HEAD_CLOSE = "</head>";
 
@@ -393,7 +529,7 @@ export function injectScript(html: string, script: string): string {
     const after = headIdx + HEAD_CLOSE.length;
     return html.slice(0, after) + script + html.slice(after);
   }
-  return script + html;
+  return options?.fallback === "append" ? html + script : script + html;
 }
 
 const HEAD_OPEN_RE = /<head(\s[^>]*)?>/i;

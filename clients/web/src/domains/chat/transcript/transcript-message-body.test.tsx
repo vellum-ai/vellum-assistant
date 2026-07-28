@@ -1788,3 +1788,53 @@ describe("TranscriptMessageBody — redacted-credential chip version gate", () =
     expect(chipFlag("user")).toBe("false");
   });
 });
+
+describe("TranscriptMessageBody — visualize_render", () => {
+  test("shows a shimmer placeholder instead of a chip while a visual renders", () => {
+    // GIVEN an in-flight visualize_render alongside a thinking segment
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-viz",
+      name: "visualize_render",
+      input: { html: "<div>x</div>" },
+    };
+
+    // WHEN the message body renders
+    const html = renderMessage({
+      id: "m-viz-pending",
+      role: "assistant",
+      contentBlocks: [
+        { type: "thinking", thinking: "picking a diagram" },
+        toolUseBlock(toolCall),
+      ],
+      toolCalls: [toolCall],
+      timestamp: 1_000,
+    });
+
+    // THEN the placeholder stands in for the widget and the tool name never
+    // surfaces as an activity chip
+    expect(html).toContain("Sketching a visual");
+    expect(html).toContain("skeleton-shimmer");
+    expect(html).not.toContain("visualize_render");
+  });
+
+  test("drops the chip entirely once the render completes", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-viz",
+      name: "visualize_render",
+      input: {},
+      result: JSON.stringify({ surfaceId: "s-1" }),
+      completedAt: 2,
+    };
+
+    const html = renderMessage({
+      id: "m-viz-done",
+      role: "assistant",
+      contentBlocks: [toolUseBlock(toolCall)],
+      toolCalls: [toolCall],
+      timestamp: 1_000,
+    });
+
+    expect(html).not.toContain("Sketching a visual");
+    expect(html).not.toContain("visualize_render");
+  });
+});

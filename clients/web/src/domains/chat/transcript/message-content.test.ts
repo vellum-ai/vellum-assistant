@@ -3,12 +3,15 @@ import { describe, expect, test } from "bun:test";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
+import type { ContentBlockActivityItem } from "@/domains/chat/transcript/message-content";
 import {
+  activityItemsToCardData,
   groupContentBlocks,
   isBackgroundBashCall,
   isRunWorkflowCall,
   isSubagentSpawnCall,
   isSuppressedUiTool,
+  isSuppressedVisualizeRender,
   isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
 import { extractBgIdFromResult } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -343,5 +346,101 @@ describe("isTaskProgressSurface", () => {
       isTaskProgressSurface(surface({ template: "task_progress", templateData: {} })),
     ).toBe(false);
     expect(isTaskProgressSurface(surface({ template: "weather_forecast" }))).toBe(false);
+  });
+});
+
+describe("isSuppressedVisualizeRender", () => {
+  test("suppresses in-flight and successful visualize_render calls", () => {
+    expect(
+      isSuppressedVisualizeRender(
+        toolCall({ id: "x", name: "visualize_render", completedAt: undefined }),
+      ),
+    ).toBe(true);
+    expect(
+      isSuppressedVisualizeRender(toolCall({ id: "x", name: "visualize_render" })),
+    ).toBe(true);
+  });
+
+  test("keeps the chip for failures, pending confirmations, and visualize_guide", () => {
+    // A failed render produced no surface, so the failure has to stay visible.
+    expect(
+      isSuppressedVisualizeRender(
+        toolCall({ id: "x", name: "visualize_render", isError: true }),
+      ),
+    ).toBe(false);
+    expect(
+      isSuppressedVisualizeRender(
+        toolCall({
+          id: "x",
+          name: "visualize_render",
+          pendingConfirmation: { requestId: "req-1" },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isSuppressedVisualizeRender(toolCall({ id: "x", name: "visualize_guide" })),
+    ).toBe(false);
+  });
+});
+
+describe("activityItemsToCardData — visualize_render", () => {
+  test("drops a completed render entirely — the surface is the UI", () => {
+    // GIVEN a thinking segment, a completed render, and an ordinary tool call
+    const items: ContentBlockActivityItem[] = [
+      { type: "thinking", thinking: "sketching" },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "viz", name: "visualize_render" }),
+      },
+      { type: "tool_use", toolCall: toolCall({ id: "sh", name: "bash" }) },
+    ];
+
+    // WHEN the group is projected
+    const { cardItems, toolCalls, pendingVisuals } =
+      activityItemsToCardData(items);
+
+    // THEN the render contributes no chip and no placeholder, while the
+    // surrounding thinking and tool call still group normally
+    expect(pendingVisuals).toEqual([]);
+    expect(toolCalls.map((tc) => tc.id)).toEqual(["sh"]);
+    expect(cardItems.map((it) => it.kind)).toEqual(["thinking", "toolCall"]);
+  });
+
+  test("splits an in-flight render out as a placeholder instead of a chip", () => {
+    const items: ContentBlockActivityItem[] = [
+      {
+        type: "tool_use",
+        toolCall: toolCall({
+          id: "viz",
+          name: "visualize_render",
+          completedAt: undefined,
+        }),
+      },
+    ];
+
+    const { cardItems, toolCalls, pendingVisuals } =
+      activityItemsToCardData(items);
+
+    expect(pendingVisuals.map((tc) => tc.id)).toEqual(["viz"]);
+    expect(toolCalls).toEqual([]);
+    expect(cardItems).toEqual([]);
+  });
+
+  test("keeps visualize_guide and failed renders as ordinary chips", () => {
+    const items: ContentBlockActivityItem[] = [
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "guide", name: "visualize_guide" }),
+      },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "viz", name: "visualize_render", isError: true }),
+      },
+    ];
+
+    const { toolCalls, pendingVisuals } = activityItemsToCardData(items);
+
+    expect(pendingVisuals).toEqual([]);
+    expect(toolCalls.map((tc) => tc.id)).toEqual(["guide", "viz"]);
   });
 });
