@@ -29,6 +29,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
   configGetQueryKey,
@@ -81,6 +82,10 @@ export function useAssistantResourceSync(
               void queryClient.invalidateQueries({
                 queryKey: configGetQueryKey(pathOpts),
               });
+              // Memory availability is derived from config (`memory.enabled`,
+              // `memory.v3.live`), so a config write on any client can change
+              // what the Memory surface must render.
+              invalidateMemoryQueries(queryClient, assistantId);
               break;
             case SYNC_TAGS.assistantSounds:
               void queryClient.invalidateQueries({

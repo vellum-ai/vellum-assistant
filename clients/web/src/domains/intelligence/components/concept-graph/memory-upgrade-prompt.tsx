@@ -10,11 +10,13 @@
  * `memory.v3.live` from a button.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings, Sparkles } from "lucide-react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
+import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { useAssistantCapability } from "@/hooks/use-assistant-capability";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -41,9 +43,23 @@ export function MemoryUpgradePrompt({
   onOpenThread,
 }: MemoryUpgradePromptProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   // Deduped with the Memory page's own stats query by React Query, so this
   // costs no extra request.
   const stats = useQuery(memoryStatsOptions(assistantId));
+
+  // Re-check on arrival. Both memory reads hold a 5-minute `staleTime`, and
+  // every fix this surface offers happens elsewhere: the assistant flips
+  // `memory.enabled` in a chat, or the user toggles it in Settings. Coming
+  // straight back would otherwise replay the cached pre-fix answer and read as
+  // "the thing I just did didn't work". The `assistantConfig` sync tag covers
+  // the writes that publish one, but not every path does, so this surface does
+  // not depend on that. Cheap by construction: `GET /memory-graph`
+  // short-circuits before building whenever the graph is unsupported, which is
+  // the only state this component renders in.
+  useEffect(() => {
+    invalidateMemoryQueries(queryClient, assistantId);
+  }, [queryClient, assistantId]);
   // The Memory toggle lives on the Memory tab of the flag-gated Developer
   // page, which redirects to General Settings when the flag is off — so link
   // there only when the destination is actually reachable, gated exactly as
