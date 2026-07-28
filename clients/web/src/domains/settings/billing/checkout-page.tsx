@@ -31,16 +31,22 @@ import { Button } from "@vellumai/design-library/components/button";
  * - `handed_off` — the package intent is stashed and Stripe is open.
  * - `settled` — terminal: an already-Pro `no_op`, a failed upgrade, or a bail.
  *
- * `handed_off` is the line that matters. Before it, this route owns the stash
- * and a bail clears it; after it, the stash belongs to the post-checkout return
- * trip and nothing here may touch it. Electron and native Capacitor open Stripe
- * without unloading the page, so the route is still mounted to enforce that —
- * and to offer the way out a browser closed short of paying otherwise leaves
- * the user without.
+ * `handed_off` is the line that matters. Before it, this route owns the stashes
+ * and a bail clears them; after it, they belong to the post-checkout return
+ * trip and nothing here may touch them. Electron and native Capacitor open
+ * Stripe without unloading the page, so the route is still mounted to enforce
+ * that — and to offer the way out a browser closed short of paying otherwise
+ * leaves the user without.
  */
 type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
 
-/** Drops everything an attempt that never reached Stripe left behind. */
+/**
+ * Drops everything an attempt that never reached Stripe left behind. A retry
+ * from the awaiting-return screen re-arms the attempt, so a hand-off followed
+ * by a failing retry forfeits the captured avatar on purpose: that path already
+ * clears the checkout intent, and the cold return falls back to the breathing
+ * placeholder.
+ */
 function abandonCheckout() {
   clearCheckoutIntent();
   clearTakeoverAvatarStash();
@@ -168,9 +174,9 @@ export function CheckoutPage() {
         void openUrl(result.checkout_url);
         return;
       }
-      // `no_op` — already Pro, nothing to provision. Clear the marked stash so
-      // an already-Pro bounce doesn't leave it lingering for its TTL, then hand
-      // off rather than stranding the user on a blank splash.
+      // `no_op` — already Pro, nothing to provision. Clear the stashes so an
+      // already-Pro bounce doesn't leave them lingering for their TTL, then
+      // hand off rather than stranding the user on a blank splash.
       phaseRef.current = "settled";
       abandonCheckout();
       navigate(bailTarget, { replace: true });

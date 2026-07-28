@@ -269,6 +269,38 @@ describe("in-memory mirror on a same-document return", () => {
     }
   });
 
+  test("the mirror serves a stash whose write never reached storage", () => {
+    // The real failure mode: private mode and quota exhaustion break `setItem`
+    // while `getItem` keeps answering, so only the write is lost and a
+    // readable-empty store would otherwise read as absence.
+    const original = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "sessionStorage",
+    )!;
+    const writeFailing = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("quota exceeded");
+      },
+      removeItem: () => {},
+    };
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get: () => writeFailing,
+    });
+    try {
+      saveTakeoverAvatarStash({
+        assistantId: "a1",
+        components: BUNDLED_COMPONENTS,
+        traits: TRAITS,
+      });
+
+      expect(readTakeoverAvatarStash()).toMatchObject({ assistantId: "a1" });
+    } finally {
+      Object.defineProperty(globalThis, "sessionStorage", original);
+    }
+  });
+
   test("the mirror does not resurrect a stash sessionStorage no longer holds", () => {
     // Logout wipes sessionStorage wholesale, so a readable-but-empty store has
     // to read as absence or the previous account's avatar survives the wipe.
@@ -280,6 +312,28 @@ describe("in-memory mirror on a same-document return", () => {
     sessionStorage.clear();
 
     expect(readTakeoverAvatarStash()).toBeNull();
+
+    // That read released the mirror, so the stash cannot come back even once
+    // storage stops answering.
+    const original = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "sessionStorage",
+    )!;
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get: () => ({
+        getItem: () => {
+          throw new Error("sessionStorage unavailable");
+        },
+        setItem: () => {},
+        removeItem: () => {},
+      }),
+    });
+    try {
+      expect(readTakeoverAvatarStash()).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis, "sessionStorage", original);
+    }
   });
 });
 

@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import {
+  useAssistantAvatar,
+  type AvatarData,
+} from "@/hooks/use-assistant-avatar";
 import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { SURFACE_GROUND, avatarSurfaceHex } from "@/utils/avatar-tone";
 
@@ -18,12 +20,7 @@ import {
  * Ungated: every field carries whatever was chosen right now, so a consumer
  * must render it only inside a {@link TakeoverSurface.ready} branch.
  */
-export interface TakeoverAvatarInputs {
-  components: CharacterComponents | null;
-  traits: CharacterTraits | null;
-  /** The assistant's uploaded image, drawn as the avatar in place of an SVG. */
-  customImageUrl: string | null;
-}
+export type TakeoverAvatarInputs = AvatarData;
 
 export interface TakeoverSurface {
   /** Opaque #rrggbb to paint the takeover and its exit sheet. */
@@ -77,20 +74,13 @@ export function useTakeoverSurface(
   // `useAssistantAvatar(null)` is a disabled query, which reports
   // `isLoading: false` with no data, so the id has to gate settling too.
   const liveSettled = resolvedId != null && !isLoading;
-  // The id of a stash this surface has already drawn. Latched so the surface
-  // only ever upgrades: a target resolving to a different id mid-flight would
-  // otherwise drop `ready` back to false, unmounting the creature and
-  // restarting the placeholder before the real one lands.
-  const [latchedStashId, setLatchedStashId] = useState<string | null>(null);
   // While the provisioning hook has not named a target the stash may stand in,
   // safe because a stash is only ever captured in a single-assistant org, so
-  // there is no second creature the unresolved target could turn out to be.
-  // Once a target does resolve, only a matching (or already drawn) stash draws.
+  // there is no second creature the unresolved target could turn out to be. A
+  // target that disagrees with the stash withholds either way, whether it is
+  // already resolved at mount or resolves mid-flight.
   const stashUsable =
-    stash != null &&
-    (resolvedId == null ||
-      resolvedId === stash.assistantId ||
-      latchedStashId === stash.assistantId);
+    stash != null && (resolvedId == null || resolvedId === stash.assistantId);
   const liveDrawable =
     liveSettled &&
     (components != null || traits != null || customImageUrl != null);
@@ -98,13 +88,6 @@ export function useTakeoverSurface(
   // daemon erroring while the machine restarts) keeps the stash, which is
   // strictly more truthful than the bundled-green fallback.
   const drawnStash = stashUsable && !liveDrawable ? stash : null;
-
-  const drawnStashId = drawnStash?.assistantId ?? null;
-  useEffect(() => {
-    if (drawnStashId != null) {
-      setLatchedStashId(drawnStashId);
-    }
-  }, [drawnStashId]);
 
   const effectiveComponents = drawnStash ? drawnStash.components : components;
   const effectiveTraits = drawnStash ? drawnStash.traits : traits;

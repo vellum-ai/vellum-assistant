@@ -359,9 +359,10 @@ body {
   animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
 }
 
-/* The avatar is withheld until its query settles, so it arrives rather than
- * swapping in over a placeholder. The stage has already reserved its height,
- * so this fades in place with nothing moving around it. */
+/* The creature fades in over the placeholder as soon as something is drawable:
+ * the live query settling, or the stash captured at the Stripe hand-off. The
+ * stage has already reserved its height, so this fades in place with nothing
+ * moving around it. */
 @keyframes provision-avatar-reveal {
   from { opacity: 0; }
   to { opacity: 1; }

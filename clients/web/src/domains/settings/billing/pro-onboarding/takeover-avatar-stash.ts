@@ -45,11 +45,19 @@ const MAX_AGE_MS = 30 * 60 * 1000;
  * throws keeps no stash at all and the takeover draws its breathing
  * placeholder through the wait instead.
  *
- * Served ONLY when sessionStorage is unreachable, never when it is readable and
- * empty: a readable null is authoritative absence, which is what makes logout's
- * blanket `sessionStorage.clear()` able to kill the stash outright.
+ * Served ONLY when sessionStorage is unreachable, or when the last write never
+ * reached it. Otherwise a readable null is authoritative absence, which is what
+ * makes logout's blanket `sessionStorage.clear()` able to kill the stash
+ * outright.
  */
 let inMemoryStash: TakeoverAvatarStash | null = null;
+
+/**
+ * Whether the last write never reached sessionStorage. `setItem` throwing while
+ * `getItem` still answers is the real failure mode (private mode, quota), and
+ * it is the only case where a readable-empty read may fall back to the mirror.
+ */
+let storageWriteFailed = false;
 
 /**
  * Bumped by every write, so a reader that snapshotted the stash can tell its
@@ -77,17 +85,20 @@ export function saveTakeoverAvatarStash(
   version += 1;
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stamped));
+    storageWriteFailed = false;
   } catch {
     // sessionStorage may be unavailable (private mode, quota). Never block the
-    // checkout redirect over it.
+    // checkout redirect over it; the mirror carries the stash instead.
+    storageWriteFailed = true;
   }
 }
 
 /**
  * The stashed avatar, or `null` when absent, unparsable, malformed, or older
  * than the TTL: anything unusable is cleared so it can't resurface. Falls back
- * to the in-memory mirror only when sessionStorage is unreachable; a readable
- * sessionStorage is authoritative, empty included.
+ * to the in-memory mirror only when sessionStorage is unreachable or the last
+ * write never reached it; a readable sessionStorage is otherwise authoritative,
+ * empty included.
  */
 export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
   if (typeof sessionStorage === "undefined") {
@@ -101,6 +112,12 @@ export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
     return readInMemoryStash();
   }
   if (!raw) {
+    if (storageWriteFailed) {
+      return readInMemoryStash();
+    }
+    // Readable-empty is authoritative for a stash that did reach storage, so a
+    // logout wipe takes the mirror with it.
+    inMemoryStash = null;
     return null;
   }
 
@@ -123,6 +140,7 @@ export function readTakeoverAvatarStash(): TakeoverAvatarStash | null {
 
 export function clearTakeoverAvatarStash(): void {
   inMemoryStash = null;
+  storageWriteFailed = false;
   version += 1;
   try {
     sessionStorage.removeItem(STORAGE_KEY);

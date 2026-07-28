@@ -123,7 +123,9 @@ export function BillingOnboardingModal({
 
   // Whether this wizard has actually been opened, so the reset branch below can
   // tell a close from the mount of an instance that is simply rendered closed
-  // (the billing page mounts two of these; only one opens).
+  // (the billing page mounts two of these; only one opens). Its overlap with
+  // `domainsOpenedAt` is deliberate: tying the stash lifecycle to a
+  // domains-freshness fence would couple two unrelated concerns.
   const hasOpenedRef = useRef(false);
 
   useEffect(() => {

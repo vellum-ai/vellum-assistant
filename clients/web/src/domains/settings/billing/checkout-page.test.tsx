@@ -207,7 +207,7 @@ beforeEach(() => {
   heldUpgrade = null;
   upgradeData = { status: "redirect", checkout_url: CHECKOUT_URL, message: "" };
   sessionStorage.removeItem(INTENT_KEY);
-  // Also resets the stash module's in-memory mirror, which outlives storage.
+  // The line above only drops the intent key, so clear the avatar stash's own.
   clearTakeoverAvatarStash();
   useResolvedAssistantsStore.setState({
     activeAssistantId: null,
