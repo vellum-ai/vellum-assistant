@@ -9,7 +9,7 @@ import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router-types.js";
 import { RouteError } from "./errors.js";
 import type { ResponseHeaderArgs, RouteDefinition } from "./types.js";
-import { RouteResponse } from "./types.js";
+import { isStreamingRouteResponse, RouteResponse } from "./types.js";
 
 function resolveResponseHeaders(
   spec: RouteDefinition["responseHeaders"],
@@ -153,6 +153,18 @@ export function routeDefinitionsToHTTPRoutes(
           return new Response(result.body, {
             status: result.status ?? status,
             headers: { ...responseHeaders, ...result.headers },
+          });
+        }
+
+        // Streaming responses — pipe the byte stream straight through with
+        // the handler's headers. `transfer-encoding` is managed by the HTTP
+        // server, so it must not be set on the Response.
+        if (isStreamingRouteResponse(result)) {
+          const { "transfer-encoding": _chunked, ...streamHeaders } =
+            result.headers;
+          return new Response(result.stream, {
+            status,
+            headers: { ...responseHeaders, ...streamHeaders },
           });
         }
 

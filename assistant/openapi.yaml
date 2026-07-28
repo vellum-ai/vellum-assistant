@@ -11216,7 +11216,9 @@ paths:
       summary: Stream-download an email attachment
       description:
         Download the binary content of a specific email attachment as a chunked stream. Response headers include
-        content-type from the upstream and x-filename derived from content-disposition.
+        content-type from the upstream, x-filename-encoded (the percent-encoded UTF-8 filename derived from
+        content-disposition) and x-filename (the same name mangled to ASCII, for clients that predate the encoded
+        header).
       tags:
         - email
       parameters:
@@ -11235,6 +11237,11 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
   /v1/email/attachment-list:
     get:
       operationId: email_attachmentlist_get

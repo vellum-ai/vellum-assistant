@@ -149,6 +149,31 @@ export class RouteResponse {
   ) {}
 }
 
+/**
+ * Handler result whose body is an incrementally produced byte stream
+ * (e.g. an attachment download proxied from an upstream service).
+ *
+ * Both adapters understand it: the HTTP adapter pipes the stream into a
+ * `Response`, the IPC server writes it as chunked binary frames.
+ */
+export interface StreamingRouteResponse {
+  stream: ReadableStream<Uint8Array>;
+  headers: Record<string, string>;
+}
+
+export function isStreamingRouteResponse(
+  value: unknown,
+): value is StreamingRouteResponse {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    "stream" in value &&
+    (value as StreamingRouteResponse).stream instanceof ReadableStream &&
+    "headers" in value &&
+    typeof (value as StreamingRouteResponse).headers === "object"
+  );
+}
+
 export interface RouteDefinition {
   operationId: string;
   endpoint: string;

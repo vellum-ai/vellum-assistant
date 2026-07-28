@@ -9,6 +9,10 @@ import { z } from "zod";
 
 import { markdownToEmailHtml } from "../../email/html-renderer.js";
 import { VellumPlatformClient } from "../../platform/client.js";
+import {
+  filenameResponseHeaders,
+  parseContentDispositionFilename,
+} from "../../util/content-disposition.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -397,12 +401,12 @@ async function handleEmailAttachmentGet({
     );
   }
 
-  // Extract filename from content-disposition header, falling back to attachmentId
-  const contentDisposition = response.headers.get("content-disposition") ?? "";
-  const filenameMatch = contentDisposition.match(
-    /filename\*?=['"]?([^'";]+)['"]?/i,
-  );
-  const filename = filenameMatch?.[1]?.trim() ?? attachmentId;
+  const filename =
+    parseContentDispositionFilename(
+      response.headers.get("content-disposition") ?? "",
+    ) ??
+    attachmentId ??
+    "attachment";
 
   const contentType =
     response.headers.get("content-type") ?? "application/octet-stream";
@@ -414,7 +418,7 @@ async function handleEmailAttachmentGet({
     headers: {
       "content-type": contentType,
       "transfer-encoding": "chunked",
-      "x-filename": filename,
+      ...filenameResponseHeaders(filename),
     },
   };
 }
@@ -635,7 +639,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleEmailAttachmentGet,
     summary: "Stream-download an email attachment",
     description:
-      "Download the binary content of a specific email attachment as a chunked stream. Response headers include content-type from the upstream and x-filename derived from content-disposition.",
+      "Download the binary content of a specific email attachment as a chunked stream. Response headers include content-type from the upstream, x-filename-encoded (the percent-encoded UTF-8 filename derived from content-disposition) and x-filename (the same name mangled to ASCII, for clients that predate the encoded header).",
     tags: ["email"],
     queryParams: [
       {
@@ -651,5 +655,9 @@ export const ROUTES: RouteDefinition[] = [
         description: "Attachment ID",
       },
     ],
+    responseBody: {
+      contentType: "application/octet-stream",
+      schema: { type: "string", format: "binary" },
+    },
   },
 ];
