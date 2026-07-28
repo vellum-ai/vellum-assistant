@@ -96,7 +96,14 @@ export function useGlobalDeepLinkConsumer(): void {
     openThread(threadId);
   });
 
-  useBusSubscription("deeplink.startVoice", ({ mode, prompt }) => {
+  // `mode` is deliberately not read. The two modes have collapsed onto the
+  // same behavior — `resume` degrades to `new` with nothing running, and `new`
+  // degrades to surfacing the call with something running — so consulting it
+  // today would only look like a distinction the code does not make. It comes
+  // back the moment there is a product answer for what "new conversation"
+  // should do to a call in progress; the field stays on the payload for that,
+  // and because the URL contract is shared with the native producers.
+  useBusSubscription("deeplink.startVoice", ({ prompt }) => {
     void ensureMainWindowVisible();
     // The composer inbox rather than the session — see the note above the hook.
     // Reusing `deeplink.send`'s one-shot store buys exactly-once delivery: the
@@ -107,12 +114,21 @@ export function useGlobalDeepLinkConsumer(): void {
       usePendingDeepLinkStore.getState().setPendingComposerMessage(prompt);
     }
     const session = useLiveVoiceStore.getState();
-    // `resume` is the Live Activity's tap-to-return: put the running session
-    // back on screen, don't start a second one. The room renders itself off
-    // `useIsVoiceRoomVisible` once the owning composer is on screen, so landing
-    // on the right conversation is the whole job. With nothing running, resume
-    // degrades to `new`.
-    if (mode === "resume" && isLiveVoiceSessionActive(session.state)) {
+    // A running session is surfaced, never doubled — for *either* mode. The
+    // room renders itself off `useIsVoiceRoomVisible` once the owning composer
+    // is on screen, so landing on the right conversation is the whole job.
+    //
+    // `resume` is the Live Activity's tap-to-return, and with nothing running
+    // it degrades to `new`. `new` degrades the other way: the starter already
+    // returns early for any active phase (`use-live-voice.ts`), so falling
+    // through to it mid-call would navigate the user *away* from the
+    // conversation that owns their live session and then start nothing — the
+    // Action Button and the Control Center control would read as broken. Until
+    // there is a product answer for what "new conversation" should do to a call
+    // in progress (end and replace it, or refuse), surfacing the session the
+    // user is already in is the honest behavior: nothing is lost and the
+    // command visibly did something.
+    if (isLiveVoiceSessionActive(session.state)) {
       // `startedConversationId` first — ownership is a *composer binding*, not
       // wire identity, and this is the id the owning composer is bound to. A
       // composer that started the session on a client-side draft id keeps that

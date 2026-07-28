@@ -309,6 +309,32 @@ describe("deeplink.startVoice", () => {
     expect(isVoiceRoomVisible()).toBe(true);
   });
 
+  test("mode=new during a live call surfaces that call instead of navigating away and starting nothing", async () => {
+    // The Action Button and the Control Center control both send `mode=new`,
+    // and a user can press either mid-call. The starter returns early for any
+    // active phase, so falling through to it would land on the draft composer
+    // — away from the conversation that owns the live session — and start
+    // nothing at all, which reads as the command being broken.
+    seedEligibleAssistant();
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "new", prompt: null });
+    });
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/conv-9",
+    );
+    expect(navigateMock).not.toHaveBeenCalledWith("/assistant");
+    expect(starter).not.toHaveBeenCalled();
+    expect(isVoiceRoomVisible()).toBe(true);
+  });
+
   test("mode=resume with nothing running falls through to a new session", async () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);

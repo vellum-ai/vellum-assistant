@@ -77,13 +77,17 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
       const message = get().pendingComposerMessage;
-      if (message !== null) set({ pendingComposerMessage: null });
+      if (message !== null) {
+        set({ pendingComposerMessage: null });
+      }
       return message;
     },
     setPendingVoiceStart: () => set({ pendingVoiceStartAt: Date.now() }),
     consumePendingVoiceStart: (maxAgeMs) => {
       const parkedAt = get().pendingVoiceStartAt;
-      if (parkedAt === null) return false;
+      if (parkedAt === null) {
+        return false;
+      }
       set({ pendingVoiceStartAt: null });
       return Date.now() - parkedAt <= maxAgeMs;
     },
