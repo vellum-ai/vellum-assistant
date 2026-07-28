@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../api/index.js";
+import { getDb } from "../persistence/db-connection.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
+import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/354-add-subagent-parent-tool-use-id.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   getSubagentRecordById,
@@ -369,6 +371,7 @@ describe("durable record lifetime across disposal paths", () => {
   beforeEach(() => {
     // Idempotent; the table may already exist from a prior run.
     migrateCreateSubagentsTable();
+    migrateAddSubagentParentToolUseId(getDb());
     resetTestTables("subagents");
   });
 
@@ -384,6 +387,7 @@ describe("durable record lifetime across disposal paths", () => {
       sendResultToUser: null,
       status: "completed",
       error: null,
+      parentToolUseId: null,
       createdAt: 1000,
       startedAt: 1001,
       completedAt: 2000,
