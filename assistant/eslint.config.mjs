@@ -51,7 +51,7 @@ const eslintConfig = defineConfig([
   },
   // Managed-column profile resolution (`getEffectiveProfile(s)`) resolves
   // default profiles against the vellum column only, ignoring
-  // `llm.defaultProvider` — on a BYO install that is not the body that
+  // `llm.defaultProvider`; on a BYO install that is not the body that
   // dispatches. Runtime code must use `resolveDefaultProfileForProvider` /
   // `getEffectiveProfilesForProvider` instead. The allowlist below is the
   // full set of intentional managed-column consumers: the catalog itself,
