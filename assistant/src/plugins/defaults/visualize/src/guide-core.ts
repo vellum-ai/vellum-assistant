@@ -75,6 +75,15 @@ visible jump on first paint. Typical values: small chart 260, stepper 380, diagr
 
 ## Design tokens
 
+What follows is the COMPLETE list of CSS variables that exist inside the frame. Nothing else is
+injected: a var() reference to any other name — --color-text-primary, --text-muted, --bg-card —
+resolves to nothing, the declaration is silently dropped, and visualize_render rejects the
+fragment. Do not invent names, and do not guess at names from other design systems.
+
+You may declare your own custom properties in the fragment's own style block and use them
+(:root{--gap:8px} then var(--gap)); that is fine. What is rejected is referencing a name that is
+neither injected nor declared by you.
+
 Two families. Knowing the difference is the single biggest defence against dark-mode bugs.
 
 ### Theme-aware tokens — flip automatically between light and dark
@@ -84,25 +93,33 @@ Use these for every surface, every piece of body text, every border, and every s
 Surfaces
 - --surface-base — chat page background
 - --surface-lift — raised card background
+- --surface-overlay — floating layer such as a popover
 - --surface-sunken — recessed panel or metric tile background
 - --surface-hover — translucent hover wash
+- --surface-active — pressed or selected wash
 
 Text
 - --content-default — body text
+- --content-emphasised — the strongest text
 - --content-strong — emphasised text
 - --content-secondary — supporting text and labels
 - --content-tertiary — hints and axis labels
 - --content-quiet — the faintest still-readable text
+- --content-faint — decorative text, below the readable floor for content
+- --content-disabled — disabled control text
+- --content-inset — text sitting on an inverted fill
 
 Borders
 - --border-base — hairline default
 - --border-subtle — softer than base
 - --border-element — visible control border
 - --border-hover — border on hover
+- --border-active — border on the active or focused element
+- --border-disabled — border on a disabled control
 
 Status, each a strong foreground paired with a weak tinted background
 - --system-positive-strong / --system-positive-weak
-- --system-negative-strong / --system-negative-weak
+- --system-negative-strong / --system-negative-weak (plus --system-negative-hover)
 - --system-mid-strong / --system-mid-weak (warning)
 - --system-info-strong / --system-info-weak
 
@@ -111,7 +128,8 @@ Type
   editorial pull-quote moments only, never UI chrome)
 
 Radius
-- --radius-sm 4px, --radius-md 8px, --radius-lg 12px, --radius-xl 16px, --radius-pill 999px
+- --radius-xs 2px, --radius-sm 4px, --radius-md 8px, --radius-lg 12px, --radius-xl 16px,
+  --radius-xxl 20px, --radius-pill 999px
 
 ### Fixed palette ramps — do NOT flip with the theme
 
@@ -135,8 +153,9 @@ Title text on a tinted fill uses the 900 stop; secondary text on that fill uses 
 --content-default (which flips) on a ramp fill (which does not) — it vanishes in one of the two
 modes.
 
-Never hardcode a hex value for text, background, border, or SVG fill. Every colour comes from a
-token above.
+Never hardcode a colour for text, background, border, or SVG fill or stroke. Every colour comes
+from a variable above — visualize_render rejects hex literals (#2563eb), rgb(), rgba(), hsl(),
+and oklch() outright. Only transparent and currentColor are allowed as literal colour keywords.
 
 ## Colour discipline
 

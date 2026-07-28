@@ -65,7 +65,7 @@ Drop the border on the last row. List rows do not get their own card; the list a
 Form controls are unstyled in the sandbox. A minimal, correct set:
 
     .fld{width:100%;box-sizing:border-box;height:36px;padding:0 10px;border:1px solid var(--border-element);border-radius:var(--radius-md);background:var(--surface-lift);color:var(--content-default);font:400 14px var(--font-sans)}
-    .fld:focus{outline:none;border-color:var(--system-positive-strong);box-shadow:0 0 0 3px var(--ring)}
+    .fld:focus{outline:none;border-color:var(--system-positive-strong);box-shadow:0 0 0 3px var(--system-positive-weak)}
     .lbl{display:block;margin-bottom:6px;font-size:13px;color:var(--content-secondary)}
 
 Every field has a real label element tied to the input by id. Stack fields with 1rem between them.

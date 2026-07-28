@@ -232,6 +232,96 @@ describe("visualize_render", () => {
     expect(sent).toHaveLength(0);
   });
 
+  test("rejects a var() reference to a variable the frame does not inject", async () => {
+    const { context, sent } = makeContext();
+    const result = await visualizeRenderTool.execute(
+      {
+        html: '<div style="color:var(--color-text-primary)">Hi</div>',
+      },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("--color-text-primary");
+    expect(result.content).toContain("--content-default");
+    expect(sent).toHaveLength(0);
+  });
+
+  test("accepts a custom property the fragment declares itself", async () => {
+    const { context, sent } = makeContext();
+    const result = await visualizeRenderTool.execute(
+      {
+        html:
+          "<style>:root{--gap:8px}.row{gap:var(--gap)}</style>" +
+          '<div class="row" style="color:var(--content-default)">Hi</div>',
+      },
+      context,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("rejects hardcoded hex colours and quotes them back", async () => {
+    const { context, sent } = makeContext();
+    const result = await visualizeRenderTool.execute(
+      {
+        html: '<div style="background:#eff6ff;color:#2563eb;border:1px solid #fbbf24">Hi</div>',
+      },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("#eff6ff");
+    expect(result.content).toContain("#2563eb");
+    expect(result.content).toContain("#fbbf24");
+    expect(sent).toHaveLength(0);
+  });
+
+  test("rejects functional colour literals", async () => {
+    const { context, sent } = makeContext();
+    const result = await visualizeRenderTool.execute(
+      {
+        html: '<div style="background:rgba(255, 255, 255, 0.1)">Hi</div>',
+      },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("rgba(255, 255, 255, 0.1)");
+    expect(sent).toHaveLength(0);
+  });
+
+  test("reports unknown variables and colour literals in one error", async () => {
+    const { context } = makeContext();
+    const result = await visualizeRenderTool.execute(
+      { html: '<div style="color:var(--text-muted);background:#fff">Hi</div>' },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("--text-muted");
+    expect(result.content).toContain("#fff");
+  });
+
+  test("does not mistake SVG references, anchors, or entities for colours", async () => {
+    const { context, sent } = makeContext();
+    const result = await visualizeRenderTool.execute(
+      {
+        html:
+          '<svg role="img" viewBox="0 0 10 10"><title>t</title><desc>d</desc>' +
+          '<defs><marker id="abc"><path d="M0 0" fill="var(--content-default)"/></marker>' +
+          '<linearGradient id="face"><stop stop-color="var(--color-moss-200)"/></linearGradient></defs>' +
+          '<line x1="0" y1="0" x2="10" y2="0" marker-end="url(#abc)" stroke="url(#face)"/></svg>' +
+          '<a href="#bad">Jump &#8599;</a>',
+      },
+      context,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(sent).toHaveLength(1);
+  });
+
   test("degrades gracefully when the client cannot render surfaces", async () => {
     const { context } = makeContext({ sendToClient: undefined });
     const result = await visualizeRenderTool.execute({ html }, context);
@@ -280,4 +370,19 @@ describe("disabling the plugin removes its tools", () => {
     expect(visibleNames()).not.toContain("visualize_guide");
     expect(visibleNames()).not.toContain("visualize_render");
   });
+});
+
+test("accepts a custom property the fragment sets from script", async () => {
+  const { context, sent } = makeContext();
+  const result = await visualizeRenderTool.execute(
+    {
+      html:
+        '<div id="grid" style="width:var(--col)">Hi</div>' +
+        "<script>document.getElementById('grid').style.setProperty('--col', '120px');</script>",
+    },
+    context,
+  );
+
+  expect(result.isError).toBe(false);
+  expect(sent).toHaveLength(1);
 });
