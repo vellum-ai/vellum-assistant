@@ -2024,6 +2024,10 @@ export async function deleteConversationGently(
         .run();
     }
 
+    // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
+    // commit or roll back with the conversation row they describe.
+    deleteSubagentRecordsByParent(id);
+
     // Conversation row deletion cascades to remaining dependent tables.
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });

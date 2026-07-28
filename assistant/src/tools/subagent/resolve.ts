@@ -7,6 +7,7 @@ import {
 import {
   getSubagentManager,
   normalizeSubagentLabel,
+  settleUnsupervisedStatus,
   subagentStateFromRecord,
 } from "../../subagent/index.js";
 import type { SubagentState } from "../../subagent/types.js";
@@ -83,5 +84,15 @@ export function resolveSubagentState(
     return live;
   }
   const record = getSubagentRecordById(subagentId);
-  return record ? subagentStateFromRecord(record) : undefined;
+  if (!record) {
+    return undefined;
+  }
+  // Reaching here means the manager holds no entry, so nothing is executing
+  // this run: report it settled rather than telling the caller to wait for
+  // something that will never finish. A genuinely live subagent cannot get
+  // here, because `spawn()` inserts into the in-memory map before it persists
+  // the row, and the only removal (`dispose()`) aborts a non-terminal child
+  // first.
+  const state = subagentStateFromRecord(record);
+  return { ...state, status: settleUnsupervisedStatus(state.status) };
 }

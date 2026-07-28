@@ -201,10 +201,12 @@ export function getSubagentRecordById(id: string): SubagentRecord | undefined {
  * caller supplies the label already normalized so this layer stays decoupled
  * from the subagent domain's normalization rule.
  *
- * Newest wins, matching the in-memory index, which a parent reusing a label
- * across runs otherwise resolves inconsistently. `label` is unindexed, but the
- * parent predicate is served by `idx_subagents_parent_conversation_id` and one
- * conversation's subagents are few.
+ * Ordered by spawn time, matching the in-memory index, which the manager moves
+ * to the newest subagent to claim the label whatever order the runs finish in.
+ * Ordering by completion instead would resolve two concurrent same-label runs
+ * to the older one whenever the newer finished first. `label` is unindexed, but
+ * the parent predicate is served by `idx_subagents_parent_conversation_id` and
+ * one conversation's subagents are few.
  */
 export function getSubagentRecordByLabel(
   parentConversationId: string,
@@ -214,7 +216,7 @@ export function getSubagentRecordByLabel(
     "subagent:getByLabel",
     `SELECT * FROM subagents
        WHERE parent_conversation_id = ? AND lower(trim(label)) = ?
-       ORDER BY COALESCE(completed_at, created_at) DESC
+       ORDER BY created_at DESC
        LIMIT 1`,
     parentConversationId,
     normalizedLabel,

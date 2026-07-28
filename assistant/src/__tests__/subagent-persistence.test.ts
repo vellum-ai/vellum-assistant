@@ -7,11 +7,17 @@ import { resetTestTables } from "../persistence/raw-query.js";
 import {
   deleteSubagentRecordsByParent,
   getSubagentRecordById,
+  getSubagentRecordByLabel,
   loadAllSubagentRecords,
   type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
-import { SubagentManager } from "../subagent/manager.js";
+import {
+  settleUnsupervisedStatus,
+  SubagentManager,
+  subagentStateFromRecord,
+} from "../subagent/manager.js";
+import { normalizeSubagentLabel } from "../subagent/types.js";
 
 function record(over: Partial<SubagentRecord> = {}): SubagentRecord {
   return {
@@ -98,6 +104,17 @@ describe("subagent-store", () => {
     deleteSubagentRecordsByParent("parent-1");
 
     expect(loadAllSubagentRecords().map((r) => r.id)).toEqual(["s2"]);
+  });
+});
+
+describe("subagentStateFromRecord", () => {
+  test("maps the recorded status verbatim, leaving the settle to the caller", () => {
+    upsertSubagentRecord(record({ id: "active", status: "running" }));
+
+    const rec = loadAllSubagentRecords()[0];
+    expect(subagentStateFromRecord(rec).status).toBe("running");
+    expect(settleUnsupervisedStatus("running")).toBe("interrupted");
+    expect(settleUnsupervisedStatus("completed")).toBe("completed");
   });
 });
 
@@ -201,6 +218,48 @@ describe("SubagentManager.rehydrateFromDb", () => {
     );
     // Both runs stay addressable by id; only the label moved.
     expect(mgr.getState("reused-old")?.status).toBe("completed");
+
+    mgr.disposeAll();
+  });
+
+  test("a label shared by concurrent runs resolves to the last one spawned", () => {
+    // Two live subagents sharing a label: `spawn()` hands the label to the
+    // newest one, so the durable paths have to agree even when the runs finish
+    // out of spawn order. Ordering by completion resolves the label to the
+    // older run here and serves its stale output.
+    upsertSubagentRecord(
+      record({
+        id: "spawned-first",
+        conversationId: "conv-spawned-first",
+        label: "Concurrent worker",
+        status: "completed",
+        createdAt: 1000,
+        completedAt: 5000,
+      }),
+    );
+    upsertSubagentRecord(
+      record({
+        id: "spawned-second",
+        conversationId: "conv-spawned-second",
+        label: "Concurrent worker",
+        status: "completed",
+        createdAt: 2000,
+        completedAt: 3000,
+      }),
+    );
+
+    const mgr = new SubagentManager();
+    mgr.rehydrateFromDb();
+
+    expect(mgr.getByLabel("Concurrent worker", "parent-1")?.config.id).toBe(
+      "spawned-second",
+    );
+    expect(
+      getSubagentRecordByLabel(
+        "parent-1",
+        normalizeSubagentLabel("Concurrent worker"),
+      )?.id,
+    ).toBe("spawned-second");
 
     mgr.disposeAll();
   });

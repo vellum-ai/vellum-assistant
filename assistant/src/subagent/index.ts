@@ -1,5 +1,6 @@
 export {
   mergeSkillIds,
+  settleUnsupervisedStatus,
   SubagentAbortedError,
   subagentStateFromRecord,
 } from "./manager.js";

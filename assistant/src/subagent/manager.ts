@@ -74,15 +74,14 @@ const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
  * rehydration and by the subagent tools' fallback for a record the manager
  * does not hold, so the two cannot drift.
  *
- * An active status is settled to `interrupted`: nothing drives a run the
- * manager has no entry for, and reporting the stale value would leave the
- * caller waiting on a subagent that will never finish. The spawn-time
+ * The recorded status maps through verbatim. What an active status means for a
+ * subagent nothing is executing is a separate decision, made by
+ * {@link settleUnsupervisedStatus} at the call site. The spawn-time
  * `SubagentConfig` fields that are not persisted (context, prompts, trust,
  * profile overrides) are absent, so this shape answers lifecycle questions
  * only.
  */
 export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
-  const recorded = rec.status as SubagentStatus;
   return {
     config: {
       id: rec.id,
@@ -98,7 +97,7 @@ export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
         ? { parentToolUseId: rec.parentToolUseId }
         : {}),
     },
-    status: TERMINAL_STATUSES.has(recorded) ? recorded : "interrupted",
+    status: rec.status as SubagentStatus,
     conversationId: rec.conversationId,
     isFork: rec.isFork,
     ...(rec.error != null ? { error: rec.error } : {}),
@@ -113,9 +112,16 @@ export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
   };
 }
 
-/** Recency key shared with the durable queries' `COALESCE(completed_at, created_at)`. */
-function recordSettledAt(rec: SubagentRecord): number {
-  return rec.completedAt ?? rec.createdAt;
+/**
+ * The status to report for a subagent with no live instance. A subagent the
+ * manager does not hold is not being executed by anything, so an active
+ * recorded status is stale and reads as `interrupted`; a terminal status is the
+ * run's real outcome and passes through untouched.
+ */
+export function settleUnsupervisedStatus(
+  status: SubagentStatus,
+): SubagentStatus {
+  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
 }
 
 // ── Skill ID merge helper ──────────────────────────────────────────────
@@ -1412,9 +1418,10 @@ export class SubagentManager {
     });
     let interrupted = 0;
     const now = Date.now();
-    // Recency of the record currently holding each label. Precedence is decided
-    // here rather than by the order rows arrive in, so a parent that reused a
-    // label keeps resolving to its newest run whatever the query orders by.
+    // Spawn time of the record currently holding each label. Precedence is
+    // decided here rather than by the order rows arrive in, and follows spawn
+    // order to match the live index, which `spawn()` moves to the newest
+    // subagent regardless of what finishes first.
     const labelClaimedAt = new Map<string, number>();
     for (const rec of records) {
       const wasInFlight = !TERMINAL_STATUSES.has(rec.status as SubagentStatus);
@@ -1422,7 +1429,11 @@ export class SubagentManager {
         interrupted++;
       }
 
-      const state = subagentStateFromRecord(rec);
+      const mapped = subagentStateFromRecord(rec);
+      const state: SubagentState = {
+        ...mapped,
+        status: settleUnsupervisedStatus(mapped.status),
+      };
 
       const managed: ManagedSubagent = {
         conversation: null,
@@ -1433,10 +1444,9 @@ export class SubagentManager {
       this.subagents.set(rec.id, managed);
 
       const labelKey = `${rec.parentConversationId}:${normalizeSubagentLabel(rec.label)}`;
-      const settledAt = recordSettledAt(rec);
       const claimedAt = labelClaimedAt.get(labelKey);
-      if (claimedAt === undefined || settledAt > claimedAt) {
-        labelClaimedAt.set(labelKey, settledAt);
+      if (claimedAt === undefined || rec.createdAt > claimedAt) {
+        labelClaimedAt.set(labelKey, rec.createdAt);
         this.labelIndex.set(labelKey, rec.id);
       }
 

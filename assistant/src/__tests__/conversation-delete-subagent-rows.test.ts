@@ -40,6 +40,7 @@ const crud = await import("../persistence/conversation-crud.js");
 const createConversation = crud.createConversation;
 const getConversation = crud.getConversation;
 const realDeleteConversation = crud.deleteConversation;
+const realDeleteConversationGently = crud.deleteConversationGently;
 
 let failNextDelete = false;
 mock.module("../persistence/conversation-crud.js", () => ({
@@ -196,6 +197,30 @@ describe("deleteConversation purges subagent rows transactionally", () => {
 
     expect(getConversation(conv.id)).not.toBeNull();
     expect(getSubagentRecordById("child-purge-failure")).toBeDefined();
+  });
+});
+
+describe("deleteConversationGently purges subagent rows too", () => {
+  beforeEach(() => {
+    migrateCreateSubagentsTable();
+    migrateAddSubagentParentToolUseId(getDb());
+    resetTestTables("subagents");
+  });
+
+  test("the gentle path purges the parent's rows", async () => {
+    // The memory plugin deletes retrospective forks and orphans through this
+    // path. Rows it left behind outlive their parent conversation forever and
+    // are rehydrated on every restart.
+    const conv = createConversation("gentle-parent");
+    const other = createConversation("gentle-unrelated-parent");
+    seedRow("child-gentle", conv.id);
+    seedRow("child-gentle-other", other.id);
+
+    await realDeleteConversationGently(conv.id);
+
+    expect(getConversation(conv.id)).toBeNull();
+    expect(getSubagentRecordById("child-gentle")).toBeUndefined();
+    expect(getSubagentRecordById("child-gentle-other")).toBeDefined();
   });
 });
 
