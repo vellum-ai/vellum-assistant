@@ -230,6 +230,20 @@ describe("onboarding funnel middleware order", () => {
     expect(onboardingIndex).toBeGreaterThanOrEqual(0);
     expect(authIndex).toBeLessThan(onboardingIndex);
   });
+
+  // The paid return lands here on web and Electron. Its markers survive the
+  // consent bounce because `authMiddleware` — which resolves with pathname +
+  // search — is the only guard on the route. Moving it under the onboarding
+  // guard, which resolves with the pathname alone, would drop them and finish
+  // the hatch at the baseline plan.
+  test("guards the research funnel route with the auth middleware alone", () => {
+    const order = middlewareExecutionOrder(
+      "/assistant/onboarding/research?hosting=vellum-cloud&post_checkout=1",
+    );
+
+    expect(order).toContain(authMiddleware);
+    expect(order).not.toContain(onboardingCompletedMiddleware);
+  });
 });
 
 describe("settings route compatibility", () => {
