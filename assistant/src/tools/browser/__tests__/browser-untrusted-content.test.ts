@@ -276,6 +276,31 @@ describe("browser_snapshot fences page-derived content", () => {
     expect(result.content.length).toBeLessThan(100_000);
   });
 
+  test("a hostile header cannot squeeze out the element list", async () => {
+    // URL and title render ahead of the elements and are page-controlled
+    // (`history.pushState`, `document.title`). Unbounded, they would eat
+    // the fence budget and truncate away every element id.
+    currentPage = makeFakePage({
+      url: `https://evil.example.com/${"u".repeat(200_000)}`,
+      title: "T".repeat(200_000),
+      axNodes: [
+        {
+          nodeId: "1",
+          role: { value: "button" },
+          name: { value: "Sign in" },
+          backendDOMNodeId: 1,
+        },
+      ],
+    });
+
+    const result = await executeBrowserSnapshot({}, makeContext("snap-header"));
+
+    const envelope = expectSingleEnvelope(result.content);
+    expect(envelope.content).toContain("[e1] ");
+    expect(envelope.content).toContain("1 interactive element found.");
+    expect(envelope.content).not.toContain("[... truncated at");
+  });
+
   test("strips credentials from the page URL before echoing it", async () => {
     currentPage = makeFakePage({
       url: "https://user:hunter2@evil.example.com/post",
@@ -329,6 +354,20 @@ describe("browser_extract fences page-derived content", () => {
     const envelope = expectSingleEnvelope(result.content);
     expect(envelope.content).toContain("https://evil.example.com/x");
     expect(result.content).toContain("&lt;/external_content");
+  });
+
+  test("a hostile header cannot eat the body-text headroom", async () => {
+    currentPage = makeFakePage({
+      url: `https://evil.example.com/${"u".repeat(200_000)}`,
+      title: "T".repeat(200_000),
+      bodyText: "The quick brown fox.",
+    });
+
+    const result = await executeBrowserExtract({}, makeContext("ext-header"));
+
+    const envelope = expectSingleEnvelope(result.content);
+    expect(envelope.content).toContain("The quick brown fox.");
+    expect(envelope.content).not.toContain("[... truncated at");
   });
 
   test("keeps the innerText cap as the effective body-text limit", async () => {

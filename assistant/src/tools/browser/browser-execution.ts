@@ -111,6 +111,35 @@ const MAX_EXTRACT_FENCE_CHARS = MAX_EXTRACT_LENGTH + 10_000;
 const MAX_SNAPSHOT_FENCE_CHARS = 100_000;
 
 /**
+ * Maximum length of a page-authored URL or title echoed into a tool
+ * result.
+ *
+ * These render ahead of the payload they head, and the page controls both
+ * (`history.pushState` to a megabyte-long URL, a `document.title` of
+ * arbitrary length). Left unbounded, a hostile page could push the header
+ * alone past a tool's fence budget and truncate away the element list or
+ * body text that follows.
+ */
+const MAX_PAGE_HEADER_CHARS = 500;
+
+/** Read the current page URL, credential-stripped and length-bounded. */
+async function readPageUrl(
+  cdp: CdpClient,
+  signal?: AbortSignal,
+): Promise<string> {
+  const url = sanitizeUrlStringForOutput(await getCurrentUrl(cdp, signal));
+  return truncate(url, MAX_PAGE_HEADER_CHARS);
+}
+
+/** Read the current page title, length-bounded. */
+async function readPageTitle(
+  cdp: CdpClient,
+  signal?: AbortSignal,
+): Promise<string> {
+  return truncate(await getPageTitle(cdp, signal), MAX_PAGE_HEADER_CHARS);
+}
+
+/**
  * Fence page-derived text before it reaches the model.
  *
  * Everything a browser tool reads out of a live page — titles, accessible
@@ -1104,8 +1133,11 @@ export async function executeBrowserNavigate(
       // Page may have navigated during evaluate - safe to ignore
     }
 
-    const safeFinalUrl = sanitizeUrlForOutput(new URL(finalUrl));
-    const title = await getPageTitle(cdp, context.signal);
+    const safeFinalUrl = truncate(
+      sanitizeUrlForOutput(new URL(finalUrl)),
+      MAX_PAGE_HEADER_CHARS,
+    );
+    const title = await readPageTitle(cdp, context.signal);
     // The document title is page-authored, so it is fenced separately
     // from the tool's own scaffolding lines.
     const lines: string[] = [
@@ -1170,10 +1202,8 @@ export async function executeBrowserNavigate(
                 "Cloudflare verification detected. Please solve the CAPTCHA in the Chrome window. The browser will automatically detect when you're done and resume.",
               bringToFront: true,
             });
-            const newUrl = sanitizeUrlStringForOutput(
-              await getCurrentUrl(cdp, context.signal),
-            );
-            const newTitle = await getPageTitle(cdp, context.signal);
+            const newUrl = await readPageUrl(cdp, context.signal);
+            const newTitle = await readPageTitle(cdp, context.signal);
             lines.push("");
             lines.push("CAPTCHA solved by user. Current page:");
             lines.push(fencePageContent(`${newTitle} (${newUrl})`, newUrl));
@@ -1296,10 +1326,8 @@ export async function executeBrowserSnapshot(
   const { cdp, browserMode } = acquired;
 
   try {
-    const currentUrl = sanitizeUrlStringForOutput(
-      await getCurrentUrl(cdp, context.signal),
-    );
-    const title = await getPageTitle(cdp, context.signal);
+    const currentUrl = await readPageUrl(cdp, context.signal);
+    const title = await readPageTitle(cdp, context.signal);
 
     // Pull the full accessibility tree via CDP and fold it into typed
     // interactive elements + an `eid → backendNodeId` map. Interaction
@@ -2221,10 +2249,8 @@ export async function executeBrowserExtract(
   }
   const cdp = acquired.cdp;
   try {
-    const currentUrl = sanitizeUrlStringForOutput(
-      await getCurrentUrl(cdp, context.signal),
-    );
-    const title = await getPageTitle(cdp, context.signal);
+    const currentUrl = await readPageUrl(cdp, context.signal);
+    const title = await readPageTitle(cdp, context.signal);
 
     let textContent = await evaluateExpression<string>(
       cdp,
