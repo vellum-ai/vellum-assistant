@@ -35,6 +35,13 @@ import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as platformGateMod from "@/hooks/use-platform-gate";
 import * as toastMod from "@vellumai/design-library/components/toast";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+} from "@/lib/billing/takeover-avatar-stash";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
@@ -516,14 +523,18 @@ function renderInteractive(
     organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
     onboardingData,
   );
-  return render(
-    <MemoryRouter initialEntries={["/assistant/plans"]}>
-      <QueryClientProvider client={client}>
-        <PlansPage />
-      </QueryClientProvider>
-      <LocationProbe />
-    </MemoryRouter>,
-  );
+  return {
+    // Exposed so the checkout test can seed the avatar cache the stash reads.
+    client,
+    ...render(
+      <MemoryRouter initialEntries={["/assistant/plans"]}>
+        <QueryClientProvider client={client}>
+          <PlansPage />
+        </QueryClientProvider>
+        <LocationProbe />
+      </MemoryRouter>,
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -547,6 +558,13 @@ beforeEach(() => {
   onboardingFixture = null;
   toastSuccessCalls.length = 0;
   takeoverResizeCredits = undefined;
+  // The stash and the assistants store are module-level globals, so reset both.
+  clearTakeoverAvatarStash();
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -686,7 +704,18 @@ describe("PlansPage — Pro package switch (change-package)", () => {
   });
 
   test("base user CTA starts Stripe checkout, not change-package", async () => {
-    const { findByRole } = renderInteractive(freeSubscription());
+    const { client, findByRole } = renderInteractive(freeSubscription());
+    // Capture only stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistantsHydrated: true,
+    });
+    client.setQueryData([...avatarQueryKey("a1"), true], {
+      components: BUNDLED_COMPONENTS,
+      traits: null,
+      customImageUrl: null,
+    });
 
     fireEvent.click(await findByRole("button", { name: "Go Super" }));
 
@@ -698,6 +727,8 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     });
     await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
     expect(changePackageCall).toBeNull();
+    // The redirect snapshots the avatar so the takeover can draw it on return.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("the confirm CTA is disabled while a switch is pending", async () => {

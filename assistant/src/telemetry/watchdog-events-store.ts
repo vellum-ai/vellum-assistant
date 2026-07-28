@@ -17,10 +17,13 @@ export interface WatchdogEventRecord {
 /**
  * Record a `watchdog` telemetry event for a watchdog check firing, enqueued
  * on the `telemetry_events` outbox. Consent gating and degraded-mode behavior
- * are `recordTelemetryEvent`'s.
+ * are `recordTelemetryEvent`'s, as is the return value: the queued outbox
+ * row, or null when the event was dropped (opt-out) or could not be stored.
  */
-export function recordWatchdogEvent(record: WatchdogEventRecord): void {
-  recordTelemetryEvent("watchdog", {
+export function recordWatchdogEvent(
+  record: WatchdogEventRecord,
+): { id: string; createdAt: number } | null {
+  return recordTelemetryEvent("watchdog", {
     check_name: record.checkName,
     value: record.value ?? null,
     detail: record.detail ?? null,

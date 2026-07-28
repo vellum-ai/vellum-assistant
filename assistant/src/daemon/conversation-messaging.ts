@@ -48,6 +48,7 @@ import {
   extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
+  isHiddenMessageMetadata,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -629,6 +630,26 @@ export function enqueueMessage(
       category: "queue_full",
     });
     return { queued: false, requestId, rejected: true };
+  }
+  // Ack the accepted enqueue on the sender's event sink. Emitting here,
+  // rather than at each ingress call site, is what guarantees every path
+  // that queues (HTTP send, surface actions, agent wake, subagent
+  // notifications) surfaces the queued row live. Hidden sends are
+  // suppressed from the transcript at every stage, including this ack,
+  // and `position` counts visible items only: both mirror the
+  // list-messages queued-snapshot filter so a live ack and a cold reload
+  // render the same row at the same position.
+  if (!isHiddenMessageMetadata(metadata)) {
+    const position = ctx.queue
+      .snapshot()
+      .filter((item) => !isHiddenMessageMetadata(item.metadata)).length;
+    onEvent?.({
+      type: "message_queued",
+      conversationId: ctx.conversationId,
+      requestId,
+      position,
+      ...(clientMessageId ? { clientMessageId } : {}),
+    });
   }
   return { queued: true, requestId };
 }

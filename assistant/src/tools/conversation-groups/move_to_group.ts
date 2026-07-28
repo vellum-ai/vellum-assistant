@@ -93,16 +93,9 @@ export async function executeConversationMoveToGroup(
       `Moving into ${group.name} demotes it out of the Recents listing.`,
     );
   }
-  if (conversation.source === "subagent") {
+  if (conversation.conversationType !== "standard") {
     notes.push(
-      "Note: subagent conversations stay hidden from the sidebar regardless of group.",
-    );
-  } else if (
-    conversation.conversationType !== "standard" &&
-    group.isSystemGroup
-  ) {
-    notes.push(
-      `Note: this is a ${conversation.conversationType} conversation; it stays out of the standard listing unless filed into a custom group.`,
+      `Note: this is a ${conversation.conversationType} conversation, which stays hidden from the sidebar regardless of group.`,
     );
   }
 
