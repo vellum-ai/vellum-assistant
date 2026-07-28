@@ -34,9 +34,14 @@ export const repairStaleFireworksKimiModelIdMigration: WorkspaceMigration = {
       return;
     }
 
+    // Read outside the parse catch: a transient filesystem error (EIO,
+    // EACCES) must reach the runner so the migration retries, while
+    // malformed JSON is a permanent state this migration cannot repair.
+    const rawText = readFileSync(configPath, "utf-8");
+
     let config: Record<string, unknown>;
     try {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+      const raw = JSON.parse(rawText);
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
         return;
       }
@@ -80,6 +85,9 @@ export const repairStaleFireworksKimiModelIdMigration: WorkspaceMigration = {
     writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n");
     renameSync(tmpPath, configPath);
   },
+  // The exact-match rewrite is idempotent, so a transient failure (full
+  // disk, I/O error) is safe to retry on later startups.
+  retryFailedCheckpoint: true,
   down(_workspaceDir: string): void {
     // Forward-only: reintroducing the stale model ID would break Fireworks
     // calls.
