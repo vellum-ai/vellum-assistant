@@ -109,7 +109,7 @@ Script commands run with the workspace root as the working directory. The assist
 Resolve the location with `assistant skills inspect <id> --json` and use the `directoryPath` it returns. Do not assume a layout: skills come from several sources and their roots differ, so a hardcoded path works for some skills and fails at fire time for others. Read the path once, when authoring the schedule, and bake the resolved absolute path into the command:
 
 ```sh
-# assistant skills inspect my-skill --json  ->  .directoryPath
+# assistant skills inspect my-skill --json | jq -r .skill.directoryPath
 cd "<directoryPath>" && python3 scripts/<file>.py
 ```
 
