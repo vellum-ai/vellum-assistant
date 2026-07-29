@@ -35,7 +35,18 @@ export function attachSurface(
     targetIdx = findAssistantRowIndexByMessageId(prev, messageId);
   }
   if (targetIdx === -1) {
-    for (let i = prev.length - 1; i >= 0; i--) {
+    // Positional fallback for the surface events that carry no `messageId`.
+    // Scan back only as far as the newest non-queued user row: a surface
+    // belongs to the turn that emitted it, and a turn that has not opened an
+    // assistant row yet (a wake/scheduled surface, a background dispatch) must
+    // open one rather than fold the surface into the PREVIOUS turn's bubble —
+    // which sits above the user's newest message and is never where the server
+    // places it when the turn is persisted and replayed.
+    const turnStartIdx =
+      prev.findLastIndex(
+        (m) => m.role === "user" && m.queueStatus !== "queued",
+      ) + 1;
+    for (let i = prev.length - 1; i >= turnStartIdx; i--) {
       if (prev[i]?.role === "assistant") {
         targetIdx = i;
         break;

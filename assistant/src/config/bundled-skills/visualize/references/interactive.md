@@ -94,6 +94,7 @@ For before and after, option A against option B, with and without. There is no s
 ```css
 .col {
   background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 12px;
 }

@@ -757,6 +757,52 @@ describe("attachSurface", () => {
     expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
   });
 
+  it("opens a row in the current turn instead of folding into the previous turn's bubble", () => {
+    /**
+     * A surface event that carries no `messageId` resolves positionally. The
+     * scan must stop at the newest user row: a turn that has not opened an
+     * assistant row yet (a wake/scheduled surface, a background dispatch)
+     * would otherwise attach the surface to the PREVIOUS turn's bubble — which
+     * renders above the user's newest message, nowhere near where the server
+     * places it once the turn is persisted and replayed.
+     */
+
+    // GIVEN a settled previous turn followed by a fresh user message
+    const previousTurn = makeAssistantMsg({ id: "prev-assistant" });
+    const newUser = { id: "u-2", role: "user" as const };
+
+    // WHEN a surface with no messageId arrives before the turn opens a bubble
+    const result = attachSurface(
+      [userMsg, previousTurn, newUser],
+      surface,
+      undefined,
+      1234,
+    );
+
+    // THEN it opens a new assistant row at the tail, leaving history untouched
+    expect(result).toHaveLength(4);
+    expect(result[1]!.surfaces).toBeUndefined();
+    expect(result[3]!.role).toBe("assistant");
+    expect(result[3]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
+  it("still folds into the current turn's assistant row across a queued user message", () => {
+    // A message queued mid-turn must not sever the in-flight assistant row
+    // from the surface its own turn is emitting.
+    const liveRow = makeAssistantMsg({ id: "live-1" });
+    const queued = {
+      id: "u-queued",
+      role: "user" as const,
+      queueStatus: "queued" as const,
+    };
+
+    const result = attachSurface([userMsg, liveRow, queued], surface);
+
+    expect(result).toHaveLength(3);
+    expect(result[1]!.id).toBe("live-1");
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
   it("is a no-op when the surface is already attached to the target message", () => {
     const target = makeAssistantMsg({
       id: "anchor-1",

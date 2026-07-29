@@ -44,14 +44,14 @@ Initials circles use a matched ramp pair (light fill, 900 text). Keep the label 
 
 ## Metric tiles
 
-Summary numbers sit in sunken tiles, not raised cards — the distinction is what keeps a dashboard readable.
+Summary numbers sit in sunken tiles, not raised cards — the distinction is what keeps a dashboard readable. The hairline is not optional: --surface-sunken matches the page background in light mode, so a borderless tile disappears there.
 
 ```html
 <div
   style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px"
 >
   <div
-    style="background:var(--surface-sunken);border-radius:var(--radius-md);padding:1rem"
+    style="background:var(--surface-sunken);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:1rem"
   >
     <p style="margin:0 0 4px;font-size:13px;color:var(--content-secondary)">
       Active users
@@ -120,7 +120,7 @@ Drop the border on the last row. List rows do not get their own card; the list a
 }
 ```
 
-Every field has a real label element tied to the input by id. Stack fields with 1rem between them. Mark required fields with the word required in --content-tertiary, not an asterisk. A mockup form is a picture: give the submit button a sendPrompt handler or no handler at all, never a fake success state.
+Every field has a real label element tied to the input by id. Stack fields with 1rem between them. Mark required fields with the word required in --content-secondary, not an asterisk. A mockup form is a picture: give the submit button a sendPrompt handler or no handler at all, never a fake success state.
 
 ## Faux viewport
 
@@ -128,7 +128,7 @@ Modals, mobile screens, and overlays cannot use position:fixed — the frame hei
 
 ```html
 <div
-  style="min-height:360px;border-radius:var(--radius-lg);background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;padding:1.5rem"
+  style="min-height:360px;border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;padding:1.5rem"
 >
   <div
     style="width:320px;background:var(--surface-lift);border:1px solid var(--border-base);border-radius:var(--radius-lg);padding:1.25rem"

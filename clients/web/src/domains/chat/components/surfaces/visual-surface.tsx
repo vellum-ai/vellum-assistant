@@ -5,8 +5,8 @@ import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import type { Surface } from "@/domains/chat/types/types";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
 import { useWidgetFontCss } from "@/hooks/use-widget-font-css";
+import { useWidgetTokenStyle } from "@/hooks/use-widget-token-style";
 import { injectWidgetBridge } from "@/utils/sandbox-bridge";
-import { buildWidgetStyle } from "@/utils/widget-tokens";
 
 interface VisualSurfaceData {
   html?: string;
@@ -23,12 +23,12 @@ function clampHeight(height: number): number {
   return Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.round(height)));
 }
 
-/** Stable 32-bit hash of the widget HTML, used to remount the iframe when the
- *  assistant re-renders a visual with different content. */
-function hashHtml(html: string): number {
+/** Stable 32-bit hash of a string, used to remount the iframe when the document
+ *  it renders changes. */
+function hashString(value: string): number {
   let hash = 0;
-  for (let i = 0; i < html.length; i++) {
-    hash = ((hash << 5) - hash + html.charCodeAt(i)) | 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
   }
   return hash;
 }
@@ -53,22 +53,25 @@ export function VisualSurface({ surface }: { surface: Surface }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const theme = useDocumentTheme();
   const fontCss = useWidgetFontCss();
+  // Resolved off the live document, and re-probed until the host's stylesheet
+  // has applied — a token-less snapshot would render an unthemed widget.
+  const tokenStyle = useWidgetTokenStyle(theme);
 
   const data = surface.data as VisualSurfaceData | undefined;
   const html = typeof data?.html === "string" ? data.html : "";
   const frameId = surface.surfaceId;
 
-  // The iframe is keyed on everything baked into `srcdoc`: React reuses an
-  // iframe element across `srcDoc` changes, and a reused frame keeps the old
-  // document's scroll and script state.
-  const iframeKey = `visual-${frameId}-${hashHtml(html)}-${theme}-${fontCss.length}`;
-
-  // The token values are resolved off the live document, so `theme` is both an
-  // input to the snapshot and the signal that it is stale.
   const srcDoc = useMemo(
-    () => injectWidgetBridge(html, frameId, buildWidgetStyle(theme) + fontCss),
-    [html, frameId, fontCss, theme],
+    () => injectWidgetBridge(html, frameId, tokenStyle + fontCss),
+    [html, frameId, fontCss, tokenStyle],
   );
+
+  // Keyed on the exact document the frame renders, so every input baked into
+  // `srcdoc` (markup, theme tokens, inlined fonts) remounts it. React reuses an
+  // iframe element across `srcDoc` changes, and a reused frame keeps the old
+  // document's scroll and script state — hashing the document itself is what
+  // makes "srcdoc changed" and "frame remounted" the same event.
+  const iframeKey = `visual-${frameId}-${hashString(srcDoc)}`;
 
   const initialHeight = clampHeight(
     typeof data?.height === "number" && Number.isFinite(data.height)

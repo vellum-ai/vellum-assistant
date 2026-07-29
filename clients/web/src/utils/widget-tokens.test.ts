@@ -266,22 +266,38 @@ describe("buildWidgetStyleTag", () => {
 describe("buildWidgetStyle", () => {
   test("snapshots the live document in one step", () => {
     applyTokens(":root{--content-quiet:#8d99a5;}");
-    expect(buildWidgetStyle("dark")).toContain("--content-quiet:#8d99a5;");
+    expect(buildWidgetStyle("dark").style).toContain(
+      "--content-quiet:#8d99a5;",
+    );
     // Every non-light theme (velvet included) declares the dark scheme.
-    expect(buildWidgetStyle("velvet")).toContain("color-scheme:dark");
-    expect(buildWidgetStyle("light")).toContain("color-scheme:light");
+    expect(buildWidgetStyle("velvet").style).toContain("color-scheme:dark");
+    expect(buildWidgetStyle("light").style).toContain("color-scheme:light");
   });
 
   test("mirrors the ramps for dark-family themes and passes them through for light", () => {
     applyIdentifiableTokens();
 
-    expect(buildWidgetStyle("light")).toContain(
+    expect(buildWidgetStyle("light").style).toContain(
       "--color-forest-100:value-for--color-forest-100;",
     );
     for (const theme of ["dark", "velvet"]) {
-      expect(buildWidgetStyle(theme)).toContain(
+      expect(buildWidgetStyle(theme).style).toContain(
         "--color-forest-100:value-for--color-forest-950;",
       );
     }
+  });
+
+  test("reports whether the host resolved any token", () => {
+    // GIVEN a document whose stylesheet has not applied yet, every token
+    // resolves to the empty string and the snapshot carries no values.
+    const unresolved = buildWidgetStyle("light");
+    expect(unresolved.resolved).toBe(false);
+    expect(unresolved.style).toContain(":root{color-scheme:light;}");
+
+    // WHEN the host's tokens land, the same read reports resolved.
+    applyTokens(":root{--content-default:#24292e;}");
+    const resolved = buildWidgetStyle("light");
+    expect(resolved.resolved).toBe(true);
+    expect(resolved.style).toContain("--content-default:#24292e;");
   });
 });

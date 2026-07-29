@@ -104,7 +104,8 @@ Two families, both theme-aware, but adapting in different ways. Knowing the diff
 Use these for every surface, every piece of body text, every border, and every status colour.
 
 - Surfaces: --surface-base (chat page), --surface-lift (raised card), --surface-overlay (popover), --surface-sunken (recessed panel or metric tile), --surface-hover, --surface-active.
-- Text, strongest to faintest: --content-emphasised, --content-strong (emphasised), --content-default (body), --content-secondary (labels), --content-tertiary (hints, axis labels), --content-quiet (faintest still readable), --content-faint (decorative, below the readable floor), --content-disabled, --content-inset (on an inverted fill).
+- Text, strongest to faintest: --content-emphasised, --content-strong (emphasised), --content-default (body), --content-secondary (labels, and any text under 14px), --content-tertiary (hints, at 14px and larger only), --content-quiet (faintest still readable), --content-faint (decorative, below the readable floor), --content-disabled, --content-inset (on an inverted fill).
+- --content-tertiary and fainter are size-gated: in light mode they land between 3.7 and 4.1 to 1 against the page, which fails AA below 14px. Every label at 11, 12, or 13px — table headers, axis ticks, tile captions, legends, the word required — takes --content-secondary or stronger.
 - Borders: --border-base (hairline default), --border-subtle, --border-element (visible control border), --border-hover, --border-active, --border-disabled.
 - Status, each a strong foreground paired with a weak tinted background: --system-positive-strong / -weak, --system-negative-strong / -weak (plus --system-negative-hover), --system-mid-strong / -weak (warning), --system-info-strong / -weak.
 - Type: --font-sans (DM Sans, the default), --font-mono (DM Mono), --font-serif (Instrument Serif — editorial pull-quote moments only, never UI chrome).
@@ -149,6 +150,7 @@ Never hardcode a colour for text, background, border, or SVG fill or stroke. Eve
 
 - Default: 14px, weight 400, line-height 1.6, --font-sans.
 - Sizes: 18px section label, 15px item title, 14px body, 12px secondary, 11px floor. No others.
+- Below 14px the colour floor rises with the size: 11px to 13px text takes --content-secondary or stronger, never --content-tertiary or fainter.
 - Weights: 400 and 500 only. Never 600 or 700 — they read heavy against the host UI.
 - Sentence case everywhere, including SVG labels and table headers. Never Title Case, never ALL CAPS.
 - Identifiers, column names, code, and tabular numbers go in --font-mono. Mono is for those alone — never a sentence, a label, a whole card, or a whole panel.
@@ -158,7 +160,7 @@ Never hardcode a colour for text, background, border, or SVG fill or stroke. Eve
 
 - Borders: 1px solid var(--border-base); use --border-element when the edge must stay visible against a lift surface.
 - Card: background var(--surface-lift), 1px border, border-radius var(--radius-lg), padding 1rem 1.25rem.
-- Tile (metric, stat): background var(--surface-sunken), no border, border-radius var(--radius-md), padding 1rem.
+- Tile (metric, stat): background var(--surface-sunken), 1px solid var(--border-subtle), border-radius var(--radius-md), padding 1rem. --surface-sunken equals the page background in light mode, so a borderless tile dissolves there and only reads in dark — anything sunken sitting directly on the page needs the hairline to hold its edge. A card on --surface-lift is already lifted off the page and keeps the guidance above.
 - Controls: buttons and pills take var(--radius-pill) or var(--radius-sm) — pick one and use it for every control in the visual. Inputs and panels take var(--radius-sm) or var(--radius-md).
 - Never round a single-sided border. A border-left accent gets border-radius 0.
 - Vertical rhythm in rem (0.5, 1, 1.5, 2). Internal gaps in px (8, 12, 16).
@@ -270,7 +272,7 @@ Tables. A static table is better as markdown in your reply. A table belongs in a
 
 ```css
 table.d{width:100%;border-collapse:collapse;font:400 12px var(--font-mono);table-layout:fixed}
-table.d th{text-align:left;font-weight:500;font-size:11px;color:var(--content-tertiary);padding:5px 8px;border-bottom:1px solid var(--border-base)}
+table.d th{text-align:left;font-weight:500;font-size:11px;color:var(--content-secondary);padding:5px 8px;border-bottom:1px solid var(--border-base)}
 table.d td{padding:5px 8px;color:var(--content-default);border-bottom:1px solid var(--border-base);overflow:hidden;text-overflow:ellipsis}
 ```
 
@@ -278,7 +280,7 @@ table-layout:fixed plus overflow hidden is what keeps a wide table inside 680px.
 
 Layout
 - Grids: repeat(auto-fit, minmax(160px, 1fr)) with gap 12px. Use minmax(0, 1fr) rather than 1fr for explicit columns, otherwise a wide child pushes the column past the container.
-- Panel: background var(--surface-sunken), border-radius var(--radius-lg), padding 1rem 1.25rem.
+- Panel: background var(--surface-sunken), 1px solid var(--border-subtle), border-radius var(--radius-lg), padding 1rem 1.25rem — the same hairline a tile needs, for the same reason.
 - Keep the whole thing on one screen. If it needs scrolling it is two visuals.
 
 ## When nothing fits

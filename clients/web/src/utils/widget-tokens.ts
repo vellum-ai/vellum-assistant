@@ -216,8 +216,29 @@ export function buildWidgetStyleTag(
   return `<style>:root{color-scheme:${colorScheme};${declarations}}${WIDGET_BASE_STYLES}</style>`;
 }
 
+/** A token snapshot serialized for injection, plus whether it carries values. */
+export interface WidgetStyleSnapshot {
+  /** The `<style>` block to prepend to the widget document. */
+  style: string;
+  /**
+   * Whether the host resolved any token. `false` means the document carried no
+   * values at read time — the app's stylesheet had not applied yet — so the
+   * style block declares only `color-scheme` and every `var(--…)` inside the
+   * widget would resolve to its guaranteed-invalid fallback. Callers must
+   * re-read rather than bake an unresolved snapshot into a widget.
+   */
+  resolved: boolean;
+}
+
 /** Snapshot the host's tokens for `theme` and serialize them in one step. */
-export function buildWidgetStyle(theme: string, root?: Element | null): string {
+export function buildWidgetStyle(
+  theme: string,
+  root?: Element | null,
+): WidgetStyleSnapshot {
   const colorScheme = colorSchemeForTheme(theme);
-  return buildWidgetStyleTag(readWidgetTokens(root, colorScheme), colorScheme);
+  const tokens = readWidgetTokens(root, colorScheme);
+  return {
+    style: buildWidgetStyleTag(tokens, colorScheme),
+    resolved: Object.keys(tokens).length > 0,
+  };
 }
