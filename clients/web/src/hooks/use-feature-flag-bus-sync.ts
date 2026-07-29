@@ -4,13 +4,13 @@
  * Invalidates client and assistant flag TanStack Query caches on:
  * - `sync_changed` events carrying `featureFlagsClient` or
  *   `featureFlagsAssistant` tags
- * - `sse.opened` reconnects (non-fresh) to catch flag changes
- *   missed during the transport gap
+ * - the initial `sse.opened` to catch client flag changes before the stream
+ *   established, plus reconnects to catch changes during transport gaps
  *
  * Client-flag signals are limited to one refresh per 30 seconds with one
  * trailing refresh. A signal that races an active fetch queues one serialized
- * follow-up after it settles, preserving correctness without overlapping
- * requests.
+ * follow-up after success. Failure schedules one cadence-bound trailing
+ * attempt, preserving correctness without overlapping requests.
  *
  * References:
  * - EVENT_BUS.md — bus subscription contract
@@ -34,8 +34,8 @@ const CLIENT_FLAG_REFRESH_MIN_INTERVAL_MS = 30_000;
  * Handles two bus channels:
  * - `sse.event` — routes `featureFlagsClient` and `featureFlagsAssistant`
  *   tags from `sync_changed` events
- * - `sse.opened` — re-invalidates both flag queries on reconnect so
- *   caches re-converge with the daemon
+ * - `sse.opened` — catches up client flags when the stream first establishes
+ *   and re-invalidates both flag queries on reconnect
  */
 export function useFeatureFlagBusSync(
   assistantId: string | null,
@@ -95,14 +95,21 @@ export function useFeatureFlagBusSync(
           }
           refresh();
         };
-        const clearQueuedRefreshAfterFailure = () => {
-          if (generation === clientRefreshGenerationRef.current) {
-            clientRefreshQueuedAfterFetchRef.current = false;
+        const scheduleRefreshAfterFailure = () => {
+          if (generation !== clientRefreshGenerationRef.current) {
+            return;
+          }
+          clientRefreshQueuedAfterFetchRef.current = false;
+          if (!clientRefreshTimerRef.current) {
+            clientRefreshTimerRef.current = setTimeout(
+              refresh,
+              CLIENT_FLAG_REFRESH_MIN_INTERVAL_MS,
+            );
           }
         };
         void invalidation.then(
           refreshAfterSuccess,
-          clearQueuedRefreshAfterFailure,
+          scheduleRefreshAfterFailure,
         );
       }
     };
@@ -155,10 +162,10 @@ export function useFeatureFlagBusSync(
     if (!assistantId || !isAssistantActive) {
       return;
     }
+    invalidateClientFlags();
     if (cause === "fresh") {
       return;
     }
-    invalidateClientFlags();
     void queryClient.invalidateQueries({
       queryKey: assistantFeatureFlagsGetQueryKey({
         path: { assistant_id: assistantId },
