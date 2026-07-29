@@ -126,8 +126,8 @@ export interface ProProvisioningResult {
   machineFloor: MachineSizeEnum | null;
   /**
    * Per-dimension provisioning progress: a dimension has landed once what the
-   * takeover displays for it is met, its own resize is no longer in flight, and
-   * a status fetch that started after that dimension read met has come back.
+   * takeover displays for it is met, it has no resize in flight, and a status
+   * fetch that started after that dimension read met has come back.
    * The machine dimension is measured against the size it is headed for (the
    * purchased size, or `machineFloor` for a machine-less package) in the
    * direction it is moving, because the purchased targets only ever grow and a
