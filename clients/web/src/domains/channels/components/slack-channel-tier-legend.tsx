@@ -67,7 +67,7 @@ export function SlackChannelTierLegend({
         variant="body-small-default"
         className="text-[color:var(--content-tertiary)]"
       >
-        Applies to other people in the channel — your own requests use your
+        Applies to other people in the channel. Your own requests use your
         global Assistant Access.
       </Typography>
       <ul className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
