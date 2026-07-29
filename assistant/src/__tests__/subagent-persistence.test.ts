@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getDb } from "../persistence/db-connection.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
@@ -12,12 +12,18 @@ import {
   type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
+import { getSubagentManager } from "../subagent/index.js";
 import {
   settleUnsupervisedStatus,
   SubagentManager,
   subagentStateFromRecord,
 } from "../subagent/manager.js";
-import { normalizeSubagentLabel } from "../subagent/types.js";
+import {
+  normalizeSubagentLabel,
+  type SubagentState,
+} from "../subagent/types.js";
+import { resolveSubagentId } from "../tools/subagent/resolve.js";
+import type { ToolContext } from "../tools/types.js";
 
 function record(over: Partial<SubagentRecord> = {}): SubagentRecord {
   return {
@@ -381,5 +387,146 @@ describe("SubagentManager.rehydrateFromDb", () => {
     }
 
     mgr.disposeAll();
+  });
+});
+
+/** The manager internals a label lookup reads. */
+interface LabelLookupInternals {
+  subagents: Map<
+    string,
+    {
+      conversation: null;
+      state: SubagentState;
+      parentSendToClient: () => void;
+    }
+  >;
+  parentToChildren: Map<string, Set<string>>;
+  labelIndex: Map<string, string>;
+}
+
+/** Ids injected into the shared manager, torn down after each test. */
+const heldIds: string[] = [];
+
+/**
+ * Put a record's state into the shared manager under its label, the shape a
+ * subagent has once its conversation is released: metadata only, no live run.
+ */
+function holdInMemory(rec: SubagentRecord): void {
+  const internals = getSubagentManager() as unknown as LabelLookupInternals;
+  internals.subagents.set(rec.id, {
+    conversation: null,
+    state: subagentStateFromRecord(rec),
+    parentSendToClient: () => {},
+  });
+  internals.labelIndex.set(
+    `${rec.parentConversationId}:${normalizeSubagentLabel(rec.label)}`,
+    rec.id,
+  );
+  if (!internals.parentToChildren.has(rec.parentConversationId)) {
+    internals.parentToChildren.set(rec.parentConversationId, new Set());
+  }
+  internals.parentToChildren.get(rec.parentConversationId)!.add(rec.id);
+  heldIds.push(rec.id);
+}
+
+function toolContext(conversationId: string): ToolContext {
+  return { conversationId, workingDir: "/tmp", trustClass: "guardian" };
+}
+
+afterEach(() => {
+  const mgr = getSubagentManager();
+  for (const id of heldIds.splice(0)) {
+    mgr.dispose(id);
+  }
+});
+
+describe("resolveSubagentId by label", () => {
+  test("prefers the newer spawn that only the durable rows still hold", () => {
+    // Which runs the manager holds is decided by completion time and by the
+    // startup rehydration bound, so an older spawn can be the one left in
+    // memory under the label while the newer spawn survives only as a row.
+    const spawnedFirst = record({
+      id: "spawned-first",
+      conversationId: "conv-spawned-first",
+      label: "Shared worker",
+      status: "completed",
+      createdAt: 1000,
+      completedAt: 5000,
+    });
+    const spawnedSecond = record({
+      id: "spawned-second",
+      conversationId: "conv-spawned-second",
+      label: "Shared worker",
+      status: "completed",
+      createdAt: 2000,
+      completedAt: 3000,
+    });
+    upsertSubagentRecord(spawnedFirst);
+    upsertSubagentRecord(spawnedSecond);
+    holdInMemory(spawnedFirst);
+
+    expect(
+      resolveSubagentId({ label: "Shared worker" }, toolContext("parent-1")),
+    ).toBe("spawned-second");
+  });
+
+  test("resolves a run held by both sources to that one run", () => {
+    const both = record({
+      id: "same-run",
+      conversationId: "conv-same-run",
+      label: "Solo worker",
+      status: "completed",
+      createdAt: 1000,
+      completedAt: 2000,
+    });
+    upsertSubagentRecord(both);
+    holdInMemory(both);
+
+    expect(
+      resolveSubagentId({ label: "Solo worker" }, toolContext("parent-1")),
+    ).toBe("same-run");
+  });
+
+  test("resolves a live label with no durable row yet", () => {
+    const fresh = record({
+      id: "just-spawned",
+      conversationId: "conv-just-spawned",
+      label: "Fresh worker",
+      status: "running",
+      createdAt: 9000,
+    });
+    holdInMemory(fresh);
+
+    expect(
+      resolveSubagentId({ label: "Fresh worker" }, toolContext("parent-1")),
+    ).toBe("just-spawned");
+  });
+
+  test("breaks a same-millisecond spawn tie toward the live run", () => {
+    // A row carries no spawn sequence, so the live index is the only side that
+    // can still tell which of two same-tick spawns claimed the label.
+    const live = record({
+      id: "tie-live",
+      conversationId: "conv-tie-live",
+      label: "Tied worker",
+      status: "completed",
+      createdAt: 1000,
+      completedAt: 5000,
+    });
+    const row = record({
+      id: "tie-row",
+      conversationId: "conv-tie-row",
+      label: "Tied worker",
+      status: "completed",
+      createdAt: 1000,
+      completedAt: 3000,
+    });
+    upsertSubagentRecord(live);
+    upsertSubagentRecord(row);
+    holdInMemory(live);
+
+    expect(
+      resolveSubagentId({ label: "Tied worker" }, toolContext("parent-1")),
+    ).toBe("tie-live");
   });
 });

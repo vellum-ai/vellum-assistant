@@ -43,21 +43,31 @@ export function resolveSubagentId(
     return input.subagent_id;
   }
   if (input.label) {
-    const state = getSubagentManager().getByLabel(
+    // A label names the newest spawn that claimed it. Which runs the manager
+    // still holds is decided by completion time (the TTL sweep) and by the
+    // startup rehydration bound, neither of which follows spawn order, so the
+    // index can hold an older run while the newer one survives only as a row.
+    // Consult both and compare spawn times rather than trusting either alone.
+    // The durable lookup is scoped to the calling conversation, so a label can
+    // only name that conversation's own children.
+    const live = getSubagentManager().getByLabel(
       input.label,
       context.conversationId,
     );
-    if (state) {
-      return state.config.id;
-    }
-    // The manager's label index covers only the subagents it holds, so a label
-    // whose run was swept or left outside the startup rehydration bound falls
-    // through to the durable rows, newest first like the index itself. Scoped
-    // to the calling conversation, so it can only name its own children.
-    return getSubagentRecordByLabel(
+    const record = getSubagentRecordByLabel(
       context.conversationId,
       normalizeSubagentLabel(input.label),
-    )?.id;
+    );
+    if (!live) {
+      return record?.id;
+    }
+    if (!record || record.id === live.config.id) {
+      return live.config.id;
+    }
+    // A row carries no spawn sequence, so a same-millisecond tie goes to the
+    // live entry, whose index already resolved last-spawn-wins among the runs
+    // it holds.
+    return record.createdAt > live.createdAt ? record.id : live.config.id;
   }
   return undefined;
 }
