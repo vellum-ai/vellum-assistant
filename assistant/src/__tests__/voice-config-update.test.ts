@@ -576,6 +576,87 @@ describe("voice_config_update — stt_provider", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests: stt_language
+// ---------------------------------------------------------------------------
+
+describe("voice_config_update — stt_language", () => {
+  test("persists a curated code to services.stt.language", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "hi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("hi");
+  });
+
+  test("normalizes a language-name alias (case-insensitive, trimmed)", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "  Hindi " },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("hi");
+  });
+
+  test("normalizes multilingual to multi", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "multilingual" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("multi");
+  });
+
+  test("accepts multi directly", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "multi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("multi");
+  });
+
+  test("rejects an unknown language with the accepted set and writes nothing", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "klingon" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("stt_language must be one of");
+    expect(result.content).toContain("multi");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("rejects a non-string value and writes nothing", async () => {
+    const result = await run(
+      { setting: "stt_language", value: 42 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("stt_language must be one of");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("does not broadcast stt_language changes to the desktop client", async () => {
+    const messages: any[] = [];
+    const ctx = makeContext({
+      sendToClient: (msg: any) => messages.push(msg),
+    });
+
+    const result = await run({ setting: "stt_language", value: "fr" }, ctx);
+
+    expect(result.isError).toBe(false);
+    expect(messages).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: catalog-driven provider validation
 // ---------------------------------------------------------------------------
 
