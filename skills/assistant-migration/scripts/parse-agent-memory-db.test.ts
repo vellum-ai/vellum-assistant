@@ -4,7 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { extractMemoryDb, isSecretName } from "./parse-agent-memory-db.js";
+import {
+  extractMemoryDb,
+  isSecretName,
+  redactSecretValues,
+} from "./parse-agent-memory-db.js";
 import {
   createItemsJsonStreamWriter,
   type MemoryImportItem,
@@ -70,6 +74,12 @@ beforeAll(() => {
   db.exec(
     "INSERT INTO oauth_tokens (provider, access_token) VALUES " +
       "('example-provider', 'sk-FAKE-EXAMPLE-table')",
+  );
+  db.exec(
+    "INSERT INTO memories (content, created_at) VALUES " +
+      "('CI setup note: the runner uses ghp_FAKE0000000000000000000000000000 for checkout', NULL), " +
+      "('Staging login recipe: password=hunter2hunter2hunter2 then run the deploy', NULL), " +
+      "('The word token appears here and jane.doe@example.com is the contact', NULL)",
   );
   db.exec(
     "INSERT INTO memories_fts (content) VALUES ('User prefers tea over coffee')",
@@ -202,6 +212,41 @@ describe("extractMemoryDb", () => {
     expect(texts).toContain("Casey the author");
   });
 
+  test("redacts embedded token shapes and reports counts in the census", () => {
+    const { items, census } = collectMemoryDb(fixtureDbPath, "hermes");
+
+    const ghItem = items.find((i) => i.text.startsWith("CI setup note"));
+    expect(ghItem?.text).toBe(
+      "CI setup note: the runner uses [redacted:github-token] for checkout",
+    );
+
+    const pwItem = items.find((i) => i.text.startsWith("Staging login recipe"));
+    expect(pwItem?.text).toBe(
+      "Staging login recipe: password=[redacted:credential-assignment] then run the deploy",
+    );
+
+    for (const item of items) {
+      expect(item.text).not.toContain("ghp_FAKE");
+      expect(item.text).not.toContain("hunter2");
+    }
+
+    const entry = census.find((c) => c.table === "memories");
+    expect(entry?.status).toBe("extracted");
+    expect(entry?.redactions).toBe(2);
+  });
+
+  test("leaves ordinary prose mentioning tokens or emails untouched", () => {
+    const { items, census } = collectMemoryDb(fixtureDbPath, "hermes");
+
+    const texts = items.map((i) => i.text);
+    expect(texts).toContain(
+      "The word token appears here and jane.doe@example.com is the contact",
+    );
+
+    const entry = census.find((c) => c.table === "notes");
+    expect(entry?.redactions).toBeUndefined();
+  });
+
   test("extracts every row from tables larger than one batch", () => {
     const bigDbPath = join(fixtureDir, "big-memory.db");
     const db = new Database(bigDbPath, { create: true });
@@ -314,6 +359,79 @@ describe("isSecretName", () => {
       "home_address",
     ]) {
       expect(isSecretName(name)).toBe(false);
+    }
+  });
+});
+
+describe("redactSecretValues", () => {
+  test("redacts well-known token shapes with kind-specific placeholders", () => {
+    const cases: [string, string][] = [
+      ["use sk-FAKEFAKEFAKEFAKEFAKE here", "use [redacted:openai-key] here"],
+      [
+        "pat is github_pat_FAKE00000000000000000000",
+        "pat is [redacted:github-token]",
+      ],
+      ["aws id AKIAFAKEFAKEFAKEFAKE", "aws id [redacted:aws-access-key-id]"],
+      ["slack xoxb-FAKE-0000000000-FAKE", "slack [redacted:slack-token]"],
+      [
+        "google AIzaFAKE000000000000000000000000000000",
+        "google [redacted:google-api-key]",
+      ],
+      [
+        "jwt eyJFAKEFAKEFAKE.eyJGAKEFAKEFAKE.FAKESIGFAKESIG here",
+        "jwt [redacted:jwt] here",
+      ],
+      [
+        "header Bearer FAKETOKENFAKETOKENFAKE end",
+        "header [redacted:bearer-token] end",
+      ],
+    ];
+    for (const [input, expected] of cases) {
+      const result = redactSecretValues(input);
+      expect(result.text).toBe(expected);
+      expect(result.redactions).toBe(1);
+    }
+  });
+
+  test("redacts PEM private key blocks as a single span", () => {
+    const input =
+      "backup note\n-----BEGIN PRIVATE KEY-----\nFAKEFAKEFAKEFAKE\n-----END PRIVATE KEY-----\ndone";
+    const result = redactSecretValues(input);
+    expect(result.text).toBe("backup note\n[redacted:private-key]\ndone");
+    expect(result.redactions).toBe(1);
+  });
+
+  test("redacts credential-like assignments even behind a benign key", () => {
+    const result = redactSecretValues(
+      "recipe: api_key=FAKEVALUEFAKEVALUE and more",
+    );
+    expect(result.text).toBe(
+      "recipe: api_key=[redacted:credential-assignment] and more",
+    );
+    expect(result.redactions).toBe(1);
+  });
+
+  test("counts multiple redactions in one text", () => {
+    const result = redactSecretValues(
+      "token=FAKEVALUEFAKEVALUE and sk-FAKEFAKEFAKEFAKEFAKE",
+    );
+    expect(result.text).toBe(
+      "token=[redacted:credential-assignment] and [redacted:openai-key]",
+    );
+    expect(result.redactions).toBe(2);
+  });
+
+  test("does not touch ordinary prose or short values", () => {
+    for (const input of [
+      "The token: is stored safely by the ops team",
+      "Email jane.doe@example.com about the password rotation policy",
+      "password=short",
+      "My favorite phrase is skeleton-key metaphors",
+      "Meeting at 2026-01-15T10:30:00Z about auth flows",
+    ]) {
+      const result = redactSecretValues(input);
+      expect(result.text).toBe(input);
+      expect(result.redactions).toBe(0);
     }
   });
 });

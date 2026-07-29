@@ -15,7 +15,12 @@
  * Tables and columns with credential-like names (token, api_key, password,
  * secret, session, and similar) are excluded from extraction entirely so
  * that live credentials never reach stdout or downstream memory; the
- * exclusions are reported in the stderr census. Rows are read in batches
+ * exclusions are reported in the stderr census. Text values that survive
+ * the name filters are additionally run through a value-level secret
+ * scanner: well-known token shapes and credential-like key=value
+ * assignments are redacted in place (replaced with `[redacted:<kind>]`)
+ * before emission, with per-table redaction counts reported in the
+ * stderr census. Rows are read in batches
  * over only the candidate columns, and candidates are streamed to stdout
  * as they are found, so neither the database rows nor the emitted JSON
  * array is ever materialized in memory at once. A per-table census is
@@ -121,6 +126,123 @@ export function isSecretName(name: string): boolean {
   return false;
 }
 
+/**
+ * Value-level secret scanner for text that already passed the name-based
+ * filters. Credentials can hide in generic text columns (a memory that
+ * says "my key is sk-..." or a JSON settings blob), so each candidate is
+ * scanned for well-known token shapes and credential-like assignments,
+ * and matches are redacted in place.
+ *
+ * Deliberately conservative: only well-known token shapes (recognizable
+ * by prefix/structure) and key=value assignments with a credential-like
+ * key are redacted. There is intentionally NO generic high-entropy
+ * detector: on real memory prose it produces false positives (mangling
+ * ordinary text the user wanted to keep) that are worse than relying on
+ * the creator-review step to catch exotic secret shapes.
+ */
+const SECRET_VALUE_PATTERNS: { kind: string; regex: RegExp }[] = [
+  {
+    kind: "private-key",
+    regex:
+      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g,
+  },
+  {
+    kind: "openai-key",
+    regex: /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{16,}/g,
+  },
+  {
+    kind: "github-token",
+    regex:
+      /(?<![A-Za-z0-9_-])(?:github_pat_[A-Za-z0-9_]{20,}|gh[opsur]_[A-Za-z0-9]{20,})/g,
+  },
+  {
+    kind: "aws-access-key-id",
+    regex: /(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}(?![0-9A-Z])/g,
+  },
+  {
+    kind: "slack-token",
+    regex: /(?<![A-Za-z0-9])xox[abpsr]-[A-Za-z0-9-]{10,}/g,
+  },
+  {
+    kind: "google-api-key",
+    regex: /(?<![A-Za-z0-9_-])AIza[0-9A-Za-z_-]{30,}/g,
+  },
+  {
+    kind: "jwt",
+    regex:
+      /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?![A-Za-z0-9_-])/g,
+  },
+  {
+    kind: "bearer-token",
+    regex: /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}(?![A-Za-z0-9._~+/=-])/g,
+  },
+];
+
+/**
+ * `key=value` (or `key: value`) assignments where the key is
+ * credential-like (checked against the same name blocklist as tables and
+ * columns via `isSecretName`) and the value is token-like: at least 16
+ * characters with no spaces or quotes. Short or space-containing values
+ * are left alone so ordinary prose ("the token: is stored safely") is
+ * never mangled.
+ */
+const SECRET_ASSIGNMENT_REGEX =
+  /(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9_.-]{0,63})(\s*[=:]\s*)(["']?)([^\s"'[\]]{16,})/g;
+
+/**
+ * Redact secret-shaped spans in `text`, replacing each match with
+ * `[redacted:<kind>]`. Returns the redacted text and the number of
+ * redacted spans. Assignments are scanned first so a shaped token used
+ * as an assignment value is counted once, and redaction placeholders
+ * contain no token-like characters, so passes never rematch each other's
+ * output.
+ */
+export function redactSecretValues(text: string): {
+  text: string;
+  redactions: number;
+} {
+  let redactions = 0;
+  let out = text;
+
+  // PEM blocks first: they span lines and must be removed whole before
+  // any line-oriented pattern can match inside them.
+  const [pemPattern, ...shapePatterns] = SECRET_VALUE_PATTERNS;
+  out = out.replace(pemPattern.regex, () => {
+    redactions++;
+    return `[redacted:${pemPattern.kind}]`;
+  });
+
+  // Manual exec loop instead of String.replace: when a candidate key is
+  // not credential-like ("recipe: password=..."), scanning must resume
+  // just after the rejected key so the inner assignment is still caught.
+  const assignment = new RegExp(SECRET_ASSIGNMENT_REGEX.source, "g");
+  let assembled = "";
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = assignment.exec(out)) !== null) {
+    const [full, key, sep, quote] = match;
+    if (!isSecretName(key)) {
+      assignment.lastIndex = match.index + key.length;
+      continue;
+    }
+    assembled +=
+      out.slice(last, match.index) +
+      `${key}${sep}${quote}[redacted:credential-assignment]`;
+    last = match.index + full.length;
+    redactions++;
+  }
+  out = assembled + out.slice(last);
+
+  for (const { kind, regex } of shapePatterns) {
+    out = out.replace(regex, () => {
+      redactions++;
+      return `[redacted:${kind}]`;
+    });
+  }
+
+  return { text: out, redactions };
+}
+
 export interface TableCensus {
   table: string;
   status: "extracted" | "skipped";
@@ -129,6 +251,8 @@ export interface TableCensus {
   items?: number;
   /** Columns excluded from extraction because their names look credential-bearing. */
   secretColumns?: string[];
+  /** Secret-shaped spans redacted in place from this table's emitted text. */
+  redactions?: number;
 }
 
 interface SqliteMasterRow {
@@ -220,6 +344,7 @@ export function extractMemoryDb(
 
       let rowCount = 0;
       let extracted = 0;
+      let redacted = 0;
       if (selectColumns.length === 0) {
         rowCount = (
           db.query(`SELECT COUNT(*) AS n FROM ${quoted}`).get() as {
@@ -250,10 +375,15 @@ export function extractMemoryDb(
               if (typeof value !== "string") {
                 continue;
               }
-              const text = value.trim();
-              if (text.length === 0 || toIsoDate(text) !== undefined) {
+              const rawText = value.trim();
+              if (rawText.length === 0 || toIsoDate(rawText) !== undefined) {
                 continue;
               }
+              // Name filters cannot catch credentials stored inside
+              // generic text columns, so redact secret-shaped spans from
+              // the value itself before it reaches stdout.
+              const { text, redactions } = redactSecretValues(rawText);
+              redacted += redactions;
               const item: MemoryImportItem = {
                 text,
                 source: `import:${provider}`,
@@ -282,6 +412,9 @@ export function extractMemoryDb(
       };
       if (secretColumns.length > 0) {
         entry.secretColumns = secretColumns;
+      }
+      if (redacted > 0) {
+        entry.redactions = redacted;
       }
       census.push(entry);
     }
@@ -358,6 +491,11 @@ function main() {
       if (entry.secretColumns && entry.secretColumns.length > 0) {
         process.stderr.write(
           `    skipped credential-like columns: ${entry.secretColumns.join(", ")}\n`,
+        );
+      }
+      if (entry.redactions && entry.redactions > 0) {
+        process.stderr.write(
+          `    redacted ${entry.redactions} secret-like value(s) in place\n`,
         );
       }
     } else {
