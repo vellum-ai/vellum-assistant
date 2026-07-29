@@ -568,6 +568,25 @@ body {
   background-clip: padding-box;
 }
 
+/* Capacitor iOS shell: hide scrollbars entirely. Styling
+ * ::-webkit-scrollbar above replaces WKWebView's auto-hiding overlay
+ * indicator with an always-visible bar, which reads as broken on iOS.
+ * Scrolling and momentum are unaffected. The
+ * :root[data-native-platform="ios"] prefix covers both the document
+ * scrollbar and every inner scroller, and outranks the :root * and
+ * [data-theme] scrollbar rules above on specificity. */
+:root[data-native-platform="ios"],
+:root[data-native-platform="ios"] * {
+  scrollbar-width: none;
+}
+
+:root[data-native-platform="ios"]::-webkit-scrollbar,
+:root[data-native-platform="ios"] ::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .busy-indicator {
     animation: none;
