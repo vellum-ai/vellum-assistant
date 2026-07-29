@@ -1018,6 +1018,33 @@ describe("useProProvisioning", () => {
     });
   }, 20_000);
 
+  test("a marker cached before this open is not evidence for this change", async () => {
+    // The lifecycle poller shares this query key, so the cache can already hold
+    // a marker from an earlier resize on this same assistant. Adopting it would
+    // let a finished resize vouch for one that has not started.
+    const client = makeClient();
+    client.setQueryData(
+      STATUS_QUERY_KEY,
+      makeResizeOperationStatus("resize_machine"),
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "pro";
+    // Every fresh read reports no operation at all, so the only marker that
+    // ever existed is the cached one.
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    renderProbe(client, true);
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+    await refetchAll(client);
+
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
   test("a marker watched on the fallback assistant is not evidence for the primary", async () => {
     // Under a change that can lower the ceilings, a watched marker is the only
     // evidence the completion gate accepts, so an unkeyed latch would let the
