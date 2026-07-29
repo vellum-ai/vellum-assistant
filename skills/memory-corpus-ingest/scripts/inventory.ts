@@ -78,13 +78,21 @@ const FILENAME_DATE_PATTERNS = [
 export function dateFromFilename(path: string): string | null {
   for (const pattern of FILENAME_DATE_PATTERNS) {
     const match = path.match(pattern);
-    if (!match) continue;
+    if (!match) {
+      continue;
+    }
     const year = Number(match[1]);
     const month = Number(match[2]);
     const day = Number(match[3]);
-    if (year < 1980 || year > 2100) continue;
-    if (month < 1 || month > 12) continue;
-    if (day < 1 || day > 31) continue;
+    if (year < 1980 || year > 2100) {
+      continue;
+    }
+    if (month < 1 || month > 12) {
+      continue;
+    }
+    if (day < 1 || day > 31) {
+      continue;
+    }
     return `${match[1]}-${match[2]}-${match[3]}`;
   }
   return null;
@@ -100,7 +108,9 @@ export function walkFiles(root: string): FileInfo[] {
   const results: FileInfo[] = [];
   const walk = (dir: string, rel: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) continue;
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
       const full = join(dir, entry.name);
       const relPath = rel === "" ? entry.name : `${rel}/${entry.name}`;
       if (entry.isDirectory()) {
@@ -199,7 +209,9 @@ export function suggestSlices(
   const maxSlices = options.maxSlices ?? DEFAULT_MAX_SLICES;
   const maxFilesPerSlice =
     options.maxFilesPerSlice ?? DEFAULT_MAX_FILES_PER_SLICE;
-  if (files.length === 0) return [];
+  if (files.length === 0) {
+    return [];
+  }
 
   const grains: Array<(date: string) => string> = [
     (date) => date.slice(0, 7), // month: 2025-03
@@ -250,10 +262,15 @@ export function buildInventory(
 // -- CLI --
 
 function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024)
+  if (bytes >= 1024 * 1024 * 1024) {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${bytes} B`;
 }
 

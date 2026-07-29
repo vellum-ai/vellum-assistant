@@ -115,7 +115,9 @@ The map tells the model a slice exists; the drill-in skill is how it follows the
 # search.sh <pattern> [YYYY-MM]  scoped search over the <source> cold store
 DIR="$VELLUM_WORKSPACE_DIR/imports/<source>"
 if [ -n "$2" ]; then
-  rg -i -C 3 "$1" "$DIR" --glob "*$2*"
+  # Two globs: one for the date in a filename, one for the date in a
+  # directory segment (rg's "-g foo" does not match foo/bar).
+  rg -i -C 3 "$1" "$DIR" --glob "*$2*" --glob "*$2*/**"
 else
   rg -i -C 3 "$1" "$DIR"
 fi
@@ -133,7 +135,7 @@ Run 3 to 5 representative queries a real user would ask of this corpus (mix a ro
 2. The assistant follows the card's `Raw data:` pointer or invokes the drill-in skill to reach the actual files.
 3. The answer cites content that exists in the cold store.
 
-If a query routes to nothing, the relevant lead is not doing its card job; rewrite it and re-ingest that page with `--overwrite`. For large ingests, `assistant memory v3 eval` is an optional gate: it proves the corpus retrieves at least as well after the ingest as before it.
+If a query routes to nothing, the relevant lead is not doing its card job; rewrite it and re-ingest that page with `--overwrite`. For large ingests, `assistant memory v3 eval` can additionally gate the change, but it is a two-corpus comparison requiring `--snapshot`, `--staging`, and `--out`; use it only when you captured a pre-ingest snapshot of `memory/concepts/` to compare against. Otherwise the query checks above are the verification.
 
 ## Hard rules
 

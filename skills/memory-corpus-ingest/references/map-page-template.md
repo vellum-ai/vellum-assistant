@@ -20,7 +20,7 @@ Retrieval is section-grain: the model sees a compact card per article, which is 
 | `source`      | `import:<provider>` (for example `import:fathom`); marks the page as ingested, not consolidated                                                                                                                                                                                                  |
 | `origin_date` | ISO 8601 date of the slice's own content, such as the last meeting date in the slice. Never the import date. It drives the fresh lane's effective recency and the dated stamp on the card, so an archive slice from 2023 sorts as 2023 material instead of flooding the fresh lane on import day |
 
-Note on `links:` entries: the format is `"<target-slug> — <one line on why>"` and the separator is literally space, em dash, space. That token is how the edge lane splits the target slug from the annotation, so reproduce it exactly (it is parser syntax, not punctuation style).
+Note on `links:` entries: the format is `"<target-slug> — <one line on why>"` and the separator is literally space, em dash, space. That token is how the edge lane splits the target slug from the annotation, so reproduce it exactly. This is a deliberate, scoped exception to the repository's no-em-dash rule: the separator is frozen parser syntax consumed by the memory plugin's edge and card renderers, not prose punctuation, and changing it would break every existing page's authored links.
 
 ## Full example: a slice page
 
