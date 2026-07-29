@@ -11,8 +11,9 @@
 
 import { Socket } from "node:net";
 
+import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
+
 import { getLogger } from "../util/logger.js";
-import { IpcFrameReader, writeMessage } from "./ipc-framing.js";
 import { getAssistantSocketPath } from "./socket-path.js";
 
 const log = getLogger("cli-ipc-client");
