@@ -4743,6 +4743,12 @@ paths:
                     - fireworks
                     - openrouter
                     - vellum
+                    - together
+                    - vercel-ai-gateway
+                    - minimax
+                    - atlascloud
+                    - baseten
+                    - poolside
                 connectionName:
                   type: string
                   minLength: 1
@@ -33548,6 +33554,12 @@ components:
                     - fireworks
                     - openrouter
                     - vellum
+                    - together
+                    - vercel-ai-gateway
+                    - minimax
+                    - atlascloud
+                    - baseten
+                    - poolside
                 connectionName:
                   type: string
                   minLength: 1
@@ -33919,6 +33931,12 @@ components:
                 - fireworks
                 - openrouter
                 - vellum
+                - together
+                - vercel-ai-gateway
+                - minimax
+                - atlascloud
+                - baseten
+                - poolside
             - type: "null"
         connectionName:
           type: string

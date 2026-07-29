@@ -71,6 +71,7 @@ import { migrateProviderConnectionStatusLabel } from "../persistence/migrations/
 import { migrateProviderConnectionBaseUrlAndModels } from "../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../persistence/schema/index.js";
 import { getConnection } from "../providers/inference/connections.js";
+import { getProviderDefaultModel } from "../providers/model-intents.js";
 import { getConfigQuarantineNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
@@ -864,6 +865,48 @@ describe("loadConfig startup behavior", () => {
     expect(effective["quality-optimized"]?.model).toBe("gpt-5.4");
     expect(effective["cost-optimized"]?.provider).toBe("openai");
     expect(effective["cost-optimized"]?.model).toBe("gpt-5.4-nano");
+  });
+
+  test("off-platform hatch with a provider outside the named matrix columns resolves through the shared BYOK templates", () => {
+    // `together` has no column in PROFILE_IMPLS and no intent table: the
+    // defaults must still anchor on it (not fall back to anthropic), backed
+    // by the `together-personal` connection and its catalog defaultModel.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "together" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "together" });
+    // The parsed schema keeps the value — `.catch(undefined)` must not drop it.
+    expect(config.llm.defaultProvider).toEqual({ provider: "together" });
+    for (const name of LEGACY_HATCH_PROFILE_NAMES) {
+      expect(raw.llm.profiles[name]).toBeUndefined();
+    }
+    expect(getConnection(db, "together-personal")).not.toBeNull();
+
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
+    );
+    for (const name of [
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+    ] as const) {
+      expect(effective[name]?.provider).toBe("together");
+      expect(effective[name]?.provider_connection).toBe("together-personal");
+      expect(effective[name]?.model).toBe(getProviderDefaultModel("together"));
+      expect(effective[name]?.source).toBe("managed");
+    }
   });
 
   test("off-platform boot leaves an existing managed entry byte-identical", () => {

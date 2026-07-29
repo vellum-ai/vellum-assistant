@@ -10,6 +10,7 @@ import {
   type DefaultProfileProvider,
   INTERNAL_PROFILE_KEYS,
   type InternalProfileKey,
+  isDefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
   PROFILE_MATRIX_KEYS,
   type ProfileMatrixKey,
@@ -17,6 +18,7 @@ import {
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+  DEFAULT_PROVIDER_CHOICES,
   type DefaultProviderConfig,
   type ProfileEntry,
 } from "./schemas/llm.js";
@@ -132,9 +134,11 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
 
 /**
  * The BYOK implementation of each default profile intent, shared by every
- * non-vellum provider column. The concrete model resolves per provider from
- * the `intent` via `resolveModelIntent` at materialization time. `provider`
- * is stamped per column.
+ * non-vellum provider. The concrete model resolves per provider from the
+ * `intent` via `resolveModelIntent` at materialization time (falling back to
+ * the provider's catalog `defaultModel` when it has no intent table).
+ * `provider` is stamped per column for the named matrix columns, and
+ * per-request for any other default-capable provider.
  */
 const BYOK_PROFILE_IMPLS: Record<
   ProfileMatrixKey,
@@ -336,6 +340,27 @@ for (const key of PROFILE_MATRIX_KEYS) {
   }
 }
 
+// Provider choices without a named column materialize from the shared BYOK
+// templates; verify each one's resolved model lands in the catalog.
+for (const provider of DEFAULT_PROVIDER_CHOICES) {
+  if (isDefaultProfileProvider(provider)) {
+    continue;
+  }
+  for (const key of PROFILE_MATRIX_KEYS) {
+    const { model } = materializeProfile(
+      { ...BYOK_PROFILE_IMPLS[key], provider },
+      provider,
+    );
+    if (model == null || !isModelInCatalog(provider, model)) {
+      throw new Error(
+        `Default provider choice "${provider}" cannot materialize "${key}": ` +
+          `resolved model "${model ?? ""}" is not in PROVIDER_CATALOG. ` +
+          `Update model-catalog.ts or model-intents.ts.`,
+      );
+    }
+  }
+}
+
 function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
   const entries: Record<string, ProfileEntry> = {};
   for (const key of PROFILE_MATRIX_KEYS) {
@@ -360,10 +385,9 @@ export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
 
 /**
  * The per-default-profile fields that remain workspace-owned state: the
- * exact whitelist `seedInferenceProfiles` preserves across reseeds (BYOK
- * label suffix, hatch-time/user disable, pre-existing topP overrides).
- * Carried by key-presence rather than truthiness so an explicit `null`
- * (cleared field) survives too.
+ * exact whitelist `seedInferenceProfiles` preserves across reseeds (user
+ * renames, user disables, topP overrides). Carried by key-presence rather
+ * than truthiness so an explicit `null` (cleared field) survives too.
  */
 const WORKSPACE_OWNED_DEFAULT_FIELDS = ["label", "status", "topP"] as const;
 
@@ -440,18 +464,22 @@ function resolveAgainstBody(
 
 /**
  * Like `getEffectiveProfile`, but a default profile key's code-owned body
- * comes from the default provider's column of the intent × provider matrix
- * instead of always the `vellum` column. A `null` defaultProvider and every
- * non-matrix name fall back to `getEffectiveProfile`'s behavior.
+ * comes from the default provider's implementation of the intent × provider
+ * matrix instead of always the `vellum` column. A `null` defaultProvider and
+ * every non-matrix name fall back to `getEffectiveProfile`'s behavior.
  *
  * Non-obvious rules:
  *
  * - The `vellum` column stamps `provider: "vellum"` with no connection —
  *   dispatch derives the upstream from the model per-request.
- * - The resolved body carries `source: "managed"` regardless of column:
+ * - A default provider without a named matrix column materializes from the
+ *   shared `BYOK_PROFILE_IMPLS` templates, with `resolveModelIntent`
+ *   falling back to the provider's catalog `defaultModel`.
+ * - The resolved body carries `source: "managed"` regardless of provider:
  *   default profile content is code-owned whichever provider implements it.
- *   The BYOK templates' `source: "user"` is hatch-time state for
- *   materialized `custom-*` copies, not an ownership claim on the body.
+ *   The BYOK templates' `source: "user"` exists for the conversion pass's
+ *   frozen `custom-*` reference bodies (`USER_PROFILE_TEMPLATES`), not as
+ *   an ownership claim on the body.
  */
 export function resolveDefaultProfileForProvider(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
@@ -492,7 +520,10 @@ function defaultProfileBodyForProvider(
   if (defaultProvider == null || !isMatrixProfileKey(name)) {
     return CODE_DEFAULT_PROFILE_ENTRIES[name];
   }
-  const impl = PROFILE_IMPLS[name][defaultProvider.provider];
+  const { provider } = defaultProvider;
+  const impl = isDefaultProfileProvider(provider)
+    ? PROFILE_IMPLS[name][provider]
+    : { ...BYOK_PROFILE_IMPLS[name], provider };
   return {
     ...materializeProfile(
       impl,
