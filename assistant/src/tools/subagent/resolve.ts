@@ -64,10 +64,15 @@ export function resolveSubagentId(
     if (!record || record.id === live.config.id) {
       return live.config.id;
     }
-    // A row carries no spawn sequence, so a same-millisecond tie goes to the
-    // live entry, whose index already resolved last-spawn-wins among the runs
-    // it holds.
-    return record.createdAt > live.createdAt ? record.id : live.config.id;
+    if (record.createdAt !== live.createdAt) {
+      return record.createdAt > live.createdAt ? record.id : live.config.id;
+    }
+    // Spawned in the same millisecond, so the timestamps cannot order them. A
+    // live entry that has a row was itself a candidate in the durable lookup,
+    // which already broke the tie by insertion order, so the row it picked is
+    // the later spawn. A live entry with no row has not persisted yet, which
+    // only a spawn still in flight can be, so that one is the later spawn.
+    return getSubagentRecordById(live.config.id) ? record.id : live.config.id;
   }
   return undefined;
 }

@@ -502,31 +502,58 @@ describe("resolveSubagentId by label", () => {
     ).toBe("just-spawned");
   });
 
-  test("breaks a same-millisecond spawn tie toward the live run", () => {
-    // A row carries no spawn sequence, so the live index is the only side that
-    // can still tell which of two same-tick spawns claimed the label.
-    const live = record({
-      id: "tie-live",
-      conversationId: "conv-tie-live",
+  test("breaks a same-millisecond tie by durable insertion order", () => {
+    // Both runs persisted, so the live entry was itself a candidate in the
+    // durable lookup and its insertion order already decided the tie. Holding
+    // the earlier one in memory must not override that.
+    const held = record({
+      id: "tie-held",
+      conversationId: "conv-tie-held",
       label: "Tied worker",
       status: "completed",
       createdAt: 1000,
       completedAt: 5000,
     });
-    const row = record({
-      id: "tie-row",
-      conversationId: "conv-tie-row",
+    const laterSpawn = record({
+      id: "tie-later-spawn",
+      conversationId: "conv-tie-later-spawn",
       label: "Tied worker",
       status: "completed",
       createdAt: 1000,
       completedAt: 3000,
     });
-    upsertSubagentRecord(live);
-    upsertSubagentRecord(row);
-    holdInMemory(live);
+    upsertSubagentRecord(held);
+    upsertSubagentRecord(laterSpawn);
+    holdInMemory(held);
 
     expect(
       resolveSubagentId({ label: "Tied worker" }, toolContext("parent-1")),
-    ).toBe("tie-live");
+    ).toBe("tie-later-spawn");
+  });
+
+  test("keeps an unpersisted live spawn on a same-millisecond tie", () => {
+    // A live entry with no row has not persisted yet, which only a spawn still
+    // in flight can be, so it is the later spawn even on a tie.
+    const persisted = record({
+      id: "tie-persisted",
+      conversationId: "conv-tie-persisted",
+      label: "Tied worker",
+      status: "completed",
+      createdAt: 1000,
+      completedAt: 3000,
+    });
+    const inFlight = record({
+      id: "tie-in-flight",
+      conversationId: "conv-tie-in-flight",
+      label: "Tied worker",
+      status: "running",
+      createdAt: 1000,
+    });
+    upsertSubagentRecord(persisted);
+    holdInMemory(inFlight);
+
+    expect(
+      resolveSubagentId({ label: "Tied worker" }, toolContext("parent-1")),
+    ).toBe("tie-in-flight");
   });
 });
