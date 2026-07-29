@@ -91,6 +91,12 @@ export function useCommandPalette({
   }, [storeOpen]);
 
   const close = useCallback(() => {
+    // Blur first so iOS starts dismissing the keyboard before the palette
+    // leaves the screen; the viewport reflow then overlaps the close
+    // instead of following it.
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     storeClose();
     setQuery("");
     setSelectedIndex(0);
