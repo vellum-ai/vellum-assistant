@@ -1,8 +1,8 @@
 /**
- * Tests for `CallSiteOverridesModal` call-site enumeration and the
+ * Tests for `CallSiteOverridesContent` call-site enumeration and the
  * apply-one-profile-to-all-actions affordance.
  *
- * The modal auto-enumerates every call-site catalog entry except
+ * The editor auto-enumerates every call-site catalog entry except
  * `mainAgent` (the chat model is picked via the profile picker, not a
  * per-call-site override). We seed the catalog + config query caches
  * (zustand v5 SSR — never `setState`).
@@ -74,8 +74,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { CallSiteOverridesModal } =
-  await import("@/domains/settings/ai/call-site-overrides-modal");
+const { CallSiteOverridesContent } =
+  await import("@/domains/settings/ai/call-site-overrides-content");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,12 +127,11 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("CallSiteOverridesModal — call-site enumeration", () => {
+describe("CallSiteOverridesContent - call-site enumeration", () => {
   test("renders catalog call sites but excludes mainAgent", async () => {
     render(
       <Wrapper>
-        <CallSiteOverridesModal
-          isOpen
+        <CallSiteOverridesContent
           assistantId="asst-1"
           onClose={() => {}}
         />
@@ -145,12 +144,11 @@ describe("CallSiteOverridesModal — call-site enumeration", () => {
   });
 });
 
-describe("CallSiteOverridesModal — apply to all", () => {
+describe("CallSiteOverridesContent - apply to all", () => {
   test("applies the chosen profile to every call site and saves", async () => {
     render(
       <Wrapper>
-        <CallSiteOverridesModal
-          isOpen
+        <CallSiteOverridesContent
           assistantId="asst-1"
           onClose={() => {}}
         />

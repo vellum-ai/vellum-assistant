@@ -1,5 +1,5 @@
 import { Loader2, Search } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -33,7 +33,6 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
-import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
 // ---------------------------------------------------------------------------
@@ -44,59 +43,21 @@ type CallSiteCatalog = ConfigLlmCallsitesGetResponse;
 type CallSiteEntry = CallSiteCatalog["callSites"][number];
 type CallSiteDomain = CallSiteCatalog["domains"][number];
 
-export interface CallSiteOverridesModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  assistantId: string;
-}
-
-// ---------------------------------------------------------------------------
-// CallSiteOverridesModal
-// ---------------------------------------------------------------------------
-
-export function CallSiteOverridesModal({
-  isOpen,
-  onClose,
-  assistantId,
-}: CallSiteOverridesModalProps) {
-  const savingRef = useRef(false);
-  return (
-    <Modal.Root
-      open={isOpen}
-      onOpenChange={(next) => {
-        if (!next && !savingRef.current) {
-          onClose();
-        }
-      }}
-    >
-      {isOpen ? (
-        <CallSiteOverridesModalInner
-          assistantId={assistantId}
-          onClose={onClose}
-          onSavingChange={(s) => {
-            savingRef.current = s;
-          }}
-        />
-      ) : null}
-    </Modal.Root>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Inner component (only mounted when open to reset state on close)
-// ---------------------------------------------------------------------------
-
-interface InnerProps {
+export interface CallSiteOverridesContentProps {
   assistantId: string;
   onClose: () => void;
-  onSavingChange?: (isSaving: boolean) => void;
 }
 
-function CallSiteOverridesModalInner({
+/**
+ * The Action Overrides editor: search, apply-to-all, per-call-site rows
+ * grouped by domain, and the Save / Reset footer. Hosted by the settings
+ * sidepanel (OverridesDetailPanel); hosts remount it per open so draft
+ * state resets.
+ */
+export function CallSiteOverridesContent({
   assistantId,
   onClose,
-  onSavingChange,
-}: InnerProps) {
+}: CallSiteOverridesContentProps) {
   const queryClient = useQueryClient();
 
   const { data: daemonConfig } = useQuery({
@@ -344,7 +305,6 @@ function CallSiteOverridesModalInner({
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    onSavingChange?.(true);
     try {
       const patch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of Object.keys(drafts)) {
@@ -368,13 +328,11 @@ function CallSiteOverridesModalInner({
       captureError(error, { context: "call_site_overrides_save" });
     } finally {
       setSaving(false);
-      onSavingChange?.(false);
     }
-  }, [drafts, onClose, configMutation, onSavingChange, assistantId]);
+  }, [drafts, onClose, configMutation, assistantId]);
 
   const handleReset = useCallback(async () => {
     setSaving(true);
-    onSavingChange?.(true);
     try {
       const resetPatch: Record<string, null> = {};
       for (const id of Object.keys(drafts)) {
@@ -391,25 +349,21 @@ function CallSiteOverridesModalInner({
       captureError(error, { context: "call_site_overrides_reset" });
     } finally {
       setSaving(false);
-      onSavingChange?.(false);
     }
-  }, [drafts, onClose, configMutation, onSavingChange, assistantId]);
+  }, [drafts, onClose, configMutation, assistantId]);
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <Modal.Content size="lg" hideCloseButton>
-      <Modal.Header>
-        <Modal.Title>Action Overrides</Modal.Title>
-        <Modal.Description>
-          Customize which model profile specific actions should use. Uses your
-          default profile if no override is set.
-        </Modal.Description>
-      </Modal.Header>
+    <div className="space-y-4">
+      <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+        Customize which model profile specific actions should use. Uses your
+        default profile if no override is set.
+      </p>
 
-      <Modal.Body>
+      <div>
         {/* Search */}
         <div className="mb-4">
           <Input
@@ -530,9 +484,9 @@ function CallSiteOverridesModalInner({
             )}
           </div>
         )}
-      </Modal.Body>
+      </div>
 
-      <Modal.Footer>
+      <div className="flex items-center justify-end gap-2 border-t border-[var(--border-base)] pt-4">
         {hasAnyPersistedOverride && (
           <Button
             variant="outlined"
@@ -561,7 +515,7 @@ function CallSiteOverridesModalInner({
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
         </Button>
-      </Modal.Footer>
+      </div>
 
       <ConfirmDialog
         open={showResetConfirmation}
@@ -575,6 +529,6 @@ function CallSiteOverridesModalInner({
         }}
         onCancel={() => setShowResetConfirmation(false)}
       />
-    </Modal.Content>
+    </div>
   );
 }

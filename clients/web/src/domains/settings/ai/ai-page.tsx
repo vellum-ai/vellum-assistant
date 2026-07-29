@@ -10,6 +10,7 @@ import {
 } from "@/domains/settings/ai/language-model-card";
 import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
 import { ProfileDetailPanel } from "@/domains/settings/ai/profile-detail-panel";
+import { OverridesDetailPanel } from "@/domains/settings/ai/overrides-detail-panel";
 import { ProviderDetailPanel } from "@/domains/settings/ai/provider-detail-panel";
 import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
 import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
@@ -71,7 +72,13 @@ export function AiPage() {
     lmPanel?.kind === "provider" || lmPanel?.kind === "add-provider";
   const detail =
     lmPanel != null && assistantId ? (
-      isProviderPanel ? (
+      lmPanel.kind === "overrides" ? (
+        <OverridesDetailPanel
+          key={detailKey}
+          assistantId={assistantId}
+          onClose={() => setLmPanel(null)}
+        />
+      ) : isProviderPanel ? (
         <ProviderDetailPanel
           key={detailKey}
           assistantId={assistantId}
