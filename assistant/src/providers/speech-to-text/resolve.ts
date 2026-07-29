@@ -7,6 +7,7 @@ import type {
   SttProviderId,
 } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
+import { deepgramModelOverrideForLanguage } from "./deepgram.js";
 import {
   getCredentialProvider,
   getProviderEntry,
@@ -34,9 +35,11 @@ const log = getLogger("stt-resolver");
  * - No credentials are configured for the resolved provider.
  */
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
-  const config = getConfig();
-  const provider = config.services.stt.provider;
-  const language = config.services.stt.language;
+  // Snapshot the stt config once, before any await, so a concurrent config
+  // change cannot pair one setting's old value with another's new value.
+  const stt = getConfig().services.stt;
+  const provider = stt.provider;
+  const language = stt.language;
 
   // Look up credential provider via the catalog.
   const credentialProviderName = getCredentialProvider(
@@ -329,8 +332,15 @@ export interface ResolveStreamingTranscriberOptions {
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
-  const provider =
-    options.providerId ?? (getConfig().services.stt.provider as SttProviderId);
+  // Snapshot the stt config once, before any await, so a concurrent config
+  // change cannot pair one setting's old value with another's new value
+  // (e.g. the old provider with the new language).
+  const stt = getConfig().services.stt;
+  const provider = options.providerId ?? (stt.provider as SttProviderId);
+  // Config-level language applies to every streaming caller (live voice,
+  // dictation, telephony) unless one overrides it for a single session, so
+  // the setting lands in one place rather than at each call site.
+  const language = options.language ?? stt.language;
   const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
@@ -388,11 +398,6 @@ export async function resolveStreamingTranscriber(
   } else if (!apiKey) {
     return null;
   }
-
-  // Config-level language applies to every streaming caller (live voice,
-  // dictation, telephony) unless one overrides it for a single session, so
-  // the setting lands in one place rather than at each call site.
-  const language = options.language ?? getConfig().services.stt.language;
 
   return createStreamingTranscriber(apiKey ?? "", provider, {
     sampleRate: options.sampleRate,
@@ -474,11 +479,7 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
-        // "multi" code-switching is a nova-3-only feature: the adapter's
-        // default model (nova-2) rejects language=multi. Pin nova-3 for that
-        // value only; every other language keeps the adapter's default model
-        // so existing behavior is untouched.
-        ...(options.language === "multi" ? { model: "nova-3" } : {}),
+        ...deepgramModelOverrideForLanguage(options.language),
         ...(options.language ? { language: options.language } : {}),
         ...(options.diarize ? { diarize: true } : {}),
         ...(options.utteranceBoundaryFinals

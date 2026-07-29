@@ -31,7 +31,14 @@ let mockDeepgramTranscribeError: Error | null = null;
 const deepgramProviderCtorCalls: Array<{ apiKey: string; options: unknown }> =
   [];
 
+// Real module captured before the mock replaces it, so pure exports
+// (deepgramModelOverrideForLanguage) stay real while the provider class
+// alone is stubbed.
+const actualDeepgram =
+  await import("../../providers/speech-to-text/deepgram.js");
+
 mock.module("../../providers/speech-to-text/deepgram.js", () => ({
+  ...actualDeepgram,
   DeepgramProvider: class MockDeepgramProvider {
     constructor(apiKey: string, options?: unknown) {
       deepgramProviderCtorCalls.push({ apiKey, options });

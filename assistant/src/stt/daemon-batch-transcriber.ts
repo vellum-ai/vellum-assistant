@@ -83,14 +83,10 @@ class DeepgramBatchTranscriber implements BatchTranscriber {
   async transcribe(
     request: SttTranscribeRequest,
   ): Promise<SttTranscribeResult> {
-    const { DeepgramProvider } =
+    const { DeepgramProvider, deepgramModelOverrideForLanguage } =
       await import("../providers/speech-to-text/deepgram.js");
     const provider = new DeepgramProvider(this.apiKey, {
-      // "multi" code-switching is a nova-3-only feature: the provider's
-      // default model (nova-2) rejects language=multi. Pin nova-3 for that
-      // value only; every other language keeps the provider's default model
-      // so existing behavior is untouched.
-      ...(this.language === "multi" ? { model: "nova-3" } : {}),
+      ...deepgramModelOverrideForLanguage(this.language),
       ...(this.language ? { language: this.language } : {}),
     });
 
