@@ -162,6 +162,36 @@ export interface SubagentState {
   usage: UsageStats;
 }
 
+// ── Bounded listing ─────────────────────────────────────────────────────
+
+/** Recency key matching the durable query's `COALESCE(completed_at, created_at)`. */
+function settledAt(child: SubagentState): number {
+  return child.completedAt ?? child.createdAt;
+}
+
+/**
+ * Every non-terminal child, plus the `maxTerminal` most recently settled
+ * terminal ones. `rehydrateFromDb` seeds memory with a much larger cap, so a
+ * caller listing children has to re-bound what it actually ships.
+ */
+export function boundRecentTerminal(
+  children: SubagentState[],
+  maxTerminal: number,
+): SubagentState[] {
+  const bounded: SubagentState[] = [];
+  const terminal: SubagentState[] = [];
+  for (const child of children) {
+    if (TERMINAL_STATUSES.has(child.status)) {
+      terminal.push(child);
+    } else {
+      bounded.push(child);
+    }
+  }
+  terminal.sort((a, b) => settledAt(b) - settledAt(a));
+  bounded.push(...terminal.slice(0, maxTerminal));
+  return bounded;
+}
+
 // ── Limits ───────────────────────────────────────────────────────────────
 
 export const SUBAGENT_LIMITS = {

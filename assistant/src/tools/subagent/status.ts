@@ -5,7 +5,10 @@ import {
   subagentStateFromRecord,
   TERMINAL_STATUSES,
 } from "../../subagent/index.js";
-import type { SubagentState } from "../../subagent/types.js";
+import {
+  boundRecentTerminal,
+  type SubagentState,
+} from "../../subagent/types.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -17,10 +20,11 @@ import {
 export const subagentStatusInputSchema = subagentRefInputSchema;
 
 /**
- * Cap on the finished subagents the list-all path adds from the durable table.
- * Rows live as long as the parent conversation, so an old chat holds every
- * subagent it ever spawned and the model wants the recent ones, not the whole
- * history. Unsettled rows are never capped. Matches the reconcile route's bound.
+ * Cap on the finished subagents the list-all path reports, applied to the
+ * durable query and to the merged result alike. Rows live as long as the parent
+ * conversation, so an old chat holds every subagent it ever spawned and the
+ * model wants the recent ones, not the whole history. Unsettled subagents are
+ * never capped. Matches the reconcile route's bound.
  */
 const MAX_LISTED_TERMINAL_RECORDS = 20;
 
@@ -33,7 +37,8 @@ const MAX_LISTED_TERMINAL_RECORDS = 20;
  *
  * Live state wins for an id both sides carry. A row-only entry maps through the
  * same pair the single-subagent fallback uses, so nothing is executing it and
- * an active recorded status reads as `interrupted`.
+ * an active recorded status reads as `interrupted`. The merged set is re-bounded
+ * because the manager's own rehydration cap is far larger than this one.
  */
 function listSubagentsForParent(parentConversationId: string): SubagentState[] {
   const byId = new Map<string, SubagentState>();
@@ -53,7 +58,10 @@ function listSubagentsForParent(parentConversationId: string): SubagentState[] {
   )) {
     byId.set(child.config.id, child);
   }
-  return [...byId.values()].sort(
+  return boundRecentTerminal(
+    [...byId.values()],
+    MAX_LISTED_TERMINAL_RECORDS,
+  ).sort(
     (a, b) =>
       a.createdAt - b.createdAt || a.config.id.localeCompare(b.config.id),
   );

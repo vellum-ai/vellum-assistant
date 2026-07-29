@@ -375,6 +375,33 @@ describe("reconcileSubagents route", () => {
     expect(Object.keys(subagents)).toHaveLength(21);
   });
 
+  test("keeps a live terminal child past the bound the durable pass surfaced", () => {
+    for (let i = 0; i < 21; i++) {
+      upsertSubagentRecord(
+        record({
+          id: `sub-done-${String(i).padStart(2, "0")}`,
+          conversationId: `child-conv-done-${i}`,
+          label: `done-${i}`,
+          status: "completed",
+          completedAt: 10_000 + i,
+        }),
+      );
+    }
+    const manager = getSubagentManager();
+    manager.rehydrateFromDb();
+    // The two passes rank by their own copy of the recency key, so a child can
+    // fall outside the live bound while the durable pass still ships its id.
+    // Shipping it either way, the fresher live entry wins.
+    const live = manager.getState("sub-done-20")!;
+    live.completedAt = 1;
+    live.error = "live";
+
+    const { subagents } = reconcile(PARENT_ID);
+
+    expect(subagents["sub-done-20"].error).toBe("live");
+    expect(Object.keys(subagents)).toHaveLength(21);
+  });
+
   test("omits a durable row whose status is out of enum", () => {
     upsertSubagentRecord(record({ status: "zombie" }));
 

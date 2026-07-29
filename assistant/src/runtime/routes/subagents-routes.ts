@@ -25,6 +25,7 @@ import {
 } from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import {
+  boundRecentTerminal,
   settleUnsupervisedStatus,
   type SubagentState,
   TERMINAL_STATUSES,
@@ -273,11 +274,6 @@ function settledRecordStatus(
  */
 const MAX_RECONCILED_TERMINAL_RECORDS = 20;
 
-/** Recency key shared with the durable query's `COALESCE(completed_at, created_at)`. */
-function settledAt(child: SubagentState): number {
-  return child.completedAt ?? child.createdAt;
-}
-
 function liveReconciledEntry(
   child: SubagentState,
 ): z.infer<typeof ReconciledSubagentSchema> {
@@ -362,25 +358,17 @@ export const ROUTES: RouteDefinition[] = [
       // much larger cap of its own, so for a whole retention window after a
       // restart the in-memory children of an old parent far outnumber what this
       // snapshot should ship.
-      const liveTerminal: SubagentState[] = [];
-      for (const child of manager.getChildrenOf(parentConversationId)) {
-        if (TERMINAL_STATUSES.has(child.status)) {
-          liveTerminal.push(child);
-          continue;
-        }
-        subagents[child.config.id] = liveReconciledEntry(child);
-      }
-      liveTerminal.sort((a, b) => settledAt(b) - settledAt(a));
-      const recentLiveTerminal = new Set(
-        liveTerminal
-          .slice(0, MAX_RECONCILED_TERMINAL_RECORDS)
-          .map((child) => child.config.id),
+      const liveChildren = manager.getChildrenOf(parentConversationId);
+      const recentLive = new Set(
+        boundRecentTerminal(liveChildren, MAX_RECONCILED_TERMINAL_RECORDS).map(
+          (child) => child.config.id,
+        ),
       );
-      for (const child of liveTerminal) {
+      for (const child of liveChildren) {
         const id = child.config.id;
         // An id the durable pass already surfaced costs nothing to overwrite
         // with the fresher live state, it is in the payload either way.
-        if (!recentLiveTerminal.has(id) && subagents[id] === undefined) {
+        if (!recentLive.has(id) && subagents[id] === undefined) {
           continue;
         }
         subagents[id] = liveReconciledEntry(child);

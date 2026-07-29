@@ -2293,3 +2293,64 @@ describe("subagent_status list-all past the in-memory window", () => {
     ).toBe("completed");
   });
 });
+
+// ── List-all bounds the merged set ──────────────────────────────────
+
+/** Mirrors `MAX_LISTED_TERMINAL_RECORDS` in `tools/subagent/status.ts`. */
+const LISTED_TERMINAL_CAP = 20;
+
+describe("subagent_status list-all bounds the terminal entries", () => {
+  const boundParent = "list-bound-parent";
+
+  // A restart rehydrates far more terminal children than this path reports, so
+  // the bound has to hold over the merged set, not just the durable query.
+  for (let i = 0; i < 25; i++) {
+    injectSubagent(
+      getSubagentManager(),
+      `list-bound-done-${String(i).padStart(2, "0")}`,
+      boundParent,
+      "completed",
+      { createdAt: 1_000 + i, completedAt: 10_000 + i },
+    );
+  }
+  // The oldest child of the parent, which the recency cap must not reach.
+  injectSubagent(
+    getSubagentManager(),
+    "list-bound-active",
+    boundParent,
+    "running",
+    {
+      createdAt: 1,
+    },
+  );
+
+  function listedIds(content: string): string[] {
+    return (JSON.parse(content) as Array<{ subagentId: string }>).map(
+      (s) => s.subagentId,
+    );
+  }
+
+  test("reports only the most recently settled terminal children", async () => {
+    const result = await executeSubagentStatus({}, makeContext(boundParent));
+    expect(result.isError).toBe(false);
+
+    expect(
+      listedIds(result.content)
+        .filter((id) => id !== "list-bound-active")
+        .sort(),
+    ).toEqual(
+      Array.from(
+        { length: LISTED_TERMINAL_CAP },
+        (_, i) => `list-bound-done-${String(i + 5).padStart(2, "0")}`,
+      ).sort(),
+    );
+  });
+
+  test("never caps out an active child, however old", async () => {
+    const result = await executeSubagentStatus({}, makeContext(boundParent));
+    const ids = listedIds(result.content);
+
+    expect(ids).toContain("list-bound-active");
+    expect(ids).toHaveLength(LISTED_TERMINAL_CAP + 1);
+  });
+});
