@@ -117,8 +117,8 @@ mock.module("../../../../../persistence/embeddings/embedding-cache.js", () => ({
 
 mock.module("../../../../../persistence/db-connection.js", () => ({
   getDb: () => ({}),
-  // The section store now resolves the embedding cache on the memory connection
-  // via `memoryDbOrNull`; hand back truthy sentinels so it takes the cache path.
+  // The section store resolves the embedding cache on the memory connection via
+  // `memoryDbOrNull`; hand back truthy sentinels so it takes the cache path.
   getMemoryDb: () => ({}),
   getMemorySqlite: () => ({}),
 }));
