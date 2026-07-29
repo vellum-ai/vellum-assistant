@@ -75,6 +75,8 @@ Write in this order — style first, script last, so the markup is meaningful th
 3. The content markup, using inline style attributes for one-off styling.
 4. A single script element at the very end.
 
+Always quote attribute values. An unquoted multi-token class (`class=row-box hit`) parses as `class="row-box"` plus a junk attribute, so the second class's rules silently never apply and the visual loses its highlighting.
+
 Include this rule verbatim whenever you use the sr-only heading:
 
 ```css
