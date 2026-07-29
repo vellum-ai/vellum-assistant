@@ -80,14 +80,23 @@ function isRenderableRole(role: string): role is "user" | "assistant" {
 
 /**
  * Provenance `source` for an imported conversation. Export tooling prefixes
- * `sourceKey` with the originating provider (e.g. `chatgpt:abc123`), so a
- * recognizable prefix maps to `import:<provider>`; anything else falls back
- * to `import:unknown`. Distinguishes imported rows from the schema default
- * `"user"` (schema/conversations.ts).
+ * `sourceKey` with the originating provider (e.g. `chatgpt:abc123`), so the
+ * substring before the first colon is normalized (lowercased, non
+ * `[a-z0-9-]` runs collapsed to `-`) into `import:<provider>`; only keys
+ * with no usable prefix fall back to `import:unknown`. Distinguishes
+ * imported rows from the schema default `"user"` (schema/conversations.ts).
  */
 function deriveImportSource(sourceKey: string | undefined): string {
-  const prefix = sourceKey?.match(/^([a-z0-9-]+):/)?.[1];
-  return prefix ? `import:${prefix}` : "import:unknown";
+  const colonIdx = sourceKey?.indexOf(":") ?? -1;
+  if (sourceKey === undefined || colonIdx <= 0) {
+    return "import:unknown";
+  }
+  const provider = sourceKey
+    .slice(0, colonIdx)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return provider ? `import:${provider}` : "import:unknown";
 }
 
 // -- Handler --

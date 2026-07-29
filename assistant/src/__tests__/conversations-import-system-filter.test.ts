@@ -4,7 +4,7 @@
  * Covers two behaviors: non-renderable roles are never persisted (the
  * messages store is UI-facing (`ConversationMessage`), so an imported export
  * carrying agent-context `system` rows must land only its `user`/`assistant`
- * turns — the `system` rows are dropped, not persisted), and imported
+ * turns; the `system` rows are dropped, not persisted), and imported
  * conversations carry a provenance `source` derived from the `sourceKey`
  * prefix (`import:<provider>`, or `import:unknown` when absent).
  */
@@ -120,6 +120,40 @@ describe("conversations import provenance source", () => {
     expect(again.imported).toBe(0);
     expect(again.skipped).toBe(1);
     expect(db.select().from(conversations).all()).toHaveLength(1);
+  });
+
+  test("normalizes non-canonical prefixes instead of dropping them", async () => {
+    // GIVEN sourceKeys whose prefixes carry uppercase or underscore characters
+    const body = {
+      conversations: [
+        {
+          sourceKey: "OpenAI:abc",
+          title: "Uppercase prefix",
+          messages: [{ role: "user", content: "hello" }],
+        },
+        {
+          sourceKey: "chat_gpt:def",
+          title: "Underscore prefix",
+          messages: [{ role: "user", content: "hello" }],
+        },
+      ],
+    };
+
+    // WHEN the conversations are imported
+    const result = (await importHandler({
+      body,
+    } as unknown as RouteHandlerArgs)) as { imported: number };
+    expect(result.imported).toBe(2);
+
+    // THEN each prefix is normalized into import:<provider>, not import:unknown
+    const db = getDb();
+    const sources = db
+      .select()
+      .from(conversations)
+      .all()
+      .map((row) => row.source)
+      .sort();
+    expect(sources).toEqual(["import:chat-gpt", "import:openai"]);
   });
 
   test("falls back to import:unknown when sourceKey is absent", async () => {
