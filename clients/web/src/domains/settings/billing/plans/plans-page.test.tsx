@@ -505,14 +505,21 @@ function LocationProbe() {
   return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
-/** An assistant whose pod sits at `machineSize`, the machine chip's from-side. */
-function makeAssistant(id: string, machineSize: MachineSizeEnum): Assistant {
+/**
+ * An assistant whose pod sits at `machineSize` on a `provisionedStorageGib`
+ * volume, the two resource from-sides the chips read.
+ */
+function makeAssistant(
+  id: string,
+  machineSize: MachineSizeEnum,
+  provisionedStorageGib = 10,
+): Assistant {
   return {
     id,
     name: "Casey",
     handle: "casey",
     machine_size: machineSize,
-    provisioned_storage_gib: 10,
+    provisioned_storage_gib: provisionedStorageGib,
   } as Assistant;
 }
 
@@ -692,6 +699,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     // value the page can read once the await resolves is already post-change.
     // Model that by flipping each fixture to its post-change value before the
     // switch is confirmed: only a capture taken ahead of the await survives it.
+    // The disk carries 25 GB while the billed tier reads 30, the spread a
+    // volume keeps after its tier was lowered. The chip must state the disk.
+    assistantFixture = makeAssistant("assistant-primary", "medium", 25);
     const { findByRole, findByTestId } = renderInteractive(
       { ...proSuperSubscription(), selected_credit_tier: "credits_45" },
       {
@@ -717,7 +727,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       max_machine_tier: "large",
       selected_storage_gib: 60,
     });
-    assistantFixture = makeAssistant("assistant-primary", "large");
+    assistantFixture = makeAssistant("assistant-primary", "large", 60);
 
     fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
@@ -725,7 +735,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
     expect(takeoverResizeContext?.fromSnapshot).toEqual({
       machineSize: "medium",
-      storageGib: 30,
+      storageGib: 25,
     });
     expect(takeoverResizeContext?.credits).toEqual({
       fromTier: "credits_45",
@@ -1342,7 +1352,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
       fromTier: null,
       toTier: "credits_50",
     });
-    // The pod's own size is the machine from-side, not the billing ceiling.
+    // The pod's own machine and disk are the from-sides, not the billed tiers.
     expect(takeoverResizeContext?.fromSnapshot).toEqual({
       machineSize: "large",
       storageGib: 10,

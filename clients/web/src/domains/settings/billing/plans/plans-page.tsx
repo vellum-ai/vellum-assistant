@@ -575,12 +575,20 @@ export function PlansPage() {
      * before it answers and the mutation hooks then invalidate the subscription
      * and onboarding queries `current` derives from, so every read afterwards
      * reports the change that just landed.
+     *
+     * Both resource dimensions come off the assistant rather than the billed
+     * tiers, which is what the takeover compares them against. A volume never
+     * shrinks, so an org that lowered its storage tier keeps the larger disk
+     * while `selected_storage_gib` reports the smaller billed one: raising the
+     * tier again would draw a move from a size the disk left long ago, and a
+     * raise that stays under the retained size would draw a growth that never
+     * happens.
      */
     const capturePlanBefore = () => ({
       creditTier: current.creditTier,
       fromSnapshot: {
         machineSize: assistant?.machine_size ?? null,
-        storageGib: current.storageGib,
+        storageGib: assistant?.provisioned_storage_gib ?? null,
       },
     });
 
