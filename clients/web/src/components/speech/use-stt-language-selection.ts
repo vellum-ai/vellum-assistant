@@ -18,20 +18,16 @@
  * pretending to save a language the daemon would ignore.
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
-
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-import { toast } from "@vellumai/design-library/components/toast";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   configGetOptions,
-  configGetQueryKey,
   sttProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { configPatch } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { STT_LANGUAGE_DEFAULT_CODE } from "@/lib/stt/language-catalog";
+
+import { useSerializedConfigSelection } from "@/components/speech/use-serialized-config-selection";
 
 /**
  * The code written when the user picks the default option. The daemon cannot
@@ -42,6 +38,17 @@ import { STT_LANGUAGE_DEFAULT_CODE } from "@/lib/stt/language-catalog";
  * reads treat unset and `"en"` as the same default code.
  */
 const DEFAULT_WRITE_CODE = "en";
+
+// Module-level so `select` identity only tracks real state (see
+// `useSerializedConfigSelection`). The default pick writes the explicit
+// English fallback described on `DEFAULT_WRITE_CODE`.
+const buildLanguagePatchBody = (code: string) => ({
+  services: {
+    stt: {
+      language: code === STT_LANGUAGE_DEFAULT_CODE ? DEFAULT_WRITE_CODE : code,
+    },
+  },
+});
 
 export interface UseSttLanguageSelection {
   /**
@@ -71,7 +78,6 @@ export function useSttLanguageSelection(
 ): UseSttLanguageSelection {
   const isOrgReady = useIsOrgReady();
   const enabled = isOrgReady && !!assistantId;
-  const queryClient = useQueryClient();
 
   const { data: providerCatalog } = useQuery({
     ...sttProvidersGetOptions({ path: { assistant_id: assistantId ?? "" } }),
@@ -106,72 +112,24 @@ export function useSttLanguageSelection(
   // provider is a guess, and the control must not flash in and out.
   const available = enabled && !!daemonConfig && providerAcceptsLanguage;
 
-  const [selecting, setSelecting] = useState(false);
-  // The code a pick is heading for, held until its write has landed in
-  // config. A check mark that waits out a round trip reads as a dropped
-  // click.
-  const [pendingCode, setPendingCode] = useState<string | null>(null);
+  // Unset and the explicit English fallback both read as the default code
+  // (display equivalence, see `DEFAULT_WRITE_CODE`).
+  const configured = daemonStt?.language;
+  const configuredCode =
+    !configured || configured === DEFAULT_WRITE_CODE
+      ? STT_LANGUAGE_DEFAULT_CODE
+      : configured;
 
-  const currentCode = useMemo(() => {
-    const configured = daemonStt?.language;
-    const normalized =
-      !configured || configured === DEFAULT_WRITE_CODE
-        ? STT_LANGUAGE_DEFAULT_CODE
-        : configured;
-    return pendingCode ?? normalized;
-  }, [pendingCode, daemonStt]);
-
-  // Writes run one at a time in click order, and only the newest one settles
-  // the UI. Concurrent PATCHes of the same config field can arrive out of
-  // order: config would then keep whichever landed last rather than what was
-  // clicked last, and the first response back would clear `selecting` while
-  // a later write was still in flight.
-  const writeChain = useRef<Promise<void>>(Promise.resolve());
-  const latestWrite = useRef(0);
-
-  const selectLanguage = useCallback(
-    (code: string) => {
-      if (!assistantId || code === currentCode) {
-        return;
-      }
-      const seq = ++latestWrite.current;
-      setPendingCode(code);
-      setSelecting(true);
-      writeChain.current = writeChain.current.then(async () => {
-        try {
-          const writeCode =
-            code === STT_LANGUAGE_DEFAULT_CODE ? DEFAULT_WRITE_CODE : code;
-          const { response } = await configPatch({
-            path: { assistant_id: assistantId },
-            body: { services: { stt: { language: writeCode } } },
-            throwOnError: false,
-          });
-          if (!response?.ok) {
-            toast.error("Couldn't change the language just now. Try again.");
-            return;
-          }
-          // Refetch config so `currentCode` reflects the write. The running
-          // session picks the new language up from config on its next turn.
-          await queryClient.invalidateQueries({
-            queryKey: configGetQueryKey({
-              path: { assistant_id: assistantId },
-            }),
-          });
-        } catch {
-          toast.error("Couldn't change the language just now. Try again.");
-        } finally {
-          // Superseded writes leave the state alone: the pick they'd revert
-          // to is not the one the user is waiting on. Dropping the pending
-          // code here also reverts a failed write to whatever config holds.
-          if (seq === latestWrite.current) {
-            setPendingCode(null);
-            setSelecting(false);
-          }
-        }
-      });
-    },
-    [assistantId, currentCode, queryClient],
-  );
+  const {
+    currentValue: currentCode,
+    selecting,
+    select: selectLanguage,
+  } = useSerializedConfigSelection({
+    assistantId,
+    configuredValue: configuredCode,
+    buildPatchBody: buildLanguagePatchBody,
+    failureMessage: "Couldn't change the language just now. Try again.",
+  });
 
   return { available, currentCode, selectLanguage, selecting };
 }

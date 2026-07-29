@@ -42,6 +42,28 @@ export const STT_LANGUAGES: readonly SttLanguageOption[] = [
 ];
 
 /**
+ * Dropdown options for a picker whose current selection is `currentCode`:
+ * the catalog, plus a synthetic "(custom)" entry when the code sits outside
+ * it. `services.stt.language` accepts any non-empty string (the CLI and chat
+ * config edits write codes like "en-US"), and a trigger that renders blank
+ * for such a value invites an accidental overwrite; the synthetic entry
+ * keeps the persisted value visible while picking a catalog option still
+ * overwrites it normally.
+ */
+export function sttLanguageOptionsFor(
+  currentCode: string,
+): readonly SttLanguageOption[] {
+  const inCatalog = STT_LANGUAGES.some((option) => option.code === currentCode);
+  if (inCatalog) {
+    return STT_LANGUAGES;
+  }
+  return [
+    ...STT_LANGUAGES,
+    { code: currentCode, label: `${currentCode} (custom)` },
+  ];
+}
+
+/**
  * Suggested STT language for a browser locale (`navigator.language`), or
  * `null` when no suggestion applies (English, empty, or outside the catalog).
  *

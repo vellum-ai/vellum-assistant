@@ -32,7 +32,7 @@ import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/lib/provider-catalogs";
-import { STT_LANGUAGES } from "@/lib/stt/language-catalog";
+import { sttLanguageOptionsFor } from "@/lib/stt/language-catalog";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 /**
@@ -135,7 +135,8 @@ export function SttProviderForm({
   // `services.stt` falls under the ConfigGetResponse index signature
   // (`unknown`), so narrow it explicitly to read the provider.
   const daemonStt = daemonConfig?.services?.stt as
-    { provider?: string; mode?: string } | undefined;
+    | { provider?: string; mode?: string }
+    | undefined;
   // A config written by the legacy mode toggle marks managed via `mode` while
   // `provider` holds the BYOK restore value — the daemon routes it to Vellum,
   // so the form must render it as Vellum too.
@@ -165,6 +166,13 @@ export function SttProviderForm({
     currentCode: languageCode,
     selectLanguage,
   } = useSttLanguageSelection(assistantId);
+  // The hook's availability describes the daemon's provider, but the form can
+  // sit on the client-only native choice (before or after Save) while the
+  // daemon still reports its own default. The native recognizer never reads
+  // `services.stt.language`, so the picker hides whenever the form shows a
+  // provider with no daemon mapping rather than offering a language the
+  // recognizer ignores.
+  const draftUsesDaemonStt = !!STT_DAEMON_PROVIDER[draftProvider];
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -353,7 +361,7 @@ export function SttProviderForm({
         />
       </div>
 
-      {languageAvailable && (
+      {languageAvailable && draftUsesDaemonStt && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Spoken language
@@ -361,7 +369,7 @@ export function SttProviderForm({
           <Dropdown
             value={languageCode}
             onChange={selectLanguage}
-            options={STT_LANGUAGES.map((l) => ({
+            options={sttLanguageOptionsFor(languageCode).map((l) => ({
               value: l.code,
               label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
               tooltip: l.description,

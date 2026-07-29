@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   STT_LANGUAGES,
   STT_MULTI_CODE,
+  sttLanguageOptionsFor,
   suggestedLanguageForLocale,
 } from "./language-catalog";
 
@@ -27,6 +28,27 @@ describe("STT_LANGUAGES", () => {
     expect(description).toContain("Japanese");
     expect(description).toContain("Italian");
     expect(description).toContain("Dutch");
+  });
+});
+
+describe("sttLanguageOptionsFor", () => {
+  test("returns the catalog unchanged for a catalog code", () => {
+    expect(sttLanguageOptionsFor("es")).toBe(STT_LANGUAGES);
+  });
+
+  test("returns the catalog unchanged for the default code", () => {
+    expect(sttLanguageOptionsFor("")).toBe(STT_LANGUAGES);
+  });
+
+  test("appends a custom entry for an out-of-catalog code", () => {
+    // `services.stt.language` accepts any non-empty string; a CLI-written
+    // "en-US" must stay visible in the picker instead of a blank trigger.
+    const options = sttLanguageOptionsFor("en-US");
+    expect(options).toHaveLength(STT_LANGUAGES.length + 1);
+    expect(options[options.length - 1]).toEqual({
+      code: "en-US",
+      label: "en-US (custom)",
+    });
   });
 });
 

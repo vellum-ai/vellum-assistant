@@ -246,7 +246,8 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     // The provider is unchanged and the daemon already has one, so no config
     // PATCH must fire (which would re-assert / risk clobbering the provider).
     const sttBody = configPatchCalls[0]?.body as
-      { services?: { stt?: Record<string, unknown> } } | undefined;
+      | { services?: { stt?: Record<string, unknown> } }
+      | undefined;
     expect(sttBody?.services?.stt ?? {}).not.toHaveProperty("provider");
   });
 
@@ -431,6 +432,52 @@ describe("SpeechToTextCard — Spoken language dropdown", () => {
     renderCard();
 
     expect(languageTrigger()).toBeNull();
+  });
+
+  test("hides while the form shows the client-only native provider", async () => {
+    // The daemon reports its own (language-selectable) provider, but the
+    // native recognizer never reads `services.stt.language` — a picker here
+    // would PATCH a value nothing consumes.
+    nativeDictationSupported = true;
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+
+    openProviderDropdown();
+    selectOption("macOS Native Dictation");
+
+    expect(languageTrigger()).toBeNull();
+  });
+
+  test("shows an out-of-catalog configured language on the trigger", async () => {
+    // Any non-empty string is a valid `services.stt.language` (CLI/chat can
+    // write "en-US"); the trigger must show it rather than render blank.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "en-US" } },
+    };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    expect(languageTrigger()!.textContent).toContain("en-US");
   });
 
   test("does not render when the daemon omits the capability field (old daemon)", () => {
