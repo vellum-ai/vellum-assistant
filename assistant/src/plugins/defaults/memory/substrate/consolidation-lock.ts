@@ -1,6 +1,6 @@
 // SUBSTRATE (v2+v3).
 /**
- * Memory substrate — the single-process consolidation lock.
+ * Memory substrate: the single-process consolidation lock.
  *
  * Serializes bulk writers of the `memory/` files so two overlapping passes
  * can't fight over the same corpus.
@@ -58,7 +58,7 @@ export const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
 
 /** The consolidation lock's location under a workspace's `memory/` dir. */
 export function getConsolidationLockPath(memoryDir: string): string {
-  // FROZEN: `memory/.v2-state/` is a persisted workspace path — never rename.
+  // FROZEN: `memory/.v2-state/` is a persisted workspace path; never rename.
   return join(memoryDir, ".v2-state", "consolidation.lock");
 }
 
