@@ -8,6 +8,9 @@
  *   `messages`; any other stop reason → stop; non-main-agent call sites →
  *   stop; a provider rejection → stop; an entirely-stripped (empty) truncated
  *   turn → stop.
+ * - Which continuation nudge the hook picks: a truncated turn that emitted
+ *   only thinking gets the thinking-only nudge; one that emitted partial
+ *   output keeps the generic continuation.
  * - The per-run budget is split across the two hooks: `post-model-call`
  *   consumes one unit per continue (up to `MAX_TOKENS_AUTO_CONTINUES`) and
  *   the `stop` hook clears the counter on the definitive terminal so the next
@@ -33,6 +36,7 @@ import {
 } from "../plugins/defaults/max-tokens-continue/continue-state-store.js";
 import postModelCall, {
   MAX_TOKENS_CONTINUE_NUDGE_TEXT,
+  MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT,
 } from "../plugins/defaults/max-tokens-continue/hooks/post-model-call.js";
 import stop from "../plugins/defaults/max-tokens-continue/hooks/stop.js";
 import type { ContentBlock } from "../providers/types.js";
@@ -50,6 +54,20 @@ const truncatedText: ContentBlock = {
   type: "text",
   text: "Here is the start of a very long answer that got cut o",
 };
+
+const thinkingBlock: ContentBlock = {
+  type: "thinking",
+  thinking: "Writing SVG code... Writing component markup...",
+  signature: "sig-abc",
+};
+
+/** The nudge text the hook appended after the truncated turn. */
+function appendedNudgeText(ctx: PostModelCallContext): unknown {
+  const nudge = ctx.messages[ctx.messages.length - 1];
+  return nudge?.content[0] && "text" in nudge.content[0]
+    ? nudge.content[0].text
+    : undefined;
+}
 
 function makeCtx(
   overrides: Partial<PostModelCallContext> = {},
@@ -89,6 +107,24 @@ describe("max-tokens-continue NUDGE_TEXT — internal-notice suppression", () =>
       "Continue exactly where you stopped",
     );
   });
+
+  test("the thinking-only nudge names the failure and demands output now", () => {
+    expect(MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT).toContain(
+      INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+    );
+    expect(
+      MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT.startsWith("<system_notice>"),
+    ).toBe(true);
+    expect(
+      MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT.endsWith("</system_notice>"),
+    ).toBe(true);
+    expect(MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT).toContain(
+      "spent its entire output budget inside thinking",
+    );
+    expect(MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT).toContain(
+      "Do not resume planning",
+    );
+  });
 });
 
 describe("max-tokens-continue post-model-call hook", () => {
@@ -115,6 +151,90 @@ describe("max-tokens-continue post-model-call hook", () => {
       role: "user",
       content: [{ type: "text", text: MAX_TOKENS_CONTINUE_NUDGE_TEXT }],
     });
+  });
+
+  test("thinking-only truncated turn → continue with the thinking-only nudge", async () => {
+    /**
+     * Tests that a turn which burned its whole budget inside thinking is told
+     * so, rather than being invited to resume drafting in thought.
+     */
+    // GIVEN a truncated turn carrying only a thinking block.
+    const ctx = makeCtx({ content: [thinkingBlock] });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it continues with the thinking-only nudge.
+    expect(ctx.decision).toBe("continue");
+    expect(appendedNudgeText(ctx)).toBe(MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT);
+  });
+
+  test("thinking plus whitespace-only text → thinking-only nudge", async () => {
+    /**
+     * Tests that a blank text block does not count as emitted output.
+     */
+    // GIVEN a truncated turn whose only text block is whitespace.
+    const ctx = makeCtx({
+      content: [thinkingBlock, { type: "text", text: "  \n" }],
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it still uses the thinking-only nudge.
+    expect(ctx.decision).toBe("continue");
+    expect(appendedNudgeText(ctx)).toBe(MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT);
+  });
+
+  test("thinking plus partial text → generic continuation nudge", async () => {
+    /**
+     * Tests that a turn which did emit output keeps the resume-where-you-left
+     * instruction.
+     */
+    // GIVEN a truncated turn that emitted thinking and partial text.
+    const ctx = makeCtx({ content: [thinkingBlock, truncatedText] });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it continues with the generic nudge.
+    expect(ctx.decision).toBe("continue");
+    expect(appendedNudgeText(ctx)).toBe(MAX_TOKENS_CONTINUE_NUDGE_TEXT);
+  });
+
+  test("thinking plus a tool call → generic continuation nudge", async () => {
+    /**
+     * Tests that a tool call counts as emitted output.
+     */
+    // GIVEN a truncated turn carrying thinking and a tool call.
+    const ctx = makeCtx({
+      content: [
+        thinkingBlock,
+        { type: "tool_use", id: "tool-1", name: "write_file", input: {} },
+      ],
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it continues with the generic nudge.
+    expect(ctx.decision).toBe("continue");
+    expect(appendedNudgeText(ctx)).toBe(MAX_TOKENS_CONTINUE_NUDGE_TEXT);
+  });
+
+  test("thinking-only turn on a non-max-tokens stop → untouched", async () => {
+    /**
+     * Tests that the nudge selection never fires outside a max_tokens stop.
+     */
+    // GIVEN a thinking-only turn that ended normally.
+    const ctx = makeCtx({ content: [thinkingBlock], stopReason: "end_turn" });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN nothing is appended.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toHaveLength(1);
   });
 
   test("non-max-tokens stop reason → stop", async () => {
