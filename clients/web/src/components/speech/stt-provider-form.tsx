@@ -32,6 +32,8 @@ import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/lib/provider-catalogs";
+import { STT_LANGUAGES } from "@/lib/stt/language-catalog";
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 /**
  * The speech-to-text provider + API key form: provider choice, key entry, and
@@ -155,6 +157,14 @@ export function SttProviderForm({
   const daemonHasProvider = !!daemonSttProvider;
 
   const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
+  // Spoken-language pick, shown only when the daemon reports the configured
+  // provider as manually language-selectable. Hot-applies through the hook,
+  // independent of this form's Save.
+  const {
+    available: languageAvailable,
+    currentCode: languageCode,
+    selectLanguage,
+  } = useSttLanguageSelection(assistantId);
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -342,6 +352,27 @@ export function SttProviderForm({
           aria-label="STT provider"
         />
       </div>
+
+      {languageAvailable && (
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Spoken language
+          </label>
+          <Dropdown
+            value={languageCode}
+            onChange={selectLanguage}
+            options={STT_LANGUAGES.map((l) => ({
+              value: l.code,
+              label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
+              tooltip: l.description,
+            }))}
+            aria-label="Spoken language"
+          />
+          <p className="text-body-small-default text-[var(--content-tertiary)]">
+            Applies from your next spoken turn.
+          </p>
+        </div>
+      )}
 
       {requiresApiKey && (
         <div className="space-y-1">
