@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   extractMemoryDb,
   isSecretName,
+  isTimestampColumnName,
   redactSecretValues,
 } from "./parse-agent-memory-db.js";
 import {
@@ -303,6 +304,28 @@ describe("createItemsJsonStreamWriter", () => {
     writer.end();
 
     expect(JSON.parse(streamed)).toEqual([]);
+  });
+});
+
+describe("isTimestampColumnName", () => {
+  test("matches timestamp names only on whole segments", () => {
+    for (const name of [
+      "date",
+      "created_at",
+      "createdAt",
+      "updated",
+      "event_ts",
+      "timestamp",
+      "last_modified_time",
+    ]) {
+      expect(isTimestampColumnName(name)).toBe(true);
+    }
+  });
+
+  test("does not match names that merely contain a timestamp word", () => {
+    for (const name of ["candidate", "candidate_text", "timezone", "at"]) {
+      expect(isTimestampColumnName(name)).toBe(false);
+    }
   });
 });
 

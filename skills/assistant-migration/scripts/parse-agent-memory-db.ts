@@ -46,8 +46,39 @@ import {
 const SUPPORTED_SOURCES = ["hermes", "openclaw"] as const;
 type SourceProvider = (typeof SUPPORTED_SOURCES)[number];
 
-/** Column names that look like timestamps (feed origin_date, not text). */
-const TIMESTAMP_COLUMN = /(date|time|created|updated|modified|_at$|_ts$)/i;
+/**
+ * Name segments that mark a column as a timestamp (feeds origin_date, not
+ * text). Matched against whole segments, not substrings: "candidate" and
+ * "timezone" contain "date"/"time" but are not timestamp columns, and a
+ * substring match would silently drop their text from extraction.
+ */
+const TIMESTAMP_NAME_SEGMENTS = new Set([
+  "date",
+  "datetime",
+  "time",
+  "timestamp",
+  "t",
+  "created",
+  "updated",
+  "modified",
+  "at",
+  "ts",
+]);
+
+/** True when a column name's segments mark it as a timestamp column. */
+export function isTimestampColumnName(name: string): boolean {
+  const segments = nameSegments(name);
+  // A lone "at"/"ts" segment only counts as part of a compound name
+  // ("created_at", "event_ts"); a single-segment name must itself be a
+  // timestamp word ("date", "timestamp").
+  if (segments.length === 1) {
+    return (
+      TIMESTAMP_NAME_SEGMENTS.has(segments[0]) &&
+      !["at", "ts"].includes(segments[0])
+    );
+  }
+  return segments.some((segment) => TIMESTAMP_NAME_SEGMENTS.has(segment));
+}
 
 /** Column names that look like opaque identifiers, not memory text. */
 const IDENTIFIER_COLUMN = /(^|_)(id|uuid|guid|key|hash|checksum)$/i;
@@ -332,10 +363,10 @@ export function extractMemoryDb(
       const secretColumns = columns.filter((name) => isSecretName(name));
       const safeColumns = columns.filter((name) => !isSecretName(name));
       const timestampColumns = safeColumns.filter((name) =>
-        TIMESTAMP_COLUMN.test(name),
+        isTimestampColumnName(name),
       );
       const textCandidateColumns = safeColumns.filter(
-        (name) => !TIMESTAMP_COLUMN.test(name) && !IDENTIFIER_COLUMN.test(name),
+        (name) => !isTimestampColumnName(name) && !IDENTIFIER_COLUMN.test(name),
       );
 
       const quoteIdent = (name: string) => `"${name.replaceAll('"', '""')}"`;

@@ -39,6 +39,9 @@ import {
   toIsoDate,
   type MemoryImportItem,
 } from "./lib/memory-items.js";
+// The DB parser guards its CLI entry behind import.meta.main, so importing
+// its redaction helper does not execute it.
+import { redactSecretValues } from "./parse-agent-memory-db.js";
 
 const SOURCE = "import:chatgpt";
 
@@ -574,11 +577,24 @@ function main() {
   for (const line of inventory) {
     process.stderr.write(`  ${line.outcome}: ${line.entry} (${line.detail})\n`);
   }
+  // Same value-level guarantee as the DB parser: credential-shaped spans in
+  // saved memories or custom instructions never reach stdout verbatim.
+  let redactionCount = 0;
+  const redactedItems = items.map((item) => {
+    const { text, redactions } = redactSecretValues(item.text);
+    redactionCount += redactions;
+    return redactions > 0 ? { ...item, text } : item;
+  });
+  if (redactionCount > 0) {
+    process.stderr.write(
+      `Redacted ${redactionCount} secret-like value(s) in place.\n`,
+    );
+  }
   process.stderr.write(
-    `Total: ${items.length} review candidates from ${entries.length} entries. Review before saving to memory.\n`,
+    `Total: ${redactedItems.length} review candidates from ${entries.length} entries. Review before saving to memory.\n`,
   );
 
-  printItemsJson(items);
+  printItemsJson(redactedItems);
 }
 
 if (import.meta.main) {
