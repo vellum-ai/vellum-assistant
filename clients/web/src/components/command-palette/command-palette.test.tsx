@@ -109,7 +109,58 @@ describe("CommandPalette", () => {
 
     // The load-bearing behavior: AnimatePresence holds the sheet in the DOM
     // while the exit plays, so the chat underneath stays covered.
-    expect(screen.getByRole("dialog", { name: "Search" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { hidden: true })).toBeTruthy();
+  });
+
+  test("stops taking taps and announcing itself while the exit plays", () => {
+    isMobileRef.value = true;
+    nativeIOSRef.value = true;
+
+    const { rerender } = renderPalette(true);
+    const sheet = screen.getByRole("dialog", { name: "Search" });
+    expect(sheet.getAttribute("aria-modal")).toBe("true");
+    expect(sheet.style.pointerEvents).toBe("");
+
+    rerender(paletteElement(false));
+
+    // The sheet still covers the viewport for the length of the exit, so the
+    // chat and drawer underneath have to stay reachable.
+    expect(sheet.style.pointerEvents).toBe("none");
+    expect(sheet.getAttribute("aria-hidden")).toBe("true");
+    expect(sheet.hasAttribute("aria-modal")).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("releases focus held inside the sheet when the exit starts", () => {
+    isMobileRef.value = true;
+    nativeIOSRef.value = true;
+
+    const { rerender } = renderPalette(true);
+    const input = screen.getByRole("textbox", { name: "Search" });
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    rerender(paletteElement(false));
+
+    // Blurring here starts the iOS keyboard dismissal alongside the slide-out.
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  test("leaves focus outside the sheet alone when the exit starts", () => {
+    isMobileRef.value = true;
+    nativeIOSRef.value = true;
+
+    const composer = document.createElement("textarea");
+    document.body.appendChild(composer);
+    const { rerender } = renderPalette(true);
+
+    composer.focus();
+    rerender(paletteElement(false));
+
+    // Selecting "New Conversation" focuses the composer before the palette
+    // closes, so the close must not take that focus back.
+    expect(document.activeElement).toBe(composer);
+    composer.remove();
   });
 
   test("renders the mobile sheet affordances in the iOS shell", () => {

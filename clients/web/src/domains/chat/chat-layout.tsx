@@ -67,7 +67,6 @@ import {
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useIsNativeIOS } from "@/runtime/platform-detection";
 import { isPopoutWindow, openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -574,16 +573,17 @@ export function ChatLayout({
       switchConversation: handleSelectConversation,
     });
 
-  const isNativeIOSShell = useIsNativeIOS();
-  // iOS shell: keep the palette subtree mounted after first open so the
-  // AnimatePresence exit inside CommandPalette can run.
+  // Mount the palette on its first open and keep it mounted so the
+  // AnimatePresence exit inside CommandPalette has a host; CommandPalette
+  // renders nothing while closed on surfaces that have no exit. Items that
+  // navigate outside this layout (Settings) unmount the subtree in the same
+  // commit as the close, so those selections skip the exit.
   const [paletteEverOpened, setPaletteEverOpened] = useState(false);
   useEffect(() => {
     if (commandPalette.isOpen && !paletteEverOpened) {
       setPaletteEverOpened(true);
     }
   }, [commandPalette.isOpen, paletteEverOpened]);
-  const keepPaletteMounted = isNativeIOSShell && paletteEverOpened;
 
   // Electron host commands (File menu / global hotkeys). The hook is a
   // no-op on the web host. Handlers close over the latest state via an
@@ -1023,7 +1023,7 @@ export function ChatLayout({
         renameGroup={renameGroup}
         moveToGroup={handleMoveToGroup}
       />
-      {commandPalette.isOpen || keepPaletteMounted ? (
+      {commandPalette.isOpen || paletteEverOpened ? (
         <LazyBoundary>
           <CommandPalette
             isOpen={commandPalette.isOpen}
