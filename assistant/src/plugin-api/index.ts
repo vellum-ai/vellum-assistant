@@ -238,36 +238,35 @@ export { getWorkspaceDir } from "../util/platform.js";
 // to embed CLI command capabilities without importing the CLI action graph.
 // Pure data — iterate the fields directly.
 export { CLI_COMMAND_HELP } from "../cli/index.help.js";
-// Embeddings — self-contained operations on the host's shared embedding /
+// Embeddings: self-contained operations on the host's shared embedding /
 // vector-store subsystem. Host-resolved: each reads the live workspace config
 // internally, so plugins hold no config. Async because the facade loads the
 // embed graph lazily on first call.
 //
 // Two families:
-//   • Compute-only (Layer 1): `embed`, `generateSparseEmbedding` — run the
-//     workspace backend and return raw vectors, no persistence.
-//   • Plugin index (Layer 2): `indexPluginDocument` / `queryPluginIndex` /
-//     `getPluginDocument` / `removePluginDocument` / `purgePluginEmbeddings` —
-//     a plugin-owned semantic namespace (hybrid dense+sparse search) that is
-//     scoped to the calling plugin and never participates in agent recall.
+//   • Compute-only (`embed`, `generateSparseEmbedding`): run the workspace
+//     backend and return raw vectors, with no persistence.
+//   • Index (`indexDocument` / `queryIndex` / `getDocument` / `removeDocument`):
+//     a plugin-owned semantic namespace (hybrid dense+sparse search),
+//     automatically scoped to the calling plugin, that never participates in
+//     agent recall. It is a derived cache of the plugin's own source data.
 //   • `embedAndUpsert` remains the legacy write-only host-recall path.
 export type {
-  IndexPluginDocumentOptions,
-  PluginDocument,
-  PluginEmbedding,
-  PluginIndexDocumentResult,
-  PluginIndexHit,
-  QueryPluginIndexOptions,
+  EmbedResult,
+  IndexDocumentOptions,
+  IndexDocumentResult,
+  IndexedDocument,
+  IndexHit,
+  QueryIndexOptions,
 } from "../persistence/embeddings/plugin-facade.js";
 export {
   embed,
   embedAndUpsert,
   generateSparseEmbedding,
-  getPluginDocument,
-  indexPluginDocument,
-  purgePluginEmbeddings,
-  queryPluginIndex,
-  removePluginDocument,
+  getDocument,
+  indexDocument,
+  queryIndex,
+  removeDocument,
   selectedBackendSupportsMultimodal,
 } from "../persistence/embeddings/plugin-facade.js";
 // Embedding input/output value shapes shared by the compute and index APIs.

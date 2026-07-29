@@ -57,8 +57,8 @@ export interface QdrantPointPayload {
     | "media"
     | "graph_node"
     | "pkb_file"
-    // Plugin-owned semantic index (Layer 2). Never queried by any recall lane;
-    // scoped to the owning plugin via the `plugin` field.
+    // Plugin-owned semantic index. Never queried by any recall lane; scoped to
+    // the owning plugin via the `plugin` field.
     | "plugin_index";
   target_id: string;
   text: string;
@@ -79,8 +79,15 @@ export interface QdrantPointPayload {
    */
   plugin?: string;
   /**
+   * The plugin-facing document id for a `plugin_index` point. The Qdrant
+   * `target_id` is namespace-qualified (`<plugin>:<documentId>`) to keep point
+   * identity unique across plugins; this field carries the bare id back to the
+   * owning plugin on query/get. Absent on host points.
+   */
+  document_id?: string;
+  /**
    * Opaque, plugin-supplied metadata carried alongside a `plugin_index` point
-   * (provenance such as a row id / file id / source tool). Round-tripped
+   * (provenance such as a row id, file id, or source tool). Round-tripped
    * verbatim on query/get; never interpreted by the host.
    */
   meta?: Record<string, unknown>;
