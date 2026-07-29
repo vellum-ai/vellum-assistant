@@ -572,11 +572,14 @@ body {
  * ::-webkit-scrollbar above replaces WKWebView's auto-hiding overlay
  * indicator with an always-visible bar, which reads as broken on iOS.
  * Scrolling and momentum are unaffected. The
- * :root[data-native-platform="ios"] prefix covers both the document
- * scrollbar and every inner scroller, and outranks the :root * and
- * [data-theme] scrollbar rules above on specificity. */
+ * :root[data-native-platform="ios"] prefix covers the document scrollbar,
+ * every inner scroller, and the ::before / ::after pseudo-elements, mirroring
+ * the :root * selector list above, and outranks both it and the [data-theme]
+ * scrollbar rules on specificity. */
 :root[data-native-platform="ios"],
-:root[data-native-platform="ios"] * {
+:root[data-native-platform="ios"] *,
+:root[data-native-platform="ios"] *::before,
+:root[data-native-platform="ios"] *::after {
   scrollbar-width: none;
 }
 
