@@ -785,7 +785,9 @@ export class VellumQdrantClient {
     }
 
     const point = result.points[0];
-    if (!point) return null;
+    if (!point) {
+      return null;
+    }
     return {
       id: typeof point.id === "string" ? point.id : String(point.id),
       payload: point.payload as unknown as QdrantPointPayload,
