@@ -67,6 +67,9 @@ graph LR
     CONS --> VIEWS["essentials / threads / recent"]
     CONS --> REEMBED["memory_v2_reembed →<br/>concept-page Qdrant collection"]
     CONS --> MAINT["memory_v3_maintain<br/>(v3-live follow-up)"]
+    ING["POST /v1/memory/ingest<br/>(deterministic batch import)"] --> PAGES
+    ING --> REEMBED
+    ING --> MAINT
 ```
 
 - `handleRemember` (`graph/tool-handlers.ts`) appends timestamped bullets to
@@ -85,6 +88,17 @@ graph LR
     failure-backoff-respecting);
   - manual "Run now" via `POST /v1/consolidation/run-now`.
     Failed runs enter an exponential backoff (transient vs billing curves).
+- **Ingestion** (`substrate/ingest.ts`, exposed as `POST /v1/memory/ingest`;
+  generated HTTP operation id `memory_ingest_post`, IPC method
+  `memory_ingest`) is the second sanctioned writer of
+  `memory/concepts/`: a deterministic batch import of fully-formed,
+  page-shaped markdown (frontmatter + body) that bypasses the buffer
+  entirely. Purely mechanical: each page is validated and reported
+  individually, writes hold the consolidation lock so a batch cannot
+  interleave with a consolidation pass, and a batch that wrote at least one
+  page enqueues the same reindex follow-ups as consolidation
+  (`memory_v2_reembed`, `memory_v3_maintain`). Consolidation remains the only
+  LLM-driven writer.
 
 ### Read paths
 
