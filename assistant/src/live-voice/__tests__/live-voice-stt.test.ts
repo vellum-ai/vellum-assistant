@@ -807,6 +807,20 @@ describe("LiveVoiceSession STT", () => {
           frame.type === "stt_final" ? [frame.text] : [],
         ),
       ).toEqual(["utterance 1", "utterance 1"]);
+
+      // A retired stream's stop() emits closed asynchronously, possibly
+      // after the replacement stream is installed. The stale close must
+      // leave the replacement's shared-stream state intact: the next
+      // utterance re-arms the replacement instead of dialing a third
+      // stream.
+      transcribers[0]?.emit({ type: "closed" });
+      await session.handleBinaryAudio(loudPcmChunk());
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(
+        () => frames.filter((frame) => frame.type === "tts_done").length === 3,
+      );
+      expect(resolver).toHaveBeenCalledTimes(2);
+      expect(transcribers[1]?.stopCalls).toBe(0);
     } finally {
       await session.close("websocket_close");
       saveRawConfig(originalRaw);

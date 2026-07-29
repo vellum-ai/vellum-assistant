@@ -2989,6 +2989,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.sendTranscriberErrorFrame(event);
         return;
       case "closed": {
+        if (this.sharedTranscriber !== transcriber) {
+          // A retired stream's stop() emits closed asynchronously, possibly
+          // after a replacement stream is installed. The retire path already
+          // drained the finalize queue and nulled the stream refs, so this
+          // close is stale bookkeeping; mutating here would clear the
+          // replacement's state and seal its in-flight utterance early.
+          return;
+        }
         // The shared stream closed under the session: fall back to the
         // per-cycle path — the next arm resolves a fresh transcriber.
         this.sharedTranscriber = null;
