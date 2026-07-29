@@ -7,6 +7,15 @@ const updateConversationUsageCalls: Array<{
   estimatedCost: number;
 }> = [];
 
+let updateConversationUsageFailures = 0;
+let updateConversationUsageFailureCode = "SQLITE_BUSY";
+
+function sqliteError(code: string): Error {
+  const err = new Error("database is locked") as Error & { code: string };
+  err.code = code;
+  return err;
+}
+
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -16,6 +25,10 @@ mock.module("../persistence/conversation-crud.js", () => ({
     outputTokens: number,
     estimatedCost: number,
   ) => {
+    if (updateConversationUsageFailures > 0) {
+      updateConversationUsageFailures--;
+      throw sqliteError(updateConversationUsageFailureCode);
+    }
     updateConversationUsageCalls.push({
       conversationId,
       inputTokens,
@@ -35,6 +48,7 @@ import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
 import { setConfig } from "./helpers/set-config.js";
+import { waitFor } from "./helpers/wait-for.js";
 
 await initializeDb();
 
@@ -63,6 +77,8 @@ describe("recordUsage", () => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     updateConversationUsageCalls.length = 0;
+    updateConversationUsageFailures = 0;
+    updateConversationUsageFailureCode = "SQLITE_BUSY";
   });
 
   test("applies fast mode pricing when any response has speed: fast", () => {
@@ -422,6 +438,149 @@ describe("recordUsage", () => {
       inferenceProfile: null,
       inferenceProfileSource: "default",
     });
+  });
+
+  test("transient SQLITE_BUSY on the totals write never escapes and retries persist the totals", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    // Sync attempt fails, first background retry fails, second succeeds.
+    updateConversationUsageFailures = 2;
+
+    recordUsage(
+      {
+        conversationId: "conv-busy-1",
+        providerName: "openai",
+        usageStats,
+      },
+      100,
+      20,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    // The throwing write must not have escaped into the caller, and the
+    // in-memory accumulator must already reflect the event.
+    expect(usageStats.inputTokens).toBe(100);
+    expect(usageStats.outputTokens).toBe(20);
+
+    await waitFor(() => updateConversationUsageCalls.length === 1, {
+      timeoutMs: 3_000,
+    });
+    expect(updateConversationUsageCalls[0]).toMatchObject({
+      conversationId: "conv-busy-1",
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+  });
+
+  test("exhausted retries are tolerated and the next usage event self-heals the totals", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    // More failures than the sync attempt (1) plus the retry chain's
+    // initial-plus-3-retries budget (4), so the first event's write is
+    // dropped entirely.
+    updateConversationUsageFailures = 100;
+
+    recordUsage(
+      {
+        conversationId: "conv-busy-2",
+        providerName: "openai",
+        usageStats,
+      },
+      100,
+      20,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    await waitFor(() => updateConversationUsageFailures === 95, {
+      timeoutMs: 3_000,
+    });
+    // Give the chain a beat to settle after its final failure.
+    await Bun.sleep(50);
+    expect(updateConversationUsageCalls).toHaveLength(0);
+
+    updateConversationUsageFailures = 0;
+    recordUsage(
+      {
+        conversationId: "conv-busy-2",
+        providerName: "openai",
+        usageStats,
+      },
+      50,
+      10,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    // The second event's write carries the cumulative totals, healing the
+    // dropped first write.
+    await waitFor(() => updateConversationUsageCalls.length === 1, {
+      timeoutMs: 3_000,
+    });
+    expect(updateConversationUsageCalls[0]).toMatchObject({
+      conversationId: "conv-busy-2",
+      inputTokens: 150,
+      outputTokens: 30,
+    });
+  });
+
+  test("a usage event landing mid-retry coalesces and stale totals never overwrite newer ones", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    // Sync attempt and the first two background attempts fail, leaving the
+    // chain alive in backoff while the second event lands.
+    updateConversationUsageFailures = 3;
+
+    const ctx = {
+      conversationId: "conv-busy-3",
+      providerName: "openai",
+      usageStats,
+    };
+    recordUsage(ctx, 100, 20, "gpt-4o", () => {}, "main_agent");
+    recordUsage(ctx, 50, 10, "gpt-4o", () => {}, "main_agent");
+
+    await waitFor(
+      () =>
+        updateConversationUsageCalls.some(
+          (call) => call.inputTokens === 150 && call.outputTokens === 30,
+        ),
+      { timeoutMs: 3_000 },
+    );
+    // Wait out any straggling coalesced write, then confirm nothing stale
+    // landed after the cumulative totals.
+    await Bun.sleep(300);
+    const last = updateConversationUsageCalls.at(-1);
+    expect(last).toMatchObject({
+      conversationId: "conv-busy-3",
+      inputTokens: 150,
+      outputTokens: 30,
+    });
+  });
+
+  test("a non-retryable write error is tolerated without retrying", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    updateConversationUsageFailures = 1;
+    updateConversationUsageFailureCode = "SQLITE_CORRUPT";
+
+    recordUsage(
+      {
+        conversationId: "conv-corrupt-1",
+        providerName: "openai",
+        usageStats,
+      },
+      100,
+      20,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    // No background chain: the failure budget is spent on the sync attempt
+    // and nothing retries afterwards.
+    await Bun.sleep(300);
+    expect(updateConversationUsageCalls).toHaveLength(0);
+    expect(usageStats.inputTokens).toBe(100);
   });
 
   test("NaN token counts never reach persistence and a poisoned total self-heals", () => {
