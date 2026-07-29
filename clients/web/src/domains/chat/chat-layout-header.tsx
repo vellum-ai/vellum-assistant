@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
+import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
 import { isElectron } from "@/runtime/is-electron";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
@@ -22,11 +23,6 @@ import { useTitleBarStore } from "@/stores/title-bar-store";
 // (≈ button left edge at 96px, leaving a ~25px gap past the green control).
 // Off Electron the inset is 0.
 const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 80;
-
-// iOS shell only: strip the touch-mobile pill fill so the glyph floats
-// bare while keeping the 40x40 tap target and focus ring.
-const NATIVE_IOS_BARE_ICON_BUTTON =
-  "native-ios:bg-transparent native-ios:hover:bg-transparent native-ios:active:bg-transparent";
 
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;

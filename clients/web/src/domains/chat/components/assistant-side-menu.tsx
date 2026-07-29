@@ -31,6 +31,7 @@ import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item"
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
 import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -40,11 +41,6 @@ import {
 } from "@/domains/chat/utils/group-icon-registry";
 import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import { Button, SideMenu } from "@vellumai/design-library";
-
-// iOS shell only: strip the touch-mobile pill fill so the glyph floats
-// bare while keeping the 40x40 tap target and focus ring.
-const NATIVE_IOS_BARE_ICON_BUTTON =
-  "native-ios:bg-transparent native-ios:hover:bg-transparent native-ios:active:bg-transparent";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT =
