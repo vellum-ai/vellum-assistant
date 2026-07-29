@@ -25,6 +25,7 @@ import { router } from "./routes";
 import "@/lib/api-interceptors";
 import "./index.css";
 
+import { initNativePlatformAttributes } from "@/runtime/native-platform-attributes";
 import { initSafeAreaBridge } from "@/runtime/native-safe-area";
 import { initInputModality } from "@vellumai/design-library";
 
@@ -34,6 +35,7 @@ async function boot() {
   installTranslateDomGuard();
 
   initInputModality();
+  initNativePlatformAttributes();
   await initSafeAreaBridge();
   initSentry();
   initSessionReplay();
