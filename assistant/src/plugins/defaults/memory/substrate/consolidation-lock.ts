@@ -9,8 +9,8 @@
  * containing the holder's PID + timestamp (plus an optional advisory tag), so
  * a crashed run leaves a diagnosable trace. A stale lock is taken over
  * automatically on the next acquire (single-writer per workspace): when the
- * holder's PID is no longer running, or — because the daemon runs as PID 1 in
- * containers and a restarted daemon collides with the dead holder's PID —
+ * holder's PID is no longer running, or (because the daemon runs as PID 1 in
+ * containers and a restarted daemon collides with the dead holder's PID)
  * when the lock is older than {@link STALE_LOCK_TTL_MS}.
  */
 
@@ -31,7 +31,7 @@ const log = getLogger("memory-v2-consolidate");
 
 /**
  * Hard timeout for the consolidation run. Consolidation reads the buffer,
- * rewrites several files, and re-encodes essentials/threads — generous
+ * rewrites several files, and re-encodes essentials/threads: generous
  * upper bound so a slow run isn't killed mid-edit, but bounded so a stuck
  * provider can't pin the worker indefinitely.
  */
@@ -48,7 +48,7 @@ export const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
  * permanently (every scheduled run skips with `locked`).
  *
  * A lock older than this TTL is treated as abandoned regardless of PID
- * liveness. The bound is a large multiple of the run's hard timeout — the
+ * liveness. The bound is a large multiple of the run's hard timeout: the
  * lock timestamp is written at acquire time and a run can hold the lock for
  * at most `CONSOLIDATION_TIMEOUT_MS`, so a TTL well above that can never fire
  * against a legitimately in-flight run while still recovering a wedged lock
@@ -72,17 +72,17 @@ export function getConsolidationLockPath(memoryDir: string): string {
  * writer holds the lock; stale classification ignores it.
  *
  * Stale-lock takeover: if the file exists but its holder is stale (PID not
- * running, payload corrupt, or — for the container PID-1 collision — older
+ * running, payload corrupt, or (for the container PID-1 collision) older
  * than the TTL; see {@link holderStaleReason}), unlink the stale file and
  * retry the create exactly once. This recovers automatically from a crashed
- * or restarted daemon that died with the lock held — otherwise every
+ * or restarted daemon that died with the lock held; otherwise every
  * subsequent scheduled consolidation would skip with `locked` indefinitely
  * until an operator manually removed the file.
  *
  * The simple takeover-then-retry is safe here (unlike `snapshot-lock.ts`'s
  * full rename-aside dance) because only the assistant's jobs worker calls
  * this lock, and at most one assistant process runs per workspace at any
- * time. A holder with an unparseable / empty payload is treated as stale —
+ * time. A holder with an unparseable / empty payload is treated as stale:
  * the only writers ever produce a `<pid> <timestamp>` line, so an
  * unparseable file is corruption from a partial write that crashed.
  */
@@ -149,7 +149,7 @@ function tryCreate(lockPath: string, holderTag?: string): string | null {
     const tagSuffix = holderTag === undefined ? "" : ` ${holderTag}`;
     writeSync(fd, `${process.pid} ${Date.now()}${tagSuffix}\n`);
   } catch {
-    // best-effort — payload is advisory, the file's existence is the lock
+    // best-effort: payload is advisory, the file's existence is the lock
   } finally {
     try {
       closeSync(fd);
@@ -165,7 +165,7 @@ function tryCreate(lockPath: string, holderTag?: string): string | null {
  *   - `unparseable`: empty / corrupt payload (partial write from a crash).
  *   - `pid_dead`: the holder's PID is no longer running.
  *   - `expired`: the lock is older than {@link STALE_LOCK_TTL_MS} even though
- *     its PID still appears alive — the PID-1 collision case in containers.
+ *     its PID still appears alive (the PID-1 collision case in containers).
  */
 type StaleReason = "unparseable" | "pid_dead" | "expired";
 
