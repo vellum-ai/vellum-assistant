@@ -45,6 +45,11 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   sendAudio(audio: Buffer, mimeType: string): void {
     this.audioChunks.push(audio);
     this.mimeTypes.push(mimeType);
+    // Mirrors real providers: silence produces no interim results, so an
+    // all-zero chunk (flushed pre-roll silence) forwards without a partial.
+    if (audio.every((byte) => byte === 0)) {
+      return;
+    }
     this.onEvent?.({
       type: "partial",
       text: `partial-${this.audioChunks.length}`,
@@ -902,6 +907,108 @@ describe("LiveVoiceSession STT", () => {
       expect(resolver).toHaveBeenCalledTimes(2);
       expect(transcribers[0]?.stopCalls).toBe(1);
       expect(transcribers[1]?.stopCalls).toBe(0);
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test("keeps the old-language stream when the eager cycle already carries a committed final", async () => {
+    const originalRaw = loadRawConfig();
+    const transcribers: FinalizingMockStreamingTranscriber[] = [];
+    const resolver = mock(async () => {
+      const transcriber = new FinalizingMockStreamingTranscriber();
+      transcribers.push(transcriber);
+      return transcriber;
+    });
+    // Deferred turn completion so the eager post-turn re-arm binds the next
+    // cycle to the shared stream while the session idles.
+    const pendingCompletions: Array<() => void> = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      pendingCompletions.push(() => {
+        options.callbacks?.message_complete?.({
+          type: "message_complete",
+          conversationId: options.conversationId,
+          messageId: "assistant-message-123",
+        });
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(loudPcmChunk());
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => pendingCompletions.length === 1);
+      pendingCompletions.shift()?.();
+      await waitFor(
+        () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+      );
+
+      // Wait until the eagerly re-armed cycle owns shared-stream events (a
+      // partial that lands before the re-arm targets the dispatched cycle
+      // and is dropped), then land a late tail final from the previous
+      // utterance's audio on it. Its stt_final frame reaches the client.
+      const shared = transcribers[0];
+      if (!shared) {
+        throw new Error("Expected the shared transcriber to be resolved");
+      }
+      await waitFor(() => {
+        shared.emit({ type: "partial", text: "tail probe" });
+        return frames.some(
+          (frame) =>
+            frame.type === "stt_partial" && frame.text === "tail probe",
+        );
+      });
+      shared.emit({ type: "final", text: "late tail" });
+      await waitFor(() =>
+        frames.some(
+          (frame) => frame.type === "stt_final" && frame.text === "late tail",
+        ),
+      );
+
+      const rawServices = (originalRaw.services ?? {}) as Record<
+        string,
+        unknown
+      >;
+      saveRawConfig({
+        ...originalRaw,
+        services: {
+          ...rawServices,
+          stt: {
+            ...((rawServices.stt ?? {}) as Record<string, unknown>),
+            language: "hi",
+          },
+        },
+      });
+
+      // Speech after the change: the cycle carries a committed final the
+      // client already displayed, so it keeps the old-language stream (no
+      // re-dial for this utterance) and its turn carries the tail text.
+      await session.handleBinaryAudio(loudPcmChunk());
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => pendingCompletions.length === 1);
+
+      expect(resolver).toHaveBeenCalledTimes(1);
+      expect(shared.stopCalls).toBe(0);
+      expect(startVoiceTurn.mock.calls[1]?.[0]?.content).toBe(
+        "late tail utterance 2",
+      );
+
+      pendingCompletions.shift()?.();
+      await waitFor(
+        () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+      );
+
+      // The language change applies from the following utterance: the next
+      // re-arm retires the old-language stream and dials a fresh one.
+      await waitFor(() => transcribers.length === 2);
+      expect(shared.stopCalls).toBe(1);
     } finally {
       await session.close("websocket_close");
       saveRawConfig(originalRaw);

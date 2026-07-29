@@ -1389,18 +1389,30 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // tails die with the old stream, and their sealed transcripts stand.
   private retireSharedTranscriberForRedial(shared: StreamingTranscriber): void {
     this.releaseSharedTranscriber(shared);
+    this.drainFinalizeQueueFor(shared);
+    stopTranscriberBestEffort(shared);
+  }
+
+  // Shared teardown bookkeeping for a stream that is going away (retire for
+  // redial or unexpected close): the grace timer dies with the stream, queued
+  // cycles drop their reference to it, and any released cycle's transcript is
+  // sealed. Returns the drained cycles so callers can distinguish queued
+  // cycles from the current utterance.
+  private drainFinalizeQueueFor(
+    transcriber: StreamingTranscriber,
+  ): UtteranceCycle[] {
     this.clearFinalizeGraceTimer();
     const drained = this.finalizeQueue;
     this.finalizeQueue = [];
     for (const finalizing of drained) {
-      if (finalizing.transcriber === shared) {
+      if (finalizing.transcriber === transcriber) {
         finalizing.transcriber = null;
       }
       if (finalizing.phase === "released") {
         finalizing.phase = "transcriber_closed";
       }
     }
-    stopTranscriberBestEffort(shared);
+    return drained;
   }
 
   private isUtteranceStale(utterance: UtteranceCycle): boolean {
@@ -1540,6 +1552,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       !utterance.released &&
       !utterance.completed &&
       !utterance.speechRouted &&
+      // A cycle carrying committed or partial transcript text is not
+      // silence-only bookkeeping: in persistent mode a late tail final from
+      // the previous utterance's audio can route here before any speech
+      // does, and its stt_final frame already reached the client.
+      // Finalizing such a cycle would silently drop displayed text, so it
+      // keeps its old-language stream and the language change applies from
+      // the following utterance.
+      utterance.finalTranscriptSegments.length === 0 &&
+      utterance.latestPartialText === null &&
       this.sharedStreamLanguageIsStale()
     ) {
       this.retireSharedTranscriberForRedial(sharedForLanguage);
@@ -3022,17 +3043,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // per-cycle path — the next arm resolves a fresh transcriber.
         this.sharedTranscriber = null;
         this.sharedTranscriberLanguage = undefined;
-        this.clearFinalizeGraceTimer();
-        const drained = this.finalizeQueue;
-        this.finalizeQueue = [];
-        for (const finalizing of drained) {
-          if (finalizing.transcriber === transcriber) {
-            finalizing.transcriber = null;
-          }
-          if (finalizing.phase === "released") {
-            finalizing.phase = "transcriber_closed";
-          }
-        }
+        const drained = this.drainFinalizeQueueFor(transcriber);
         const current = this.currentUtterance;
         if (
           current &&
