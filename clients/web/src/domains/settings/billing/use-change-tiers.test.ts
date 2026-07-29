@@ -254,6 +254,19 @@ describe("useChangeTiers", () => {
     expect(result.current.eligible).toBe(true);
   });
 
+  test("exposes the onboarding payload's primary assistant", () => {
+    onboardingFixture = onboarding({ primary_assistant_id: "assistant-7" });
+    const { result } = setup();
+    expect(result.current.primaryAssistantId).toBe("assistant-7");
+  });
+
+  test("reports no primary assistant while the payload is absent", () => {
+    // Callers fall back to the active assistant here, which is how the
+    // provisioning takeover resolves its own target.
+    const { result } = setup({ seedOnboarding: false });
+    expect(result.current.primaryAssistantId).toBeNull();
+  });
+
   test("is ineligible when the sub is cancelling", () => {
     subscriptionFixture = proSubscription({ cancel_at_period_end: true });
     const { result } = setup();

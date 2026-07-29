@@ -9,7 +9,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
-import type { CreditTierEnum } from "@/generated/api/types.gen";
 import {
   clearCheckoutIntent,
   readPurchasedCheckoutIntent,
@@ -35,6 +34,7 @@ import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { TakeoverBackdrop } from "./takeover-backdrop";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
+import type { CreditTierChange } from "./use-provisioning-credits";
 import { useTakeoverSurface } from "./use-takeover-surface";
 
 type WizardStep = "provisioning" | "domain" | "complete";
@@ -67,6 +67,19 @@ const EMPTY_DIMENSIONS: ProvisioningDimensions = {
   storageGib: null,
 };
 
+/**
+ * What an in-place plan change knows about the state it left behind. The
+ * platform applies the change before the takeover mounts, so every "current"
+ * value the takeover can read is already the post-change one; the caller
+ * captures these before it dispatches the change and hands them over.
+ */
+export interface ResizeTakeoverContext {
+  /** Machine and storage as they stood before the change was dispatched. */
+  fromSnapshot: ProvisioningDimensions;
+  /** The credit tiers the change moves between; null when it left them alone. */
+  credits: CreditTierChange | null;
+}
+
 export interface BillingOnboardingModalProps {
   open: boolean;
   onClose: () => void;
@@ -83,11 +96,12 @@ export interface BillingOnboardingModalProps {
    */
   mode?: "checkout" | "resize";
   /**
-   * Resize mode only: the credit tier applied by an in-place change, forwarded
-   * to the takeover. Ignored in checkout mode, where credits ride the stashed
-   * intent instead. See `ProvisioningStateProps.resizeCredits`.
+   * Resize mode only: what the change looked like before it was dispatched.
+   * Ignored in checkout mode, where the from-sides come from the pre-resize
+   * actuals snapshot and credits ride the stashed intent. A resize mount that
+   * omits it falls back to that same snapshot and renders no credits chip.
    */
-  resizeCredits?: CreditTierEnum | null;
+  resizeContext?: ResizeTakeoverContext;
 }
 
 export function BillingOnboardingModal({
@@ -96,7 +110,7 @@ export function BillingOnboardingModal({
   dwellMs,
   phaseMinMs,
   mode = "checkout",
-  resizeCredits,
+  resizeContext,
 }: BillingOnboardingModalProps) {
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
@@ -185,6 +199,26 @@ export function BillingOnboardingModal({
 
   const { targets, assistantId, domainStepAvailable, onboardingSettled } =
     provisioning;
+
+  // An in-place change lands before this mounts, so its actuals already read
+  // post-change and the captured snapshot is the only honest from-side.
+  // Checkout's resize fires after the mount, so its actuals snapshot genuinely
+  // predates the change.
+  //
+  // Each dimension resolves on its own: a capture taken while one of its own
+  // reads was still unsettled carries a null for that dimension alone, and
+  // pinning the whole from-side to that capture freezes it null for the life of
+  // the takeover. Falling back to the actuals degrades honestly,
+  // because for an in-place change those actuals already describe the
+  // post-change state, so the dimension reads from == to and drops out of the
+  // row entirely. A missing chip beats a chip stating a move that never
+  // happened.
+  const capturedFrom = isResize ? resizeContext?.fromSnapshot : undefined;
+  const actualsFrom = provisioning.actualsSnapshot;
+  const fromSnapshot: ProvisioningDimensions = {
+    machineSize: capturedFrom?.machineSize ?? actualsFrom?.machineSize ?? null,
+    storageGib: capturedFrom?.storageGib ?? actualsFrom?.storageGib ?? null,
+  };
 
   // The takeover and the sheet that covers it on the way out paint from one
   // surface: the tint published as a custom property, plus the same blurred
@@ -466,9 +500,9 @@ export function BillingOnboardingModal({
           state={provisioning.state}
           softWaiting={provisioning.softWaiting}
           intent={intent}
-          resizeCredits={isResize ? resizeCredits : undefined}
+          creditsChange={isResize ? resizeContext?.credits : undefined}
           targets={targets ?? EMPTY_DIMENSIONS}
-          fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
+          fromSnapshot={fromSnapshot}
           machineFloor={provisioning.machineFloor}
           landed={provisioning.landed}
           celebrating={routingSettled}

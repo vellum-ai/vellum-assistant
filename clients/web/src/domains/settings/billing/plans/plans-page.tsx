@@ -33,8 +33,12 @@ import {
   downgradeLabel,
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
-import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import {
+  BillingOnboardingModal,
+  type ResizeTakeoverContext,
+} from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { usePreferredOrActiveAssistant } from "@/domains/settings/billing/pro-onboarding/use-preferred-or-active-assistant";
 import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
@@ -60,6 +64,7 @@ import type {
   ProPlan,
   SubscriptionUpgradeRequestRequest,
 } from "@/generated/api/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
@@ -67,6 +72,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
+import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
@@ -135,9 +141,9 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
   }
   if (current.creditTier != null) {
     // A held/deprecated credit tier absent from the catalog can't resolve to a
-    // catalog label; derive the amount from the tier key (credits_<usd>) so the
-    // paid bundle still shows instead of being silently dropped.
-    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
+    // catalog label; fall back to the amount its key names so the paid bundle
+    // still shows instead of being silently dropped.
+    const usd = creditTierKeyUsd(current.creditTier);
     parts.push(
       findCreditTier(proPlan, current.creditTier)?.label ??
         (usd != null ? `${usd} credits` : "Credit bundle"),
@@ -183,6 +189,7 @@ export function PlansPage() {
     isPending: changeTiersPending,
     current,
     currentReady,
+    primaryAssistantId,
   } = useChangeTiers({ enabled: platformReady });
   // Native iOS keeps Checkout inside an in-app sheet, so the page holds
   // pre-checkout data until the sheet closes.
@@ -199,10 +206,11 @@ export function PlansPage() {
   // the grow-only resize the platform already fired server-side (no redundant
   // client-driven resize).
   const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
-  // The credit tier applied by an in-place change, threaded to the takeover's
-  // terminal confirmation. See `ProvisioningStateProps.resizeCredits`.
-  const [resizeCreditTier, setResizeCreditTier] = useState<
-    CreditTierEnum | null | undefined
+  // What the plan looked like before the in-place change this takeover is
+  // watching. Captured pre-dispatch, because every read here reports the applied
+  // change once it returns. See `ResizeTakeoverContext`.
+  const [resizeContext, setResizeContext] = useState<
+    ResizeTakeoverContext | undefined
   >(undefined);
   // `?package=<key>` is a one-shot deep link (from marketing / the checkout
   // no-op bail); once acted on it must never re-fire.
@@ -222,6 +230,28 @@ export function PlansPage() {
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
   const isProUser = subscription?.plan_id === "pro";
+
+  // The pod whose `machine_size` an in-place change moves, resolved the way the
+  // takeover resolves the assistant it watches: the onboarding payload's primary
+  // when it names one, else the active assistant. Both sides of a machine chip
+  // must describe the same machine in a multi-assistant org. The real size is
+  // what makes that chip honest: a cap that finds the pod already at or below
+  // the new ceiling skips it and creates no resize marker, so a ceiling-derived
+  // from-side would draw a downsize that never runs.
+  //
+  // Held until `currentReady`, because `primaryAssistantId` rides the same
+  // onboarding read: asking earlier resolves a null id to the ACTIVE assistant,
+  // which is a different pod in a multi-assistant org, and that real-but-wrong
+  // size is what the takeover then states for the life of the change.
+  // `currentReady` also settles when that read errors, so a failed onboarding
+  // fetch falls back to the active assistant rather than holding the read off
+  // forever. Nothing downstream is gated on this resolving: a plan change the
+  // user asked for must not wait on an assistant read.
+  const orgReady = useIsOrgReady();
+  const assistant = usePreferredOrActiveAssistant(
+    primaryAssistantId,
+    platformReady && orgReady && isProUser && currentReady,
+  );
 
   // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
   // it has no current tier: every named card is offered as a switch target —
@@ -540,12 +570,36 @@ export function PlansPage() {
       portalMutation.mutate({});
     };
 
+    /**
+     * The plan's from-sides as they stand at the moment of the call. Both
+     * in-place paths take this BEFORE they dispatch: the server caps the machine
+     * before it answers and the mutation hooks then invalidate the subscription
+     * and onboarding queries `current` derives from, so every read afterwards
+     * reports the change that just landed.
+     *
+     * Both resource dimensions come off the assistant rather than the billed
+     * tiers, which is what the takeover compares them against. A volume never
+     * shrinks, so an org that lowered its storage tier keeps the larger disk
+     * while `selected_storage_gib` reports the smaller billed one: raising the
+     * tier again would draw a move from a size the disk left long ago, and a
+     * raise that stays under the retained size would draw a growth that never
+     * happens.
+     */
+    const capturePlanBefore = () => ({
+      creditTier: current.creditTier,
+      fromSnapshot: {
+        machineSize: assistant?.machine_size ?? null,
+        storageGib: assistant?.provisioned_storage_gib ?? null,
+      },
+    });
+
     const confirmSwitch = async () => {
       if (!switchTarget) {
         return;
       }
       const target = switchTarget;
       const relation = tierRelation(currentTierKey, target.key);
+      const before = capturePlanBefore();
       const result = await changePackage(target.key);
       if (!result) {
         // The hook already toasted; keep the confirm dialog open so the user
@@ -567,8 +621,15 @@ export function PlansPage() {
       if (relation === "downgrade") {
         toast.success(`Downgraded to ${target.name}.`);
       } else {
-        // The switch path owes no credit confirmation; clear any prior tier.
-        setResizeCreditTier(undefined);
+        const toCreditTier = (target.credit_tier ??
+          null) as CreditTierEnum | null;
+        setResizeContext({
+          fromSnapshot: before.fromSnapshot,
+          credits:
+            toCreditTier !== before.creditTier
+              ? { fromTier: before.creditTier, toTier: toCreditTier }
+              : null,
+        });
         setResizeTakeoverOpen(true);
       }
     };
@@ -596,6 +657,7 @@ export function PlansPage() {
     // Active Pro orgs edit their tiers in place via the change-tier endpoints;
     // the upgrade/checkout endpoint no-ops for an active Pro sub.
     const applyCustomTierChange = async (selection: CustomPlanSelection) => {
+      const before = capturePlanBefore();
       const result = await changeTiers(selection);
       if (!result) {
         // The hook toasted; keep the modal open so the user can retry.
@@ -604,10 +666,13 @@ export function PlansPage() {
       setCustomPlanOpen(false);
       if (result.needsResize || result.creditChanged) {
         // Both a resize and a credit-only change open the takeover; thread the
-        // applied tier only when credits actually changed.
-        setResizeCreditTier(
-          result.creditChanged ? selection.creditTier : undefined,
-        );
+        // tier move only when credits actually changed.
+        setResizeContext({
+          fromSnapshot: before.fromSnapshot,
+          credits: result.creditChanged
+            ? { fromTier: before.creditTier, toTier: selection.creditTier }
+            : null,
+        });
         setResizeTakeoverOpen(true);
       } else {
         toast.success("Plan updated.");
@@ -761,11 +826,11 @@ export function PlansPage() {
           open={resizeTakeoverOpen}
           onClose={() => {
             setResizeTakeoverOpen(false);
-            // Fail-safe: clear the tier so a stale credit chip can't resurface
-            // if an open path forgot to set it.
-            setResizeCreditTier(undefined);
+            // Fail-safe: drop the captured context so stale chips can't
+            // resurface if an open path forgot to set it.
+            setResizeContext(undefined);
           }}
-          resizeCredits={resizeCreditTier}
+          resizeContext={resizeContext}
         />
 
         <p className="mt-6 text-center text-[12px] font-medium text-[var(--content-tertiary)] sm:mt-10">

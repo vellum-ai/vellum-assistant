@@ -37,7 +37,6 @@ import {
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
   Assistant,
-  CreditTierEnum,
   EnsureProvisionedResponse,
   OnboardingStateResponse,
   OperationalStatus,
@@ -54,6 +53,7 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import * as toastMod from "@vellumai/design-library/components/toast";
 
+import type { ResizeTakeoverContext } from "./billing-onboarding-modal";
 import * as proOnboardingUtils from "./utils";
 
 /** Shrunk so the confirm-timeout test doesn't wait out the real 10s poll. */
@@ -319,11 +319,11 @@ const TEST_DWELL_MS = 250;
 
 function renderModal({
   mode,
-  resizeCredits,
+  resizeContext,
   plans,
 }: {
   mode?: "checkout" | "resize";
-  resizeCredits?: CreditTierEnum | null;
+  resizeContext?: ResizeTakeoverContext;
   plans?: PlanListResponse;
 } = {}) {
   const client = new QueryClient({
@@ -344,7 +344,7 @@ function renderModal({
           dwellMs={TEST_DWELL_MS}
           phaseMinMs={0}
           mode={mode}
-          resizeCredits={resizeCredits}
+          resizeContext={resizeContext}
         />
       </QueryClientProvider>
     </MemoryRouter>
@@ -1191,11 +1191,14 @@ describe("BillingOnboardingModal — resize mode", () => {
     expect(queryByText("Super package")).toBeNull();
   });
 
-  test("confirms an applied credit bundle on the terminal phase", async () => {
+  test("carries a threaded credit change from the wait through to the terminal phase", async () => {
     subscriptionPlanId = "pro";
-    const { client, getByText } = renderModal({
+    const { client, getByTestId, getByText } = renderModal({
       mode: "resize",
-      resizeCredits: "credits_50",
+      resizeContext: {
+        fromSnapshot: { machineSize: "small", storageGib: 10 },
+        credits: { fromTier: "credits_25", toTier: "credits_50" },
+      },
       plans: plansWithCredits(),
     });
 
@@ -1203,15 +1206,95 @@ describe("BillingOnboardingModal — resize mode", () => {
       () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
       { timeout: 5000 },
     );
+    // One credits surface: the chip is on screen for the whole wait, not held
+    // back for the terminal phase.
+    expect(getByTestId("chip-credits").textContent).toContain("$25/mo");
 
     assistantResponse = makeAssistant("large", 50);
     await client.invalidateQueries();
     await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
       timeout: 5000,
     });
-    // The threaded bundle is confirmed on the terminal phase — a credit change
-    // never reaches the WAITING credits chip, so this is its only surface.
-    expect(getByText("$50 credits/mo")).toBeTruthy();
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("$25/mo");
+    expect(chip.textContent).toContain("$50/mo");
+  });
+
+  test("resize mode draws its from-sides from the captured context, not live actuals", async () => {
+    // The change lands before this mounts, so what the assistant reports can
+    // already be the post-change machine. Only the captured snapshot still knows
+    // where the change started, and it has to win.
+    subscriptionPlanId = "pro";
+    const { getByTestId, getByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 30 },
+        credits: null,
+      },
+    });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // The live assistant reads Small / 10 GB; the captured snapshot is what the
+    // chips state.
+    await waitFor(
+      () => expect(getByTestId("chip-machine").textContent).toContain("Medium"),
+      { timeout: 5000 },
+    );
+    expect(getByTestId("chip-machine").textContent).not.toContain("Small");
+    expect(getByTestId("chip-storage").textContent).toContain("30 GB");
+  });
+
+  test("a captured from-side with an unknown dimension falls back to the actuals", async () => {
+    // The capture is per dimension: a machine read that had not settled when
+    // the change was dispatched leaves that one null, and pinning the whole
+    // from-side to the capture would freeze it null and drop the chip's
+    // from-side for good.
+    subscriptionPlanId = "pro";
+    const { getByTestId, getByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: null, storageGib: 30 },
+        credits: null,
+      },
+    });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // Machine falls back to the actuals snapshot (Small); storage keeps the
+    // captured 30 GB rather than the assistant's live 10 GB.
+    await waitFor(
+      () => expect(getByTestId("chip-machine").textContent).toContain("Small"),
+      { timeout: 5000 },
+    );
+    expect(getByTestId("chip-storage").textContent).toContain("30 GB");
+  });
+
+  test("a resize mount with no captured context keeps the actuals snapshot", async () => {
+    // The billing page's resize mount threads none, so its from-sides still come
+    // from the pre-resize actuals.
+    subscriptionPlanId = "pro";
+    const { getByTestId, getByText, queryByTestId } = renderModal({
+      mode: "resize",
+    });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // The from-side appears once the actuals snapshot latches.
+    await waitFor(
+      () => expect(getByTestId("chip-machine").textContent).toContain("Small"),
+      { timeout: 5000 },
+    );
+    expect(queryByTestId("chip-credits")).toBeNull();
   });
 
   test("waits for a domains answer fresh for this open, not a stale cached one", async () => {
