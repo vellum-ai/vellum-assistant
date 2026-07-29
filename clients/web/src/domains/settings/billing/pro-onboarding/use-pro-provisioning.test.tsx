@@ -1489,6 +1489,57 @@ describe("useProProvisioning presentation signals", () => {
     });
   }, 20_000);
 
+  test("a lower machine target holds machine pending until the pod downsizes", async () => {
+    subscriptionPlanId = "pro";
+    // Ultra to Super: the package buys a medium machine while the pod is still
+    // large, so the displayed change is a downsize. Grow-only target semantics
+    // read that as met on arrival.
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: "medium" };
+    assistantResponse = makeAssistant("large", 50);
+    const { client } = renderProbe();
+
+    await waitFor(
+      () =>
+        expect(latest!.targets).toEqual({
+          machineSize: "medium",
+          storageGib: 50,
+        }),
+      { timeout: 5000 },
+    );
+    // Storage landing proves readings are being taken since the actuals, so the
+    // outstanding downsize is the only thing still holding the machine flag.
+    await waitForLanded(client, () => {
+      expect(latest!.landed.storage).toBe(true);
+    });
+    expect(latest!.landed.machine).toBe(false);
+
+    assistantResponse = makeAssistant("medium", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed.machine).toBe(true);
+    });
+  }, 20_000);
+
+  test("the same machine target growing is still judged as growth", async () => {
+    subscriptionPlanId = "pro";
+    // Same target, opposite direction: the pod starts below it, so the flag
+    // must keep the grow-only comparison rather than flip to a downsize one.
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: "medium" };
+    assistantResponse = makeAssistant("small", 50);
+    const { client } = renderProbe();
+
+    await waitForLanded(client, () => {
+      expect(latest!.landed.storage).toBe(true);
+    });
+    expect(latest!.landed.machine).toBe(false);
+
+    assistantResponse = makeAssistant("medium", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed.machine).toBe(true);
+    });
+  }, 20_000);
+
   test("a landed flag waits for a status reading taken after the actuals", async () => {
     // `started` queues the resize on a worker, so the status query can still be
     // holding its pre-resize reading when the assistant poll lands the

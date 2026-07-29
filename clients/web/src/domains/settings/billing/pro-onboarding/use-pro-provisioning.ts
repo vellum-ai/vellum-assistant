@@ -127,9 +127,11 @@ export interface ProProvisioningResult {
   /**
    * Per-dimension provisioning progress: a dimension has landed once what the
    * takeover displays for it is met, its own resize is no longer in flight, and
-   * a status fetch that started after that dimension read met has come back. A
-   * machine-less package is measured against `machineFloor` and the actual
-   * size, because its null machine target reads met by definition.
+   * a status fetch that started after that dimension read met has come back.
+   * The machine dimension is measured against the size it is headed for (the
+   * purchased size, or `machineFloor` for a machine-less package) in the
+   * direction it is moving, because the purchased targets only ever grow and a
+   * downsize would otherwise read met before the pod shrank.
    *
    * Presentation only, for per-chip progress; terminal completion still flows
    * exclusively through `deriveProvisioningState`, which can complete the flow
@@ -622,26 +624,49 @@ export function useProProvisioning({
     };
   }, [assistant]);
 
+  const snapshotMatchesAssistant = snapshotAssistantId === assistantId;
+
   // What the takeover displays as met, per dimension. `dimensionTargetsMet`
-  // answers the purchased targets, where a machine-less package has no machine
-  // target at all: null reads met by definition, so the displayed downsize
-  // would report complete before anything downsized. Measure that case against
-  // the floor and the actual size instead. The floor stays out of `targets` for
-  // the reason on `machineFloor`.
+  // answers the purchased targets, which only ever grow, while the takeover
+  // also displays downsizes: a machine-less package has no machine target at
+  // all, so null reads met by definition, and a lower one reads met while the
+  // pod is still larger. Either way the displayed change would report complete
+  // before anything moved. So judge the machine dimension against where it is
+  // actually headed (the purchased size when the package names one, the floor
+  // it settles at otherwise) in the direction the change goes from the size it
+  // started at. The floor stays out of `targets` for the reason on
+  // `machineFloor`.
   const displayTargetsMet = useMemo<ProvisioningDimensionFlags>(() => {
     const met = dimensionTargetsMet(targets, actuals);
-    if (machineFloor == null) {
+    const destination = targets?.machineSize ?? machineFloor;
+    if (destination == null) {
       return met;
     }
+    const actualMachine = actuals?.machineSize ?? null;
+    if (actualMachine == null) {
+      return { ...met, machine: false };
+    }
+    // Before the snapshot latches, and whenever it describes another assistant,
+    // the actuals in hand are themselves the first reading, which narrows the
+    // comparison to "already there" rather than guessing a direction.
+    const startedFrom =
+      (snapshotMatchesAssistant ? actualsSnapshot?.machineSize : null) ??
+      actualMachine;
+    const downsizing =
+      machineSizeRank(destination) < machineSizeRank(startedFrom);
     return {
       ...met,
-      machine:
-        actuals?.machineSize != null &&
-        machineSizeRank(actuals.machineSize) <= machineSizeRank(machineFloor),
+      machine: downsizing
+        ? machineSizeRank(actualMachine) <= machineSizeRank(destination)
+        : machineSizeRank(actualMachine) >= machineSizeRank(destination),
     };
-  }, [targets, actuals, machineFloor]);
-
-  const snapshotMatchesAssistant = snapshotAssistantId === assistantId;
+  }, [
+    targets,
+    actuals,
+    actualsSnapshot,
+    snapshotMatchesAssistant,
+    machineFloor,
+  ]);
 
   // Latch the instant the actuals first read as meeting the targets. The
   // platform creates the resize marker BEFORE it persists the effective sizes,
