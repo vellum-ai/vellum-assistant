@@ -15,44 +15,16 @@
 import type { MemoryTier } from "@/domains/intelligence/memory-graph/get-memory-stats";
 
 /**
- * Seeds the upgrade chat on a **v2** assistant whose concept corpus has pages
- * in it: the job is the staged reform into v3 article shape.
+ * Seeds the upgrade chat on a **v2** assistant.
  *
- * Deliberately short. Every hard rule worth stating already lives in the skill
- * (its preflight, the size-and-confirm gate, the judge leaf-profile check, the
- * loss audit, the Step 10 close-out), and restating them here would duplicate
- * a spec that versions separately from this file. "Follow it exactly" points
- * at the source of truth rather than racing it.
- *
- * Reports the page count rather than ruling on it. The skill's `avoid-when`
- * excludes a corpus that is empty **or near-empty**, and where "near-empty"
- * falls is an editorial call about whether there is enough substance to
- * reorganize. That is the assistant's to make, not this file's (see
- * Assistant-Driven Judgement in AGENTS.md), so the seed hands over the
- * measurement and names the rule that governs it.
+ * Names the skill it will most likely want, then gets out of the way. The
+ * pointer is worth handing over, but it stays a pointer: both migration skills
+ * carry `avoid-when` rules, so an empty or near-empty corpus can end up
+ * somewhere else entirely, and the assistant is the one that can count its
+ * pages and read those rules. "Work out what my corpus actually needs" is what
+ * lets it deviate; "follow it exactly" is what keeps it honest once it picks.
  */
-export function memoryV3ReformPrompt(conceptPages?: number): string {
-  const size =
-    conceptPages === undefined
-      ? ""
-      : ` My corpus has ${conceptPages} ${conceptPages === 1 ? "page" : "pages"}.`;
-  return `Migrate my memory from v2 to v3 by running your "Memory v3 Migration" skill. Follow it exactly, including its own rule about a corpus too small to be worth reforming.${size}
-
-Run it in the background and tell me when it's done, or if something blocks.`;
-}
-
-/**
- * Seeds the upgrade chat on a **v2** assistant whose concept corpus is empty.
- *
- * `memoryTier()` reads `"v2"` off configuration alone (`memory.v2.enabled`,
- * which defaults on), so the tier says nothing about whether pages exist, and
- * an empty corpus is the common case rather than the edge one. The reform
- * skill's own `avoid-when` excludes an empty or near-empty corpus, so naming
- * it here would seed an instruction that skill rejects. With nothing to
- * reform, going live is a config flip, which is why this asks the assistant to
- * confirm the corpus really is empty before taking that path.
- */
-export const MEMORY_V3_FLIP_PROMPT = `Migrate my memory from v2 to v3. My concept corpus looks empty, so check before doing anything heavy: if there's nothing to reform, set memory.v3.live true and you're done. If there is something, run the migration skill that fits and follow it exactly.
+export const MEMORY_V2_UPGRADE_PROMPT = `Migrate my memory from v2 to v3. That's most likely your "Memory v3 Migration" skill, but work out what my corpus actually needs and follow whichever skill you use exactly.
 
 Run it in the background and tell me when it's done, or if something blocks.`;
 
@@ -60,12 +32,16 @@ Run it in the background and tell me when it's done, or if something blocks.`;
  * Seeds the upgrade chat on a **v1** assistant, whose memory lives in the
  * legacy PKB graph with no concept pages at all.
  *
- * Two hops, in this order, because neither skill spans the gap alone: the v2
- * migration backfills `memory/concepts/` from `pkb/` and the buffer, and the
- * v3 migration reforms a populated corpus into article shape. Reaching for the
- * v3 skill first would hit its empty-corpus guard and stop.
+ * Names both skills and their order, because that order is real and not
+ * obvious: the v2 migration backfills `memory/concepts/` from `pkb/` and the
+ * buffer, and the v3 migration reforms the result, so reaching for v3 first
+ * meets its empty-corpus guard. Hedged for the same reason as the v2 seed, and
+ * one case in particular: a v1 assistant that never wrote a PKB entry has
+ * nothing for either skill to migrate, and the whole job collapses to a config
+ * change. Stated as a mandate, this seed would describe a sequence that cannot
+ * run.
  */
-export const MEMORY_V1_UPGRADE_PROMPT = `Migrate my memory from v1 to v3. That's two hops: run your "Memory v2 Migration" skill, then your "Memory v3 Migration" skill. Follow both exactly.
+export const MEMORY_V1_UPGRADE_PROMPT = `Migrate my memory from v1 to v3. That's most likely two hops, your "Memory v2 Migration" skill and then your "Memory v3 Migration" skill, but work out what my assistant actually needs and follow whichever skills you use exactly.
 
 Run it in the background and tell me when it's done, or if something blocks.`;
 
@@ -132,40 +108,8 @@ export const MEMORY_STATUS_ERROR_COPY: MemoryUnavailableCopy = {
  * migration. What an update does buy is the `tier` field, and with it a
  * specific answer here.
  */
-/**
- * Which seed a legacy tier gets. The tier alone can't decide it: `"v2"` is a
- * configuration bit (`memory.v2.enabled`, defaulted on) and says nothing about
- * whether the corpus holds anything, so a fresh workspace and a 250-page one
- * report the same tier while needing opposite work. `conceptPages` is the
- * measurement that separates them, and it rides the same `GET /memory/stats`
- * response as the tier.
- *
- * The only corpus-shape call made here is zero, which is arithmetic rather
- * than judgement: a corpus with no pages has nothing to reform under any
- * reading, and the flip is the whole job. Everything above zero goes to the
- * reform seed carrying its page count, so the assistant makes the near-empty
- * call against the skill's own rule instead of against a threshold invented in
- * the web client.
- *
- * An unknown count also takes the reform seed (without a count to report),
- * since the skill guards its own empty case and asserting "empty" without the
- * number is the worse of the two errors.
- */
-function upgradeSeedFor(
-  tier: "v1" | "v2",
-  conceptPages: number | undefined,
-): string {
-  if (tier === "v1") {
-    return MEMORY_V1_UPGRADE_PROMPT;
-  }
-  return conceptPages === 0
-    ? MEMORY_V3_FLIP_PROMPT
-    : memoryV3ReformPrompt(conceptPages);
-}
-
 export function describeMemoryUnavailable(
   tier: MemoryTier | undefined,
-  conceptPages?: number,
 ): MemoryUnavailableCopy {
   if (tier === "off") {
     return {
@@ -182,7 +126,8 @@ export function describeMemoryUnavailable(
       detail:
         "Your assistant is on an older memory engine. Memory v3 reorganizes what it knows into a linked wiki of concepts, and that wiki is what this map draws.",
       action: "upgrade",
-      prompt: upgradeSeedFor(tier, conceptPages),
+      prompt:
+        tier === "v1" ? MEMORY_V1_UPGRADE_PROMPT : MEMORY_V2_UPGRADE_PROMPT,
     };
   }
   return {

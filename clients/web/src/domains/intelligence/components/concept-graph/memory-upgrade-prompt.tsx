@@ -76,19 +76,14 @@ export function MemoryUpgradePrompt({
     return null;
   }
 
-  const ready = stats.data?.kind === "ready" ? stats.data : undefined;
-  const tier = ready?.tier;
-  // The tier alone can't pick the upgrade seed: `v2` is a config bit that says
-  // nothing about whether the corpus holds pages, and the two cases need
-  // opposite work. The count rides the same response.
-  const conceptPages = ready?.concepts;
+  const tier = stats.data?.kind === "ready" ? stats.data.tier : undefined;
   // A failed stats read leaves `tier` undefined exactly as an older daemon
   // does, but the two mean opposite things: one is "this assistant can't tell
   // us", the other is "we couldn't ask". Only the first justifies telling
   // someone to update their assistant.
   const copy = stats.isError
     ? MEMORY_STATUS_ERROR_COPY
-    : describeMemoryUnavailable(tier, conceptPages);
+    : describeMemoryUnavailable(tier);
 
   // Bound to a const so it narrows inside the click handlers.
   const seed = copy.prompt;
