@@ -180,13 +180,25 @@ export function useChangeTiers({
   // that first load settles (success or error) — an error leaves the tiers null,
   // which the caller safely reads as "not representable" and routes to manage.
   const currentReady = !onPro || !onboardingQuery.isPending;
-  // Two ways the tiers can lie, and both have to be excluded. A read that
-  // FAILED leaves every dimension null, which is indistinguishable from a
-  // package that names no machine. And a refetch that fails keeps the previous
-  // payload, so the tiers can be real but stale, which ranks just as wrongly.
-  // So the read must have both succeeded and produced something.
+  // Whether these tiers can be trusted to describe the sub right now, which is
+  // stricter than `currentReady` and exists because ranking a wrong machine
+  // tier silently grants a downgrade the no-op inference only a raise earns.
+  //
+  // Every state the query can be in that does not answer "yes":
+  //   - never loaded: no payload, every dimension null
+  //   - loaded with no payload: a successful read of nothing, same nulls
+  //   - failed outright: same nulls, and null is what a machine-less package
+  //     legitimately reports, so it cannot be told apart from one
+  //   - failed over cached data: payload retained, real but no longer current
+  //   - re-reading cached data: payload retained and possibly about to change
+  // Only a settled, successful, non-empty read that nothing is currently
+  // superseding says these tiers are the sub's. Callers treat everything else
+  // as unrankable, which costs a fast path and never costs correctness.
   const currentKnown =
-    !onPro || (onboardingQuery.isSuccess && onboardingQuery.data != null);
+    !onPro ||
+    (onboardingQuery.isSuccess &&
+      onboardingQuery.data != null &&
+      !onboardingQuery.isFetching);
 
   const isPending =
     changeMachineTierMutation.isPending ||

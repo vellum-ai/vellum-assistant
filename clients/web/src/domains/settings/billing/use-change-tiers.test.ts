@@ -326,6 +326,21 @@ describe("useChangeTiers", () => {
     expect(result.current.currentKnown).toBe(true);
   });
 
+  test("currentKnown is false while cached tiers are being re-read", async () => {
+    // A background refetch keeps `isSuccess` true over the old payload, so the
+    // tiers stay readable while a fresher answer is already on its way.
+    const { result, client } = setup();
+    expect(result.current.currentKnown).toBe(true);
+
+    onboardingHangs = true;
+    act(() => {
+      void client.refetchQueries({ queryKey: ONBOARDING_KEY });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    expect(result.current.current.machineTier).not.toBeNull();
+  });
+
   test("currentKnown is false when a refetch fails over cached tiers", async () => {
     // React Query keeps the previous payload when a refetch fails, so the tiers
     // stay readable while no longer describing the sub. Ranking them is as
