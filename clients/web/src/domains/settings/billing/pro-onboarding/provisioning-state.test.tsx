@@ -497,8 +497,8 @@ describe("stalled", () => {
     expect(container.querySelectorAll(".lucide-arrow-right").length).toBe(1);
   });
 
-  test("both dimensions unchanged render singular with no arrows", () => {
-    const { getByText, container } = renderState({
+  test("an unchanged machine renders singular while unchanged storage is dropped", () => {
+    const { getByText, queryByText, container } = renderState({
       state: "STALLED",
       targets: { machineSize: "medium", storageGib: 30 },
       fromSnapshot: { machineSize: "medium", storageGib: 30 },
@@ -506,9 +506,10 @@ describe("stalled", () => {
 
     expect(getByText("Machine")).toBeTruthy();
     expect(getByText("Medium")).toBeTruthy();
-    expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("30 GB")).toBeTruthy();
-    // Nothing changed, so neither chip draws a current→new arrow.
+    // Storage only renders when it grows, so an unchanged tier has no chip.
+    expect(queryByText("Storage")).toBeNull();
+    expect(queryByText("30 GB")).toBeNull();
+    // Nothing changed, so the machine chip draws no current→new arrow.
     expect(container.querySelector(".lucide-arrow-right")).toBeNull();
   });
 });
