@@ -19,6 +19,8 @@ import {
   resolveDefaultProfileKey,
 } from "../llm-resolver.js";
 import {
+  DEFAULT_PROVIDER_CHOICES,
+  type DefaultProviderConfig,
   type LLMCallSite,
   LLMSchema,
   type ProfileEntry,
@@ -281,11 +283,25 @@ describe("schema validation", () => {
       LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
     ).toThrow();
   });
+
+  test("defaultProvider accepts any default-capable API-key provider and drops the rest", () => {
+    expect(
+      LLMSchema.parse({ defaultProvider: { provider: "together" } })
+        .defaultProvider,
+    ).toEqual({ provider: "together" });
+    // Endpoint-supplied and keyless providers have no code-resolvable
+    // default profile implementation; the catch drops them atomically.
+    for (const provider of ["litellm", "openai-compatible", "ollama"]) {
+      expect(
+        LLMSchema.parse({ defaultProvider: { provider } }).defaultProvider,
+      ).toBeUndefined();
+    }
+  });
 });
 
 describe("resolveDefaultProfileForProvider", () => {
   const dp = (
-    provider: (typeof DEFAULT_PROFILE_PROVIDERS)[number],
+    provider: DefaultProviderConfig["provider"],
     connectionName?: string,
   ) => ({ provider, ...(connectionName ? { connectionName } : {}) });
 
@@ -307,6 +323,38 @@ describe("resolveDefaultProfileForProvider", () => {
           expect(entry?.provider_connection).toBeDefined();
         }
         expect(entry?.source).toBe("managed");
+      }
+    }
+  });
+
+  test("a provider without a named matrix column materializes from the shared BYOK templates", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("together"),
+    );
+    expect(entry?.provider).toBe("together");
+    expect(entry?.provider_connection).toBe("together-personal");
+    // No intent table for `together`: the intent falls back to the
+    // provider's catalog defaultModel.
+    expect(entry?.model).toBe(resolveModelIntent("together", "balanced"));
+    expect(entry?.source).toBe("managed");
+  });
+
+  test("every default provider choice materializes every default profile key", () => {
+    for (const provider of DEFAULT_PROVIDER_CHOICES) {
+      for (const key of DEFAULT_PROFILE_KEYS) {
+        const entry = resolveDefaultProfileForProvider(
+          undefined,
+          key,
+          dp(provider),
+        );
+        expect(entry).toBeDefined();
+        expect(typeof entry?.model).toBe("string");
+        expect(entry?.source).toBe("managed");
+        if (entry?.provider !== "vellum") {
+          expect(entry?.provider_connection).toBe(`${provider}-personal`);
+        }
       }
     }
   });

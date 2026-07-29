@@ -1,10 +1,12 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { DEFAULT_PROFILE_PROVIDERS } from "../config/default-profile-names.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { invalidateConfigCache } from "../config/loader.js";
-import { DefaultProviderSchema } from "../config/schemas/llm.js";
+import {
+  DefaultProviderSchema,
+  isDefaultProviderChoice,
+} from "../config/schemas/llm.js";
 import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 
@@ -102,7 +104,7 @@ async function resolveProvider(llm: Record<string, unknown>): Promise<string> {
   const legacyProvider = readObject(llm.default)?.provider;
   if (
     typeof legacyProvider === "string" &&
-    isDefaultProfileProvider(legacyProvider)
+    isDefaultProviderChoice(legacyProvider)
   ) {
     // `llm.default.provider` defaults to "anthropic" in LLMConfigBase and the
     // first-launch seed persists that default, so a bare "anthropic" is
@@ -132,7 +134,7 @@ async function resolveProvider(llm: Record<string, unknown>): Promise<string> {
       if (typeof provider !== "string") {
         continue;
       }
-      return isDefaultProfileProvider(provider)
+      return isDefaultProviderChoice(provider)
         ? provider
         : await loginFallback();
     }
@@ -146,12 +148,6 @@ async function loginFallback(): Promise<string> {
     return "vellum";
   }
   return "anthropic";
-}
-
-function isDefaultProfileProvider(
-  value: string,
-): value is (typeof DEFAULT_PROFILE_PROVIDERS)[number] {
-  return (DEFAULT_PROFILE_PROVIDERS as readonly string[]).includes(value);
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

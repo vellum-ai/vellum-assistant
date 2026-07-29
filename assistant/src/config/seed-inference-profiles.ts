@@ -6,7 +6,6 @@ import {
   MANAGED_CONNECTION_NAMES,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
-import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -14,10 +13,9 @@ import {
   MANAGED_PROFILE_NAMES,
   MANAGED_PROFILE_TEMPLATES,
 } from "./default-profile-catalog.js";
-import { DEFAULT_PROFILE_PROVIDERS } from "./default-profile-names.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import { isDispatchableProfile } from "./profile-dispatchability.js";
-import type { ProfileEntry } from "./schemas/llm.js";
+import { isDefaultProviderChoice, type ProfileEntry } from "./schemas/llm.js";
 
 const log = getLogger("seed-inference-profiles");
 
@@ -74,7 +72,7 @@ export function seedInferenceProfiles(
 
   // A hatch overlay that explicitly selected a managed connection routes the
   // default provider through vellum rather than the entered BYOK key.
-  const hatchSelectedManagedConnection = getHatchSelectedManagedConnection(
+  const hatchSelectedManagedConnection = didHatchSelectManagedConnection(
     llm,
     profiles,
     options,
@@ -121,7 +119,7 @@ export function seedInferenceProfiles(
     llm.defaultProvider = {
       provider: resolveHatchDefaultProvider(
         isPlatform,
-        hatchSelectedManagedConnection !== undefined,
+        hatchSelectedManagedConnection,
         usableHatchProvider,
       ),
     };
@@ -223,12 +221,13 @@ function resolveHatchDefaultProvider(
   if (isPlatform || selectedManagedConnection) {
     return "vellum";
   }
-  if (
-    hatchProvider !== undefined &&
-    (DEFAULT_PROFILE_PROVIDERS as readonly string[]).includes(hatchProvider)
-  ) {
+  if (hatchProvider !== undefined && isDefaultProviderChoice(hatchProvider)) {
     return hatchProvider;
   }
+  log.warn(
+    { provider: hatchProvider ?? null },
+    "Hatch provider cannot back the default profiles; falling back to anthropic",
+  );
   return "anthropic";
 }
 
@@ -334,18 +333,18 @@ function firstActiveManagedProfile(
   return undefined;
 }
 
-function getHatchSelectedManagedConnection(
+function didHatchSelectManagedConnection(
   llm: Record<string, unknown>,
   profiles: Record<string, Record<string, unknown>>,
   options: SeedInferenceProfilesOptions,
-): string | undefined {
+): boolean {
   if (!options.isHatch || options.preserveActiveProfile !== true) {
-    return undefined;
+    return false;
   }
 
   const activeProfile = readString(llm.activeProfile);
   if (!activeProfile) {
-    return undefined;
+    return false;
   }
 
   const activeProfileEntry = readObject(profiles[activeProfile]);
@@ -359,18 +358,16 @@ function getHatchSelectedManagedConnection(
     const explicitConnection = readString(
       activeProfileEntry.provider_connection,
     );
-    return explicitConnection &&
+    return (
+      explicitConnection !== undefined &&
       MANAGED_CONNECTION_NAMES.has(explicitConnection)
-      ? explicitConnection
-      : undefined;
+    );
   }
 
   // A default-profile name with no explicit connection selects the managed
   // route: the vellum column IS the managed column, and its profiles route
   // through the canonical vellum row.
-  return MANAGED_PROFILE_TEMPLATES[activeProfile]
-    ? VELLUM_MANAGED_CONNECTION_NAME
-    : undefined;
+  return MANAGED_PROFILE_TEMPLATES[activeProfile] !== undefined;
 }
 
 /**
