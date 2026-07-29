@@ -27,7 +27,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  notifyManager,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   assistantsActiveRetrieveOptions,
@@ -84,10 +90,10 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
 ];
 
 /**
- * When each dimension was first seen to meet what the takeover displays for it
- * with no status fetch out, keyed to the assistant those instants describe. The
- * per-dimension analogue of `targetsMetAt`, feeding the presentation-only
- * landed flags.
+ * The operational-status fetch-start count at the moment each dimension was
+ * first seen to meet what the takeover displays for it, keyed to the assistant
+ * those counts describe. The per-dimension analogue of `targetsMetAt`, feeding
+ * the presentation-only landed flags.
  */
 interface DimensionMetLatch {
   assistantId: string | null;
@@ -224,7 +230,7 @@ export function useProProvisioning({
     string | null
   >(null);
   // The same anchor per dimension, for the landed flags.
-  const [dimensionMetAt, setDimensionMetAt] =
+  const [dimensionMetAtFetch, setDimensionMetAtFetch] =
     useState<DimensionMetLatch>(NO_DIMENSIONS_MET);
   // Latest reconcile failure from any source (auto/escape); cleared by a later
   // success — see runEnsureProvisioned.
@@ -272,7 +278,7 @@ export function useProProvisioning({
     setServerVerdict(null);
     setTargetsMetAt(null);
     setTargetsMetAssistantId(null);
-    setDimensionMetAt(NO_DIMENSIONS_MET);
+    setDimensionMetAtFetch(NO_DIMENSIONS_MET);
     setEnsureError(null);
     setRaceRetryScheduled(false);
     ensureRequestedRef.current = false;
@@ -515,14 +521,56 @@ export function useProProvisioning({
     retry: false,
   });
 
+  const operationalStatusOptions = assistantsOperationalStatusDetailReadOptions(
+    { path: { id: assistantId ?? "unresolved" } },
+  );
   const operationalStatusQuery = useQuery({
-    ...assistantsOperationalStatusDetailReadOptions({
-      path: { id: assistantId ?? "unresolved" },
-    }),
+    ...operationalStatusOptions,
     enabled: open && orgReady && proConfirmed && assistantId != null,
     refetchInterval: pollInterval,
     retry: false,
   });
+
+  // How many operational-status fetches have *started*, and which of those
+  // starts the most recent successful reading belongs to. The query cache
+  // dispatches `fetch` as a request begins and `success` when one lands, both
+  // synchronously, so a subscription counts starts, not completions.
+  //
+  // That distinction is the whole fence below. A request already out when a
+  // dimension latches read the world before the resize marker existed, and no
+  // time its answer is later stored under changes that. Since only starts move
+  // the count, such a request can never advance it past a latch taken while it
+  // was in flight, so where the latch falls relative to the render is moot.
+  //
+  // The ref is the live count, which is what effects read: a count captured
+  // during render is already stale if a request begins before the effect runs.
+  // The state is the render-visible half. It advances only on a successful
+  // reading, so a status query stuck erroring withholds the flags rather than
+  // guessing, and only ever forward, so a landed flag never blinks off when
+  // the next poll goes out. Neither is reset with the wizard: both are
+  // monotonic and the latch is re-taken against the live count.
+  const statusFetchStartsRef = useRef(0);
+  const [lastReadFetchStart, setLastReadFetchStart] = useState(0);
+  const statusQueryHash = hashKey(operationalStatusOptions.queryKey);
+  useEffect(() => {
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type !== "updated" ||
+        event.query.queryHash !== statusQueryHash
+      ) {
+        return;
+      }
+      if (event.action.type === "fetch") {
+        statusFetchStartsRef.current += 1;
+      } else if (event.action.type === "success" && !event.action.manual) {
+        // Which start this reading belongs to has to be read here, before a
+        // later one can move the count. Publishing it through the cache's own
+        // notify queue lands it in the same React commit as the reading.
+        const readStart = statusFetchStartsRef.current;
+        notifyManager.schedule(() => setLastReadFetchStart(readStart));
+      }
+    });
+  }, [queryClient, statusQueryHash]);
 
   const resizeOperationInFlight = isResizeOperationInFlight(
     operationalStatusQuery.data,
@@ -623,30 +671,24 @@ export function useProProvisioning({
   // dimension's marker, or find it retired. Keyed to the provisioning assistant
   // for the reason above.
   //
-  // The instant is only taken while the status query is idle, because
-  // `dataUpdatedAt` records when a response was stored, not when its request
-  // began. A fetch already out when the dimension reads met observed the world
-  // before the resize marker existed, yet storing its answer still advances
-  // `dataUpdatedAt` past the latch. Waiting for idle makes the next advance a
-  // fetch that started after the latch, which is the reading the fence below
-  // asks for.
-  const statusQueryIdle = operationalStatusQuery.fetchStatus === "idle";
+  // What is recorded is the fetch-start count rather than an instant, because
+  // the question the fence asks is when a reading *began*, and that is the only
+  // thing that says whether it could have seen the marker.
   const dimensionMetMatchesAssistant =
-    dimensionMetAt.assistantId === assistantId;
+    dimensionMetAtFetch.assistantId === assistantId;
   useEffect(() => {
     if (!open) {
       return;
     }
-    setDimensionMetAt((prev) => {
+    const startedFetches = statusFetchStartsRef.current;
+    setDimensionMetAtFetch((prev) => {
       const carried =
         prev.assistantId === assistantId ? prev : NO_DIMENSIONS_MET;
-      // Null while a status fetch is out, holding the dimension unlatched.
-      const latchAt = statusQueryIdle ? Date.now() : null;
       const machine = displayTargetsMet.machine
-        ? (carried.machine ?? latchAt)
+        ? (carried.machine ?? startedFetches)
         : null;
       const storage = displayTargetsMet.storage
-        ? (carried.storage ?? latchAt)
+        ? (carried.storage ?? startedFetches)
         : null;
       if (
         prev.assistantId === assistantId &&
@@ -657,7 +699,7 @@ export function useProProvisioning({
       }
       return { assistantId, machine, storage };
     });
-  }, [open, displayTargetsMet, assistantId, statusQueryIdle]);
+  }, [open, displayTargetsMet, assistantId]);
 
   // Pairs the same questions the state machine pairs globally, per dimension.
   // Met-ness alone would not do: the platform persists the effective sizes at
@@ -669,34 +711,36 @@ export function useProProvisioning({
   //
   // These flags are fenced more strictly than the terminal
   // `statusObservedSinceTargetsMet` gate below, which compares `dataUpdatedAt`
-  // against its own latch and so counts a fetch that was already out. That gate
-  // is one-way: reaching a terminal state stops the poll, so a slightly early
-  // completion is absorbed and never visibly reverses. These flags render
-  // continuously, so the same false positive shows a chip checking off and then
-  // regressing to a spinner. That asymmetry is why the stricter fence lives
-  // here and not there.
+  // against its own latch. That is a result-storage time, so it also counts a
+  // fetch that was already out. But that gate is one-way: reaching a terminal
+  // state stops the poll, so a slightly early completion is absorbed and never
+  // visibly reverses. These flags render continuously, so the same false
+  // positive shows a chip checking off and then regressing to a spinner. That
+  // asymmetry is why the stricter fence lives here and not there.
   const landed = useMemo<ProvisioningDimensionFlags>(() => {
     const inFlight = resizeDimensionsInFlight(operationalStatusQuery.data);
-    const statusReadSince = (metAt: number | null) =>
-      metAt != null &&
+    // The reading in hand belongs to a fetch that started after this dimension
+    // latched, so it is the first one that could have seen the marker.
+    const readSinceMet = (metAtFetch: number | null) =>
+      metAtFetch != null &&
       dimensionMetMatchesAssistant &&
-      operationalStatusQuery.dataUpdatedAt > metAt;
+      lastReadFetchStart > metAtFetch;
     return {
       machine:
         displayTargetsMet.machine &&
         !inFlight.machine &&
-        statusReadSince(dimensionMetAt.machine),
+        readSinceMet(dimensionMetAtFetch.machine),
       storage:
         displayTargetsMet.storage &&
         !inFlight.storage &&
-        statusReadSince(dimensionMetAt.storage),
+        readSinceMet(dimensionMetAtFetch.storage),
     };
   }, [
     displayTargetsMet,
-    dimensionMetAt,
+    dimensionMetAtFetch,
     dimensionMetMatchesAssistant,
+    lastReadFetchStart,
     operationalStatusQuery.data,
-    operationalStatusQuery.dataUpdatedAt,
   ]);
 
   // Freeze the first non-null actuals as the before/after "from" side, keyed to

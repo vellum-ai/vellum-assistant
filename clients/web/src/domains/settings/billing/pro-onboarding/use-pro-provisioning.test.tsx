@@ -16,7 +16,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -274,8 +274,18 @@ const { useProProvisioning } = await import("./use-pro-provisioning");
 
 let latest: ProProvisioningResult | null = null;
 
+/**
+ * Run from the probe's layout effect, which fires after a render commits and
+ * before the hook's passive effects. The seam a test needs to start a request
+ * inside that window; it clears itself when it has fired.
+ */
+let onLayoutCommit: (() => void) | null = null;
+
 function Probe({ open = true }: { open?: boolean }) {
   const result = useProProvisioning({ open });
+  useLayoutEffect(() => {
+    onLayoutCommit?.();
+  });
   useEffect(() => {
     latest = result;
   });
@@ -305,6 +315,18 @@ function renderProbe(client = makeClient()) {
 
 async function refetchAll(client: QueryClient) {
   await client.invalidateQueries();
+}
+
+/**
+ * Write to the cache and let the notification reach React. The query cache
+ * schedules its notifications on a timer, so an `act` that only drains
+ * microtasks can return before the render the write implies has happened.
+ */
+async function commitCacheWrite(write: () => void) {
+  await act(async () => {
+    write();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }
 
 const ASSISTANT_QUERY_KEY = assistantsRetrieveQueryKey({
@@ -370,6 +392,7 @@ beforeEach(() => {
   pendingEnsures = [];
   dateNowOffsetMs = 0;
   latest = null;
+  onLayoutCommit = null;
 });
 
 afterEach(() => {
@@ -1525,15 +1548,85 @@ describe("useProProvisioning presentation signals", () => {
     );
 
     assistantResponse = makeAssistant("large", 50);
-    await act(async () => {
+    await commitCacheWrite(() => {
       client.setQueryData(ASSISTANT_QUERY_KEY, assistantResponse);
     });
     expect(latest!.landed).toEqual({ machine: false, storage: false });
 
     // The clock moves on before that fetch answers, so its result stores
-    // strictly after the dimensions read met: it postdates them by
-    // `dataUpdatedAt` alone, though it observed the world before them. It may
-    // not land anything.
+    // strictly after the dimensions read met: it postdates them in wall-clock
+    // terms, though it observed the world before them. It may not land
+    // anything.
+    dateNowOffsetMs += 50;
+    operationalStatusGate = null;
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    // The terminal gate compares storage times without the fence and so takes
+    // that reading, which is the asymmetry the flags are stricter than. Waiting
+    // for it also proves the reading was fully absorbed before the flags are
+    // asserted to have ignored it.
+    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The first fetch that starts after them does land them.
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
+  }, 20_000);
+
+  test("a status refetch starting between the render and the effect does not land a dimension", async () => {
+    // The window a render-time reading cannot see: the hook renders with the
+    // status query idle, a refetch goes out, and only then does the latch
+    // effect run. That request still read the world before the resize marker,
+    // so it may not land anything however late its answer is stored.
+    ensureResponse = makeEnsureResponse("started");
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // Settle the status poll first: the window under test is a request that
+    // begins after the render, not one already running when it starts.
+    await act(async () => {
+      await client.refetchQueries({ queryKey: STATUS_QUERY_KEY });
+    });
+    expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe("idle");
+
+    // Held open so the request is unambiguously still out when the latch
+    // effect runs.
+    const gate = makeDeferred();
+    operationalStatusGate = gate;
+    onLayoutCommit = () => {
+      const assistant = client.getQueryData(ASSISTANT_QUERY_KEY) as
+        | Assistant
+        | undefined;
+      // Only the commit that first carries the target sizes: that is the
+      // render whose passive effect takes the latch.
+      if (assistant?.machine_size !== "large") {
+        return;
+      }
+      onLayoutCommit = null;
+      void client.refetchQueries({ queryKey: STATUS_QUERY_KEY });
+    };
+
+    assistantResponse = makeAssistant("large", 50);
+    await commitCacheWrite(() => {
+      client.setQueryData(ASSISTANT_QUERY_KEY, assistantResponse);
+    });
+    expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe(
+      "fetching",
+    );
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // It answers after the dimensions read met, which is what a fence built on
+    // storage times would take.
     dateNowOffsetMs += 50;
     operationalStatusGate = null;
     await act(async () => {
@@ -1544,11 +1637,8 @@ describe("useProProvisioning presentation signals", () => {
       expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe("idle"),
     );
     expect(latest!.landed).toEqual({ machine: false, storage: false });
-    // The terminal gate compares the same timestamp without the fence and so
-    // takes that reading, which is the asymmetry the flags are stricter than.
-    expect(latest!.state).toBe("DONE");
 
-    // The first fetch that starts after them does land them.
+    // A reading that starts after the latch does land them.
     await waitForLanded(client, () => {
       expect(latest!.landed).toEqual({ machine: true, storage: true });
     });
