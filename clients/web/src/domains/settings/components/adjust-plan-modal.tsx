@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
-import { currentTierRows } from "@/domains/settings/billing/plan-spec";
+import { currentPlanFeatures } from "@/domains/settings/billing/plan-spec";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
@@ -166,9 +166,9 @@ export function AdjustPlanModal({
   // and storage tiers live on the onboarding read: while it is pending OR after
   // it errors, every tier reads null, which is indistinguishable from a
   // machine-less package and would describe a paid sub as the small baseline.
-  const currentSpecRows =
+  const planFeatures =
     onPro && onboardingQuery.isSuccess && proPlan
-      ? currentTierRows(
+      ? currentPlanFeatures(
           {
             machineTier: currentMachineTier,
             storageTier: currentStorageTier,
@@ -637,7 +637,7 @@ export function AdjustPlanModal({
                             isCurrent={planIsCurrent}
                             onPro={onPro}
                             planDisplayName={planDisplayName}
-                            currentSpecRows={currentSpecRows}
+                            currentPlanFeatures={planFeatures}
                             cancelAtPeriodEnd={cancelAtPeriodEnd}
                             isCanceled={isCanceled}
                             cancelDate={cancelDate}

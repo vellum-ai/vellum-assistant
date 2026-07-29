@@ -1130,6 +1130,29 @@ describe("AdjustPlanModal current plan: name and real tier rows", () => {
     expect(text).not.toContain("Pay-as-you-go and bundled credits");
   });
 
+  test("keeps the pay-as-you-go row for a sub holding no credit bundle", async () => {
+    // No bundle means no concrete credit row, so the catalog's pay-as-you-go
+    // entitlement has to survive; otherwise the card says nothing at all about
+    // credits for a plan that still has them.
+    renderModal(
+      subscription("pro", null, { cancel_at_period_end: true }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!(document.body.textContent ?? "").includes("Large Machine")) {
+        throw new Error("real rows not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Pay-as-you-go and bundled credits");
+    expect(text).not.toContain("Configurable machine size");
+    expect(text).not.toContain("Configurable storage");
+  });
+
   test("carries through a non-tier entitlement the catalog adds", async () => {
     // The real spec rows replace only the generic capability copy. Anything
     // else the catalog lists is an entitlement no tier encodes, so it has to

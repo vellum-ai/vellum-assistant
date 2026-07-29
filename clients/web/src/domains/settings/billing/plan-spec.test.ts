@@ -11,9 +11,9 @@ import type { ProPlan } from "@/generated/api/types.gen";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 
 import {
+  currentPlanFeatures,
   currentTierRows,
   machineLabel,
-  nonTierFeatures,
   packageHighlights,
   packageSpecs,
 } from "./plan-spec";
@@ -154,6 +154,12 @@ describe("machineLabel", () => {
 describe("currentTierRows", () => {
   const proPlan = {
     id: "pro",
+    // `machine_tiers` is required on ProPlan and is consulted for the machine
+    // label, so the fixture carries it even where a test doesn't exercise it.
+    machine_tiers: [
+      { tier: "medium", label: "Medium" },
+      { tier: "large", label: "Large" },
+    ],
     credit_tiers: [
       { tier: "credits_50", label: "50 credits", credits_usd: 50 },
       { tier: "credits_25", label: "25 credits", credits_usd: 25 },
@@ -238,6 +244,21 @@ describe("currentTierRows", () => {
     ).toBe("Credit bundle");
   });
 
+  test("uses the catalog label for a tier the static map does not know", () => {
+    // The tier picker renders the server label, so the card has to agree
+    // rather than surfacing the raw identifier.
+    const withNewTier = {
+      ...proPlan,
+      machine_tiers: [{ tier: "xxl", label: "XXL" }],
+    } as unknown as ProPlan;
+    expect(
+      currentTierRows(
+        tiers({ machineTier: "xxl" as CurrentTiers["machineTier"] }),
+        withNewTier,
+      )[0],
+    ).toBe("XXL Machine");
+  });
+
   test("passes an unmapped machine tier through rather than dropping it", () => {
     expect(
       currentTierRows(
@@ -248,37 +269,63 @@ describe("currentTierRows", () => {
   });
 });
 
-describe("nonTierFeatures", () => {
-  // The four rows the platform catalog serves for Pro today.
+describe("currentPlanFeatures", () => {
   const CATALOG = [
     "Pay-as-you-go and bundled credits",
     "Configurable machine size",
     "Configurable storage",
     "Assistant email & subdomain",
   ];
+  const proPlan = {
+    id: "pro",
+    included_features: CATALOG,
+    machine_tiers: [{ tier: "large", label: "Large" }],
+    credit_tiers: [
+      { tier: "credits_50", label: "50 credits", credits_usd: 50 },
+    ],
+  } as unknown as ProPlan;
 
-  test("drops the rows the real tier values supersede", () => {
-    expect(nonTierFeatures(CATALOG)).toEqual(["Assistant email & subdomain"]);
+  const full: CurrentTiers = {
+    machineTier: "large",
+    storageTier: "s",
+    storageGib: 30,
+    creditTier: "credits_50",
+  };
+
+  test("replaces every capability row it has a real value for", () => {
+    expect(currentPlanFeatures(full, proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+      "50 credits/mo",
+      "Assistant email & subdomain",
+    ]);
+  });
+
+  test("keeps the pay-as-you-go row when the sub holds no bundle", () => {
+    // Without this the card would say nothing at all about credits, dropping a
+    // capability the plan still has.
+    expect(currentPlanFeatures({ ...full, creditTier: null }, proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+      "Pay-as-you-go and bundled credits",
+      "Assistant email & subdomain",
+    ]);
+  });
+
+  test("keeps the storage row when the GiB is unresolved", () => {
+    expect(currentPlanFeatures({ ...full, storageGib: null }, proPlan)).toEqual([
+      "Large Machine",
+      "50 credits/mo",
+      "Configurable storage",
+      "Assistant email & subdomain",
+    ]);
   });
 
   test("carries through an entitlement the platform adds later", () => {
-    // The regression this guards: a client-side mirror of the platform
-    // constant would silently drop any row it did not already know about.
-    expect(nonTierFeatures([...CATALOG, "Priority support"])).toEqual([
-      "Assistant email & subdomain",
-      "Priority support",
-    ]);
-  });
-
-  test("keeps a renamed capability row rather than dropping it", () => {
-    // Redundant next to the real value, but visible. Failing open beats
-    // silently omitting an entitlement the subscriber actually has.
-    expect(nonTierFeatures(["Configurable compute size"])).toEqual([
-      "Configurable compute size",
-    ]);
-  });
-
-  test("returns an empty list for an empty catalog", () => {
-    expect(nonTierFeatures([])).toEqual([]);
+    const extended = {
+      ...proPlan,
+      included_features: [...CATALOG, "Priority support"],
+    } as unknown as ProPlan;
+    expect(currentPlanFeatures(full, extended)).toContain("Priority support");
   });
 });

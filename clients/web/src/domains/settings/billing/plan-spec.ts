@@ -84,30 +84,16 @@ export function packageHighlights(
 }
 
 /**
- * The catalog's generic capability rows that a subscriber's real tier values
- * supersede: "Configurable machine size" says nothing once the card can say
- * "Large Machine". Matched against `ProPlan.included_features`.
- *
- * Recognizing a row here only removes it. A renamed or newly added catalog
- * feature therefore survives into the card, which reads as redundant next to
- * the real value at worst; the alternative, listing the entitlements to keep,
- * would silently drop anything the platform adds.
+ * The catalog capability row each tier dimension replaces. A row is only
+ * dropped when its dimension actually produced a concrete value: a sub holding
+ * no credit bundle keeps "Pay-as-you-go and bundled credits", which is still
+ * true of its plan and is the only thing left saying so.
  */
-const TIER_SUPERSEDED_FEATURES = new Set([
-  "Pay-as-you-go and bundled credits",
-  "Configurable machine size",
-  "Configurable storage",
-]);
-
-/**
- * The catalog features that survive alongside the real tier rows, i.e. the Pro
- * entitlements no tier encodes (an assistant email and subdomain today). Taken
- * from the live catalog rather than a client-side mirror of the platform
- * constant, so an entitlement the API adds shows up without a web change.
- */
-export function nonTierFeatures(included: readonly string[]): string[] {
-  return included.filter((feature) => !TIER_SUPERSEDED_FEATURES.has(feature));
-}
+const CAPABILITY_ROW = {
+  machine: "Configurable machine size",
+  storage: "Configurable storage",
+  credits: "Pay-as-you-go and bundled credits",
+} as const;
 
 /**
  * Spec rows for a Pro sub's own tier configuration, e.g.
@@ -124,8 +110,13 @@ export function currentTierRows(
   current: CurrentTiers,
   proPlan: ProPlan,
 ): string[] {
+  // Static map first, so casing stays stable for the tiers this bundle knows;
+  // then the catalog's own label, so a tier the platform adds reads the same
+  // here as it does in the tier picker; the raw key only as a last resort.
   const machine = current.machineTier
-    ? (MACHINE_TIER_LABEL[current.machineTier] ?? current.machineTier)
+    ? (MACHINE_TIER_LABEL[current.machineTier] ??
+      proPlan.machine_tiers.find((t) => t.tier === current.machineTier)?.label ??
+      current.machineTier)
     : STANDARD_MACHINE_LABEL;
   const rows = [`${machine} Machine`];
   if (current.storageGib != null) {
@@ -148,4 +139,31 @@ export function currentTierRows(
     rows.push(usd != null ? `${usd} credits/mo` : "Credit bundle");
   }
   return rows;
+}
+
+/**
+ * The full checklist for a current Pro subscriber: their real tier rows, then
+ * every catalog feature those rows did not replace.
+ *
+ * The surviving rows come from the live catalog rather than a client-side
+ * mirror, so an entitlement the platform adds appears with no web change, and a
+ * dimension the sub has no concrete value for keeps its generic capability row
+ * instead of vanishing.
+ */
+export function currentPlanFeatures(
+  current: CurrentTiers,
+  proPlan: ProPlan,
+): string[] {
+  // The machine row always renders, falling back to the small baseline.
+  const superseded = new Set<string>([CAPABILITY_ROW.machine]);
+  if (current.storageGib != null) {
+    superseded.add(CAPABILITY_ROW.storage);
+  }
+  if (current.creditTier != null) {
+    superseded.add(CAPABILITY_ROW.credits);
+  }
+  return [
+    ...currentTierRows(current, proPlan),
+    ...proPlan.included_features.filter((f) => !superseded.has(f)),
+  ];
 }
