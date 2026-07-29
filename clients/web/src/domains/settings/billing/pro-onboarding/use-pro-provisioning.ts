@@ -48,7 +48,8 @@ import {
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
-  allowedMachineSizesForTier,
+  MACHINE_FLOOR_SIZE,
+  machineCeilingForTier,
   machineSizeRank,
 } from "@/lib/billing/machine-sizes";
 import {
@@ -67,7 +68,6 @@ import {
   type ProvisioningStateKind,
   targetsMet,
 } from "./provisioning-machine";
-import type { TakeoverDirection } from "./takeover-copy";
 import {
   ENSURE_PROVISIONED_RACE_RETRY_MS,
   PRO_POLL_INTERVAL_MS,
@@ -111,10 +111,11 @@ const NO_DIMENSIONS_MET: DimensionMetLatch = {
 export interface UseProProvisioningOptions {
   open: boolean;
   /**
-   * Which way the change being watched goes. Absent reads as an upgrade, which
-   * is what post-checkout onboarding always is.
+   * Whether the change being watched can lower a resource ceiling, which is the
+   * only thing that stops met targets from standing in for "nothing was owed".
+   * Absent reads as false, which is what post-checkout onboarding always is.
    */
-  direction?: TakeoverDirection;
+  canLowerResources?: boolean;
 }
 
 export interface ProProvisioningResult {
@@ -198,7 +199,7 @@ export interface ProProvisioningResult {
 
 export function useProProvisioning({
   open,
-  direction,
+  canLowerResources = false,
 }: UseProProvisioningOptions): ProProvisioningResult {
   const queryClient = useQueryClient();
   // Every query here is org-scoped (needs the Vellum-Organization-Id header).
@@ -600,15 +601,16 @@ export function useProProvisioning({
       // No machine tier on the package (e.g. Mighty), or a tier this bundle
       // doesn't know, yields no machine target; the machine treats a null
       // dimension as satisfied, so version skew never computes a wrong target.
-      machineSize:
-        allowedMachineSizesForTier(onboarding.max_machine_tier).at(-1) ?? null,
+      machineSize: machineCeilingForTier(onboarding.max_machine_tier),
       storageGib: onboarding.selected_storage_gib ?? null,
     };
   }, [onboarding]);
 
   // Mirrors the server's machine ceiling for a package with no tier.
   const machineFloor: MachineSizeEnum | null =
-    onboarding != null && onboarding.max_machine_tier == null ? "small" : null;
+    onboarding != null && onboarding.max_machine_tier == null
+      ? MACHINE_FLOOR_SIZE
+      : null;
 
   // The managed-email entitlement alone doesn't make the domain step offerable:
   // the domain POST re-resolves the caller's primary assistant server-side and
@@ -795,9 +797,9 @@ export function useProProvisioning({
   const msSinceWatchStart =
     watchStartedAt == null ? null : Math.max(0, now - watchStartedAt);
   // Only a change that never lowers the ceilings keeps "targets met" and
-  // "nothing to provision" equivalent. A downgrade, and a move whose direction
-  // nobody knows, both meet their targets before anything has moved.
-  const targetsProveNoop = direction == null || direction === "upgrade";
+  // "nothing to provision" equivalent. One that can lower them meets its
+  // targets before anything has moved.
+  const targetsProveNoop = !canLowerResources;
   const { state, softWaiting } = deriveProvisioningState({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,

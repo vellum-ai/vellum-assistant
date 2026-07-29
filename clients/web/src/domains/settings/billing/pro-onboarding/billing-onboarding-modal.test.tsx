@@ -1206,6 +1206,7 @@ describe("BillingOnboardingModal — resize mode", () => {
         fromSnapshot: { machineSize: "small", storageGib: 10 },
         credits: { fromTier: "credits_25", toTier: "credits_50" },
         direction: "upgrade",
+        canLowerResources: false,
       },
       plans: plansWithCredits(),
     });
@@ -1239,6 +1240,7 @@ describe("BillingOnboardingModal — resize mode", () => {
         fromSnapshot: { machineSize: "medium", storageGib: 30 },
         credits: null,
         direction: "upgrade",
+        canLowerResources: false,
       },
     });
 
@@ -1269,6 +1271,7 @@ describe("BillingOnboardingModal — resize mode", () => {
         fromSnapshot: { machineSize: null, storageGib: 30 },
         credits: null,
         direction: "upgrade",
+        canLowerResources: false,
       },
     });
 
@@ -1552,6 +1555,87 @@ describe("BillingOnboardingModal — resize mode", () => {
   }, 20_000);
 });
 
+describe("BillingOnboardingModal (in-place custom change)", () => {
+  /**
+   * A per-dimension edit always reads "change", whichever way its dimensions
+   * move, so the copy direction says nothing about whether a ceiling can drop.
+   * These two run identical fixtures and differ only in that answer.
+   */
+  function creditOnlyFixtures() {
+    subscriptionPlanId = "pro";
+    // The pod already sits at the targets: a credit edit buys no machine and no
+    // disk, so there is nothing for it to converge on.
+    onboardingResponse = makeOnboarding({
+      max_machine_tier: "medium",
+      selected_storage_gib: 10,
+      domain_setup_available: false,
+    });
+    assistantResponse = makeAssistant("medium", 10);
+    operationalStatusResponse = makeOperationalStatus("active");
+  }
+
+  test("a credit-only change settles without waiting on a server verdict", async () => {
+    creditOnlyFixtures();
+    // The reconcile is held for the whole test, so no verdict can ever land.
+    // Nothing but the client's own reading of the targets can resolve this.
+    let releaseEnsure = () => {};
+    ensureHold = new Promise<void>((resolve) => {
+      releaseEnsure = () => resolve();
+    });
+    const { getByText, queryByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 10 },
+        credits: { fromTier: "credits_25", toTier: "credits_45" },
+        direction: "change",
+        canLowerResources: false,
+      },
+      plans: plansWithCredits(),
+    });
+
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByText("Your plan changes are live.")).toBeTruthy();
+    // It resolved rather than riding the stall clock out to a snag.
+    expect(queryByText("Updating your assistant…")).toBeNull();
+    expect(queryByText("We hit a snag updating your assistant")).toBeNull();
+    releaseEnsure();
+  }, 20_000);
+
+  test("the same change with a droppable ceiling still holds the wait", async () => {
+    creditOnlyFixtures();
+    let releaseEnsure = () => {};
+    ensureHold = new Promise<void>((resolve) => {
+      releaseEnsure = () => resolve();
+    });
+    const { client, getByText, queryByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 10 },
+        credits: { fromTier: "credits_25", toTier: "credits_45" },
+        direction: "change",
+        canLowerResources: true,
+      },
+      plans: plansWithCredits(),
+    });
+
+    await waitFor(() => expect(ensureCalls).toBeGreaterThan(0), {
+      timeout: 5000,
+    });
+    await client.invalidateQueries();
+    await client.invalidateQueries();
+
+    await waitFor(
+      () => expect(getByText("Updating your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText("Your plan is ready")).toBeNull();
+    expect(queryByText("You're all set!")).toBeNull();
+    releaseEnsure();
+  }, 20_000);
+});
+
 describe("BillingOnboardingModal (package downgrade)", () => {
   test("holds the wait while nothing has yet observed the restart", async () => {
     // The race a downgrade has to survive. Mighty names no machine tier and the
@@ -1578,6 +1662,7 @@ describe("BillingOnboardingModal (package downgrade)", () => {
         fromSnapshot: { machineSize: "medium", storageGib: 10 },
         credits: { fromTier: "credits_45", toTier: "credits_25" },
         direction: "downgrade",
+        canLowerResources: true,
       },
       plans: plansWithCredits(),
     });
@@ -1633,6 +1718,7 @@ describe("BillingOnboardingModal (package downgrade)", () => {
         fromSnapshot: { machineSize: "medium", storageGib: 10 },
         credits: { fromTier: "credits_45", toTier: "credits_25" },
         direction: "downgrade",
+        canLowerResources: true,
       },
       plans: plansWithCredits(),
     });
@@ -1698,6 +1784,7 @@ describe("BillingOnboardingModal (package downgrade)", () => {
         fromSnapshot: { machineSize: "small", storageGib: 10 },
         credits: { fromTier: "credits_45", toTier: "credits_25" },
         direction: "downgrade",
+        canLowerResources: true,
       },
       plans: plansWithCredits(),
     });
@@ -1725,6 +1812,7 @@ describe("BillingOnboardingModal (package downgrade)", () => {
         fromSnapshot: { machineSize: "small", storageGib: 10 },
         credits: { fromTier: "credits_25", toTier: "credits_45" },
         direction: "upgrade",
+        canLowerResources: false,
       },
       plans: plansWithCredits(),
     });

@@ -74,7 +74,10 @@ import {
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
-import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
+import {
+  lowersMachineCeiling,
+  MACHINE_TIER_LABEL,
+} from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
@@ -621,6 +624,18 @@ export function PlansPage() {
       }
       const target = switchTarget;
       const before = capturePlanBefore();
+      // Whether the switch can cap the pod's machine down, which is what
+      // decides if targets that read met can stand in for "nothing was owed".
+      // Only the machine ceiling moves that way: a volume never shrinks, and
+      // credits are not a provisioned resource at all.
+      //
+      // A Custom sub has no catalog rank, so its own ceiling can sit anywhere
+      // relative to the target's, and an unread ceiling can't be ranked at all.
+      // Neither may claim the fast inference.
+      const canLowerResources =
+        currentTierKey === null ||
+        !currentReady ||
+        lowersMachineCeiling(current.machineTier, target.machine_tier);
       const result = await changePackage(target.key);
       if (!result) {
         // The hook already toasted; keep the confirm dialog open so the user
@@ -646,6 +661,7 @@ export function PlansPage() {
             ? { fromTier: before.creditTier, toTier: toCreditTier }
             : null,
         direction: TAKEOVER_DIRECTION[switchRelation],
+        canLowerResources,
       });
       setResizeTakeoverOpen(true);
     };
@@ -663,6 +679,13 @@ export function PlansPage() {
     // the upgrade/checkout endpoint no-ops for an active Pro sub.
     const applyCustomTierChange = async (selection: CustomPlanSelection) => {
       const before = capturePlanBefore();
+      // The modal seeds from `current`, so the machine tier it is moving away
+      // from is read here rather than guessed. A credit-only or storage-only
+      // edit leaves the ceiling alone and keeps its fast no-op inference.
+      const canLowerResources = lowersMachineCeiling(
+        current.machineTier,
+        selection.machineTier,
+      );
       const result = await changeTiers(selection);
       if (!result) {
         // The hook toasted; keep the modal open so the user can retry.
@@ -680,6 +703,7 @@ export function PlansPage() {
           // A per-dimension edit can raise one dimension and lower another, so
           // it has no single direction to state.
           direction: "change",
+          canLowerResources,
         });
         setResizeTakeoverOpen(true);
       } else {

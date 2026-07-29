@@ -81,6 +81,13 @@ export interface ResizeTakeoverContext {
   credits: CreditTierChange | null;
   /** Which way the change goes, which every surface here writes its copy to. */
   direction: TakeoverDirection;
+  /**
+   * Whether the change can lower a resource ceiling, so the pod has to shrink
+   * before it is ready. Separate from `direction`, which is copy only: a
+   * per-dimension edit reads "change" whichever way its dimensions move, and one
+   * that only touches credits owes no provisioning at all.
+   */
+  canLowerResources: boolean;
 }
 
 export interface BillingOnboardingModalProps {
@@ -137,14 +144,19 @@ export function BillingOnboardingModal({
   // context; checkout and a context-less resize mount both read as an upgrade.
   const direction = isResize ? resizeContext?.direction : undefined;
   const copy = takeoverCopy(direction);
+  // For the same reason, only an in-place change can lower a ceiling. Checkout
+  // and a context-less resize mount only ever raise them.
+  const canLowerResources = isResize
+    ? resizeContext?.canLowerResources === true
+    : false;
 
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
   // backgrounded resize still resolves while the user sets up their domain. It
-  // takes the direction because a change that can lower the ceilings meets
-  // them before anything moves, so it needs positive evidence of the restart
-  // before it may complete.
-  const provisioning = useProProvisioning({ open, direction });
+  // takes the ceiling question because a change that can lower a ceiling meets
+  // its targets before anything moves, so it needs positive evidence of the
+  // restart before it may complete.
+  const provisioning = useProProvisioning({ open, canLowerResources });
 
   // Whether this wizard has actually been opened, so the reset branch below can
   // tell a close from the mount of an instance that is simply rendered closed

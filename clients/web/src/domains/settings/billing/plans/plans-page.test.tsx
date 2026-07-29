@@ -215,6 +215,7 @@ type CapturedResizeContext = {
   fromSnapshot: { machineSize: string | null; storageGib: number | null };
   credits: { fromTier: string | null; toTier: string | null } | null;
   direction: string;
+  canLowerResources: boolean;
 };
 let takeoverResizeContext: CapturedResizeContext | undefined;
 mock.module(
@@ -654,6 +655,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
     expect(takeoverResizeContext?.direction).toBe("downgrade");
+    // Mighty names no machine tier, so the pod is capped to the floor: met
+    // targets can't stand in for "nothing was owed" here.
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
     expect(toastSuccessCalls).toEqual([]);
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(upgradeCall).toBeNull();
@@ -674,6 +678,8 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
     expect(takeoverResizeContext?.direction).toBe("upgrade");
+    // Ultra raises the ceiling, so the fast no-op inference is kept.
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
     // The sub holds no bundle and Ultra pins one, so the tier move is threaded.
     expect(takeoverResizeContext?.credits).toEqual({
       fromTier: null,
@@ -1066,6 +1072,9 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     expect(takeover.getAttribute("data-mode")).toBe("resize");
     // No rank to compare against, so the takeover states a neutral change.
     expect(takeoverResizeContext?.direction).toBe("change");
+    // And for the same reason its own ceiling can sit anywhere relative to the
+    // target's, so the switch has to prove the restart rather than assume none.
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
     expect(upgradeCall).toBeNull();
   });
 
@@ -1365,6 +1374,8 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     });
     // A per-dimension edit can move dimensions in both directions at once.
     expect(takeoverResizeContext?.direction).toBe("change");
+    // Medium → Large raises the ceiling, so nothing has to shrink.
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
     expect(upgradeCall).toBeNull();
   });
 
@@ -1397,7 +1408,60 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
       fromTier: null,
       toTier: "credits_50",
     });
+    // Credits are not a provisioned resource and no ceiling moved, so the
+    // takeover keeps the inference that lets met targets resolve it straight
+    // away. The neutral "change" direction must not cost it that.
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
     expect(upgradeCall).toBeNull();
+  });
+
+  test("a storage-only Continue keeps the fast no-op inference", async () => {
+    // Volumes only ever grow, so a storage edit can't lower a ceiling either.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Storage", "30 GB");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(storageTierCall).not.toBeNull());
+    expect(storageTierCall!.body).toEqual({ storage_tier: "s" });
+    expect(machineTierCall).toBeNull();
+    expect(creditTierCall).toBeNull();
+
+    await findByTestId("resize-takeover");
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
+  });
+
+  test("a machine downgrade makes the takeover prove the restart", async () => {
+    // The sub holds a Large ceiling and drops to Medium, so the server caps the
+    // pod down. A machine downgrade owes no grow, so it opens the takeover only
+    // alongside the credit change here, and while that takeover is up the
+    // cap-down is rolling out with its targets already reading met.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      {
+        plans: customCatalog(),
+        onboardingData: onboarding({ max_machine_tier: "large" }),
+      },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    selectOption("Credit bundle", "50 credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+
+    await findByTestId("resize-takeover");
+    // The copy stays neutral; only the ceiling question flips.
+    expect(takeoverResizeContext?.direction).toBe("change");
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
   });
 
   test("a machine-only Continue threads no credits chip", async () => {
