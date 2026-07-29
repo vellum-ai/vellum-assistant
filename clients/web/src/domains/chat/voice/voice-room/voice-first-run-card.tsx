@@ -4,17 +4,27 @@ import {
   ArrowLeft,
   AudioLines,
   Captions,
+  Languages,
   MicOff,
   Settings,
 } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import {
+  Dropdown,
+  type DropdownOption,
+} from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { VoiceList } from "@/components/speech/voice-list";
 import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
+import {
+  sttLanguageOptionsFor,
+  suggestedLanguageForLocale,
+} from "@/lib/stt/language-catalog";
 import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -37,6 +47,16 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * quiet link points there. The label names a destination rather than an action:
  * the defaults work untouched, and a link reading like a task would imply setup
  * is owed. Quiet by design so it never competes with "Start talking".
+ *
+ * The second sanctioned exception is the listening-language row: a wrong STT
+ * language is broken rather than suboptimal (the assistant would mishear every
+ * turn), so it is the one default worth surfacing before the first session.
+ * The row appears only on locale evidence (the browser locale suggests a
+ * non-English spoken language) and only when the daemon reports the configured
+ * STT provider as language-selectable; English-locale users see the card
+ * unchanged. It is a surfaced smart default, not a question: nothing is
+ * written unless the user explicitly picks, and a pick hot-applies from the
+ * next spoken turn (no Save, matching the voice picker's semantics).
  *
  * Those settings are a **view within this one modal**, not a modal stacked on
  * it: entering swaps the card's header and body, and a back arrow returns to the
@@ -64,6 +84,51 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** Mini idle avatar diameter — a quiet, in-context echo of the room avatar. */
 const AVATAR_SIZE = 44;
+
+/**
+ * Options for the listening-language dropdown: the shared catalog for the
+ * configured provider, with the locale-suggested code annotated "Suggested"
+ * and moved directly after the current value, so the smart default is the
+ * next thing the eye lands on without reshuffling the rest of the catalog.
+ * The annotation uses the option `suffix` affordance rather than the label,
+ * so the trigger keeps reading as a plain value once picked.
+ */
+function listeningLanguageOptions(
+  currentCode: string,
+  configuredProviderId: string,
+  suggestedCode: string,
+): DropdownOption<string>[] {
+  const options: DropdownOption<string>[] = sttLanguageOptionsFor(
+    currentCode,
+    configuredProviderId,
+  ).map((l) => ({
+    value: l.code,
+    label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
+    tooltip: l.description,
+  }));
+  // The suggestion can be absent (a language-selectable provider whose
+  // adapter drops "multi"); the row still offers the catalog, just with
+  // nothing to headline.
+  const suggestedIndex = options.findIndex((o) => o.value === suggestedCode);
+  if (suggestedIndex === -1 || suggestedCode === currentCode) {
+    return options;
+  }
+  const [suggested] = options.splice(suggestedIndex, 1);
+  const annotated: DropdownOption<string> = {
+    ...suggested!,
+    suffix: (
+      <span className="text-label-small-default text-[var(--content-tertiary)]">
+        Suggested
+      </span>
+    ),
+  };
+  // `sttLanguageOptionsFor` guarantees the current code is represented (a
+  // synthetic "(custom)" entry covers out-of-catalog values), so this index
+  // always resolves.
+  const currentIndex = options.findIndex((o) => o.value === currentCode);
+  options.splice(currentIndex + 1, 0, annotated);
+  return options;
+}
 
 /**
  * Which view the card is showing: the welcome content, or the optional voice
@@ -100,6 +165,23 @@ export function VoiceFirstRunCard({
 
   const [view, setView] = useState<FirstRunView>("intro");
   const backToIntro = () => setView("intro");
+
+  // Locale evidence for the listening-language row: null for English locales
+  // and locales outside the catalog. Guarded for environments without a
+  // `navigator` (the pattern voice-input-button uses).
+  const suggestedCode = suggestedLanguageForLocale(
+    typeof navigator !== "undefined" ? navigator.language : undefined,
+  );
+  // A null assistant id keeps the hook's queries disabled, so without locale
+  // evidence the intro renders byte-identical to before, with no daemon
+  // fetches pulled into the first-run render.
+  const {
+    available: languageAvailable,
+    currentCode: languageCode,
+    configuredProviderId,
+    selectLanguage,
+    selecting: languageSelecting,
+  } = useSttLanguageSelection(suggestedCode !== null ? assistantId : null);
 
   return (
     <Modal.Root
@@ -196,6 +278,36 @@ export function VoiceFirstRunCard({
                   </span>
                 </li>
               </ul>
+              {/* A surfaced smart default, not a question: rendered only on
+                  locale evidence for a language-selectable provider (see the
+                  module docstring), and it writes nothing unless the user
+                  picks. A pick hot-applies from the next spoken turn, so it
+                  holds even if the card is then dismissed. */}
+              {suggestedCode !== null && languageAvailable && (
+                <div className="mt-5 flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2.5">
+                    <Languages
+                      aria-hidden
+                      className="size-4 shrink-0 text-[var(--content-secondary)]"
+                    />
+                    <span className="text-body-medium-default">
+                      Listening language
+                    </span>
+                  </span>
+                  <Dropdown
+                    size="compact"
+                    value={languageCode}
+                    onChange={selectLanguage}
+                    options={listeningLanguageOptions(
+                      languageCode,
+                      configuredProviderId,
+                      suggestedCode,
+                    )}
+                    aria-label="Listening language"
+                    className="min-w-44"
+                  />
+                </div>
+              )}
             </Modal.Body>
             <Modal.Footer className="items-center justify-between">
               {/* A destination, not a task: the defaults work, so this names
@@ -212,7 +324,14 @@ export function VoiceFirstRunCard({
                 <Settings aria-hidden className="size-3.5 shrink-0" />
                 <span className="hover:underline">Voice settings</span>
               </button>
-              <Button variant="primary" onClick={onStart}>
+              {/* Start waits out an in-flight language write (mirroring the
+                  Voices view's voice-write gate) so the session cannot open
+                  before the picked language lands. */}
+              <Button
+                variant="primary"
+                onClick={onStart}
+                disabled={languageSelecting}
+              >
                 Start talking
               </Button>
             </Modal.Footer>
@@ -224,6 +343,7 @@ export function VoiceFirstRunCard({
             assistantId={assistantId}
             onStart={onStart}
             onBack={backToIntro}
+            startBlocked={languageSelecting}
           />
         )}
       </Modal.Content>
@@ -241,10 +361,17 @@ function VoiceSettingsView({
   assistantId,
   onStart,
   onBack,
+  startBlocked = false,
 }: {
   assistantId: string | null;
   onStart: () => void;
   onBack: () => void;
+  /**
+   * An in-flight write elsewhere on the card (the intro's language pick)
+   * that Start must also wait out, so the session cannot open on the
+   * previous STT language regardless of which view launches it.
+   */
+  startBlocked?: boolean;
 }) {
   // Own the selection here (rather than let the list self-commit) so the write's
   // in-flight state can gate Start: the picker reports a pick via `onChange`, and
@@ -283,14 +410,15 @@ function VoiceSettingsView({
       </Modal.Body>
       {/* Mirrors the intro footer (fine print left, primary right) and is always
           present, so the picker flows straight into the session without a size
-          change when a voice is chosen. Start waits out an in-flight voice write
-          so the session can't open on the previous voice. */}
+          change when a voice is chosen. Start waits out an in-flight voice or
+          language write so the session can't open on the previous voice or
+          the previous STT language. */}
       <Modal.Footer className="items-center justify-between gap-3">
         <VoiceProvidersNote />
         <Button
           variant="primary"
           onClick={onStart}
-          disabled={selecting}
+          disabled={selecting || startBlocked}
           className="shrink-0"
         >
           Start talking
