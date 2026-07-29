@@ -88,8 +88,9 @@ graph LR
     failure-backoff-respecting);
   - manual "Run now" via `POST /v1/consolidation/run-now`.
     Failed runs enter an exponential backoff (transient vs billing curves).
-- **Ingestion** (`substrate/ingest.ts`, exposed as `POST /v1/memory/ingest`,
-  operation id `memory_ingest`) is the second sanctioned writer of
+- **Ingestion** (`substrate/ingest.ts`, exposed as `POST /v1/memory/ingest`;
+  generated HTTP operation id `memory_ingest_post`, IPC method
+  `memory_ingest`) is the second sanctioned writer of
   `memory/concepts/`: a deterministic batch import of fully-formed,
   page-shaped markdown (frontmatter + body) that bypasses the buffer
   entirely. Purely mechanical: each page is validated and reported

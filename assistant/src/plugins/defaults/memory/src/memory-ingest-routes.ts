@@ -21,6 +21,10 @@ import {
   BadRequestError,
   ConflictError,
 } from "../../../../runtime/routes/errors.js";
+// Baselined plugin-to-host coupling: the declared requestBody schema must be
+// the single source of truth for wire validation, and parse-body.ts owns the
+// schema-to-400 mapping. Duplicating it here would drift.
+import { parseBody } from "../../../../runtime/routes/parse-body.js";
 import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
@@ -76,17 +80,7 @@ export async function handleMemoryIngest(
       "Concept-page memory is not active - enable memory.v3.live (or memory.v2.enabled) to ingest pages.",
     );
   }
-  // Inline safeParse instead of the host's parse-body helper: importing it
-  // would add a new plugin-to-host coupling to the import-boundary baseline,
-  // and BadRequestError already carries the 400 mapping in both adapters.
-  const parsed = MemoryIngestParamsSchema.safeParse(body ?? {});
-  if (!parsed.success) {
-    const issues = parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
-      .join("; ");
-    throw new BadRequestError(`Invalid ingest request: ${issues}`);
-  }
-  const params = parsed.data;
+  const params = parseBody(MemoryIngestParamsSchema, body ?? {});
   try {
     return await ingestPages(getWorkspaceDir(), params.pages, {
       dryRun: params.dryRun,
