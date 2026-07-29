@@ -159,7 +159,10 @@ const {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function applyConfig(overrides: { provider?: string }): void {
+function applyConfig(overrides: {
+  provider?: string;
+  language?: string;
+}): void {
   const provider = overrides.provider ?? "openai-whisper";
   // Seed a schema-valid base so the loader caches a fresh config object, then
   // set the provider under test on that live cached object. `services.stt.
@@ -177,6 +180,12 @@ function applyConfig(overrides: { provider?: string }): void {
     },
   });
   (getConfig().services.stt as { provider: string }).provider = provider;
+  // `language` is optional and absent from the seed above, so assign it only
+  // when a test asks for one — leaving the unset path genuinely unset.
+  if (overrides.language !== undefined) {
+    (getConfig().services.stt as { language?: string }).language =
+      overrides.language;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1050,6 +1059,100 @@ describe("vellum managed resolution", () => {
       expect(capability.reason).toContain("platform connect");
       expect(capability.reason).not.toContain("API key");
     }
+  });
+});
+
+describe("resolveStreamingTranscriber language plumbing", () => {
+  beforeEach(() => {
+    mockVellumAvailable = false;
+    mockVelayConnection = null;
+    mockProviderKeys = {};
+    deepgramCtorCalls.length = 0;
+    geminiCtorCalls.length = 0;
+    whisperCtorCalls.length = 0;
+    xaiCtorCalls.length = 0;
+    vellumStreamCtorCalls.length = 0;
+  });
+
+  test("managed sessions forward services.stt.language to the relay adapter", async () => {
+    // The managed path is why this plumbing exists: velay allowlists
+    // `language` and pins nova-3, so "multi" reaches Deepgram's
+    // code-switching mode without any platform-side change.
+    mockVellumAvailable = true;
+    mockVelayConnection = {
+      wsBaseUrl: "ws://gateway.test",
+      httpBaseUrl: "http://gateway.test",
+      mintServiceToken: () => "vk-test",
+    };
+    applyConfig({ provider: "vellum", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 24000 });
+
+    expect(vellumStreamCtorCalls).toEqual([
+      {
+        connection: mockVelayConnection,
+        options: { sampleRate: 24000, language: "multi" },
+      },
+    ]);
+  });
+
+  test("BYOK Deepgram sessions forward the configured language", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls).toHaveLength(1);
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "multi" });
+  });
+
+  test("xAI sessions forward the configured language", async () => {
+    mockProviderKeys = { xai: "xai-key" };
+    applyConfig({ provider: "xai", language: "hi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(xaiCtorCalls).toHaveLength(1);
+    expect(xaiCtorCalls[0]?.options).toMatchObject({ language: "hi" });
+  });
+
+  test("an explicit option overrides the configured language", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000, language: "hi" });
+
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "hi" });
+  });
+
+  test("no configured language leaves the option off entirely", async () => {
+    // Regression guard for the default path: adapters must see no `language`
+    // key at all, so behavior for existing users is byte-identical.
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls).toHaveLength(1);
+    expect(deepgramCtorCalls[0]?.options).not.toHaveProperty("language");
+  });
+
+  test("providers that auto-detect natively never receive a language", async () => {
+    // Gemini and Whisper take no language option — omitting it IS
+    // auto-detection for them, unlike Deepgram.
+    mockProviderKeys = {
+      "google-gemini": "gem-key",
+      "openai-whisper": "oa-key",
+    };
+
+    applyConfig({ provider: "google-gemini", language: "multi" });
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    applyConfig({ provider: "openai-whisper", language: "multi" });
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(geminiCtorCalls[0]?.options).not.toHaveProperty("language");
+    expect(whisperCtorCalls[0]?.options).not.toHaveProperty("language");
   });
 });
 

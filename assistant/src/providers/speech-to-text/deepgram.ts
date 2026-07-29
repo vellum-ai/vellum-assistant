@@ -11,7 +11,10 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export interface DeepgramProviderOptions {
   /** Deepgram model to use (default: "nova-2"). */
   model?: string;
-  /** BCP-47 language code (e.g. "en", "es"). Omitted by default (auto-detect). */
+  /**
+   * BCP-47 language code (e.g. "en", "es"). Omitted by default, which
+   * Deepgram decodes as English — NOT as auto-detection.
+   */
   language?: string;
   /** Enable Deepgram smart formatting (punctuation, numerals, etc.). Default: true. */
   smartFormatting?: boolean;
