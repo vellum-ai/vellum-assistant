@@ -123,7 +123,6 @@ describe("VoiceRoomSettingsMenu", () => {
     // must show no language control rather than one the daemon ignores.
     openMenu();
     expect(screen.queryByText("Listening language")).toBeNull();
-    expect(screen.queryByLabelText("Listening language")).toBeNull();
   });
 
   test("shows the Listening language row with the current pick", () => {
@@ -133,24 +132,41 @@ describe("VoiceRoomSettingsMenu", () => {
       currentCode: "es",
     };
     openMenu();
-    expect(screen.getByText("Listening language")).toBeTruthy();
-    const trigger = screen.getByRole("combobox", {
-      name: "Listening language",
-    });
-    expect(trigger.textContent).toContain("Spanish (Español)");
+    const row = screen.getByText("Listening language").closest("button");
+    expect(row?.textContent).toContain("Spanish (Español)");
+  });
+
+  test("clicking the language row swaps the popover for the picker modal", () => {
+    languageSelection = { ...languageSelection, available: true };
+    openMenu();
+    fireEvent.click(screen.getByText("Listening language"));
+    // The popover closes (its Captions toggle unmounts) so the picker isn't
+    // stacked inside the popover's transformed wrapper...
+    expect(screen.queryByLabelText("Show captions")).toBeNull();
+    // ...and the modal opens outside it, caption and options included.
+    expect(
+      screen.getByRole("listbox", { name: "Listening language" }),
+    ).toBeTruthy();
     expect(
       screen.getByText("Applies from your next spoken turn."),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("option", { name: /English \(default\)/ }),
+    ).toBeTruthy();
   });
 
-  test("picking a language passes its code to selectLanguage", () => {
+  test("picking a language passes its code to selectLanguage and closes the picker", () => {
     languageSelection = { ...languageSelection, available: true };
     openMenu();
+    fireEvent.click(screen.getByText("Listening language"));
     fireEvent.click(
-      screen.getByRole("combobox", { name: "Listening language" }),
+      screen.getByRole("option", { name: /French \(Français\)/ }),
     );
-    fireEvent.click(screen.getByRole("option", { name: "French (Français)" }));
     expect(languagePicks).toEqual(["fr"]);
+    // A pick hot-applies (nothing to save), so it also dismisses the picker.
+    expect(
+      screen.queryByRole("listbox", { name: "Listening language" }),
+    ).toBeNull();
   });
 
   test("language row leaves the Captions toggle and Voice row intact", () => {
@@ -162,10 +178,8 @@ describe("VoiceRoomSettingsMenu", () => {
     expect(useVoicePrefsStore.getState().showUserTranscript).toBe(true);
     expect(useVoicePrefsStore.getState().showAssistantTranscript).toBe(true);
     // The Voice row (BYO variant here) still renders alongside the language
-    // dropdown.
+    // row.
     expect(screen.getByText("Your API key")).toBeTruthy();
-    expect(
-      screen.getByRole("combobox", { name: "Listening language" }),
-    ).toBeTruthy();
+    expect(screen.getByText("Listening language")).toBeTruthy();
   });
 });
