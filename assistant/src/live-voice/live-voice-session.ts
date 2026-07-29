@@ -1007,6 +1007,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // providers without finalizeUtterance, and after an unexpected stream
   // close (the next arm resolves a fresh transcriber).
   private sharedTranscriber: StreamingTranscriber | null = null;
+  // The `services.stt.language` value the shared stream was dialed with.
+  // Providers pin the language per connection, so the persistent re-arm
+  // compares this against the current config and re-dials on a change
+  // instead of reusing a stream locked to the old language. Cleared
+  // whenever sharedTranscriber is cleared.
+  private sharedTranscriberLanguage: string | undefined;
   /**
    * FIFO of released cycles awaiting finalize settlement on the shared
    * stream, oldest first. Flush finals and `finalized` signals carry no
@@ -1248,13 +1254,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shared = this.sharedTranscriber;
     if (shared) {
-      // Persistent re-arm: the shared stream is already open, so the cycle
-      // goes straight to streaming with no resolve/start round-trip.
-      utterance.transcriber = shared;
-      return await this.activateUtterance(utterance, replayTurnEnd);
+      if (!this.sharedStreamLanguageIsStale()) {
+        // Persistent re-arm: the shared stream is already open, so the cycle
+        // goes straight to streaming with no resolve/start round-trip.
+        utterance.transcriber = shared;
+        return await this.activateUtterance(utterance, replayTurnEnd);
+      }
+      // The shared stream is pinned to the old language, so retire it and
+      // fall through to the fresh resolve, which reads the language from
+      // config at resolve time.
+      this.retireSharedTranscriberForRedial(shared);
     }
 
     try {
+      // Snapshot the language the resolver reads so the shared stream's
+      // dialed language is recorded for the re-arm comparison (the session
+      // passes no explicit language option).
+      const sttLanguage = getConfig().services.stt.language;
       const transcriber = await this.resolveTranscriber({
         sampleRate: this.context.startFrame.audio.sampleRate,
       });
@@ -1280,6 +1296,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // its events route by cycle ownership instead of binding to this
         // one cycle.
         this.sharedTranscriber = transcriber;
+        this.sharedTranscriberLanguage = sttLanguage;
         await transcriber.start((event) => {
           void this.handleSharedTranscriberEvent(transcriber, event);
         });
@@ -1341,7 +1358,39 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     if (transcriber && this.sharedTranscriber === transcriber) {
       this.sharedTranscriber = null;
+      this.sharedTranscriberLanguage = undefined;
     }
+  }
+
+  // Config-driven language change detection: the web client's language
+  // picker patches services.stt.language and the daemon's config cache
+  // invalidation surfaces the new value on the next getConfig() read, with
+  // no session protocol message involved.
+  private sharedStreamLanguageIsStale(): boolean {
+    return this.sharedTranscriberLanguage !== getConfig().services.stt.language;
+  }
+
+  // Retires the shared stream so the next arm dials a fresh one (used when
+  // the configured language changes between utterances). Any cycle still in
+  // the finalize queue here has already dispatched its assistant turn:
+  // arming a new cycle requires assistantTurnStarted or completed, and only
+  // an arm reaches this path. Draining the queue is therefore bookkeeping
+  // that matches the unexpected-close drain: the drained cycles' late flush
+  // tails die with the old stream, and their sealed transcripts stand.
+  private retireSharedTranscriberForRedial(shared: StreamingTranscriber): void {
+    this.releaseSharedTranscriber(shared);
+    this.clearFinalizeGraceTimer();
+    const drained = this.finalizeQueue;
+    this.finalizeQueue = [];
+    for (const finalizing of drained) {
+      if (finalizing.transcriber === shared) {
+        finalizing.transcriber = null;
+      }
+      if (finalizing.phase === "released") {
+        finalizing.phase = "transcriber_closed";
+      }
+    }
+    stopTranscriberBestEffort(shared);
   }
 
   private isUtteranceStale(utterance: UtteranceCycle): boolean {
@@ -1465,6 +1514,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     let utterance = this.currentUtterance;
     if (!utterance) {
       return;
+    }
+    // Language change made while the session idles: the post-turn re-arm
+    // binds the next cycle to the shared stream eagerly, before the picker
+    // patches services.stt.language, so the stale binding surfaces when
+    // speech first reaches the armed cycle. An empty cycle (turnId is
+    // assigned with the first routed chunk) retires together with the
+    // old-language stream and falls through to the lazy arm below, which
+    // dials a fresh stream with the configured language.
+    const sharedForLanguage = this.sharedTranscriber;
+    if (
+      sharedForLanguage &&
+      utterance.transcriber === sharedForLanguage &&
+      !utterance.released &&
+      !utterance.completed &&
+      utterance.turnId === null &&
+      this.sharedStreamLanguageIsStale()
+    ) {
+      this.retireSharedTranscriberForRedial(sharedForLanguage);
+      utterance.transcriber = null;
+      utterance.phase = "transcriber_closed";
+      await this.finalizePendingUtterance(utterance, "stt_language_changed");
     }
     if (utterance.released || utterance.completed) {
       // Parked speech makes silent chunks arm-worthy too: the parked
@@ -2920,6 +2990,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // The shared stream closed under the session: fall back to the
         // per-cycle path — the next arm resolves a fresh transcriber.
         this.sharedTranscriber = null;
+        this.sharedTranscriberLanguage = undefined;
         this.clearFinalizeGraceTimer();
         const drained = this.finalizeQueue;
         this.finalizeQueue = [];
@@ -3060,6 +3131,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.finalizeQueue = [];
     const shared = this.sharedTranscriber;
     this.sharedTranscriber = null;
+    this.sharedTranscriberLanguage = undefined;
     const utterance = this.currentUtterance;
     const transcriber = utterance?.transcriber ?? null;
     if (utterance) {
