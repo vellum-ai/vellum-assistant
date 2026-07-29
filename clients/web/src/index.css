@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
 
+/* Capacitor iOS shell variant. Keys off the data-native-platform marker
+ * set by initNativePlatformAttributes() at boot. Deliberately :is(), not
+ * :where(): the selector must carry :root[attr] specificity (0,3,0 with
+ * the utility class) so native-ios: utilities outrank the design
+ * library's touch-mobile: pill classes, which are single-class rules
+ * inside a media query (0,1,0) and would otherwise win or lose on
+ * emission order. */
+@custom-variant native-ios (&:is(:root[data-native-platform="ios"] *));
+
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
   color: var(--content-default);

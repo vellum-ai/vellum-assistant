@@ -306,3 +306,12 @@ export function useIsMacOSWeb(): boolean {
     () => false,
   );
 }
+
+/**
+ * Hydration-safe hook form of `isNativeIOS()`: false on the server and on
+ * the first client render, settles after mount. Use this in JSX instead of
+ * the bare function (docs/CAPACITOR.md) to avoid first-paint flicker.
+ */
+export function useIsNativeIOS(): boolean {
+  return useSyncExternalStore(noop, isNativeIOS, () => false);
+}
