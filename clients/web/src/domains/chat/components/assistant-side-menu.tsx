@@ -41,6 +41,11 @@ import {
 import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import { Button, SideMenu } from "@vellumai/design-library";
 
+// iOS shell only: strip the touch-mobile pill fill so the glyph floats
+// bare while keeping the 40x40 tap target and focus ring.
+const NATIVE_IOS_BARE_ICON_BUTTON =
+  "native-ios:bg-transparent native-ios:hover:bg-transparent native-ios:active:bg-transparent";
+
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT =
   SIDEBAR_CONVERSATION_LIMIT;
@@ -112,6 +117,7 @@ function SearchButton() {
       iconOnly={<Search />}
       aria-label="Search (⌘K)"
       title="Search (⌘K)"
+      className={NATIVE_IOS_BARE_ICON_BUTTON}
       onClick={handleClick}
     />
   );
@@ -406,6 +412,7 @@ export function AssistantSideMenu({
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
+                className={NATIVE_IOS_BARE_ICON_BUTTON}
                 onClick={() => onClose?.()}
               />
               <SearchButton />
