@@ -1353,6 +1353,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
         '502':
           content:
             application/json:
@@ -4356,7 +4362,7 @@ paths:
   /v1/organizations/billing/invoices/:
     get:
       operationId: organizations_billing_invoices_retrieve
-      description: Return the org's Stripe invoices, newest first.
+      description: Return one page of the org's Stripe invoices, newest first.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4365,6 +4371,12 @@ paths:
           format: uuid
         description: Required if using Cookie-based or X-Session-Token authentication
           methods.
+      - in: query
+        name: starting_after
+        schema:
+          type: string
+        description: 'Cursor: return invoices older than the invoice with this id
+          (from the previous page''s last entry).'
       tags:
       - organizations
       security:
@@ -4379,6 +4391,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvoiceListResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: Invalid or expired starting_after cursor.
       x-vellum-api-clients:
       - platform
   /v1/organizations/billing/invoices/download/:
@@ -7399,7 +7417,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Invoice'
+        has_more:
+          type: boolean
+          description: True if older invoices exist beyond this page. Pass the last
+            invoice's id as ?starting_after= to fetch the next page.
       required:
+      - has_more
       - invoices
     LiveVoiceTokenRequestRequest:
       type: object
