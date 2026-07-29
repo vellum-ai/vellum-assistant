@@ -1,5 +1,5 @@
 /**
- * Tests for `CallSiteOverridesContent` call-site enumeration and the
+ * Tests for `OverridesDetailPanel` call-site enumeration and the
  * apply-one-profile-to-all-actions affordance.
  *
  * The editor auto-enumerates every call-site catalog entry except
@@ -74,8 +74,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { CallSiteOverridesContent } =
-  await import("@/domains/settings/ai/call-site-overrides-content");
+const { OverridesDetailPanel } =
+  await import("@/domains/settings/ai/overrides-detail-panel");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,11 +127,11 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("CallSiteOverridesContent - call-site enumeration", () => {
+describe("OverridesDetailPanel - call-site enumeration", () => {
   test("renders catalog call sites but excludes mainAgent", async () => {
     render(
       <Wrapper>
-        <CallSiteOverridesContent
+        <OverridesDetailPanel
           assistantId="asst-1"
           onClose={() => {}}
         />
@@ -144,11 +144,11 @@ describe("CallSiteOverridesContent - call-site enumeration", () => {
   });
 });
 
-describe("CallSiteOverridesContent - apply to all", () => {
+describe("OverridesDetailPanel - apply to all", () => {
   test("applies the chosen profile to every call site and saves", async () => {
     render(
       <Wrapper>
-        <CallSiteOverridesContent
+        <OverridesDetailPanel
           assistantId="asst-1"
           onClose={() => {}}
         />
