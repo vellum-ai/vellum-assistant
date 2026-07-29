@@ -27,6 +27,28 @@ export interface DeepgramProviderOptions {
 // ---------------------------------------------------------------------------
 
 /**
+ * Deepgram nova-3's `multi` (code-switching) roster: the languages the model
+ * can follow across a single utterance. This is the daemon's one source of
+ * truth for the curated spoken-language codes offered in settings surfaces
+ * (the settings skill derives its valid set from it, plus `"multi"` itself);
+ * the web catalog (`clients/web/src/lib/stt/language-catalog.ts`) mirrors it
+ * and a parity test pins the two together. Extending it requires verifying
+ * nova-3 monolingual support in Deepgram's docs first.
+ */
+export const DEEPGRAM_MULTI_LANGUAGE_CODES = [
+  "en",
+  "es",
+  "fr",
+  "de",
+  "hi",
+  "ru",
+  "pt",
+  "ja",
+  "it",
+  "nl",
+] as const;
+
+/**
  * Deepgram constructor options implied by a language selection, for
  * spreading into adapter constructor options. Owning the model+language
  * pairing here keeps the invariant in one place instead of at each call

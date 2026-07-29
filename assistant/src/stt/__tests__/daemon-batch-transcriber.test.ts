@@ -76,7 +76,12 @@ let mockXAITranscribeError: Error | null = null;
  */
 const xaiProviderCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
 
+// Real module captured before the mock replaces it, so pure exports
+// (xaiLanguageOptions) stay real while the provider class alone is stubbed.
+const actualXai = await import("../../providers/speech-to-text/xai.js");
+
 mock.module("../../providers/speech-to-text/xai.js", () => ({
+  ...actualXai,
   XAIProvider: class MockXAIProvider {
     constructor(apiKey: string, options?: unknown) {
       xaiProviderCtorCalls.push({ apiKey, options });
@@ -465,7 +470,7 @@ describe("createDaemonBatchTranscriber", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Language forwarding — xAI
+  // Language forwarding - xAI
   // -------------------------------------------------------------------------
 
   test("forwards the configured language to the xAI provider", async () => {

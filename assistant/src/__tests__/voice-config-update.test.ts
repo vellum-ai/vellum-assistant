@@ -38,7 +38,7 @@ import {
   run,
   VALID_SETTINGS,
 } from "../config/bundled-skills/settings/tools/voice-config-update.js";
-import { invalidateConfigCache } from "../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { ToolContext } from "../tools/types.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
 
@@ -579,7 +579,7 @@ describe("voice_config_update — stt_provider", () => {
 // Tests: stt_language
 // ---------------------------------------------------------------------------
 
-describe("voice_config_update — stt_language", () => {
+describe("voice_config_update - stt_language", () => {
   test("persists a curated code to services.stt.language", async () => {
     const result = await run(
       { setting: "stt_language", value: "hi" },
@@ -588,6 +588,51 @@ describe("voice_config_update — stt_language", () => {
 
     expect(result.isError).toBe(false);
     expect((readConfig().services as any)?.stt?.language).toBe("hi");
+  });
+
+  test("a sparse config write seeds the provider so the block survives validation", async () => {
+    // With no services.stt block on disk, a language-only write would persist
+    // { stt: { language } } without the required provider field, and the
+    // loader's validation salvage can then reset the whole services section
+    // (the LUM-2758 failure family). Assert on getConfig(), not just the raw
+    // JSON: the raw file can hold the language while validation throws it
+    // away, which is exactly the failure this guards against.
+    writeConfig({ services: { tts: { provider: "elevenlabs" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "hi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    // The effective config round-trips the language and keeps a valid provider.
+    expect(getConfig().services.stt.language).toBe("hi");
+    expect(getConfig().services.stt.provider).toBe("deepgram");
+    // Unrelated TTS settings survive (no services-section reset).
+    expect(getConfig().services.tts.provider).toBe("elevenlabs");
+    // The raw block is self-consistent on disk too.
+    const stt = (readConfig().services as any)?.stt;
+    expect(stt).toEqual({ provider: "deepgram", language: "hi" });
+  });
+
+  test("a write against an existing services.stt block is a pure language patch", async () => {
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "fr" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    // The configured provider is untouched, not re-seeded from defaults.
+    expect((readConfig().services as any)?.stt).toEqual({
+      provider: "xai",
+      language: "fr",
+    });
+    expect(getConfig().services.stt.provider).toBe("xai");
+    expect(getConfig().services.stt.language).toBe("fr");
   });
 
   test("normalizes a language-name alias (case-insensitive, trimmed)", async () => {

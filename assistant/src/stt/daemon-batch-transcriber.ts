@@ -152,15 +152,14 @@ class XAIBatchTranscriber implements BatchTranscriber {
   async transcribe(
     request: SttTranscribeRequest,
   ): Promise<SttTranscribeResult> {
-    const { XAIProvider } = await import("../providers/speech-to-text/xai.js");
-    const provider = new XAIProvider(this.apiKey, {
-      // "multi" is Deepgram's code-switching mode, not a language code, so
-      // it never reaches xAI (which auto-detects multilingual audio natively
-      // when no hint is given). Mirrors the streaming resolver's xai case.
-      ...(this.language && this.language !== "multi"
-        ? { language: this.language }
-        : {}),
-    });
+    const { XAIProvider, xaiLanguageOptions } =
+      await import("../providers/speech-to-text/xai.js");
+    // Drops "multi" (a Deepgram-specific mode, not a language code); see
+    // xaiLanguageOptions.
+    const provider = new XAIProvider(
+      this.apiKey,
+      xaiLanguageOptions(this.language),
+    );
     return provider.transcribe(request.audio, request.mimeType, request.signal);
   }
 }
@@ -204,10 +203,6 @@ export function normalizeSttError(err: unknown): SttError {
 
   return new SttError("provider-error", message);
 }
-
-// ---------------------------------------------------------------------------
-// Public resolver / factory
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Vellum managed adapter — implements BatchTranscriber on top of the
