@@ -9,6 +9,7 @@ import {
   describeMemoryUnavailable,
   MEMORY_ENABLE_PROMPT,
   MEMORY_STATUS_ERROR_COPY,
+  MEMORY_V3_REFORM_PROMPT,
   MEMORY_V3_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
@@ -98,6 +99,74 @@ describe("MEMORY_V3_UPGRADE_PROMPT", () => {
     expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("empty");
     expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("before");
   });
+
+  test("does not name the reform skill, which v1 must not run", () => {
+    // A v1 assistant holds no concept pages. The reform skill's own
+    // `avoid-when` rules it out for an empty corpus and sends the assistant to
+    // the backfill migration, so seeding its name here would plant an
+    // instruction the skill itself rejects.
+    expect(MEMORY_V3_UPGRADE_PROMPT).not.toContain("Memory v3 Migration");
+  });
+});
+
+describe("MEMORY_V3_REFORM_PROMPT", () => {
+  test("names the skill and holds it to its own gates", () => {
+    // Each of these maps to a gate the skill defines and a run can silently
+    // skip. Losing one from the seed loses the gate.
+    expect(MEMORY_V3_REFORM_PROMPT).toContain("Memory v3 Migration");
+    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("preflight");
+    expect(MEMORY_V3_REFORM_PROMPT).toContain("Step 10");
+    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("loss-audit");
+    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("backup path");
+  });
+
+  test("guards the two silent-failure modes", () => {
+    // A leaf profile that no-ops returns a vacuous pass, and mechanical
+    // reformatting satisfies the shape while defeating the point. Both look
+    // like success from the outside, which is why the seed calls them out.
+    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("vacuous");
+    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain(
+      "mechanical reformatting",
+    );
+  });
+
+  test("keeps the corpus on v2 unless the gates actually pass", () => {
+    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("don't cut over");
+    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("low-confidence");
+  });
+
+  test("says nothing about cost or credits", () => {
+    // Deliberate: this seed asks for the migration, not for a spend decision.
+    for (const word of ["cost", "credit", "spend", "estimate", "money"]) {
+      expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).not.toContain(word);
+    }
+  });
+});
+
+describe("every seeded prompt", () => {
+  const seeds = {
+    MEMORY_V3_REFORM_PROMPT,
+    MEMORY_V3_UPGRADE_PROMPT,
+    MEMORY_ENABLE_PROMPT,
+  };
+
+  test.each(Object.entries(seeds))("%s uses no em dash", (_name, seed) => {
+    // These land in the composer, where the assistant is forbidden from
+    // writing one (SOUL.md), so a seed carrying an em dash puts words in its
+    // mouth that it would never have typed. See the Em Dashes rule in
+    // AGENTS.md.
+    expect(seed).not.toContain("—");
+  });
+
+  test.each(Object.entries(seeds))(
+    "%s is reachable from a tier",
+    (_n, seed) => {
+      const prompts = (["off", "v1", "v2"] as const).map(
+        (tier) => describeMemoryUnavailable(tier).prompt,
+      );
+      expect(prompts).toContain(seed);
+    },
+  );
 });
 
 describe("MEMORY_ENABLE_PROMPT", () => {
