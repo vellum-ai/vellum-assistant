@@ -788,7 +788,11 @@ export function ProvisioningState({
             }
             caption={
               snag
-                ? extractOnboardingErrorMessage(kickError, copy.snagCaption)
+                ? extractOnboardingErrorMessage(
+                    kickError,
+                    copy.snagCaption,
+                    direction,
+                  )
                 : "This may take a couple of minutes."
             }
           />
