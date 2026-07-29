@@ -35,7 +35,7 @@ For non-conversation material that is not in the export (or that the creator pre
 
   The parser emits `MemoryImportItem[]` JSON on stdout (with `source: import:chatgpt` and `origin_date` where the export carries timestamps) and an entry-by-entry inventory on stderr showing what was and was not recognized. Route the results per the Vellum Primitive Map in SKILL.md:
   - Custom instructions / "what ChatGPT should know about you" / "how ChatGPT should respond" → Identity, Personality, durable Memory instructions.
-  - Saved memories → memory candidates. Follow SKILL.md's Memory Import Guidance: review the candidates with the creator (ChatGPT memories can be inferred or stale), shape approved items into staged v3 pages with provenance frontmatter, then `assistant memory ingest --dir <staging> --dry-run` and ingest.
+  - Saved memories → memory candidates. Follow SKILL.md's Memory Import Guidance from the review step onward: creator review (ChatGPT memories can be inferred or stale), staged v3 pages (`source: import:chatgpt`), and the `assistant memory ingest` run.
   - GPT configs (names, descriptions, instructions, knowledge files) → Skills, recreated as portable Vellum skills. Connected actions become MCP / integration setup tasks, not direct imports.
 
 Classify everything that is not a clean structured export per the Internals Salvage Guidance (high/medium/low confidence) rather than assuming a schema.

@@ -45,7 +45,7 @@ Once a consistent snapshot of `memory.db` is in the workspace (see Pre-bundle sa
 bun run scripts/parse-agent-memory-db.ts --file /path/to/memory.db.snapshot --source hermes
 ```
 
-The parser introspects `sqlite_master` instead of assuming a schema, skips FTS5 shadow tables and credential-named tables/columns, redacts credential-shaped values, and emits `MemoryImportItem[]` JSON on stdout plus a per-table census on stderr. Honcho user-model rows come out through the same introspection pass. Then follow SKILL.md's Memory Import Guidance: review the candidates with the creator, shape approved items into staged v3 pages with `source: import:hermes` and `origin_date:` frontmatter, and ingest via `assistant memory ingest --dir <staging> --dry-run` followed by the real run.
+The parser introspects `sqlite_master` instead of assuming a schema, skips FTS5 shadow tables and credential-named tables/columns, redacts credential-shaped values, and emits `MemoryImportItem[]` JSON on stdout plus a per-table census on stderr. Honcho user-model rows come out through the same introspection pass. Then follow SKILL.md's Memory Import Guidance from the review step onward: creator review, staged v3 pages (`source: import:hermes`), and the `assistant memory ingest` run.
 
 ## Pre-bundle safety
 
