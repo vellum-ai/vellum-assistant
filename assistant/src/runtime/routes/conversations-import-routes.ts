@@ -78,6 +78,18 @@ function isRenderableRole(role: string): role is "user" | "assistant" {
   return role === "user" || role === "assistant";
 }
 
+/**
+ * Provenance `source` for an imported conversation. Export tooling prefixes
+ * `sourceKey` with the originating provider (e.g. `chatgpt:abc123`), so a
+ * recognizable prefix maps to `import:<provider>`; anything else falls back
+ * to `import:unknown`. Distinguishes imported rows from the schema default
+ * `"user"` (schema/conversations.ts).
+ */
+function deriveImportSource(sourceKey: string | undefined): string {
+  const prefix = sourceKey?.match(/^([a-z0-9-]+):/)?.[1];
+  return prefix ? `import:${prefix}` : "import:unknown";
+}
+
 // -- Handler --
 
 async function handleConversationsImport({ body }: RouteHandlerArgs) {
@@ -123,8 +135,9 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
       const { convCreatedAt, convUpdatedAt, messageTimestamps } =
         resolveTimestamps(conv, messages);
 
+      const source = deriveImportSource(conv.sourceKey);
       const conversation = await withSqliteRetry(
-        () => createConversation(conv.title),
+        () => createConversation({ title: conv.title, source }),
         { op: "conversationsImport.createConversation" },
       );
 
@@ -236,7 +249,11 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: handleConversationsImport,
     summary: "Import conversations",
-    description: "Import conversations from a standard JSON payload.",
+    description:
+      "Import conversations from a standard JSON payload. Created " +
+      "conversations record a provenance source of `import:<provider>` " +
+      "derived from the `sourceKey` prefix (e.g. `chatgpt:abc123` -> " +
+      "`import:chatgpt`), or `import:unknown` when no prefix is present.",
     tags: ["conversations"],
     requestBody: z.object({
       conversations: z.array(

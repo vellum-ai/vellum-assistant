@@ -8264,7 +8264,10 @@ paths:
     post:
       operationId: conversations_import_post
       summary: Import conversations
-      description: Import conversations from a standard JSON payload.
+      description:
+        Import conversations from a standard JSON payload. Created conversations record a provenance source of
+        `import:<provider>` derived from the `sourceKey` prefix (e.g. `chatgpt:abc123` -> `import:chatgpt`), or
+        `import:unknown` when no prefix is present.
       tags:
         - conversations
       requestBody:
