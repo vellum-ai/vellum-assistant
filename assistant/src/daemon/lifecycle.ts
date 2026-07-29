@@ -525,7 +525,9 @@ export async function runDaemon(): Promise<void> {
 
   // Runs on every boot, after the default-provider ensure (it keys off
   // llm.defaultProvider) and before custom-profile materialization (so
-  // unedited hatch copies still deep-equal their templates when compared).
+  // copies it retires this boot are never pointlessly materialized first;
+  // its comparison normalizes both sides through the same completion, so
+  // ordering is not correctness-bearing).
   // See workspace/byok-default-profile-ensure.ts for the full rationale.
   try {
     ensureByokDefaultProfiles(getWorkspaceDir());

@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   materializeProfile,
+  resolveDefaultProfileForProvider,
   USER_PROFILE_TEMPLATES,
 } from "../config/default-profile-catalog.js";
 import {
@@ -16,8 +17,11 @@ import { invalidateConfigCache } from "../config/loader.js";
 import {
   type DefaultProviderConfig,
   DefaultProviderSchema,
+  LLMConfigBase,
+  type ProfileEntry,
 } from "../config/schemas/llm.js";
 import { getLogger } from "../util/logger.js";
+import { completedProfileBody } from "./custom-profile-ensure.js";
 
 const log = getLogger("byok-default-profile-ensure");
 
@@ -30,9 +34,20 @@ const log = getLogger("byok-default-profile-ensure");
 // repointed at the bare key. A `custom-*` copy the user edited is kept
 // untouched as an ordinary user profile, references included.
 //
+// "Unedited" is judged against what hatch seeding actually left on disk, not
+// the raw template: both the copy and the template are normalized through the
+// completion `ensureCompleteCustomProfiles` bakes onto every user-source
+// profile each boot, the model is accepted from the current intent resolution
+// or a git-verified historical era (`HISTORICAL_INTENT_MODELS`), and `label`/
+// `status` are user overlay state: a rename or disable survives conversion
+// as a thin managed stub on the bare key. `llm.advisorProfile` and
+// `llm.activeProfile` are re-validated in the same write because
+// `seedInferenceProfiles` runs earlier in boot and judged the pre-conversion
+// state.
+//
 // This is a boot ensure pass rather than a workspace migration because
-// "unedited" is judged against the live catalog: the primary comparison body
-// is `materializeProfile(USER_PROFILE_TEMPLATES[...])`, which resolves the
+// "unedited" is judged against the live catalog: the comparison template is
+// `materializeProfile(USER_PROFILE_TEMPLATES[...])`, which resolves the
 // current per-provider model intents, and migrations are frozen
 // self-contained snapshots that may not import it (see
 // workspace/migrations/AGENTS.md). Running unconditionally each boot (the
@@ -44,46 +59,81 @@ const log = getLogger("byok-default-profile-ensure");
 
 /**
  * A hatch stub is a thin managed entry carrying only the workspace-owned
- * overlay fields; a managed-source entry with any other key (a platform
- * overlay body) is not a stub and is left alone.
+ * overlay fields and the hatch-written `"<Label> (Managed)"` label. A
+ * managed-source entry with any other key (a platform overlay body) is not a
+ * stub and is left alone; a thin managed entry with any other label carries
+ * user overlay state (a rename of the stub, or label/status carried off a
+ * retired copy by this pass) and likewise stays.
  */
 const STUB_ONLY_KEYS = new Set(["source", "status", "label"]);
+const HATCH_STUB_LABEL_SUFFIX = " (Managed)";
 
 /**
- * Comparison ignores `label` and `status`: both are workspace-owned overlay
- * state (BYOK label suffixes, enable/disable toggles), not content edits.
+ * Comparison ignores `label` and `status` (user overlay state, preserved via
+ * `userOverlayState`) and `model` (checked separately against the current
+ * intent resolution and `HISTORICAL_INTENT_MODELS`).
  */
-const IGNORED_COMPARISON_KEYS = new Set(["label", "status"]);
+const IGNORED_COMPARISON_KEYS = new Set(["label", "status", "model"]);
 
 /**
- * Frozen hatch-era `custom-*` bodies rewritten in place by a repair
- * migration, kept as literals migration-style so later template changes
- * cannot silently widen the match set. The other profile-model migrations
- * (100, 101, 103, 108, 109, 110, 113, 123) rewrite only the managed default
- * entries, and 128's stale Grok ids predate `custom-*` seeding entirely, so
- * none of them contributes a body here.
+ * Per-provider model ids that earlier intent eras pinned onto `custom-*`
+ * copies, verified against `providers/model-intents.ts` git history. Hatch
+ * seeding materializes a copy's model exactly once (`custom-*` seeding began
+ * 2026-05-05, #29755), and the profile-model migrations (100, 103, 109, 113,
+ * 123) deliberately rewrite only the managed default entries (`custom-*` is
+ * the user's to manage), so an untouched copy still carries whichever value
+ * its hatch-era intent resolved to. Migration 136 is the one exception: it
+ * rewrote kimi-k2p5 pins (`custom-*` included) to deepseek-v4-flash in
+ * place. A model listed here counts as unedited only when every non-model
+ * field still matches the template.
  */
-const FROZEN_HATCH_BODIES: Partial<
-  Record<DefaultProfileKey, Record<string, unknown>[]>
+const HISTORICAL_INTENT_MODELS: Record<
+  DefaultProfileKey,
+  Partial<Record<string, readonly string[]>>
 > = {
-  // 136-repair-stale-fireworks-kimi-model-id: fireworks hatches pinned the
-  // then-current latency intent, accounts/fireworks/models/kimi-k2p5. The
-  // migration rewrites the pin to deepseek-v4-flash (today's intent, so the
-  // repaired body matches the current template above), but a config restored
-  // from a pre-136 backup still carries this body.
-  "cost-optimized": [
-    {
-      source: "user",
-      description: "Fastest responses at lower cost",
-      maxTokens: 8192,
-      effort: "low",
-      thinking: { enabled: false, streamThinking: false },
-      contextWindow: { maxInputTokens: 200000 },
-      provider: "fireworks",
-      provider_connection: "fireworks-personal",
-      model: "accounts/fireworks/models/kimi-k2p5",
-    },
-  ],
+  balanced: {
+    fireworks: [
+      // balanced intent 2026-05-05 (#29755) to 2026-05-19 (#31068).
+      "accounts/fireworks/models/kimi-k2p5",
+      // balanced intent 2026-05-19 (#31068) to 2026-06-12 (#34726).
+      "accounts/fireworks/models/kimi-k2p6",
+      // migration 136's in-place rewrite of a kimi-k2p5 pin.
+      "accounts/fireworks/models/deepseek-v4-flash",
+    ],
+  },
+  "quality-optimized": {
+    anthropic: [
+      // quality intent 2026-05-05 (#29755) to 2026-06-11 (#34498).
+      "claude-opus-4-7",
+      // quality intent 2026-06-15 (#34867) to 2026-07-01 (#36859).
+      "claude-opus-4-8",
+    ],
+    openrouter: [
+      // quality intent 2026-05-05 (#29755) to 2026-06-11 (#34498).
+      "anthropic/claude-opus-4.7",
+      // quality intent 2026-06-15 (#34867) to 2026-07-01 (#36859).
+      "anthropic/claude-opus-4.8",
+    ],
+    fireworks: [
+      // quality intent 2026-05-05 (#29755) to 2026-05-19 (#31068).
+      "accounts/fireworks/models/kimi-k2p5",
+      // migration 136's in-place rewrite of a kimi-k2p5 pin.
+      "accounts/fireworks/models/deepseek-v4-flash",
+    ],
+  },
+  "cost-optimized": {
+    gemini: [
+      // latency intent 2026-05-05 (#29755) to 2026-05-22 (#31798).
+      "gemini-3.1-flash-lite-preview",
+    ],
+    fireworks: [
+      // latency intent 2026-05-05 (#29755) to 2026-07-28 (#39446). On live
+      // configs migration 136 rewrote it to deepseek-v4-flash (the current
+      // intent), so this survives only in configs restored from pre-136
+      // backups.
+      "accounts/fireworks/models/kimi-k2p5",
+    ],
+  },
 };
 
 export function ensureByokDefaultProfiles(workspaceDir: string): void {
@@ -121,16 +171,22 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
   let changed = false;
 
-  // Deleting a thin disabled stub makes the default key resolve active from
-  // the default provider's catalog column (and drops the stub's
-  // "(Managed)"-suffixed label). User-source shadows and managed entries with
-  // body keys are left alone.
+  // Deleting a hatch stub makes the default key resolve active from the
+  // default provider's catalog column (and drops the stub's suffixed label).
+  // User-source shadows, managed entries with body keys, and thin managed
+  // entries carrying a non-hatch label are left alone.
   for (const key of DEFAULT_PROFILE_KEYS) {
     const entry = readObject(profiles[key]);
     if (entry === null || entry.source !== "managed") {
       continue;
     }
     if (!Object.keys(entry).every((k) => STUB_ONLY_KEYS.has(k))) {
+      continue;
+    }
+    if (
+      typeof entry.label !== "string" ||
+      !entry.label.endsWith(HATCH_STUB_LABEL_SUFFIX)
+    ) {
       continue;
     }
     delete profiles[key];
@@ -141,21 +197,29 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
     );
   }
 
+  // Base for normalizing bodies through the completion prior boots baked
+  // onto user-source profiles (see `withCompletionBaked`).
+  const completionBase = LLMConfigBase.safeParse(llm.default ?? {}).data;
+
   const retired = new Map<string, string>();
   for (const key of DEFAULT_PROFILE_KEYS) {
     const name = `custom-${key}`;
     const entry = readObject(profiles[name]);
     if (
       entry === null ||
-      !isKnownUneditedBody(entry, key, parsedDefault.data)
+      !isKnownUneditedBody(entry, key, parsedDefault.data, completionBase)
     ) {
       continue;
     }
+    const overlay = userOverlayState(entry, key);
     delete profiles[name];
+    if (overlay !== null && readObject(profiles[key]) === null) {
+      profiles[key] = { source: "managed", ...overlay };
+    }
     retired.set(name, key);
     changed = true;
     log.info(
-      { profile: name, replacement: key },
+      { profile: name, replacement: key, carriedOverlay: overlay !== null },
       "Retired unedited hatch copy of a default profile",
     );
   }
@@ -167,6 +231,9 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
   if (!changed) {
     return;
   }
+
+  repairProfileSelections(llm, profiles, parsedDefault.data);
+
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   // The lifecycle call site runs before the first loadConfig() of this boot;
   // this guards callers that read config earlier (and future reordering).
@@ -177,47 +244,87 @@ function isKnownUneditedBody(
   entry: Record<string, unknown>,
   key: DefaultProfileKey,
   defaultProvider: DefaultProviderConfig,
+  completionBase: LLMConfigBase | undefined,
 ): boolean {
-  const body = comparableBody(entry);
-  return knownHatchBodies(key, defaultProvider).some((known) =>
-    isDeepStrictEqual(body, known),
-  );
-}
-
-function knownHatchBodies(
-  key: DefaultProfileKey,
-  defaultProvider: DefaultProviderConfig,
-): Record<string, unknown>[] {
-  const bodies: Record<string, unknown>[] = [];
-
+  if (typeof entry.model !== "string") {
+    return false;
+  }
   const template = USER_PROFILE_TEMPLATES[`custom-${key}`];
-  if (template !== undefined) {
-    bodies.push(
-      comparableBody(
-        materializeProfile(
-          template,
-          defaultProvider.provider,
-          resolveDefaultConnectionName(defaultProvider),
-        ) as Record<string, unknown>,
-      ),
-    );
+  if (template === undefined) {
+    return false;
   }
-
-  for (const frozen of FROZEN_HATCH_BODIES[key] ?? []) {
-    if (frozen.provider === defaultProvider.provider) {
-      bodies.push(comparableBody(frozen));
-    }
+  const materialized = materializeProfile(
+    template,
+    defaultProvider.provider,
+    resolveDefaultConnectionName(defaultProvider),
+  ) as Record<string, unknown>;
+  if (
+    entry.model !== materialized.model &&
+    !(HISTORICAL_INTENT_MODELS[key][defaultProvider.provider] ?? []).includes(
+      entry.model,
+    )
+  ) {
+    return false;
   }
-
+  const body = comparableBody(withCompletionBaked(entry, completionBase));
+  const known = comparableBody(
+    withCompletionBaked(materialized, completionBase),
+  );
+  if (isDeepStrictEqual(body, known)) {
+    return true;
+  }
   // 096-reduce-quality-profile-effort: hatch seeding produced effort "max"
   // on this copy until the migration rewrote it to "high". The migration
   // applied that rewrite regardless of who set the value, so an
-  // effort-"max" variant of any known body counts as equally unedited.
-  if (key === "quality-optimized") {
-    bodies.push(...bodies.map((body) => ({ ...body, effort: "max" })));
-  }
+  // effort-"max" variant of the known body counts as equally unedited.
+  return (
+    key === "quality-optimized" &&
+    isDeepStrictEqual(body, { ...known, effort: "max" })
+  );
+}
 
-  return bodies;
+/**
+ * Run a body through the exact completion `ensureCompleteCustomProfiles`
+ * (custom-profile-ensure.ts) bakes onto every user-source profile each boot,
+ * so a copy whose absent-field defaults are already baked onto disk compares
+ * equal to the template put through the same completion (and a not-yet-baked
+ * copy compares equal too, since both sides normalize). A body completion
+ * never touches is returned as-is.
+ */
+function withCompletionBaked(
+  body: Record<string, unknown>,
+  base: LLMConfigBase | undefined,
+): Record<string, unknown> {
+  if (base === undefined) {
+    return body;
+  }
+  return completedProfileBody(body, base) ?? body;
+}
+
+/**
+ * Label/status the user set on an otherwise-unedited copy. The hatch wrote
+ * the template label and never wrote `status`, so a differing label or any
+ * `status` key is user state; it survives conversion as the thin managed
+ * overlay on the bare key (the `WORKSPACE_OWNED_DEFAULT_FIELDS` overlay in
+ * default-profile-catalog.ts). A carried `status: "disabled"` keeps the
+ * profile LISTING honest (the picker shows the default disabled) while
+ * dispatch is unaffected: the resolver overrides persisted disabled stubs on
+ * default keys so the code-owned anchors always resolve (see
+ * `providerAwareEntry` in config/llm-resolver.ts).
+ */
+function userOverlayState(
+  entry: Record<string, unknown>,
+  key: DefaultProfileKey,
+): Record<string, unknown> | null {
+  const overlay: Record<string, unknown> = {};
+  const templateLabel = USER_PROFILE_TEMPLATES[`custom-${key}`]?.label;
+  if ("label" in entry && entry.label !== templateLabel) {
+    overlay.label = entry.label;
+  }
+  if ("status" in entry) {
+    overlay.status = entry.status;
+  }
+  return Object.keys(overlay).length > 0 ? overlay : null;
 }
 
 function comparableBody(
@@ -284,6 +391,58 @@ function repointRetiredReferences(
     llm.profileOrder = (llm.profileOrder as unknown[]).filter(
       (name) => typeof name !== "string" || !retired.has(name),
     );
+  }
+}
+
+/**
+ * Advisor fallback order, mirroring the managed list `seedInferenceProfiles`
+ * repairs from.
+ */
+const ADVISOR_FALLBACK_ORDER = [
+  "quality-optimized",
+  "balanced",
+  "cost-optimized",
+] as const;
+
+/**
+ * `seedInferenceProfiles` runs earlier in boot, so its advisor/active repair
+ * judged the pre-conversion state: on the conversion boot it can have
+ * dropped `llm.advisorProfile` outright (every default was still a disabled
+ * stub when it looked). Re-validate both references against the
+ * post-conversion state so the repair lands in the same write instead of a
+ * boot late.
+ */
+function repairProfileSelections(
+  llm: Record<string, unknown>,
+  profiles: Record<string, unknown>,
+  defaultProvider: DefaultProviderConfig,
+): void {
+  const effectiveEntry = (name: string): ProfileEntry | undefined =>
+    resolveDefaultProfileForProvider(
+      profiles as Record<string, ProfileEntry>,
+      name,
+      defaultProvider,
+    );
+
+  const advisor = llm.advisorProfile;
+  const advisorEntry =
+    typeof advisor === "string" ? effectiveEntry(advisor) : undefined;
+  const advisorUnusable =
+    advisorEntry === undefined ||
+    (advisorEntry.source === "managed" && advisorEntry.status === "disabled");
+  if (advisorUnusable) {
+    const fallback = ADVISOR_FALLBACK_ORDER.find((key) => {
+      const entry = effectiveEntry(key);
+      return entry !== undefined && entry.status !== "disabled";
+    });
+    if (fallback !== undefined) {
+      llm.advisorProfile = fallback;
+    }
+  }
+
+  const active = llm.activeProfile;
+  if (typeof active === "string" && effectiveEntry(active) === undefined) {
+    llm.activeProfile = "balanced";
   }
 }
 
