@@ -13,7 +13,7 @@ export interface DeepgramProviderOptions {
   model?: string;
   /**
    * BCP-47 language code (e.g. "en", "es"). Omitted by default, which
-   * Deepgram decodes as English — NOT as auto-detection.
+   * Deepgram decodes as English, NOT as auto-detection.
    */
   language?: string;
   /** Enable Deepgram smart formatting (punctuation, numerals, etc.). Default: true. */

@@ -73,9 +73,11 @@ class DeepgramBatchTranscriber implements BatchTranscriber {
   readonly boundaryId = "daemon-batch" as const;
 
   private readonly apiKey: string;
+  private readonly language: string | undefined;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, language?: string) {
     this.apiKey = apiKey;
+    this.language = language;
   }
 
   async transcribe(
@@ -83,7 +85,14 @@ class DeepgramBatchTranscriber implements BatchTranscriber {
   ): Promise<SttTranscribeResult> {
     const { DeepgramProvider } =
       await import("../providers/speech-to-text/deepgram.js");
-    const provider = new DeepgramProvider(this.apiKey);
+    const provider = new DeepgramProvider(this.apiKey, {
+      // "multi" code-switching is a nova-3-only feature: the provider's
+      // default model (nova-2) rejects language=multi. Pin nova-3 for that
+      // value only; every other language keeps the provider's default model
+      // so existing behavior is untouched.
+      ...(this.language === "multi" ? { model: "nova-3" } : {}),
+      ...(this.language ? { language: this.language } : {}),
+    });
 
     return provider.transcribe(request.audio, request.mimeType, request.signal);
   }
@@ -228,9 +237,24 @@ class VellumManagedBatchTranscriber implements BatchTranscriber {
   }
 }
 
+/**
+ * Options for {@link createDaemonBatchTranscriber}.
+ */
+export interface DaemonBatchTranscriberOptions {
+  /**
+   * Spoken language forwarded to providers whose batch API accepts one
+   * (Deepgram). Whisper, Gemini, and xAI auto-detect natively and take no
+   * language parameter, so it is silently ignored for them, as is the
+   * vellum managed path (the platform speech proxy accepts no language
+   * parameter; see the deferral note in `resolveBatchTranscriber`).
+   */
+  language?: string;
+}
+
 export function createDaemonBatchTranscriber(
   apiKey: string | null | undefined,
   providerId: SttProviderId,
+  options: DaemonBatchTranscriberOptions = {},
 ): BatchTranscriber | null {
   // vellum authenticates via the platform connection, not an API key.
   if (providerId === "vellum") {
@@ -244,7 +268,7 @@ export function createDaemonBatchTranscriber(
     case "openai-whisper":
       return new WhisperBatchTranscriber(apiKey);
     case "deepgram":
-      return new DeepgramBatchTranscriber(apiKey);
+      return new DeepgramBatchTranscriber(apiKey, options.language);
     case "google-gemini":
       return new GoogleGeminiBatchTranscriber(apiKey);
     case "xai":

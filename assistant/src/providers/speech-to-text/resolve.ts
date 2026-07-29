@@ -36,6 +36,7 @@ const log = getLogger("stt-resolver");
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
   const config = getConfig();
   const provider = config.services.stt.provider;
+  const language = config.services.stt.language;
 
   // Look up credential provider via the catalog.
   const credentialProviderName = getCredentialProvider(
@@ -51,13 +52,19 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   }
 
   if (provider === "vellum") {
+    // Managed batch transcription rides the platform's speech proxy, which
+    // accepts no language parameter. Forwarding `services.stt.language` here
+    // requires a platform-side change and is deferred; streaming is the
+    // covered path for managed language selection.
     return (await sttProviderKeyResolves("vellum"))
       ? createDaemonBatchTranscriber(null, "vellum")
       : null;
   }
 
   const apiKey = await getProviderKeyAsync(credentialProviderName);
-  return createDaemonBatchTranscriber(apiKey, provider as SttProviderId);
+  return createDaemonBatchTranscriber(apiKey, provider as SttProviderId, {
+    ...(language ? { language } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +302,7 @@ export interface ResolveStreamingTranscriberOptions {
    * config for a single session.
    *
    * See {@link CreateStreamingTranscriberOptions.language} for how each
-   * provider treats it — notably, leaving it unset is not auto-detection on
+   * provider treats it: notably, leaving it unset is not auto-detection on
    * Deepgram or the managed relay.
    */
   language?: string;
@@ -435,8 +442,8 @@ interface CreateStreamingTranscriberOptions {
    * Spoken language, forwarded to the adapters that accept one: Deepgram,
    * xAI, and the managed relay (which passes it to Deepgram server-side).
    *
-   * Gemini and Whisper take no language option — both auto-detect natively
-   * from the audio — so this is silently ignored for them, matching how
+   * Gemini and Whisper take no language option (both auto-detect natively
+   * from the audio), so this is silently ignored for them, matching how
    * `diarize` is ignored by adapters without diarization.
    *
    * Unset is NOT auto-detect on Deepgram: omitting the param makes Deepgram
@@ -467,6 +474,11 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        // "multi" code-switching is a nova-3-only feature: the adapter's
+        // default model (nova-2) rejects language=multi. Pin nova-3 for that
+        // value only; every other language keeps the adapter's default model
+        // so existing behavior is untouched.
+        ...(options.language === "multi" ? { model: "nova-3" } : {}),
         ...(options.language ? { language: options.language } : {}),
         ...(options.diarize ? { diarize: true } : {}),
         ...(options.utteranceBoundaryFinals
@@ -500,7 +512,12 @@ async function createStreamingTranscriber(
       const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
       return new XAIRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
-        ...(options.language ? { language: options.language } : {}),
+        // "multi" is Deepgram's code-switching mode, not a BCP-47 code, so it
+        // never reaches xAI (which expects BCP-47 and auto-handles
+        // multilingual audio well enough without a hint).
+        ...(options.language && options.language !== "multi"
+          ? { language: options.language }
+          : {}),
         ...(options.diarize ? { diarize: true } : {}),
       });
     }
@@ -531,7 +548,7 @@ async function createStreamingTranscriber(
       return new VellumManagedRealtimeTranscriber(connection, {
         sampleRate: options.sampleRate,
         // `language` IS in the relay's param allowlist, and the relay pins
-        // the STT model to nova-3 server-side — so "multi" code-switching
+        // the STT model to nova-3 server-side, so "multi" code-switching
         // needs nothing from the platform, only this forward.
         ...(options.language ? { language: options.language } : {}),
         ...(options.utteranceBoundaryFinals

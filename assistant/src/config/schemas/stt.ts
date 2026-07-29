@@ -68,8 +68,8 @@ export const SttServiceSchema = z
     /**
      * Spoken-language selection, forwarded to providers whose adapters accept
      * a language (Deepgram, xAI, and the managed relay). Left unset the
-     * provider applies its own default — which for Deepgram, and therefore
-     * for the managed relay, is English, NOT auto-detection.
+     * provider applies its own default, which for Deepgram (and therefore
+     * for the managed relay) is English, NOT auto-detection.
      *
      * `"multi"` selects Deepgram's nova-3 code-switching mode, which follows
      * a speaker moving between languages inside a single utterance (e.g.

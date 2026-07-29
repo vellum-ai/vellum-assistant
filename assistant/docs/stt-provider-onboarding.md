@@ -30,7 +30,7 @@ This ensures the exhaustive switch in `daemon-batch-transcriber.ts` produces a c
 
 The `services.stt.providers` map uses a sparse `z.record(z.string(), ...)` schema, so adding a new provider does **not** require a workspace migration to seed a `services.stt.providers.<id>` entry. Users only need to set `services.stt.provider` to the new ID and supply credentials.
 
-**Language handling.** `services.stt.language` is resolved centrally in `resolveStreamingTranscriber()`, so a new adapter inherits it for free — accept a `language` option in the adapter's constructor and forward it to the provider. If the provider auto-detects natively and has no language parameter (as Gemini and Whisper do), accept nothing and let the resolver's value be ignored; document that choice in the adapter, because "no language param" means auto-detect for some providers and _English_ for others (Deepgram), and that difference has already caused one bug.
+**Language handling.** `services.stt.language` is resolved centrally in `resolveStreamingTranscriber()` (and in `resolveBatchTranscriber()` for the daemon-batch boundary), so a new adapter inherits it for free: accept a `language` option in the adapter's constructor and forward it to the provider. If the provider auto-detects natively and has no language parameter (as Gemini and Whisper do), accept nothing and let the resolver's value be ignored; document that choice in the adapter, because "no language param" means auto-detect for some providers and _English_ for others (Deepgram), and that difference has already caused one bug.
 
 ## 4. Adapter wiring
 

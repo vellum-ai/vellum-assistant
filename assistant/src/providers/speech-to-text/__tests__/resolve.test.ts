@@ -128,6 +128,24 @@ mock.module("../openai-whisper-stream.js", () => ({
   },
 }));
 
+/**
+ * Captured constructor calls for the Deepgram BATCH provider, used to verify
+ * that `resolveBatchTranscriber` threads `services.stt.language` through the
+ * batch factory to the provider.
+ */
+const deepgramBatchCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
+
+mock.module("../deepgram.js", () => ({
+  DeepgramProvider: class {
+    constructor(apiKey: string, options?: unknown) {
+      deepgramBatchCtorCalls.push({ apiKey, options });
+    }
+    async transcribe() {
+      return { text: "" };
+    }
+  },
+}));
+
 mock.module("../xai-realtime.js", () => ({
   XAIRealtimeTranscriber: class {
     readonly providerId = "xai" as const;
@@ -181,7 +199,7 @@ function applyConfig(overrides: {
   });
   (getConfig().services.stt as { provider: string }).provider = provider;
   // `language` is optional and absent from the seed above, so assign it only
-  // when a test asks for one — leaving the unset path genuinely unset.
+  // when a test asks for one, leaving the unset path genuinely unset.
   if (overrides.language !== undefined) {
     (getConfig().services.stt as { language?: string }).language =
       overrides.language;
@@ -1096,14 +1114,39 @@ describe("resolveStreamingTranscriber language plumbing", () => {
     ]);
   });
 
-  test("BYOK Deepgram sessions forward the configured language", async () => {
+  test("BYOK Deepgram sessions with 'multi' pin nova-3 alongside the language", async () => {
+    // multi is a nova-3-only feature; the adapter default (nova-2) rejects it.
     mockProviderKeys = { deepgram: "dg-key" };
     applyConfig({ provider: "deepgram", language: "multi" });
 
     await resolveStreamingTranscriber({ sampleRate: 16000 });
 
     expect(deepgramCtorCalls).toHaveLength(1);
-    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "multi" });
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+
+  test("BYOK Deepgram sessions with a specific language keep the adapter's default model", async () => {
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "hi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(deepgramCtorCalls).toHaveLength(1);
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "hi" });
+    expect(deepgramCtorCalls[0]?.options).not.toHaveProperty("model");
+  });
+
+  test("xAI sessions never receive 'multi' (a Deepgram-specific value, not BCP-47)", async () => {
+    mockProviderKeys = { xai: "xai-key" };
+    applyConfig({ provider: "xai", language: "multi" });
+
+    await resolveStreamingTranscriber({ sampleRate: 16000 });
+
+    expect(xaiCtorCalls).toHaveLength(1);
+    expect(xaiCtorCalls[0]?.options).not.toHaveProperty("language");
   });
 
   test("xAI sessions forward the configured language", async () => {
@@ -1138,11 +1181,11 @@ describe("resolveStreamingTranscriber language plumbing", () => {
   });
 
   test("providers that auto-detect natively never receive a language", async () => {
-    // Gemini and Whisper take no language option — omitting it IS
+    // Gemini and Whisper take no language option: omitting it IS
     // auto-detection for them, unlike Deepgram.
     mockProviderKeys = {
-      "google-gemini": "gem-key",
-      "openai-whisper": "oa-key",
+      gemini: "gem-key",
+      openai: "oa-key",
     };
 
     applyConfig({ provider: "google-gemini", language: "multi" });
@@ -1151,8 +1194,46 @@ describe("resolveStreamingTranscriber language plumbing", () => {
     applyConfig({ provider: "openai-whisper", language: "multi" });
     await resolveStreamingTranscriber({ sampleRate: 16000 });
 
+    expect(geminiCtorCalls).toHaveLength(1);
+    expect(whisperCtorCalls).toHaveLength(1);
     expect(geminiCtorCalls[0]?.options).not.toHaveProperty("language");
     expect(whisperCtorCalls[0]?.options).not.toHaveProperty("language");
+  });
+
+  test("batch resolution threads the configured language to the Deepgram provider", async () => {
+    deepgramBatchCtorCalls.length = 0;
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "hi" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramBatchCtorCalls).toHaveLength(1);
+    expect(deepgramBatchCtorCalls[0]?.options).toMatchObject({
+      language: "hi",
+    });
+    expect(deepgramBatchCtorCalls[0]?.options).not.toHaveProperty("model");
+  });
+
+  test("batch resolution with 'multi' pins nova-3 on the Deepgram provider", async () => {
+    deepgramBatchCtorCalls.length = 0;
+    mockProviderKeys = { deepgram: "dg-key" };
+    applyConfig({ provider: "deepgram", language: "multi" });
+
+    const transcriber = await resolveBatchTranscriber();
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramBatchCtorCalls).toHaveLength(1);
+    expect(deepgramBatchCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
   });
 });
 

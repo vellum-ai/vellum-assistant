@@ -103,7 +103,7 @@ export interface DeepgramRealtimeOptions {
    * code-switching across English, Spanish, French, German, Hindi, Russian,
    * Portuguese, Japanese, Italian, and Dutch.
    *
-   * Omitted by default, which Deepgram decodes as English — NOT as
+   * Omitted by default, which Deepgram decodes as English, NOT as
    * auto-detection. Non-English audio sent without this comes back as
    * English-sounding nonsense rather than an error.
    */
