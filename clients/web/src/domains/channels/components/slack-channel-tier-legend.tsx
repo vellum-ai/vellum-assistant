@@ -11,18 +11,18 @@ import type { RiskThreshold } from "@/utils/threshold-presets";
 /**
  * One line per level, all on the single lookup-depth axis: how much the
  * assistant does on its own when answering other people before checking with
- * the owner. The per-level lines are the whole key (LUM-2905) — the card
+ * the owner. The per-level lines are the whole key (LUM-2905); the card
  * header carries the Trust Rules pointer.
  *
  * Grounded in what a channel cell can actually delegate
  * (`assistant/src/tools/tool-approval-handler.ts` → `isChannelLiftable`): only
- * non-executing side effects in the assistant's own workspace — reads, public
- * `web_fetch`, and ordinary in-workspace file writes. "Takes notes" describes
+ * non-executing side effects in the assistant's own workspace (reads, public
+ * `web_fetch`, and ordinary in-workspace file writes). "Takes notes" describes
  * those writes without implying documents: the document tools run on the host
  * and stay on the capability floor.
  *
  * The capability floor (code, the owner's computer or accounts, unvetted
- * skills always escalate) compresses to "asks first for anything bigger" —
+ * skills always escalate) compresses to "asks first for anything bigger":
  * accurate without the inventory, and it keeps the two lines the same weight:
  * both name what runs on its own, then that everything else asks.
  */
@@ -36,7 +36,7 @@ export interface SlackChannelTierLegendProps {
   /**
    * The level the owner's global setting resolves to, marked "· default" in
    * the key so it lines up with the rows (which name the same level). `null`
-   * while unknown — no level is marked.
+   * while unknown; no level is marked.
    */
   defaultTier: RiskThreshold | null;
 }
@@ -47,8 +47,8 @@ export interface SlackChannelTierLegendProps {
  * which carries the full meaning. No heading and no scope line: the rows
  * above the footer already establish what is being picked, and the "applies
  * to other people in the channel" scope fact from #39143 was deliberately
- * traded away for brevity in LUM-2905 — restore a scope line here if that
- * confusion resurfaces. Everything renders on screen — no hover tooltip — so
+ * traded away for brevity in LUM-2905; restore a scope line here if that
+ * confusion resurfaces. Everything renders on screen (no hover tooltip) so
  * the meaning is reachable on touch. The level the global default resolves to
  * is marked "· default", matching the per-row picker so the two read
  * together.

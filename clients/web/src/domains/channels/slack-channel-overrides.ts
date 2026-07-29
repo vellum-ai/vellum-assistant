@@ -65,7 +65,7 @@ interface CapabilityTierMeta {
   label: string;
   /**
    * Short qualifier shown as the picker option's tooltip. Frames how much the
-   * assistant does on its own before checking with the owner — reads/answers
+   * assistant does on its own before checking with the owner: reads/answers
    * only, since writes/sends/spends always escalate. The slightly fuller
    * per-tier line lives in the legend (`SlackChannelTierLegend`).
    */
