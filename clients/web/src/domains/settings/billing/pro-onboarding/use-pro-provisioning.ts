@@ -41,7 +41,10 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import {
+  allowedMachineSizesForTier,
+  machineSizeRank,
+} from "@/lib/billing/machine-sizes";
 import {
   dimensionTargetsMet,
   isEntitlementRaceVerdict,
@@ -80,6 +83,23 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
   "CONFIRM_TIMEOUT",
 ];
 
+/**
+ * When each dimension was first seen to meet what the takeover displays for it,
+ * keyed to the assistant those instants describe. The per-dimension analogue of
+ * `targetsMetAt`, feeding the presentation-only landed flags.
+ */
+interface DimensionMetLatch {
+  assistantId: string | null;
+  machine: number | null;
+  storage: number | null;
+}
+
+const NO_DIMENSIONS_MET: DimensionMetLatch = {
+  assistantId: null,
+  machine: null,
+  storage: null,
+};
+
 export interface UseProProvisioningOptions {
   open: boolean;
 }
@@ -98,10 +118,16 @@ export interface ProProvisioningResult {
    */
   machineFloor: MachineSizeEnum | null;
   /**
-   * Per-dimension provisioning progress: a dimension has landed once its target
-   * is met and its own resize is no longer in flight. Presentation only, for
-   * per-chip progress; terminal completion still flows exclusively through
-   * `deriveProvisioningState`.
+   * Per-dimension provisioning progress: a dimension has landed once what the
+   * takeover displays for it is met, its own resize is no longer in flight, and
+   * the operational status has been read since that dimension read met. A
+   * machine-less package is measured against `machineFloor` and the actual
+   * size, because its null machine target reads met by definition.
+   *
+   * Presentation only, for per-chip progress; terminal completion still flows
+   * exclusively through `deriveProvisioningState`, which can complete the flow
+   * before any status reading postdates the actuals. A dimension may therefore
+   * still read pending in DONE, where the state is itself the signal.
    *
    * A machine resize supersedes a storage one in the single per-assistant
    * marker, so storage can read landed while the machine rollout is still
@@ -196,6 +222,9 @@ export function useProProvisioning({
   const [targetsMetAssistantId, setTargetsMetAssistantId] = useState<
     string | null
   >(null);
+  // The same anchor per dimension, for the landed flags.
+  const [dimensionMetAt, setDimensionMetAt] =
+    useState<DimensionMetLatch>(NO_DIMENSIONS_MET);
   // Latest reconcile failure from any source (auto/escape); cleared by a later
   // success — see runEnsureProvisioned.
   const [ensureError, setEnsureError] = useState<unknown>(null);
@@ -242,6 +271,7 @@ export function useProProvisioning({
     setServerVerdict(null);
     setTargetsMetAt(null);
     setTargetsMetAssistantId(null);
+    setDimensionMetAt(NO_DIMENSIONS_MET);
     setEnsureError(null);
     setRaceRetryScheduled(false);
     ensureRequestedRef.current = false;
@@ -543,19 +573,24 @@ export function useProProvisioning({
     };
   }, [assistant]);
 
-  // Pairs the same two questions the state machine pairs globally. Actuals
-  // alone would not do: the platform persists the effective sizes at resize
-  // acceptance, before the pod restarts, so a dimension reads met mid-rollout.
-  // The pairing is also what carries a downgrade, where the null machine target
-  // is trivially met and only the in-flight marker holds the flag false.
-  const landed = useMemo<ProvisioningDimensionFlags>(() => {
+  // What the takeover displays as met, per dimension. `dimensionTargetsMet`
+  // answers the purchased targets, where a machine-less package has no machine
+  // target at all: null reads met by definition, so the displayed downsize
+  // would report complete before anything downsized. Measure that case against
+  // the floor and the actual size instead. The floor stays out of `targets` for
+  // the reason on `machineFloor`.
+  const displayTargetsMet = useMemo<ProvisioningDimensionFlags>(() => {
     const met = dimensionTargetsMet(targets, actuals);
-    const inFlight = resizeDimensionsInFlight(operationalStatusQuery.data);
+    if (machineFloor == null) {
+      return met;
+    }
     return {
-      machine: met.machine && !inFlight.machine,
-      storage: met.storage && !inFlight.storage,
+      ...met,
+      machine:
+        actuals?.machineSize != null &&
+        machineSizeRank(actuals.machineSize) <= machineSizeRank(machineFloor),
     };
-  }, [targets, actuals, operationalStatusQuery.data]);
+  }, [targets, actuals, machineFloor]);
 
   const snapshotMatchesAssistant = snapshotAssistantId === assistantId;
 
@@ -581,6 +616,67 @@ export function useProProvisioning({
       setTargetsMetAssistantId(null);
     }
   }, [open, currentTargetsMet, assistantId, targetsMetMatchesAssistant]);
+
+  // The same latch per dimension, on the same write-order guarantee: a status
+  // reading taken after a dimension read met is the one guaranteed to find that
+  // dimension's marker, or find it retired. Keyed to the provisioning assistant
+  // for the reason above.
+  const dimensionMetMatchesAssistant =
+    dimensionMetAt.assistantId === assistantId;
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setDimensionMetAt((prev) => {
+      const carried =
+        prev.assistantId === assistantId ? prev : NO_DIMENSIONS_MET;
+      const machine = displayTargetsMet.machine
+        ? (carried.machine ?? Date.now())
+        : null;
+      const storage = displayTargetsMet.storage
+        ? (carried.storage ?? Date.now())
+        : null;
+      if (
+        prev.assistantId === assistantId &&
+        prev.machine === machine &&
+        prev.storage === storage
+      ) {
+        return prev;
+      }
+      return { assistantId, machine, storage };
+    });
+  }, [open, displayTargetsMet, assistantId]);
+
+  // Pairs the same questions the state machine pairs globally, per dimension.
+  // Met-ness alone would not do: the platform persists the effective sizes at
+  // resize acceptance, before the pod restarts, so a dimension reads met
+  // mid-rollout. Nor would met-ness plus the marker, because the assistant and
+  // status queries poll independently: in the window where the assistant poll
+  // holds the persisted sizes and the status query still holds its pre-resize
+  // reading, a flag would land and the next poll would take it back.
+  const landed = useMemo<ProvisioningDimensionFlags>(() => {
+    const inFlight = resizeDimensionsInFlight(operationalStatusQuery.data);
+    const statusReadSince = (metAt: number | null) =>
+      metAt != null &&
+      dimensionMetMatchesAssistant &&
+      operationalStatusQuery.dataUpdatedAt > metAt;
+    return {
+      machine:
+        displayTargetsMet.machine &&
+        !inFlight.machine &&
+        statusReadSince(dimensionMetAt.machine),
+      storage:
+        displayTargetsMet.storage &&
+        !inFlight.storage &&
+        statusReadSince(dimensionMetAt.storage),
+    };
+  }, [
+    displayTargetsMet,
+    dimensionMetAt,
+    dimensionMetMatchesAssistant,
+    operationalStatusQuery.data,
+    operationalStatusQuery.dataUpdatedAt,
+  ]);
 
   // Freeze the first non-null actuals as the before/after "from" side, keyed to
   // the assistant it describes. When assistantId changes (e.g. a stale primary

@@ -21,6 +21,8 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import {
+  assistantsOperationalStatusDetailReadQueryKey,
+  assistantsRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
@@ -298,6 +300,29 @@ function renderProbe(client = makeClient()) {
 
 async function refetchAll(client: QueryClient) {
   await client.invalidateQueries();
+}
+
+const ASSISTANT_QUERY_KEY = assistantsRetrieveQueryKey({
+  path: { id: "assistant-1" },
+});
+const STATUS_QUERY_KEY = assistantsOperationalStatusDetailReadQueryKey({
+  path: { id: "assistant-1" },
+});
+
+/**
+ * Take operational-status readings until `check` passes. A landed flag holds
+ * its dimension pending until the status has been read since that dimension met
+ * its target, and terminal states stop the hook's own poll, so the readings are
+ * taken by hand rather than waited out.
+ */
+async function waitForLanded(client: QueryClient, check: () => void) {
+  await waitFor(
+    async () => {
+      await client.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+      check();
+    },
+    { timeout: 5000 },
+  );
 }
 
 /** Drive the hook from a fresh mount to a confirmed-pro RESIZING state. */
@@ -1364,17 +1389,15 @@ describe("useProProvisioning presentation signals", () => {
     // The machine lands first while storage is still growing.
     assistantResponse = makeAssistant("large", 10);
     await refetchAll(client);
-    await waitFor(
-      () => expect(latest!.landed).toEqual({ machine: true, storage: false }),
-      { timeout: 5000 },
-    );
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: false });
+    });
 
     assistantResponse = makeAssistant("large", 50);
     await refetchAll(client);
-    await waitFor(
-      () => expect(latest!.landed).toEqual({ machine: true, storage: true }),
-      { timeout: 5000 },
-    );
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
   }, 20_000);
 
   test("an in-flight machine resize holds machine pending while storage lands", async () => {
@@ -1386,18 +1409,16 @@ describe("useProProvisioning presentation signals", () => {
     // machine marker is in flight, so storage may land ahead of it.
     assistantResponse = makeAssistant("large", 50);
     await refetchAll(client);
-    await waitFor(
-      () => expect(latest!.landed).toEqual({ machine: false, storage: true }),
-      { timeout: 5000 },
-    );
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: false, storage: true });
+    });
     expect(latest!.state).toBe("RESIZING");
 
     operationalStatusResponse = makeOperationalStatus("active");
     await refetchAll(client);
-    await waitFor(
-      () => expect(latest!.landed).toEqual({ machine: true, storage: true }),
-      { timeout: 5000 },
-    );
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
   }, 20_000);
 
   test("an active resize_storage operation holds only the storage flag", async () => {
@@ -1409,9 +1430,63 @@ describe("useProProvisioning presentation signals", () => {
     operationalStatusResponse = makeResizeOperationStatus("resize_storage");
     await refetchAll(client);
 
-    await waitFor(
-      () => expect(latest!.landed).toEqual({ machine: true, storage: false }),
-      { timeout: 5000 },
-    );
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: false });
+    });
+  }, 20_000);
+
+  test("the machine floor holds machine pending until the assistant downsizes", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: null };
+    // Still above the floor the package settles at: the displayed downsize has
+    // not happened, and the null machine target cannot catch that on its own.
+    assistantResponse = makeAssistant("medium", 50);
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.machineFloor).toBe("small"), {
+      timeout: 5000,
+    });
+    // Storage landing proves readings are being taken since the actuals, so
+    // the floor is the only thing still holding the machine flag.
+    await waitForLanded(client, () => {
+      expect(latest!.landed.storage).toBe(true);
+    });
+    expect(latest!.landed.machine).toBe(false);
+
+    assistantResponse = makeAssistant("small", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed.machine).toBe(true);
+    });
+  }, 20_000);
+
+  test("a landed flag waits for a status reading taken after the actuals", async () => {
+    // `started` queues the resize on a worker, so the status query can still be
+    // holding its pre-resize reading when the assistant poll lands the
+    // persisted target sizes.
+    ensureResponse = makeEnsureResponse("started");
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+
+    // Only the assistant query advances here, so nothing has read the world
+    // since the sizes it reports and no flag may land off them.
+    assistantResponse = makeAssistant("large", 50);
+    act(() => {
+      client.setQueryData(ASSISTANT_QUERY_KEY, assistantResponse);
+    });
+    expect(latest!.state).toBe("RESIZING");
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The reading that settles the flow settles the flags with it.
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
+    expect(latest!.state).toBe("DONE");
   }, 20_000);
 });
