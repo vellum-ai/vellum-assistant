@@ -83,15 +83,63 @@ describe("buildResourceChanges", () => {
     expect(changes[1].from).toBeUndefined();
   });
 
-  test("omits `from` on machine when the snapshot equals the target", () => {
+  test("omits machine when the snapshot already equals the target", () => {
     const changes = buildResourceChanges({
       targets,
       fromSnapshot: { machineSize: "large", storageGib: 50 },
       credits: null,
     });
 
-    expect(changes.map((c) => c.key)).toEqual(["machine"]);
-    expect(changes[0].from).toBeUndefined();
+    expect(changes).toEqual([]);
+  });
+
+  test("keeps a credit-only change free of a machine row", () => {
+    // The live targets carry the tier ceiling, so the machine target is non-null
+    // for any paid tier even when the change never touched the machine.
+    const changes = buildResourceChanges({
+      targets: { machineSize: "large", storageGib: 50 },
+      fromSnapshot: { machineSize: "large", storageGib: 50 },
+      credits: { from: "$25/mo", to: "$50/mo" },
+    });
+
+    expect(changes.map((c) => c.key)).toEqual(["credits"]);
+  });
+
+  test("keeps a storage-only change free of a machine row", () => {
+    const changes = buildResourceChanges({
+      targets: { machineSize: "medium", storageGib: 50 },
+      fromSnapshot: { machineSize: "medium", storageGib: 10 },
+      credits: null,
+    });
+
+    expect(changes).toEqual([
+      { key: "storage", label: "Storage", from: "10 GB", to: "50 GB" },
+    ]);
+  });
+
+  test("renders machine with no from-side when the snapshot machine is null", () => {
+    const changes = buildResourceChanges({
+      targets: { machineSize: "large", storageGib: null },
+      fromSnapshot: { machineSize: null, storageGib: null },
+      credits: null,
+    });
+
+    expect(changes).toEqual([
+      { key: "machine", label: "Machine", from: undefined, to: "Large" },
+    ]);
+  });
+
+  test("ignores the machine floor when the target machine is met, not just set", () => {
+    // A non-null machine target reserves the row; the floor branch stays
+    // reserved for the machine-less packages that have no target at all.
+    const changes = buildResourceChanges({
+      targets: { machineSize: "medium", storageGib: null },
+      fromSnapshot: { machineSize: "medium", storageGib: null },
+      machineFloor: "small",
+      credits: null,
+    });
+
+    expect(changes).toEqual([]);
   });
 
   test("includes `from` when the snapshot differs from the target", () => {

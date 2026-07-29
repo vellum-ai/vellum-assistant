@@ -237,10 +237,19 @@ export function PlansPage() {
   // what makes that chip honest: a cap that finds the pod already at or below
   // the new ceiling skips it and creates no resize marker, so a ceiling-derived
   // from-side would draw a downsize that never runs.
+  //
+  // Held until `currentReady`, because `primaryAssistantId` rides the same
+  // onboarding read: asking earlier resolves a null id to the ACTIVE assistant,
+  // which is a different pod in a multi-assistant org, and that real-but-wrong
+  // size is what the takeover then states for the life of the change.
+  // `currentReady` also settles when that read errors, so a failed onboarding
+  // fetch falls back to the active assistant rather than holding the read off
+  // forever. Nothing downstream is gated on this resolving: a plan change the
+  // user asked for must not wait on an assistant read.
   const orgReady = useIsOrgReady();
   const assistant = usePreferredOrActiveAssistant(
     primaryAssistantId,
-    platformReady && orgReady && isProUser,
+    platformReady && orgReady && isProUser && currentReady,
   );
 
   // A Custom sub (unpinned or customized) has no meaningful catalog rank, so

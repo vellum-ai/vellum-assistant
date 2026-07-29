@@ -200,6 +200,26 @@ export function BillingOnboardingModal({
   const { targets, assistantId, domainStepAvailable, onboardingSettled } =
     provisioning;
 
+  // An in-place change lands before this mounts, so its actuals already read
+  // post-change and the captured snapshot is the only honest from-side.
+  // Checkout's resize fires after the mount, so its actuals snapshot genuinely
+  // predates the change.
+  //
+  // Each dimension resolves on its own: a capture taken while one of its own
+  // reads was still unsettled carries a null for that dimension alone, and
+  // pinning the whole from-side to that capture freezes it null for the life of
+  // the takeover. Falling back to the actuals degrades honestly,
+  // because for an in-place change those actuals already describe the
+  // post-change state, so the dimension reads from == to and drops out of the
+  // row entirely. A missing chip beats a chip stating a move that never
+  // happened.
+  const capturedFrom = isResize ? resizeContext?.fromSnapshot : undefined;
+  const actualsFrom = provisioning.actualsSnapshot;
+  const fromSnapshot: ProvisioningDimensions = {
+    machineSize: capturedFrom?.machineSize ?? actualsFrom?.machineSize ?? null,
+    storageGib: capturedFrom?.storageGib ?? actualsFrom?.storageGib ?? null,
+  };
+
   // The takeover and the sheet that covers it on the way out paint from one
   // surface: the tint published as a custom property, plus the same blurred
   // backdrop a custom-image avatar shows — so the handoff can't cross-fade a
@@ -482,15 +502,7 @@ export function BillingOnboardingModal({
           intent={intent}
           creditsChange={isResize ? resizeContext?.credits : undefined}
           targets={targets ?? EMPTY_DIMENSIONS}
-          // An in-place change lands before this mounts, so its actuals already
-          // read post-change and the captured snapshot is the only honest
-          // from-side. Checkout's resize fires after the mount, so its actuals
-          // snapshot genuinely predates the change.
-          fromSnapshot={
-            (isResize ? resizeContext?.fromSnapshot : null) ??
-            provisioning.actualsSnapshot ??
-            EMPTY_DIMENSIONS
-          }
+          fromSnapshot={fromSnapshot}
           machineFloor={provisioning.machineFloor}
           landed={provisioning.landed}
           celebrating={routingSettled}

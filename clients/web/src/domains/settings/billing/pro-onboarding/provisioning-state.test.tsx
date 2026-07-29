@@ -676,6 +676,47 @@ describe("done / not_applicable", () => {
     expect(within(chip).getByTestId("chip-check")).toBeTruthy();
   });
 
+  test("not_applicable states the credit move alone, whatever the live targets carry", () => {
+    // The provisioning targets carry the tier ceiling, so a Super/Ultra sub has
+    // a non-null machine target even for a credit-only change. Nothing is being
+    // provisioned in this phase, so only the credit move belongs on screen.
+    const { getByTestId, queryByTestId } = renderState({
+      state: "NOT_APPLICABLE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: null, storageGib: null },
+      creditsChange: { fromTier: "credits_25", toTier: "credits_50" },
+    });
+
+    expect(getByTestId("chip-credits")).toBeTruthy();
+    expect(queryByTestId("chip-machine")).toBeNull();
+    expect(queryByTestId("chip-storage")).toBeNull();
+  });
+
+  test("not_applicable with nothing but resource targets renders no row at all", () => {
+    const { queryByTestId } = renderState({
+      state: "NOT_APPLICABLE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+    });
+
+    expect(queryByTestId("resource-chips")).toBeNull();
+  });
+
+  test("done still renders the resource chips alongside credits", () => {
+    // The credits-only narrowing is scoped to NOT_APPLICABLE; DONE reports the
+    // provisioning that actually ran.
+    const { getByTestId } = renderState({
+      state: "DONE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      creditsChange: { fromTier: "credits_25", toTier: "credits_50" },
+    });
+
+    expect(getByTestId("chip-machine")).toBeTruthy();
+    expect(getByTestId("chip-storage")).toBeTruthy();
+    expect(getByTestId("chip-credits")).toBeTruthy();
+  });
+
   test("not_applicable renders a dropped bundle as a move to $0", () => {
     // "No extra credits" is an endpoint of the change like any other, so the
     // chip prices it rather than falling back to a bare status word.
@@ -764,37 +805,33 @@ describe("stalled", () => {
     expect(queryByText("Continue in the background")).toBeNull();
   });
 
-  test("an unchanged machine dimension renders singular while storage still arrows", () => {
-    const { getByText, getAllByText, container } = renderState({
+  test("an unchanged machine dimension drops out while storage still arrows", () => {
+    const { getByText, queryByTestId, container } = renderState({
       state: "STALLED",
       targets: { machineSize: "medium", storageGib: 100 },
       fromSnapshot: { machineSize: "medium", storageGib: 30 },
     });
 
-    // Machine is unchanged: the label appears once (target only), never as a
-    // "Medium → Medium" self-arrow.
-    expect(getByText("Machine")).toBeTruthy();
-    expect(getAllByText("Medium").length).toBe(1);
+    // The pod is already at the target size, so nothing is being resized there
+    // and the chip would claim work that never runs.
+    expect(queryByTestId("chip-machine")).toBeNull();
     // Storage changed: both endpoints render, with a single from→to arrow.
     expect(getByText("30 GB")).toBeTruthy();
     expect(getByText("100 GB")).toBeTruthy();
     expect(container.querySelectorAll(".lucide-arrow-right").length).toBe(1);
   });
 
-  test("an unchanged machine renders singular while unchanged storage is dropped", () => {
-    const { getByText, queryByText, container } = renderState({
+  test("an unchanged machine and unchanged storage leave no chip row", () => {
+    const { queryByText, queryByTestId } = renderState({
       state: "STALLED",
       targets: { machineSize: "medium", storageGib: 30 },
       fromSnapshot: { machineSize: "medium", storageGib: 30 },
     });
 
-    expect(getByText("Machine")).toBeTruthy();
-    expect(getByText("Medium")).toBeTruthy();
+    expect(queryByTestId("resource-chips")).toBeNull();
+    expect(queryByText("Machine")).toBeNull();
     // Storage only renders when it grows, so an unchanged tier has no chip.
     expect(queryByText("Storage")).toBeNull();
-    expect(queryByText("30 GB")).toBeNull();
-    // Nothing changed, so the machine chip draws no current→new arrow.
-    expect(container.querySelector(".lucide-arrow-right")).toBeNull();
   });
 });
 

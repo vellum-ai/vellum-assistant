@@ -468,6 +468,9 @@ function chipDone(
  * `allDone` is the terminal phase, where the state itself is the signal for
  * every dimension. The from-to arrow survives it, so one chip format covers
  * every phase the row appears in.
+ *
+ * `creditsOnly` narrows the row to the credit move, for a phase that owes no
+ * machine or storage work at all.
  */
 function ResourceChangeChips({
   intent,
@@ -477,6 +480,7 @@ function ResourceChangeChips({
   machineFloor,
   landed,
   allDone = false,
+  creditsOnly = false,
 }: {
   intent: CheckoutIntent | null;
   creditsChange?: CreditTierChange | null;
@@ -485,6 +489,7 @@ function ResourceChangeChips({
   machineFloor?: MachineSizeEnum | null;
   landed?: ProvisioningDimensionFlags;
   allDone?: boolean;
+  creditsOnly?: boolean;
 }) {
   // Checkout reads the stashed intent, an in-place change carries its own
   // tiers, and a takeover runs in exactly one of those modes, so at most one of
@@ -492,7 +497,7 @@ function ResourceChangeChips({
   const checkoutCredits = useProvisioningCredits(intent);
   const inPlaceCredits = useResizeCreditsChange(creditsChange);
   const credits = checkoutCredits ?? inPlaceCredits;
-  const changes = buildResourceChanges({
+  const built = buildResourceChanges({
     targets,
     fromSnapshot,
     machineFloor,
@@ -504,6 +509,9 @@ function ResourceChangeChips({
           }
         : null,
   });
+  const changes = creditsOnly
+    ? built.filter((change) => change.key === "credits")
+    : built;
 
   const completed = changes
     .filter((change) => allDone || chipDone(change.key, landed))
@@ -691,7 +699,10 @@ export function ProvisioningState({
   }
 
   /** The resource row; `allDone` is the terminal phase forcing every check on. */
-  function resourceChips(allDone = false) {
+  function resourceChips({
+    allDone = false,
+    creditsOnly = false,
+  }: { allDone?: boolean; creditsOnly?: boolean } = {}) {
     return (
       <ResourceChangeChips
         intent={intent}
@@ -701,6 +712,7 @@ export function ProvisioningState({
         machineFloor={machineFloor}
         landed={landed}
         allDone={allDone}
+        creditsOnly={creditsOnly}
       />
     );
   }
@@ -740,18 +752,20 @@ export function ProvisioningState({
       return (
         <>
           <Copy status="All done!" />
-          {resourceChips(true)}
+          {resourceChips({ allDone: true })}
         </>
       );
     }
 
     if (heldState === "NOT_APPLICABLE") {
       // Terminal for a change that owes no provisioning, a credit-only switch
-      // above all, so the chips are its one statement of what changed.
+      // above all, so the credit move is its one statement of what changed. No
+      // machine or storage work is outstanding here by construction, so a
+      // resource chip could only report a dimension that stayed put.
       return (
         <>
           <Copy status="Your plan is ready" />
-          {resourceChips(true)}
+          {resourceChips({ allDone: true, creditsOnly: true })}
         </>
       );
     }

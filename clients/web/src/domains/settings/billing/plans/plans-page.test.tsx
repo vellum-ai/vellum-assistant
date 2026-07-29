@@ -101,6 +101,9 @@ let changePackageError: unknown = null;
 let subscriptionFixture: SubscriptionResponse | null = null;
 let plansFixture: PlanListResponse | null = null;
 let onboardingFixture: OnboardingStateResponse | null = null;
+// When non-null the onboarding read waits on this before answering, which holds
+// the query unsettled the way a cold load does.
+let onboardingHold: Promise<void> | null = null;
 // The assistant the machine from-side is read off, plus a log of how it was
 // asked for, so the primary-then-active resolution can be asserted.
 let assistantFixture: Assistant | null = null;
@@ -159,8 +162,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
     Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
   organizationsBillingPlansRetrieve: () =>
     Promise.resolve({ data: plansFixture, response: { ok: true } }),
-  organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({ data: onboardingFixture, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: () => {
+    const result = { data: onboardingFixture, response: { ok: true } };
+    return onboardingHold
+      ? onboardingHold.then(() => result)
+      : Promise.resolve(result);
+  },
   assistantsRetrieve: (opts: { path?: { id?: string } }) => {
     assistantByIdCalls.push(opts.path?.id ?? null);
     return Promise.resolve({ data: assistantFixture, response: { ok: true } });
@@ -529,9 +536,12 @@ function renderInteractive(
   {
     plans = fullCatalog(),
     onboardingData = onboarding(),
+    seedOnboarding = true,
   }: {
     plans?: PlanListResponse;
     onboardingData?: OnboardingStateResponse;
+    /** False leaves the onboarding query to fetch, so it mounts unsettled. */
+    seedOnboarding?: boolean;
   } = {},
 ) {
   subscriptionFixture = subscription;
@@ -553,10 +563,12 @@ function renderInteractive(
     subscription,
   );
   client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
-  client.setQueryData(
-    organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    onboardingData,
-  );
+  if (seedOnboarding) {
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      onboardingData,
+    );
+  }
   return {
     // Exposed so the checkout test can seed the avatar cache the stash reads.
     client,
@@ -590,6 +602,7 @@ beforeEach(() => {
   subscriptionFixture = null;
   plansFixture = null;
   onboardingFixture = null;
+  onboardingHold = null;
   assistantFixture = makeAssistant("assistant-primary", "medium");
   activeAssistantFixture = makeAssistant("assistant-active", "large");
   assistantByIdCalls.length = 0;
@@ -741,6 +754,37 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(activeAssistantCalls).toBe(0);
     // "medium" is the primary's size; the active assistant reads "large".
     expect(takeoverResizeContext?.fromSnapshot.machineSize).toBe("medium");
+  });
+
+  test("an unsettled onboarding read never resolves the from-side to the active assistant", async () => {
+    // On a cold load the onboarding payload has not answered, so no primary is
+    // named yet. Reading through to the active assistant in that window returns
+    // a real machine size for the wrong pod in a multi-assistant org, and the
+    // capture then states it for the life of the takeover.
+    let releaseOnboarding = () => {};
+    onboardingHold = new Promise<void>((resolve) => {
+      releaseOnboarding = resolve;
+    });
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      { seedOnboarding: false },
+    );
+
+    const cta = await findByRole("button", { name: "Unleash Ultra" });
+    expect(assistantByIdCalls).toEqual([]);
+    expect(activeAssistantCalls).toBe(0);
+
+    fireEvent.click(cta);
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    // Let the post-change invalidation refetches settle so the takeover opens.
+    releaseOnboarding();
+    await findByTestId("resize-takeover");
+
+    // Unknown, not the active assistant's "large". Storage has the same window.
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: null,
+      storageGib: null,
+    });
   });
 
   test("with no primary named the from-side falls back to the active assistant", async () => {

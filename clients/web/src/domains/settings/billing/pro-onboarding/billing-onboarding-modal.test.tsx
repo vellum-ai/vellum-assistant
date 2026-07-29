@@ -1248,6 +1248,34 @@ describe("BillingOnboardingModal — resize mode", () => {
     expect(getByTestId("chip-storage").textContent).toContain("30 GB");
   });
 
+  test("a captured from-side with an unknown dimension falls back to the actuals", async () => {
+    // The capture is per dimension: a machine read that had not settled when
+    // the change was dispatched leaves that one null, and pinning the whole
+    // from-side to the capture would freeze it null and drop the chip's
+    // from-side for good.
+    subscriptionPlanId = "pro";
+    const { getByTestId, getByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: null, storageGib: 30 },
+        credits: null,
+      },
+    });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // Machine falls back to the actuals snapshot (Small); storage keeps the
+    // captured 30 GB rather than the assistant's live 10 GB.
+    await waitFor(
+      () => expect(getByTestId("chip-machine").textContent).toContain("Small"),
+      { timeout: 5000 },
+    );
+    expect(getByTestId("chip-storage").textContent).toContain("30 GB");
+  });
+
   test("a resize mount with no captured context keeps the actuals snapshot", async () => {
     // The billing page's resize mount threads none, so its from-sides still come
     // from the pre-resize actuals.

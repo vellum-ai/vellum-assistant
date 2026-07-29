@@ -19,6 +19,13 @@ export interface ResourceChange {
  * A dimension is included only when it has something to show; `from` is present
  * only when the pre-resize snapshot differs from the target.
  *
+ * Machine renders only when it moves. A snapshot equal to the target describes
+ * a pod that stays exactly where it is, and a chip for it asserts a resize that
+ * never runs; the live targets carry the tier ceiling, which is non-null for
+ * any paid tier, so a credit-only or storage-only change would otherwise paint
+ * a machine row out of nothing. A null snapshot is the fresh-hatch (or
+ * not-yet-read) case and still renders, with no from-side.
+ *
  * Storage renders only when it grows. PVCs never shrink (vembda raises on a
  * decrease and Kubernetes cannot reduce a claim), so a lowered BILLED storage
  * tier leaves the volume exactly where it is, and `30 GB → 10 GB` would claim a
@@ -45,16 +52,17 @@ export function buildResourceChanges(input: {
   const changes: ResourceChange[] = [];
 
   if (targets.machineSize != null) {
-    changes.push({
-      key: "machine",
-      label: "Machine",
-      from:
-        fromSnapshot.machineSize != null &&
-        fromSnapshot.machineSize !== targets.machineSize
-          ? SIZE_LABEL[fromSnapshot.machineSize]
-          : undefined,
-      to: SIZE_LABEL[targets.machineSize],
-    });
+    if (fromSnapshot.machineSize !== targets.machineSize) {
+      changes.push({
+        key: "machine",
+        label: "Machine",
+        from:
+          fromSnapshot.machineSize != null
+            ? SIZE_LABEL[fromSnapshot.machineSize]
+            : undefined,
+        to: SIZE_LABEL[targets.machineSize],
+      });
+    }
   } else if (
     machineFloor != null &&
     fromSnapshot.machineSize != null &&
