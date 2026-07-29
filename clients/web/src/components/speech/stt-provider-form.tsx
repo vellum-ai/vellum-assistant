@@ -167,21 +167,22 @@ export function SttProviderForm({
     isLanguageSelectable,
     selectLanguage,
   } = useSttLanguageSelection(assistantId);
-  // The hook's availability describes the daemon's CONFIGURED provider, but
-  // the form can sit on a different unsaved DRAFT choice, so the picker also
-  // gates on the daemon id it would steer: the draft's mapping, except that a
-  // daemon provider the dropdown can't represent (e.g. xai via CLI) renders
-  // as a placeholder while the daemon keeps running it, so until the user
-  // drafts a real change that provider is the one a language pick hot-applies
-  // to. The client-only native choice has no daemon mapping (its recognizer
-  // never reads `services.stt.language`), so it resolves to undefined and the
-  // capability check below hides the picker.
+  // A language pick hot-applies to the daemon's CONFIGURED provider, so the
+  // picker binds to that provider and hides while the dropdown holds an
+  // unsaved draft of a different one: offering the draft's languages would
+  // write a value the still-active provider may ignore (e.g. Multilingual
+  // drafted for Vellum while xAI runs, whose resolver drops "multi"). With
+  // no pending draft, the steered id is the daemon's own provider when the
+  // dropdown can't represent it (e.g. xai via CLI renders as a placeholder),
+  // otherwise the selection's mapping. The client-only native choice has no
+  // daemon mapping (its recognizer never reads `services.stt.language`), so
+  // it resolves to undefined and the capability check below hides the
+  // picker.
   const languageDaemonProviderId = useMemo(() => {
-    if (
-      daemonSttProvider &&
-      !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider] &&
-      draftProvider === serverProvider
-    ) {
+    if (draftProvider !== serverProvider) {
+      return undefined;
+    }
+    if (daemonSttProvider && !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider]) {
       return daemonSttProvider;
     }
     return STT_DAEMON_PROVIDER[draftProvider]?.provider;

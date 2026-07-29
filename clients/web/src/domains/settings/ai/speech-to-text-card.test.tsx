@@ -376,7 +376,7 @@ describe("SpeechToTextCard — Vellum provider", () => {
   });
 });
 
-describe("SpeechToTextCard — Spoken language dropdown", () => {
+describe("SpeechToTextCard: Spoken language dropdown", () => {
   beforeEach(() => {
     localStorage.clear();
     nativeDictationSupported = false;
@@ -436,7 +436,7 @@ describe("SpeechToTextCard — Spoken language dropdown", () => {
 
   test("hides while the form shows the client-only native provider", async () => {
     // The daemon reports its own (language-selectable) provider, but the
-    // native recognizer never reads `services.stt.language` — a picker here
+    // native recognizer never reads `services.stt.language`: a picker here
     // would PATCH a value nothing consumes.
     nativeDictationSupported = true;
     daemonConfigData = { services: { stt: { provider: "deepgram" } } };
@@ -480,6 +480,32 @@ describe("SpeechToTextCard — Spoken language dropdown", () => {
 
     openProviderDropdown();
     selectOption("OpenAI");
+
+    expect(languageTrigger()).toBeNull();
+  });
+
+  test("hides when the draft switches between manual providers", async () => {
+    // Saved provider deepgram (manual), dropdown switched to Vellum without
+    // saving: both are manual, but a pick would hot-apply to the still
+    // active deepgram config while the row advertises the draft's options,
+    // so any pending provider draft hides the picker.
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+        { id: "vellum", displayName: "Vellum", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+
+    openProviderDropdown();
+    selectOption("Vellum");
 
     expect(languageTrigger()).toBeNull();
   });
