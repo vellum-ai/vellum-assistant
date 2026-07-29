@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
-import { getDb } from "../../persistence/db-connection.js";
+import { getDb, getMemoryDb } from "../../persistence/db-connection.js";
 import { asString, truncate } from "../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
@@ -77,15 +77,18 @@ export async function buildConversationSummaryJob(
     conditions.push(gt(memorySegments.createdAt, lastCoveredAt));
   }
 
-  const rows = db
-    .select()
-    .from(memorySegments)
-    .where(and(...conditions))
-    .orderBy(asc(memorySegments.createdAt))
-    .all();
-  if (rows.length === 0) {
-    return;
-  }
+  // Segments live on the memory connection; the summary row above and below
+  // stays on the main connection.
+  const mem = getMemoryDb();
+  const rows = mem
+    ? mem
+        .select()
+        .from(memorySegments)
+        .where(and(...conditions))
+        .orderBy(asc(memorySegments.createdAt))
+        .all()
+    : [];
+  if (rows.length === 0) return;
 
   // Build segment text for LLM input (already in chronological order)
   const segmentTexts = rows

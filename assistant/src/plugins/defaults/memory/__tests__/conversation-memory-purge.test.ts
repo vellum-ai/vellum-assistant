@@ -52,6 +52,7 @@ describe("conversation memory purge", () => {
         "conversation_graph_memory_state",
         "memory_recall_logs",
         "memory_retrospective_state",
+        "memory_segments",
         "memory_v2_activation_logs",
         "memory_v3_ever_injected",
         "memory_v3_selections",

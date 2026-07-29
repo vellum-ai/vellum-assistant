@@ -464,6 +464,8 @@ import { migrateAddLlmUsageConversationType } from "./migrations/353-add-llm-usa
 import { migrateBackfillAppConversationLineage } from "./migrations/354-backfill-app-conversation-lineage.js";
 import { migrateAddScheduleGroupId } from "./migrations/355-add-schedule-group-id.js";
 import { migrateAddSubagentParentToolUseId } from "./migrations/356-add-subagent-parent-tool-use-id.js";
+import { migrateMoveMemorySegmentsToMemoryDb } from "./migrations/357-move-memory-segments-to-memory-db.js";
+import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/358-move-memory-embeddings-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1485,4 +1487,41 @@ export const migrationSteps: MigrationStep[] = [
   migrateBackfillAppConversationLineage,
   migrateAddScheduleGroupId,
   migrateAddSubagentParentToolUseId,
+  {
+    name: "migrateMoveMemorySegmentsToMemoryDb",
+    run: migrateMoveMemorySegmentsToMemoryDb,
+    // Gate on every migration that creates, alters, indexes, or reads
+    // memory_segments on main: the FTS triggers, FTS backfill, and index
+    // creation each fail against the dropped table if they run after the move.
+    // migrateDeletePrivateConversations relies on the message-delete cascade to
+    // clear private segments, so it must land before the move; the runtime
+    // conversation-delete path is handled separately by adding memory_segments
+    // to CONVERSATION_KEYED_MEMORY_TABLES.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateMemoryFtsBackfill",
+      "migrateMemorySegmentsIndexes",
+      "createWatchersAndLogsTables",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryEmbeddingsToMemoryDb",
+    run: migrateMoveMemoryEmbeddingsToMemoryDb,
+    // Gate on every migration that creates, alters, or writes rows in
+    // memory_embeddings on main so the move never drains a table another
+    // migration still expects there.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateEmbeddingVectorBlob",
+      "migrateEmbeddingsNullableVectorJson",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDropSimplifiedMemory",
+      "migrateDeletePrivateConversations",
+      "migrateSweepOrphanedGraphNodeVectors",
+    ],
+  },
 ];
