@@ -23,6 +23,11 @@ import { useTitleBarStore } from "@/stores/title-bar-store";
 // Off Electron the inset is 0.
 const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 80;
 
+// iOS shell only: strip the touch-mobile pill fill so the glyph floats
+// bare while keeping the 40x40 tap target and focus ring.
+const NATIVE_IOS_BARE_ICON_BUTTON =
+  "native-ios:bg-transparent native-ios:hover:bg-transparent native-ios:active:bg-transparent";
+
 export interface ChatLayoutHeaderProps {
   isMobile: boolean;
   drawerOpen: boolean;
@@ -107,6 +112,7 @@ export function ChatLayoutHeader({
       iconOnly={<Search />}
       aria-label="Search (Ctrl+K)"
       tooltip="Search (Ctrl+K)"
+      className={NATIVE_IOS_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;
@@ -160,6 +166,7 @@ export function ChatLayoutHeader({
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
             tooltip="Open navigation"
+            className={NATIVE_IOS_BARE_ICON_BUTTON}
             onClick={toggleSidebar}
           />
         ) : (
