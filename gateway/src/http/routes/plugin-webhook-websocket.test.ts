@@ -401,6 +401,43 @@ describe("frame delivery", () => {
     expect(calls[0]!.body).toBe('{"event":"joined"}');
   });
 
+  it("sends text frames as a raw content type, not application/json", async () => {
+    // The runtime adapter parses application/json and keeps only objects, so
+    // a bare string or malformed frame would reach the plugin as an empty
+    // body. Text frames must arrive exactly as sent.
+    const seen: { body: unknown; contentType: string }[] = [];
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(async (_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      seen.push({ body: init?.body, contentType: headers["content-type"]! });
+      return new Response("", { status: 200 });
+    });
+    const { ws } = fakeSocket(data);
+
+    handlers.message(ws, "not json at all");
+    await settle();
+
+    expect(seen[0]!.contentType).not.toContain("application/json");
+    expect(seen[0]!.body).toBe("not json at all");
+  });
+
+  it("sends binary frames as octet-stream", async () => {
+    const seen: { body: unknown; contentType: string }[] = [];
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(async (_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      seen.push({ body: init?.body, contentType: headers["content-type"]! });
+      return new Response("", { status: 200 });
+    });
+    const { ws } = fakeSocket(data);
+
+    handlers.message(ws, new Uint8Array([1, 2, 3]).buffer);
+    await settle();
+
+    expect(seen[0]!.contentType).toBe("application/octet-stream");
+    expect(seen[0]!.body).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
   it("delivers frames one at a time, in order", async () => {
     // The ordering guarantee: the plugin must see `joined` before `left`,
     // which a fan-out of concurrent POSTs would not promise.

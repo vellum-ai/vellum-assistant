@@ -215,9 +215,14 @@ async function deliverFrame(
       method: "POST",
       headers: {
         authorization: `Bearer ${mintServiceToken()}`,
+        // Deliberately not application/json for text frames: the runtime's
+        // adapter would parse that and keep only JSON *objects*, silently
+        // dropping a bare string, a number, or anything malformed. A raw
+        // content type hands the plugin the frame exactly as it arrived and
+        // lets the plugin decide what it is.
         "content-type":
           typeof frame === "string"
-            ? "application/json"
+            ? "text/plain; charset=utf-8"
             : "application/octet-stream",
       },
       // Uint8Array is a valid BodyInit at runtime; the DOM lib types only
