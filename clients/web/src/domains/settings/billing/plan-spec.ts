@@ -132,17 +132,20 @@ export function currentTierRows(
     rows.push(`${current.storageGib} GB`);
   }
   if (current.creditTier != null) {
-    // A held/deprecated credit tier absent from the catalog can't resolve to a
-    // catalog label; derive the amount from the tier key (credits_<usd>) so the
-    // paid bundle still shows instead of being silently dropped.
-    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
-    const label =
-      findCreditTier(proPlan, current.creditTier)?.label ??
-      (usd != null ? `${usd} credits` : null);
+    // Built from the structured `credits_usd` rather than `CreditTier.label`:
+    // the label is server-owned copy, so composing a cadence onto it would read
+    // as "50 credits/mo/mo" the day it starts carrying one itself.
+    //
+    // A held/deprecated tier absent from the catalog has no structured amount,
+    // so it falls back to the tier key (credits_<usd>) and the paid bundle
+    // still shows instead of being silently dropped.
+    const catalogUsd = findCreditTier(proPlan, current.creditTier)?.credits_usd;
+    const keyUsd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
+    const usd = catalogUsd ?? (keyUsd != null ? Number(keyUsd) : null);
     // Credits refresh every month, unlike the machine and storage rows, which
     // are standing capacity. A bundle whose amount can't be resolved at all
     // stays generic rather than claiming a cadence for an unknown quantity.
-    rows.push(label != null ? `${label}/mo` : "Credit bundle");
+    rows.push(usd != null ? `${usd} credits/mo` : "Credit bundle");
   }
   return rows;
 }

@@ -204,6 +204,31 @@ describe("currentTierRows", () => {
     ).toBe("115 credits/mo");
   });
 
+  test("ignores a catalog label that already carries a cadence", () => {
+    // The row is composed from `credits_usd`, so a server label formatted as
+    // "$50 credits/mo" cannot double up into "50 credits/mo/mo".
+    const cadenced = {
+      id: "pro",
+      credit_tiers: [
+        { tier: "credits_50", label: "$50 credits/mo", credits_usd: 50 },
+      ],
+    } as unknown as ProPlan;
+    expect(currentTierRows(tiers(), cadenced)[2]).toBe("50 credits/mo");
+  });
+
+  test("renders a zero-credit bundle rather than treating it as absent", () => {
+    const freeBundle = {
+      id: "pro",
+      credit_tiers: [{ tier: "credits_0", label: "None", credits_usd: 0 }],
+    } as unknown as ProPlan;
+    expect(
+      currentTierRows(
+        tiers({ creditTier: "credits_0" as CurrentTiers["creditTier"] }),
+        freeBundle,
+      )[2],
+    ).toBe("0 credits/mo");
+  });
+
   test("falls back to a generic bundle label for an unparseable tier key", () => {
     expect(
       currentTierRows(
