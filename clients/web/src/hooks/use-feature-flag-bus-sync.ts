@@ -80,11 +80,11 @@ export function useFeatureFlagBusSync(
         },
         // Keep an active request instead of canceling it and starting a
         // replacement. The query function also forwards its abort signal.
-        { cancelRefetch: false },
+        { cancelRefetch: false, throwOnError: wasFetching },
       );
       if (wasFetching && !clientRefreshQueuedAfterFetchRef.current) {
         clientRefreshQueuedAfterFetchRef.current = true;
-        const refreshAfterSettle = () => {
+        const refreshAfterSuccess = () => {
           if (generation !== clientRefreshGenerationRef.current) {
             return;
           }
@@ -95,7 +95,15 @@ export function useFeatureFlagBusSync(
           }
           refresh();
         };
-        void invalidation.then(refreshAfterSettle, refreshAfterSettle);
+        const clearQueuedRefreshAfterFailure = () => {
+          if (generation === clientRefreshGenerationRef.current) {
+            clientRefreshQueuedAfterFetchRef.current = false;
+          }
+        };
+        void invalidation.then(
+          refreshAfterSuccess,
+          clearQueuedRefreshAfterFailure,
+        );
       }
     };
     const lastRefreshAt = lastClientRefreshAtRef.current;

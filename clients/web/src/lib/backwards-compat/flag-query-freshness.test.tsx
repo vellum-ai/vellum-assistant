@@ -70,7 +70,7 @@ describe("useFlagQueryFreshness", () => {
 describe("useClientFlagQueryFreshness", () => {
   test("returns poll options when version is unknown", () => {
     setVersion(null);
-    const { result } = renderHook(() => useClientFlagQueryFreshness(), {
+    const { result } = renderHook(() => useClientFlagQueryFreshness(true), {
       wrapper,
     });
     expect(result.current).toEqual({
@@ -81,7 +81,18 @@ describe("useClientFlagQueryFreshness", () => {
 
   test("returns poll options for assistants on 0.8.4", () => {
     setVersion("0.8.4");
-    const { result } = renderHook(() => useClientFlagQueryFreshness(), {
+    const { result } = renderHook(() => useClientFlagQueryFreshness(true), {
+      wrapper,
+    });
+    expect(result.current).toEqual({
+      staleTime: 5_000,
+      refetchInterval: 5_000,
+    });
+  });
+
+  test("polls when the sync transport is not attached", () => {
+    setVersion("0.8.5");
+    const { result } = renderHook(() => useClientFlagQueryFreshness(false), {
       wrapper,
     });
     expect(result.current).toEqual({
@@ -92,7 +103,7 @@ describe("useClientFlagQueryFreshness", () => {
 
   test("keeps push-capable client flags fresh until invalidated", () => {
     setVersion("0.8.5");
-    const { result } = renderHook(() => useClientFlagQueryFreshness(), {
+    const { result } = renderHook(() => useClientFlagQueryFreshness(true), {
       wrapper,
     });
     expect(result.current).toEqual({

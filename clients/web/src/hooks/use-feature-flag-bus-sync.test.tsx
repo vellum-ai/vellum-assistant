@@ -77,7 +77,7 @@ describe("useFeatureFlagBusSync", () => {
         {
           queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
         },
-        { cancelRefetch: false },
+        { cancelRefetch: false, throwOnError: false },
       );
     });
   });
@@ -134,6 +134,35 @@ describe("useFeatureFlagBusSync", () => {
     });
   });
 
+  test("does not refresh immediately when an active fetch fails", async () => {
+    const queryClient = freshQueryClient();
+    let failActiveFetch: ((error: Error) => void) | undefined;
+    const activeFetch = new Promise<void>((_, reject) => {
+      failActiveFetch = reject;
+    });
+    let isFetching = true;
+    queryClient.isFetching = mock(() => (isFetching ? 1 : 0)) as never;
+    const spy = mock(() => activeFetch);
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    expect(spy).toHaveBeenCalledWith(
+      {
+        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+      },
+      { cancelRefetch: false, throwOnError: true },
+    );
+
+    isFetching = false;
+    failActiveFetch?.(new Error("rate limited"));
+    await Promise.resolve();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   test("invalidates assistant feature flag query prefix on feature-flags:assistant sync tag", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
@@ -164,7 +193,7 @@ describe("useFeatureFlagBusSync", () => {
         {
           queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
         },
-        { cancelRefetch: false },
+        { cancelRefetch: false, throwOnError: false },
       );
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
@@ -188,7 +217,7 @@ describe("useFeatureFlagBusSync", () => {
         {
           queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
         },
-        { cancelRefetch: false },
+        { cancelRefetch: false, throwOnError: false },
       );
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({

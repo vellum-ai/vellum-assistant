@@ -59,8 +59,11 @@ function mapFlags(serverFlags: Record<string, boolean | string>): {
   return { boolFlags, stringFlags };
 }
 
-export function useClientFeatureFlagSync(enabled: boolean) {
-  const freshness = useClientFlagQueryFreshness();
+export function useClientFeatureFlagSync(
+  enabled: boolean,
+  hasSyncTransport = false,
+) {
+  const freshness = useClientFlagQueryFreshness(hasSyncTransport);
   // The client-flag endpoint evaluates against the signed-in user + org, so an
   // authenticated request without `Vellum-Organization-Id` is rejected. The org
   // store hydrates asynchronously after auth, so an authenticated cold load can
@@ -76,9 +79,9 @@ export function useClientFeatureFlagSync(enabled: boolean) {
     queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     queryFn: ({ signal }) => fetchClientFlagValues(signal),
     enabled: shouldFetch,
-    // Push-capable sessions load once per identity-scoped query cache. Actual
-    // flag changes and bounded reconnect catch-up invalidate explicitly.
-    // Assistants before 0.8.5 retain their polling fallback.
+    // Push-capable sessions with an attached sync transport load once per
+    // identity-scoped query cache. Older assistants and surfaces without that
+    // transport retain their polling fallback.
     ...freshness,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
