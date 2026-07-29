@@ -136,7 +136,7 @@ mock.module("../openai-whisper-stream.js", () => ({
 const deepgramBatchCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
 
 // Real module captured before the mock replaces it, so pure exports
-// (deepgramModelOverrideForLanguage) stay real while the provider class
+// (deepgramLanguageOptions) stay real while the provider class
 // alone is stubbed.
 const actualDeepgram = await import("../deepgram.js");
 

@@ -83,12 +83,12 @@ class DeepgramBatchTranscriber implements BatchTranscriber {
   async transcribe(
     request: SttTranscribeRequest,
   ): Promise<SttTranscribeResult> {
-    const { DeepgramProvider, deepgramModelOverrideForLanguage } =
+    const { DeepgramProvider, deepgramLanguageOptions } =
       await import("../providers/speech-to-text/deepgram.js");
-    const provider = new DeepgramProvider(this.apiKey, {
-      ...deepgramModelOverrideForLanguage(this.language),
-      ...(this.language ? { language: this.language } : {}),
-    });
+    const provider = new DeepgramProvider(
+      this.apiKey,
+      deepgramLanguageOptions(this.language),
+    );
 
     return provider.transcribe(request.audio, request.mimeType, request.signal);
   }
@@ -142,16 +142,25 @@ class XAIBatchTranscriber implements BatchTranscriber {
   readonly boundaryId = "daemon-batch" as const;
 
   private readonly apiKey: string;
+  private readonly language: string | undefined;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, language?: string) {
     this.apiKey = apiKey;
+    this.language = language;
   }
 
   async transcribe(
     request: SttTranscribeRequest,
   ): Promise<SttTranscribeResult> {
     const { XAIProvider } = await import("../providers/speech-to-text/xai.js");
-    const provider = new XAIProvider(this.apiKey);
+    const provider = new XAIProvider(this.apiKey, {
+      // "multi" is Deepgram's code-switching mode, not a language code, so
+      // it never reaches xAI (which auto-detects multilingual audio natively
+      // when no hint is given). Mirrors the streaming resolver's xai case.
+      ...(this.language && this.language !== "multi"
+        ? { language: this.language }
+        : {}),
+    });
     return provider.transcribe(request.audio, request.mimeType, request.signal);
   }
 }
@@ -200,16 +209,6 @@ export function normalizeSttError(err: unknown): SttError {
 // Public resolver / factory
 // ---------------------------------------------------------------------------
 
-/**
- * Create a `BatchTranscriber` for the daemon-batch boundary.
- *
- * Callers provide the API key and provider ID (obtained via the authorized
- * secure-keys importer in `providers/speech-to-text/resolve.ts`) so that
- * this module doesn't need to import secure-keys directly.
- *
- * Returns `null` when `apiKey` is falsy, signalling to the caller that
- * batch transcription is unavailable.
- */
 // ---------------------------------------------------------------------------
 // Vellum managed adapter — implements BatchTranscriber on top of the
 // platform's managed speech endpoint. No API key: the platform connection
@@ -234,23 +233,26 @@ class VellumManagedBatchTranscriber implements BatchTranscriber {
 }
 
 /**
- * Options for {@link createDaemonBatchTranscriber}.
+ * Create a `BatchTranscriber` for the daemon-batch boundary.
+ *
+ * Callers provide the API key and provider ID (obtained via the authorized
+ * secure-keys importer in `providers/speech-to-text/resolve.ts`) so that
+ * this module doesn't need to import secure-keys directly. Returns `null`
+ * when `apiKey` is falsy, signalling to the caller that batch transcription
+ * is unavailable.
+ *
+ * `language` is the spoken language, forwarded to providers whose batch API
+ * accepts one: Deepgram (where `"multi"` also pins nova-3) and xAI (where
+ * `"multi"` is dropped because it is a Deepgram-specific value, not a
+ * language code). Whisper and Gemini auto-detect natively and take no
+ * language parameter, so it is silently ignored for them, as is the vellum
+ * managed path (the platform speech proxy accepts no language parameter;
+ * see the deferral note in `resolveBatchTranscriber`).
  */
-export interface DaemonBatchTranscriberOptions {
-  /**
-   * Spoken language forwarded to providers whose batch API accepts one
-   * (Deepgram). Whisper, Gemini, and xAI auto-detect natively and take no
-   * language parameter, so it is silently ignored for them, as is the
-   * vellum managed path (the platform speech proxy accepts no language
-   * parameter; see the deferral note in `resolveBatchTranscriber`).
-   */
-  language?: string;
-}
-
 export function createDaemonBatchTranscriber(
   apiKey: string | null | undefined,
   providerId: SttProviderId,
-  options: DaemonBatchTranscriberOptions = {},
+  language?: string,
 ): BatchTranscriber | null {
   // vellum authenticates via the platform connection, not an API key.
   if (providerId === "vellum") {
@@ -264,11 +266,11 @@ export function createDaemonBatchTranscriber(
     case "openai-whisper":
       return new WhisperBatchTranscriber(apiKey);
     case "deepgram":
-      return new DeepgramBatchTranscriber(apiKey, options.language);
+      return new DeepgramBatchTranscriber(apiKey, language);
     case "google-gemini":
       return new GoogleGeminiBatchTranscriber(apiKey);
     case "xai":
-      return new XAIBatchTranscriber(apiKey);
+      return new XAIBatchTranscriber(apiKey, language);
     default: {
       // Exhaustive check — compile error if a new SttProviderId is added
       // without a corresponding case here.

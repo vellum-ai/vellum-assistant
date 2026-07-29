@@ -1,19 +1,24 @@
 import { describe, expect, test } from "bun:test";
 
-import { deepgramModelOverrideForLanguage } from "../deepgram.js";
+import { deepgramLanguageOptions } from "../deepgram.js";
 
-describe("deepgramModelOverrideForLanguage", () => {
-  test('"multi" pins nova-3 (the only model that accepts code-switching)', () => {
-    expect(deepgramModelOverrideForLanguage("multi")).toEqual({
+describe("deepgramLanguageOptions", () => {
+  test('"multi" pairs the language with nova-3 (the only model that accepts code-switching)', () => {
+    expect(deepgramLanguageOptions("multi")).toEqual({
       model: "nova-3",
+      language: "multi",
     });
   });
 
-  test("a specific language returns no override, keeping the caller's default model", () => {
-    expect(deepgramModelOverrideForLanguage("hi")).toEqual({});
+  test("a specific language returns only the language, keeping the caller's default model", () => {
+    expect(deepgramLanguageOptions("hi")).toEqual({ language: "hi" });
   });
 
-  test("an unset language returns no override", () => {
-    expect(deepgramModelOverrideForLanguage(undefined)).toEqual({});
+  test("an unset language returns no options at all", () => {
+    expect(deepgramLanguageOptions(undefined)).toEqual({});
+  });
+
+  test("an empty-string language returns no options at all", () => {
+    expect(deepgramLanguageOptions("")).toEqual({});
   });
 });
