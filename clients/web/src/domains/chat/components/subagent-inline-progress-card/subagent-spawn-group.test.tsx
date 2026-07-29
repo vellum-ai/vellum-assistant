@@ -8,7 +8,7 @@
  * plus a "Collapse" toggle; and "Collapse" returns to the summary.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
@@ -53,6 +53,27 @@ describe("SubagentSpawnGroup", () => {
     // Badges present, but the expanded list rows are not yet rendered.
     expect(queryAllByTestId("subagent-avatar-badge")).toHaveLength(3);
     expect(queryAllByTestId("inline-process-card")).toHaveLength(0);
+  });
+
+  test("expanding fetches the group's detail and still expands", async () => {
+    const ids = spawnIds(3);
+    const { getByTestId, findAllByTestId } = render(
+      <SubagentSpawnGroup subagentIds={ids} />,
+    );
+
+    const spy = spyOn(
+      useSubagentStore.getState(),
+      "fetchGroupDetail",
+    ).mockImplementation(() => {});
+
+    fireEvent.click(getByTestId("subagent-avatar-row-details"));
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(ids);
+    // The expand still happens. the fetch is a side-effect, not a gate.
+    expect(await findAllByTestId("inline-process-card")).toHaveLength(3);
+
+    spy.mockRestore();
   });
 
   test("Details expands to the row list plus a Collapse toggle", async () => {

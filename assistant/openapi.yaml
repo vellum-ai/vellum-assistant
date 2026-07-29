@@ -29414,8 +29414,8 @@ paths:
           schema:
             type: string
           description:
-            The subagent's own conversation ID. Fallback only — when the daemon knows the subagent (live or
-            rehydrated), it resolves the conversation itself and this parameter is ignored.
+            "The subagent's own conversation ID. Fallback only: when the assistant knows the subagent (live,
+            rehydrated, or in its durable records), it resolves the conversation itself and this parameter is ignored."
       responses:
         "200":
           description: Successful response
@@ -29481,6 +29481,8 @@ paths:
                   label:
                     type: string
                   parentToolUseId:
+                    type: string
+                  conversationId:
                     type: string
                 required:
                   - subagentId
@@ -29574,9 +29576,14 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation,
-        with the identity fields a client needs to rebuild a store entry it never saw spawn (label, the subagent's own
-        conversation id, and the spawning tool-use id). Subagents not in the response are orphaned.
+        "Returns the subagents the assistant knows for a given parent conversation (live, rehydrated, and durably
+        recorded), including recently finished runs whose in-memory metadata the retention sweep has already evicted.
+        Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal
+        state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child
+        conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from
+        scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports,
+        so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be
+        present; every other field is optional."
       tags:
         - subagents
       parameters:
@@ -29603,11 +29610,31 @@ paths:
                       properties:
                         status:
                           type: string
-                        label:
-                          type: string
                         conversationId:
                           type: string
+                        label:
+                          type: string
+                        objective:
+                          type: string
+                        isFork:
+                          type: boolean
                         parentToolUseId:
+                          type: string
+                        usage:
+                          type: object
+                          properties:
+                            inputTokens:
+                              type: number
+                            outputTokens:
+                              type: number
+                            estimatedCost:
+                              type: number
+                          required:
+                            - inputTokens
+                            - outputTokens
+                            - estimatedCost
+                          additionalProperties: false
+                        error:
                           type: string
                       required:
                         - status

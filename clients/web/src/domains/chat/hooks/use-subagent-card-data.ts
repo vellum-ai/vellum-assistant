@@ -37,7 +37,9 @@ import {
   type SubagentTimelineEvent,
 } from "@/domains/chat/subagent-store";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
+import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentStatus } from "@vellumai/assistant-api";
+import { isActiveStatus } from "@/utils/subagent-status";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { truncate } from "@/domains/chat/utils/truncate";
@@ -558,6 +560,33 @@ export function deriveSubagentCardData(
     toolMeta,
   }: { steps: ToolCallCardStep[]; toolMeta: Array<ToolMeta | undefined> },
 ): ToolCallCardData {
+  // A settled (terminal) entry whose timeline hasn't been fetched yet: don't
+  // claim "0 steps": the subagent DID have steps, they just haven't loaded.
+  // Render a loading state until the fetch lands (see `detailSettled`), at
+  // which point the honest truth (its steps, or a resting empty state) takes
+  // over. `!isActiveStatus` so live cards keep their streaming "Working" state;
+  // `canAddressSubagentDetail` so a card on an old daemon that can never fetch
+  // falls back to today's behavior instead of spinning forever;
+  // `events.length === 0` so an already-loaded card is untouched.
+  const isLoadingDetail =
+    !isActiveStatus(entry.status) &&
+    canAddressSubagentDetail(entry) &&
+    entry.events.length === 0 &&
+    !entry.detailSettled;
+
+  if (isLoadingDetail) {
+    return {
+      state: "loading",
+      currentStepTitle: "Loading",
+      currentStepInfo: entry.label,
+      // Empty so the card chrome renders no step-count pill (the shell hides
+      // "", "0 …", and "1 …"); a real count follows once the fetch settles.
+      stepCount: "",
+      steps,
+      carouselItems: [],
+    };
+  }
+
   const state = deriveCardState(entry.status);
   const { currentStepTitle, currentStepInfo } = deriveCurrentStep(
     entry,

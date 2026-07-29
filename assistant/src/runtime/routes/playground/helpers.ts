@@ -62,7 +62,9 @@ export function deleteConversationById(id: string): boolean {
   if (!getConversationRow(id)) {
     return false;
   }
-  destroyActiveConversation(id);
+  // In-memory teardown only: `deleteConversationCrud` drops the durable
+  // subagent rows inside its own transaction.
+  destroyActiveConversation(id, { keepSubagentRecords: true });
   const deleted = deleteConversationCrud(id);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {

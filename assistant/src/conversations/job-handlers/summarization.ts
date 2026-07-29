@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
-import { getDb } from "../../persistence/db-connection.js";
+import { getMemoryDb } from "../../persistence/db-connection.js";
 import { asString, truncate } from "../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
@@ -53,7 +53,10 @@ export async function buildConversationSummaryJob(
   if (!conversationId) {
     return;
   }
-  const db = getDb();
+  const db = getMemoryDb();
+  if (!db) {
+    return;
+  }
 
   const existing = db
     .select()
@@ -77,6 +80,7 @@ export async function buildConversationSummaryJob(
     conditions.push(gt(memorySegments.createdAt, lastCoveredAt));
   }
 
+  // memory_segments and memory_summaries both live on the memory connection.
   const rows = db
     .select()
     .from(memorySegments)
