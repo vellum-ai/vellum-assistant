@@ -22,10 +22,11 @@ import {
   isMemoryEnabled,
   upsertDebouncedJob,
 } from "../../../persistence/jobs-store.js";
-import { memorySegments } from "../../../persistence/schema/index.js";
+import { memorySegments, messages } from "../../../persistence/schema/index.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { isAutoAnalysisConversation } from "../../../runtime/services/auto-analysis-guard.js";
 import { getLogger } from "./logging.js";
+import { memoryDbOrNull } from "./memory-db.js";
 import { isMemoryRetrospectiveConversation } from "./memory-retrospective-enqueue.js";
 import { maybeEnqueueRetrospective } from "./memory-retrospective-trigger-check.js";
 import { extractMediaBlockMeta } from "./message-media.js";
@@ -80,7 +81,10 @@ export async function indexMessageNow(
     return { indexedSegments: 0, enqueuedJobs: 0 };
   }
 
-  const db = getDb();
+  const mem = memoryDbOrNull("indexMessageNow");
+  if (!mem) {
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
   const now = Date.now();
   const segments = segmentText(
     text,
@@ -115,7 +119,22 @@ export async function indexMessageNow(
     type: "embed_segment" | "embed_attachment";
     payload: Record<string, unknown>;
   }> = [];
-  db.transaction((tx) => {
+
+  // memory_segments has no cross-file FK to messages, so this call must not
+  // leave pieces for a message with no row. Skip early when the source
+  // row is already gone, the common case of a backfill job running after the
+  // message was deleted. A post-write re-check below closes the narrower window
+  // where the delete lands mid-transaction.
+  const sourceMessage = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, input.messageId))
+    .get();
+  if (!sourceMessage) {
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
+
+  mem.transaction((tx) => {
     for (const segment of segments) {
       if (segment.text.length < MIN_SEGMENT_CHARS) {
         skippedShortSegments++;
@@ -173,6 +192,24 @@ export async function indexMessageNow(
       }
     }
   });
+
+  // Re-check the source message after committing: the preflight leaves a window
+  // where a delete lands between it and this write. If the message is gone now,
+  // drop the pieces this call just wrote and skip the embedding jobs, so a
+  // delete racing a backfill leaves nothing searchable behind. No embeddings
+  // exist yet. The skipped jobs are what would have created them.
+  const stillExists = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.id, input.messageId))
+    .get();
+  if (!stillExists) {
+    mem
+      .delete(memorySegments)
+      .where(eq(memorySegments.messageId, input.messageId))
+      .run();
+    return { indexedSegments: 0, enqueuedJobs: 0 };
+  }
 
   // Flush queued jobs onto the memory connection now the segment writes have
   // committed — enqueue only on success, mirroring the prior in-transaction

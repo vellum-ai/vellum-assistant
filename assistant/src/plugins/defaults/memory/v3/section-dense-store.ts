@@ -26,7 +26,6 @@ import { v5 as uuidv5 } from "uuid";
 
 import type { AssistantConfig } from "../../../../config/types.js";
 import { deleteMemoryCheckpoint } from "../../../../persistence/checkpoints.js";
-import { getDb } from "../../../../persistence/db-connection.js";
 import {
   geminiCacheExtras,
   getMemoryBackendStatus,
@@ -38,6 +37,7 @@ import {
 import { embeddingInputContentHash } from "../../../../persistence/embeddings/embedding-types.js";
 import { embedWithBackend, resolveQdrantUrl } from "../embeddings.js";
 import { getLogger } from "../logging.js";
+import { memoryDbOrNull } from "../memory-db.js";
 import type { Section } from "./types.js";
 
 const log = getLogger("memory-v3-section-dense-store");
@@ -323,7 +323,7 @@ async function embedSectionsCached(
   // no provider resolves (backend down/disabled) skip the cache and let the
   // batched embed below surface the failure exactly as the uncached path did.
   const status = await getMemoryBackendStatus(config);
-  const db = getDb();
+  const mem = memoryDbOrNull("embedSectionsCached");
 
   // Only Gemini's options change the vector for identical text, so fold the
   // extras into the cache identity only when Gemini is the resolved provider;
@@ -333,10 +333,10 @@ async function embedSectionsCached(
 
   const result: Array<number[] | undefined> = new Array(sections.length);
   const missIndices: number[] = [];
-  if (status.provider && status.model) {
+  if (mem && status.provider && status.model) {
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i]!;
-      const cached = readEmbeddingCache(db, {
+      const cached = readEmbeddingCache(mem, {
         targetType: V3_SECTION_TARGET_TYPE,
         targetId: sectionCacheId(section.article, section.ordinal),
         provider: status.provider,
@@ -389,15 +389,17 @@ async function embedSectionsCached(
     if (!vector) continue;
     result[i] = vector;
     const section = sections[i]!;
-    writeEmbeddingCache(db, {
-      targetType: V3_SECTION_TARGET_TYPE,
-      targetId: sectionCacheId(section.article, section.ordinal),
-      dense: vector,
-      contentHash: hashes[i]!,
-      provider: writeProvider,
-      model: writeModel,
-      now,
-    });
+    if (mem) {
+      writeEmbeddingCache(mem, {
+        targetType: V3_SECTION_TARGET_TYPE,
+        targetId: sectionCacheId(section.article, section.ordinal),
+        dense: vector,
+        contentHash: hashes[i]!,
+        provider: writeProvider,
+        model: writeModel,
+        now,
+      });
+    }
   }
 
   return result;

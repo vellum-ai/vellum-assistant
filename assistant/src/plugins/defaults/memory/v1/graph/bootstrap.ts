@@ -355,9 +355,10 @@ export function maybeEnqueueGraphBootstrap(): void {
     return; // Graph already populated
   }
 
-  // Check for historical data to bootstrap from
+  // Check for historical data to bootstrap from. Segments live on the
+  // memory connection alongside the graph nodes read above.
   const segmentCount =
-    getDb()
+    memoryDb
       .select({ count: sql<number>`count(*)` })
       .from(memorySegments)
       .get()?.count ?? 0;

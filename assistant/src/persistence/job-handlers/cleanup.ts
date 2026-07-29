@@ -4,6 +4,7 @@ import { runHook } from "../../plugins/pipeline.js";
 import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
+import { purgeConversationSegments } from "../conversation-crud.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
@@ -232,12 +233,14 @@ export function pruneOldConversationsJob(
     });
   }
 
-  // Fire the conversation-deleted signal for each pruned id, mirroring the
-  // single-delete primitive: the memory plugin's hook purges its relocated
+  // Purge each pruned conversation's segments directly, then fire the
+  // conversation-deleted signal. The hook is fire-and-forget and a no-op when
+  // the memory plugin is disabled, so relying on it alone would leave the
+  // deleted conversation's plaintext segment rows in the memory database; the
+  // direct purge removes them regardless. The hook still handles the derived
   // per-conversation tables and cancels the conversation's pending jobs.
-  // Fire-and-forget, after the rows are gone — a lost cleanup only leaves
-  // harmless orphan rows in derived tables.
   for (const id of prunedIds) {
+    purgeConversationSegments(id);
     void runHook(HOOKS.CONVERSATION_DELETED, { conversationId: id });
   }
   const pruned = prunedIds.length;
