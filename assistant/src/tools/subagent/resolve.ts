@@ -43,13 +43,13 @@ export function resolveSubagentId(
     return input.subagent_id;
   }
   if (input.label) {
-    // A label names the newest spawn that claimed it. Which runs the manager
-    // still holds is decided by completion time (the TTL sweep) and by the
-    // startup rehydration bound, neither of which follows spawn order, so the
-    // index can hold an older run while the newer one survives only as a row.
-    // Consult both and compare spawn times rather than trusting either alone.
-    // The durable lookup is scoped to the calling conversation, so a label can
-    // only name that conversation's own children.
+    // A label names the newest spawn that claimed it. `rehydrateFromDb` is the
+    // one path that rebuilds the index from a subset of rows, and it picks that
+    // subset by completion time, which does not follow spawn order: a restart
+    // can leave the index on an older run while the newer one survives only as
+    // a row. Consult both and compare spawn times rather than trusting either
+    // alone. The durable lookup is scoped to the calling conversation, so a
+    // label can only name that conversation's own children.
     const live = getSubagentManager().getByLabel(
       input.label,
       context.conversationId,
