@@ -158,21 +158,39 @@ export function SttProviderForm({
   const daemonHasProvider = !!daemonSttProvider;
 
   const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
-  // Spoken-language pick, shown only when the daemon reports the configured
-  // provider as manually language-selectable. Hot-applies through the hook,
-  // independent of this form's Save.
+  // Spoken-language pick, shown only when the daemon reports the provider it
+  // would steer as manually language-selectable. Hot-applies through the
+  // hook, independent of this form's Save.
   const {
     available: languageAvailable,
     currentCode: languageCode,
+    isLanguageSelectable,
     selectLanguage,
   } = useSttLanguageSelection(assistantId);
-  // The hook's availability describes the daemon's provider, but the form can
-  // sit on the client-only native choice (before or after Save) while the
-  // daemon still reports its own default. The native recognizer never reads
-  // `services.stt.language`, so the picker hides whenever the form shows a
-  // provider with no daemon mapping rather than offering a language the
-  // recognizer ignores.
-  const draftUsesDaemonStt = !!STT_DAEMON_PROVIDER[draftProvider];
+  // The hook's availability describes the daemon's CONFIGURED provider, but
+  // the form can sit on a different unsaved DRAFT choice, so the picker also
+  // gates on the daemon id it would steer: the draft's mapping, except that a
+  // daemon provider the dropdown can't represent (e.g. xai via CLI) renders
+  // as a placeholder while the daemon keeps running it, so until the user
+  // drafts a real change that provider is the one a language pick hot-applies
+  // to. The client-only native choice has no daemon mapping (its recognizer
+  // never reads `services.stt.language`), so it resolves to undefined and the
+  // capability check below hides the picker.
+  const languageDaemonProviderId = useMemo(() => {
+    if (
+      daemonSttProvider &&
+      !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider] &&
+      draftProvider === serverProvider
+    ) {
+      return daemonSttProvider;
+    }
+    return STT_DAEMON_PROVIDER[draftProvider]?.provider;
+  }, [daemonSttProvider, draftProvider, serverProvider]);
+  // Unknown and absent probe entries read as false, hiding the control
+  // rather than offering a language its provider ignores.
+  const draftLanguageSelectable =
+    !!languageDaemonProviderId &&
+    isLanguageSelectable(languageDaemonProviderId);
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -361,7 +379,7 @@ export function SttProviderForm({
         />
       </div>
 
-      {languageAvailable && draftUsesDaemonStt && (
+      {languageAvailable && draftLanguageSelectable && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Spoken language
@@ -369,7 +387,10 @@ export function SttProviderForm({
           <Dropdown
             value={languageCode}
             onChange={selectLanguage}
-            options={sttLanguageOptionsFor(languageCode).map((l) => ({
+            options={sttLanguageOptionsFor(
+              languageCode,
+              languageDaemonProviderId ?? "",
+            ).map((l) => ({
               value: l.code,
               label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
               tooltip: l.description,

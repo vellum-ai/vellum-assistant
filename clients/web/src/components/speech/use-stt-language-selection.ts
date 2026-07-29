@@ -18,6 +18,8 @@
  * pretending to save a language the daemon would ignore.
  */
 
+import { useCallback } from "react";
+
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -65,6 +67,15 @@ export interface UseSttLanguageSelection {
    */
   currentCode: string;
   /**
+   * Whether the daemon probe reports the given daemon provider id as
+   * manually language-selectable. `available` describes the CONFIGURED
+   * provider; a form whose dropdown holds an unsaved DRAFT choice gates its
+   * picker on the draft's daemon id through this instead, so switching to an
+   * auto-detecting provider hides the control before Save. Unknown ids and
+   * old daemons that omit the capability field read as false.
+   */
+  isLanguageSelectable: (daemonProviderId: string) => boolean;
+  /**
    * Persist a language; hot-applies from the next spoken turn. Safe to call
    * again before the last one lands, writes are serialized in call order.
    */
@@ -104,9 +115,15 @@ export function useSttLanguageSelection(
       ? "vellum"
       : (daemonStt?.provider ?? "deepgram");
 
-  const providerAcceptsLanguage =
-    providerCatalog?.providers?.find((p) => p.id === configuredProvider)
-      ?.languageSelection === "manual";
+  const catalogProviders = providerCatalog?.providers;
+  const isLanguageSelectable = useCallback(
+    (daemonProviderId: string) =>
+      catalogProviders?.find((p) => p.id === daemonProviderId)
+        ?.languageSelection === "manual",
+    [catalogProviders],
+  );
+
+  const providerAcceptsLanguage = isLanguageSelectable(configuredProvider);
 
   // Gated on config having actually arrived: before then the configured
   // provider is a guess, and the control must not flash in and out.
@@ -131,5 +148,11 @@ export function useSttLanguageSelection(
     failureMessage: "Couldn't change the language just now. Try again.",
   });
 
-  return { available, currentCode, selectLanguage, selecting };
+  return {
+    available,
+    currentCode,
+    isLanguageSelectable,
+    selectLanguage,
+    selecting,
+  };
 }

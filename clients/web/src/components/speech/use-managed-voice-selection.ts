@@ -128,7 +128,7 @@ export function useManagedVoiceSelection(
     assistantId,
     configuredValue: configuredModel,
     buildPatchBody: buildVoicePatchBody,
-    failureMessage: "Couldn't change the voice just now — try again.",
+    failureMessage: "Couldn't change the voice just now. Try again.",
   });
 
   return {

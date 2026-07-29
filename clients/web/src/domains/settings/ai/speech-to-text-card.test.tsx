@@ -459,6 +459,67 @@ describe("SpeechToTextCard — Spoken language dropdown", () => {
     expect(languageTrigger()).toBeNull();
   });
 
+  test("hides when the draft switches to an auto-detecting provider", async () => {
+    // Saved provider vellum (manual), dropdown switched to OpenAI without
+    // saving: Whisper auto-detects, so a picker here would offer a language
+    // the drafted provider ignores.
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    providerCatalogData = {
+      providers: [
+        { id: "vellum", displayName: "Vellum", languageSelection: "manual" },
+        {
+          id: "openai-whisper",
+          displayName: "Whisper",
+          languageSelection: "auto",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+
+    openProviderDropdown();
+    selectOption("OpenAI");
+
+    expect(languageTrigger()).toBeNull();
+  });
+
+  test("renders for an xai daemon without the Multilingual option", async () => {
+    // xai is configurable via the CLI but unrepresentable in the dropdown
+    // (which falls back to a placeholder); the picker still steers the xai
+    // daemon config, whose adapter drops "multi", so the Multilingual entry
+    // must not be offered.
+    daemonConfigData = { services: { stt: { provider: "xai" } } };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    fireEvent.click(languageTrigger()!);
+    const options = visibleOptions();
+    expect(options).not.toContain("Multilingual");
+    expect(options).toContain("Spanish (Español)");
+  });
+
+  test("a persisted multi under an xai daemon renders via the custom fallback", async () => {
+    daemonConfigData = {
+      services: { stt: { provider: "xai", language: "multi" } },
+    };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    // The trigger shows the persisted truth even though xai ignores it.
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    expect(languageTrigger()!.textContent).toContain("multi (custom)");
+  });
+
   test("shows an out-of-catalog configured language on the trigger", async () => {
     // Any non-empty string is a valid `services.stt.language` (CLI/chat can
     // write "en-US"); the trigger must show it rather than render blank.
