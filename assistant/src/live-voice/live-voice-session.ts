@@ -1267,12 +1267,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     try {
-      // Snapshot the language the resolver reads so the shared stream's
-      // dialed language is recorded for the re-arm comparison (the session
-      // passes no explicit language option).
+      // One language snapshot serves both the dial and the re-arm
+      // comparison: passing it to the resolver keeps the stream's actual
+      // language and the recorded sharedTranscriberLanguage identical even
+      // when config changes while the resolver awaits credentials.
       const sttLanguage = getConfig().services.stt.language;
       const transcriber = await this.resolveTranscriber({
         sampleRate: this.context.startFrame.audio.sampleRate,
+        ...(sttLanguage ? { language: sttLanguage } : {}),
       });
 
       if (this.isUtteranceStale(utterance)) {
