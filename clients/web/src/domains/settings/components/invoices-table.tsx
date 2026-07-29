@@ -16,6 +16,11 @@ import {
 } from "@/generated/api/sdk.gen";
 import type { InvoiceListResponse } from "@/generated/api/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import {
+  ApiError,
+  assertHasResponse,
+  extractErrorMessage,
+} from "@/utils/api-errors";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -80,21 +85,24 @@ export function InvoicesTable() {
     // The table hides behind the Show invoices toggle, so don't fetch
     // billing history for a section the user may never open.
     enabled: expanded,
-    // Suffix the generated key so it can't collide with a plain-query cache
-    // entry for the same endpoint.
-    queryKey: [...organizationsBillingInvoicesRetrieveQueryKey(), "infinite"],
+    queryKey: organizationsBillingInvoicesRetrieveQueryKey(),
     queryFn: async ({ signal, pageParam }) => {
-      const { data, response } = await organizationsBillingInvoicesRetrieve({
-        throwOnError: false,
-        signal,
-        query: pageParam ? { starting_after: pageParam } : undefined,
-      });
+      const { data, error, response } =
+        await organizationsBillingInvoicesRetrieve({
+          throwOnError: false,
+          signal,
+          query: pageParam ? { starting_after: pageParam } : undefined,
+        });
       if (response?.status === 404) {
         return EMPTY_RESPONSE;
       }
-      if (!response?.ok || !data) {
-        throw new Error(
-          `Failed to load invoices (${response?.status ?? "network error"})`,
+      assertHasResponse(response, error, "Failed to load invoices.");
+      if (!response.ok || !data) {
+        // ApiError carries the HTTP status so the global retry predicate can
+        // skip retrying 4xx, notably the stale starting_after cursor 400.
+        throw new ApiError(
+          response.status,
+          extractErrorMessage(error, response, "Failed to load invoices."),
         );
       }
       return data;
@@ -108,7 +116,12 @@ export function InvoicesTable() {
   const visibleInvoices = showAll
     ? invoices
     : invoices.slice(0, INITIAL_VISIBLE);
-  const hasMore = invoices.length > INITIAL_VISIBLE;
+  const hasHiddenRows = invoices.length > INITIAL_VISIBLE;
+  const showVisibilityToggle = showAll || hasHiddenRows;
+  // "Load more" renders whenever every locally loaded row is already visible
+  // but the server still has more, so remaining invoices are always reachable.
+  const showLoadMore =
+    (showAll || !hasHiddenRows) && invoicesQuery.hasNextPage;
 
   async function downloadAllInvoices(): Promise<void> {
     setIsDownloadingAll(true);
@@ -195,7 +208,7 @@ export function InvoicesTable() {
               Loading invoices...
             </Typography>
           </div>
-        ) : invoicesQuery.isError ? (
+        ) : invoicesQuery.isError && !invoicesQuery.data ? (
           <Notice tone="error">Failed to load invoices.</Notice>
         ) : invoices.length === 0 ? (
           <Typography
@@ -294,32 +307,59 @@ export function InvoicesTable() {
                 </tbody>
               </table>
             </div>
-            {showAll && invoicesQuery.hasNextPage ? (
-              <button
-                type="button"
-                onClick={() => void invoicesQuery.fetchNextPage()}
-                disabled={invoicesQuery.isFetchingNextPage}
-                className="flex items-center gap-2 self-start text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
-                data-testid="invoices-load-more"
-              >
-                {invoicesQuery.isFetchingNextPage && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+            {(showVisibilityToggle || showLoadMore) && (
+              <div className="flex flex-wrap items-center gap-4 self-start">
+                {showVisibilityToggle && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAll((v) => !v)}
+                    className="text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
+                    data-testid="invoices-show-more"
+                  >
+                    {showAll
+                      ? "Show less"
+                      : `Show more (${invoices.length - INITIAL_VISIBLE} more)`}
+                  </button>
                 )}
-                Load more
-              </button>
-            ) : (
-              hasMore && (
-                <button
-                  type="button"
-                  onClick={() => setShowAll((v) => !v)}
-                  className="self-start text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
-                  data-testid="invoices-show-more"
-                >
-                  {showAll
-                    ? "Show less"
-                    : `Show more (${invoices.length - INITIAL_VISIBLE} more)`}
-                </button>
-              )
+                {showLoadMore && (
+                  <button
+                    type="button"
+                    onClick={() => void invoicesQuery.fetchNextPage()}
+                    disabled={invoicesQuery.isFetchingNextPage}
+                    className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                    data-testid="invoices-load-more"
+                  >
+                    {invoicesQuery.isFetchingNextPage && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                    Load more
+                  </button>
+                )}
+                {invoicesQuery.isFetchNextPageError && (
+                  <div
+                    className="flex items-center gap-2"
+                    data-testid="invoices-load-more-error"
+                  >
+                    <Typography
+                      as="span"
+                      variant="body-small-default"
+                      className="text-[color:var(--content-negative)]"
+                    >
+                      Failed to load more invoices.
+                    </Typography>
+                    <button
+                      type="button"
+                      // refetch() recomputes cursors from fresh pages, so it
+                      // also recovers from a stale starting_after cursor.
+                      onClick={() => void invoicesQuery.refetch()}
+                      className="text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-secondary)]"
+                      data-testid="invoices-load-more-retry"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}
