@@ -32,7 +32,10 @@ import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/lib/provider-catalogs";
-import { sttLanguageOptionsFor } from "@/lib/stt/language-catalog";
+import {
+  sttLanguageLabel,
+  sttLanguageOptionsFor,
+} from "@/lib/stt/language-catalog";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 /**
@@ -393,7 +396,7 @@ export function SttProviderForm({
               languageDaemonProviderId ?? "",
             ).map((l) => ({
               value: l.code,
-              label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
+              label: sttLanguageLabel(l),
               tooltip: l.description,
             }))}
             aria-label="Spoken language"

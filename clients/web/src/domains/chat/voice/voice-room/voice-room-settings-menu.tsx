@@ -13,10 +13,25 @@
  *   which hot-applies on the assistant's next reply. Managed assistants only;
  *   a bring-your-own provider gets the disabled row and its Settings link (see
  *   {@link VoiceSettingRow}).
+ * - **Listening language**: the spoken language STT recognizes, as a row that
+ *   opens a small picker modal (mirroring the Voice row: the popover's radix
+ *   wrapper is transformed, which makes it the containing block for the
+ *   Dropdown menu's fixed-position coordinates, so an inline menu here lands
+ *   far from its trigger). Writes `services.stt.language` through
+ *   `useSttLanguageSelection`, which hot-applies from the user's next
+ *   spoken turn. The hook is called once here, in a component that stays
+ *   mounted for the whole voice-room session, and its state is passed down
+ *   to the row and the picker: the hook's serialized write chain lives in
+ *   refs, so hosting it in the picker content (which unmounts on close)
+ *   would let a slow PATCH from a previous pick race a newer one across a
+ *   close/reopen. Only rendered when the daemon reports the configured STT
+ *   provider as manually language-selectable; auto-detecting providers and
+ *   old daemons get no row. See {@link ListeningLanguageRow} and
+ *   {@link ListeningLanguagePickerModal}.
  *
  * Captions are bound to the same `voice-prefs` store the Settings page uses;
- * voice is bound to daemon config, the source of truth the Settings → Voice
- * card also writes.
+ * voice and listening language are bound to daemon config, the source of
+ * truth the Settings page's speech cards also write.
  */
 
 import { useState } from "react";
@@ -27,7 +42,10 @@ import { cn } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { VoicePickerModal } from "@/components/speech/voice-picker-modal";
+import { ListeningLanguagePickerModal } from "@/domains/chat/voice/voice-room/listening-language-picker-modal";
+import { ListeningLanguageRow } from "@/domains/chat/voice/voice-room/listening-language-row";
 import { VoiceSettingRow } from "@/domains/chat/voice/voice-room/voice-setting-row";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -58,6 +76,22 @@ export function VoiceRoomSettingsMenu({
   // unmount it.
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [languageModalOpen, setLanguageModalOpen] = useState(false);
+
+  // Listening-language selection lives here, above both the row and the
+  // picker, because this menu stays mounted for the whole voice-room session
+  // while the picker content unmounts on close: hoisting keeps the hook's
+  // serialized write chain alive across close/reopen, so a repick queues
+  // behind a still-in-flight PATCH instead of racing it. The queries behind
+  // the hook are cheap (an Infinity-staleTime capability probe plus the
+  // shared config query the row needs anyway).
+  const {
+    available: languageAvailable,
+    currentCode,
+    configuredProviderId,
+    selectLanguage,
+    selecting,
+  } = useSttLanguageSelection(assistantId);
 
   return (
     <>
@@ -115,6 +149,21 @@ export function VoiceRoomSettingsMenu({
               }}
               className="mt-2"
             />
+
+            {/* Listening language → dedicated picker modal, same indirection
+                as the Voice row. Only when the daemon reports the configured
+                STT provider as language-selectable; collapses to nothing
+                otherwise, like the Voice row. */}
+            <ListeningLanguageRow
+              available={languageAvailable}
+              currentCode={currentCode}
+              configuredProviderId={configuredProviderId}
+              onOpen={() => {
+                setPopoverOpen(false);
+                setLanguageModalOpen(true);
+              }}
+              className="mt-2"
+            />
           </div>
         </Popover.Content>
       </Popover.Root>
@@ -122,6 +171,14 @@ export function VoiceRoomSettingsMenu({
         assistantId={assistantId}
         open={voiceModalOpen}
         onOpenChange={setVoiceModalOpen}
+      />
+      <ListeningLanguagePickerModal
+        open={languageModalOpen}
+        onOpenChange={setLanguageModalOpen}
+        currentCode={currentCode}
+        configuredProviderId={configuredProviderId}
+        selectLanguage={selectLanguage}
+        selecting={selecting}
       />
     </>
   );

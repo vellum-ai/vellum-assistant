@@ -16,6 +16,17 @@ export interface SttLanguageOption {
 /** Sentinel meaning "unset / provider default": recognition defaults to English. */
 export const STT_LANGUAGE_DEFAULT_CODE = "";
 
+/**
+ * One display string per option, e.g. "French (Français)", shared by every
+ * surface that renders the catalog: the Speech-to-Text form's dropdown and
+ * the voice-room row and picker.
+ */
+export function sttLanguageLabel(option: SttLanguageOption): string {
+  return option.nativeLabel
+    ? `${option.label} (${option.nativeLabel})`
+    : option.label;
+}
+
 export const STT_MULTI_CODE = "multi";
 
 export const STT_LANGUAGES: readonly SttLanguageOption[] = [
