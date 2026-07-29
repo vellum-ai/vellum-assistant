@@ -72,6 +72,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
+import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
@@ -140,9 +141,9 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
   }
   if (current.creditTier != null) {
     // A held/deprecated credit tier absent from the catalog can't resolve to a
-    // catalog label; derive the amount from the tier key (credits_<usd>) so the
-    // paid bundle still shows instead of being silently dropped.
-    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
+    // catalog label; fall back to the amount its key names so the paid bundle
+    // still shows instead of being silently dropped.
+    const usd = creditTierKeyUsd(current.creditTier);
     parts.push(
       findCreditTier(proPlan, current.creditTier)?.label ??
         (usd != null ? `${usd} credits` : "Credit bundle"),

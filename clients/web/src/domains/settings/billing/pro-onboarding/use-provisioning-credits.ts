@@ -8,6 +8,7 @@ import type {
 } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
+import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
 
 /**
  * A credit bundle change as monthly dollar amounts. Both sides always carry a
@@ -63,10 +64,10 @@ function useProPlan(enabled: boolean): ProPlan | undefined {
 
 /**
  * The monthly dollars a credit tier bundles. A null tier is the "No extra
- * credits" choice and costs nothing. A held or legacy tier the catalog no longer
- * lists still carries its amount in its key (`credits_<usd>`), so the key
- * answers where the catalog can't. Anything else stays unresolved, so the chip
- * is dropped rather than rendering a wrong number.
+ * credits" choice and costs nothing, and the catalog prices everything it
+ * lists; a tier it doesn't falls back to the amount its key names. Anything
+ * else stays unresolved, so the chip is dropped rather than rendering a wrong
+ * number.
  */
 function creditTierUsd(
   proPlan: ProPlan | undefined,
@@ -75,12 +76,7 @@ function creditTierUsd(
   if (tier == null) {
     return 0;
   }
-  const catalogUsd = findCreditTier(proPlan, tier)?.credits_usd;
-  if (catalogUsd != null) {
-    return catalogUsd;
-  }
-  const keyUsd = tier.match(/^credits_(\d+)$/)?.[1];
-  return keyUsd != null ? Number(keyUsd) : null;
+  return findCreditTier(proPlan, tier)?.credits_usd ?? creditTierKeyUsd(tier);
 }
 
 /**
