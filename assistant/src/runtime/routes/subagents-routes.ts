@@ -24,7 +24,11 @@ import {
   type SubagentRecord,
 } from "../../persistence/subagent-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { type SubagentState, TERMINAL_STATUSES } from "../../subagent/types.js";
+import {
+  settleUnsupervisedStatus,
+  type SubagentState,
+  TERMINAL_STATUSES,
+} from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -241,35 +245,11 @@ const ReconciledSubagentSchema = z.object({
 });
 
 /**
- * Settle the status of a durable row that no live manager entry answers for.
- *
- * Invariant: a subagent runs from an in-memory entry, so a durable row without
- * one can only describe a run that is no longer executing, whatever the row
- * says, nothing is driving it. Its pre-crash `pending`/`running`/
- * `awaiting_input` is therefore stale and reported as `interrupted`, exactly
- * what `SubagentManager.rehydrateFromDb()` writes for the same row. Terminal
- * statuses are the truth already and pass through untouched.
- *
- * This closes a startup window rather than a steady state: `setDbReady(true)`
- * precedes `rehydrateFromDb()` in `daemon/lifecycle.ts`, so a request can pass
- * the DB gate while the manager is still empty and read rows the rehydration
- * has not yet normalized. Without the coercion a client reconciling on its SSE
- * reopen adopts `running`, and the later rehydration flips the row to
- * `interrupted` with no status event to say so, leaving the UI stuck.
- *
- * Only ever applied to record-derived statuses; live state is authoritative
- * and never coerced.
- */
-function settledDurableStatus(status: SubagentStatus): SubagentStatus {
-  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
-}
-
-/**
  * The status to report for a durable row, or `undefined` when the caller should
  * omit the field. `SubagentRecord.status` is an untyped column while both route
  * contracts are the closed `SubagentStatusSchema` enum, so a value that doesn't
  * parse is dropped rather than widening the wire type; anything that does parse
- * is settled by `settledDurableStatus`.
+ * is settled by `settleUnsupervisedStatus`.
  *
  * The result is only ever OBSERVED for a row no live manager entry answers
  * for: the detail route reads the record solely when `getState` came back
@@ -280,7 +260,7 @@ function settledRecordStatus(
   record: SubagentRecord,
 ): SubagentStatus | undefined {
   const parsed = SubagentStatusSchema.safeParse(record.status);
-  return parsed.success ? settledDurableStatus(parsed.data) : undefined;
+  return parsed.success ? settleUnsupervisedStatus(parsed.data) : undefined;
 }
 
 /**

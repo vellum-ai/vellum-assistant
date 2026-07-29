@@ -1,12 +1,12 @@
 export {
   mergeSkillIds,
-  settleUnsupervisedStatus,
   SubagentAbortedError,
   subagentStateFromRecord,
 } from "./manager.js";
 export type { SubagentRole } from "./types.js";
 export {
   normalizeSubagentLabel,
+  settleUnsupervisedStatus,
   SUBAGENT_ROLE_REGISTRY,
   TERMINAL_STATUSES,
 } from "./types.js";

@@ -41,6 +41,7 @@ import { getSandboxWorkingDir } from "../util/platform.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
   normalizeSubagentLabel,
+  settleUnsupervisedStatus,
   SUBAGENT_LIMITS,
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
@@ -110,18 +111,6 @@ export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
       estimatedCost: rec.estimatedCost,
     },
   };
-}
-
-/**
- * The status to report for a subagent with no live instance. A subagent the
- * manager does not hold is not being executed by anything, so an active
- * recorded status is stale and reads as `interrupted`; a terminal status is the
- * run's real outcome and passes through untouched.
- */
-export function settleUnsupervisedStatus(
-  status: SubagentStatus,
-): SubagentStatus {
-  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
 }
 
 // ── Spawn ordering ─────────────────────────────────────────────────────

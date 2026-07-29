@@ -14,12 +14,12 @@ import {
 } from "../persistence/subagent-store.js";
 import { getSubagentManager } from "../subagent/index.js";
 import {
-  settleUnsupervisedStatus,
   SubagentManager,
   subagentStateFromRecord,
 } from "../subagent/manager.js";
 import {
   normalizeSubagentLabel,
+  settleUnsupervisedStatus,
   type SubagentState,
 } from "../subagent/types.js";
 import { resolveSubagentId } from "../tools/subagent/resolve.js";
