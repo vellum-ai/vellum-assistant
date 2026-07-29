@@ -10,6 +10,7 @@ import {
 } from "@/domains/settings/ai/language-model-card";
 import { ManagedServicesBanner } from "@/domains/settings/ai/shared-ui";
 import { ProfileDetailPanel } from "@/domains/settings/ai/profile-detail-panel";
+import { ProviderDetailPanel } from "@/domains/settings/ai/provider-detail-panel";
 import { SpeechToTextCard } from "@/domains/settings/ai/speech-to-text-card";
 import { TextToSpeechCard } from "@/domains/settings/ai/text-to-speech-card";
 import { WebFetchCard } from "@/domains/settings/ai/web-fetch-card";
@@ -61,15 +62,30 @@ export function AiPage() {
   );
 
   const detailKey =
-    lmPanel?.kind === "profile" ? `profile:${lmPanel.name}` : "create-profile";
+    lmPanel?.kind === "profile"
+      ? `profile:${lmPanel.name}`
+      : lmPanel?.kind === "provider"
+        ? `provider:${lmPanel.name}`
+        : (lmPanel?.kind ?? "closed");
+  const isProviderPanel =
+    lmPanel?.kind === "provider" || lmPanel?.kind === "add-provider";
   const detail =
     lmPanel != null && assistantId ? (
-      <ProfileDetailPanel
-        key={detailKey}
-        assistantId={assistantId}
-        profileName={lmPanel.kind === "profile" ? lmPanel.name : null}
-        onClose={() => setLmPanel(null)}
-      />
+      isProviderPanel ? (
+        <ProviderDetailPanel
+          key={detailKey}
+          assistantId={assistantId}
+          connectionName={lmPanel.kind === "provider" ? lmPanel.name : null}
+          onClose={() => setLmPanel(null)}
+        />
+      ) : (
+        <ProfileDetailPanel
+          key={detailKey}
+          assistantId={assistantId}
+          profileName={lmPanel.kind === "profile" ? lmPanel.name : null}
+          onClose={() => setLmPanel(null)}
+        />
+      )
     ) : null;
 
   // On mobile the detail takes over the whole screen; on desktop it opens as

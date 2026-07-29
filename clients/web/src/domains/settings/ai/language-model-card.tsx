@@ -9,8 +9,8 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { LanguageModelSection } from "@/domains/settings/ai/language-model-section";
-import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
 import { ProfilesSection } from "@/domains/settings/ai/profiles-section";
+import { ProvidersSection } from "@/domains/settings/ai/providers-section";
 import {
   configGetOptions,
   configLlmDefaultproviderGetOptions,
@@ -24,7 +24,9 @@ import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/defau
  */
 export type LanguageModelPanelState =
   | { kind: "profile"; name: string }
-  | { kind: "create-profile" };
+  | { kind: "create-profile" }
+  | { kind: "provider"; name: string }
+  | { kind: "add-provider" };
 
 interface LanguageModelCardProps {
   panel: LanguageModelPanelState | null;
@@ -34,10 +36,9 @@ interface LanguageModelCardProps {
 
 /**
  * The V2 Language Model card (Figma 7412:133089): Profiles and Providers as
- * inline sections, Overrides collapsed to a count + Manage row. Profile
- * details open in the settings sidepanel; Providers and Overrides still use
- * their modals until their own sidepanel conversions land (LUM-2881
- * follow-ups).
+ * inline sections whose details open in the settings sidepanel, and
+ * Overrides collapsed to a count + Manage row (its own sidepanel conversion
+ * is the remaining LUM-2881 follow-up).
  */
 export function LanguageModelCard({
   panel,
@@ -54,18 +55,16 @@ export function LanguageModelCard({
   // Older assistants 404 the default-provider route; the gate keeps the
   // query dark and the notice hidden against them.
   const supportsDefaultProvider = useSupportsDefaultProviderSettings();
-  const { data: defaultProviderStatus, refetch: refetchDefaultProvider } =
-    useQuery({
-      ...configLlmDefaultproviderGetOptions({
-        path: { assistant_id: assistantId },
-      }),
-      enabled: supportsDefaultProvider,
-    });
+  const { data: defaultProviderStatus } = useQuery({
+    ...configLlmDefaultproviderGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    enabled: supportsDefaultProvider,
+  });
   const availability = defaultProviderStatus?.availability;
 
   // Connection rows resolve openai-compatible model display names in the
-  // profile rows; shared TanStack cache with the sidepanel and the
-  // Providers modal.
+  // profile rows; shared TanStack cache with the sections and sidepanels.
   const { data: connectionsData } = useQuery({
     ...inferenceProviderconnectionsGetOptions({
       path: { assistant_id: assistantId },
@@ -80,9 +79,8 @@ export function LanguageModelCard({
       (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
 
-  // Modal toggles - ephemeral UI state, correct as useState
+  // Modal toggle - ephemeral UI state, correct as useState
   const [overridesOpen, setOverridesOpen] = useState(false);
-  const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 
   return (
     <>
@@ -92,7 +90,7 @@ export function LanguageModelCard({
       >
         <div className="space-y-2">
           {availability && availability.status !== "ok" && (
-            // The server owns the explainable wording — render its message
+            // The server owns the explainable wording - render its message
             // verbatim. `unknown` is transient (credential store unreachable),
             // everything else is a config problem the user must fix.
             <Notice
@@ -121,18 +119,23 @@ export function LanguageModelCard({
             />
           )}
 
-          <LanguageModelSection
-            title="Providers"
-            action={
-              <Button
-                variant="outlined"
-                size="compact"
-                onClick={() => setManageProvidersOpen(true)}
-              >
-                Manage
-              </Button>
-            }
-          />
+          {assistantId && (
+            <ProvidersSection
+              assistantId={assistantId}
+              selectedConnectionName={
+                panel?.kind === "provider" ? panel.name : null
+              }
+              onOpenConnection={(name) =>
+                onOpenPanel({ kind: "provider", name })
+              }
+              onAddProvider={() => onOpenPanel({ kind: "add-provider" })}
+              onConnectionDeleted={(name) => {
+                if (panel?.kind === "provider" && panel.name === name) {
+                  onClosePanel();
+                }
+              }}
+            />
+          )}
 
           <LanguageModelSection
             title="Overrides"
@@ -155,21 +158,6 @@ export function LanguageModelCard({
           isOpen={overridesOpen}
           onClose={() => setOverridesOpen(false)}
           assistantId={assistantId}
-        />
-      )}
-
-      {assistantId && (
-        <ManageProvidersModal
-          isOpen={manageProvidersOpen}
-          assistantId={assistantId}
-          onClose={() => {
-            setManageProvidersOpen(false);
-            // Fixing the problem (adding a key/connection, changing the
-            // default) should clear the notice without a reload.
-            if (supportsDefaultProvider) {
-              void refetchDefaultProvider();
-            }
-          }}
         />
       )}
     </>

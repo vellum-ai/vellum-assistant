@@ -41,11 +41,6 @@ import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-c
 // ---------------------------------------------------------------------------
 // ProviderEditorContent
 // ---------------------------------------------------------------------------
-//
-// Renders the editor's `Modal.Content` (header + body + footer). The single
-// consumer (`ManageProvidersModal`) embeds it directly inside its own
-// `Modal.Root` for the master/detail flow — list view and editor view swap
-// inside a single modal frame rather than stacking a second modal.
 
 export interface ProviderEditorContentProps {
   mode: "create" | "edit";
@@ -54,6 +49,13 @@ export interface ProviderEditorContentProps {
   existingNames: string[];
   /** Existing connections, for custom-provider name-collision checks. */
   connections?: ProviderConnection[];
+  /**
+   * Host chrome, mirroring ProviderCreateForm's variants: `"modal"` renders
+   * a full `Modal.Content` (header + body + footer) for embedding in a
+   * host's `Modal.Root`; `"panel"` renders the bare fields + action row for
+   * the settings sidepanel (DetailShell body).
+   */
+  variant?: "modal" | "panel";
   onSave: (connection: ProviderConnection) => void;
   onCancel: () => void;
 }
@@ -64,6 +66,7 @@ export function ProviderEditorContent({
   assistantId,
   existingNames,
   connections,
+  variant = "modal",
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
@@ -302,12 +305,12 @@ export function ProviderEditorContent({
 
   // Create mode is fully owned by the shared ProviderCreateForm. It carries
   // the create-path submit sequence (secretsPost →
-  // inferenceProviderconnectionsPost) and renders identical modal chrome.
+  // inferenceProviderconnectionsPost) and renders chrome per variant.
   // Edit falls through below.
   if (mode === "create") {
     return (
       <ProviderCreateForm
-        variant="modal"
+        variant={variant === "panel" ? "inline" : "modal"}
         assistantId={assistantId}
         existingNames={existingNames}
         connections={connections}
@@ -318,18 +321,8 @@ export function ProviderEditorContent({
     );
   }
 
-  return (
-    <Modal.Content size="md">
-      <Modal.Header>
-        <Modal.Title>Edit Provider</Modal.Title>
-        <Modal.Description>
-          {connection
-            ? `Editing ${providerConnectionDisplayName(connection)}.`
-            : "Edit provider settings."}
-        </Modal.Description>
-      </Modal.Header>
-
-      <Modal.Body className="space-y-4">
+  const body = (
+    <div className="space-y-4">
         {/* Display Name */}
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
@@ -418,21 +411,48 @@ export function ProviderEditorContent({
             {error}
           </Typography>
         )}
-      </Modal.Body>
+    </div>
+  );
 
-      <Modal.Footer>
-        <Button variant="ghost" size="compact" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          size="compact"
-          disabled={!canSave || saving || isSavingKey}
-          onClick={() => void handleSave()}
-        >
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </Modal.Footer>
+  const footer = (
+    <>
+      <Button variant="ghost" size="compact" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button
+        variant="primary"
+        size="compact"
+        disabled={!canSave || saving || isSavingKey}
+        onClick={() => void handleSave()}
+      >
+        {saving ? "Saving…" : "Save Changes"}
+      </Button>
+    </>
+  );
+
+  if (variant === "panel") {
+    return (
+      <div className="space-y-4">
+        {body}
+        <div className="flex justify-end gap-2">{footer}</div>
+      </div>
+    );
+  }
+
+  return (
+    <Modal.Content size="md">
+      <Modal.Header>
+        <Modal.Title>Edit Provider</Modal.Title>
+        <Modal.Description>
+          {connection
+            ? `Editing ${providerConnectionDisplayName(connection)}.`
+            : "Edit provider settings."}
+        </Modal.Description>
+      </Modal.Header>
+
+      <Modal.Body>{body}</Modal.Body>
+
+      <Modal.Footer>{footer}</Modal.Footer>
     </Modal.Content>
   );
 }
