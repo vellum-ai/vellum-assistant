@@ -123,6 +123,35 @@ function loadPages(opts: { dir?: string; file?: string }): IngestPage[] {
   return validateManifest(parsed);
 }
 
+/**
+ * Reject duplicate slugs across the whole input before chunking. The route's
+ * duplicate check is per request, so duplicates that land in different
+ * 200-page batches would bypass it: without --overwrite the later copy is
+ * misreported as an existing-page skip, and with --overwrite it silently
+ * replaces the earlier one.
+ */
+function assertUniqueSlugs(pages: IngestPage[]): IngestPage[] {
+  const firstIndexBySlug = new Map<string, number>();
+  const duplicates: string[] = [];
+  for (const [index, page] of pages.entries()) {
+    const first = firstIndexBySlug.get(page.slug);
+    if (first === undefined) {
+      firstIndexBySlug.set(page.slug, index);
+    } else {
+      duplicates.push(
+        `"${page.slug}" (entries ${String(first)} and ${String(index)})`,
+      );
+    }
+  }
+  if (duplicates.length > 0) {
+    throw new Error(
+      `Duplicate slugs in input: ${duplicates.join(", ")}. ` +
+        "Each slug may appear once per ingest.",
+    );
+  }
+  return pages;
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const batches: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -142,7 +171,7 @@ export function registerMemoryIngestCommand(memory: Command): void {
     }) => {
       let pages: IngestPage[];
       try {
-        pages = loadPages(opts);
+        pages = assertUniqueSlugs(loadPages(opts));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (opts.json === true) {

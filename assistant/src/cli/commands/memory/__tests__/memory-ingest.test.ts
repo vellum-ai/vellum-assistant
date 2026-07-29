@@ -356,6 +356,32 @@ describe("invalid page results", () => {
 // ---------------------------------------------------------------------------
 
 describe("manifest validation", () => {
+  test("rejects duplicate slugs that would land in different chunks, with no IPC call", async () => {
+    await withTempDir(async (dir) => {
+      // 201 entries: entry 0 and entry 200 share a slug, so they would be
+      // split across two 200-page batches and evade the route's per-request
+      // duplicate check.
+      const manifest = Array.from({ length: 201 }, (_, i) => ({
+        slug: i === 200 ? "page-0" : `page-${String(i)}`,
+        content: "body",
+      }));
+      const path = join(dir, "manifest.json");
+      writeFileSync(path, JSON.stringify(manifest));
+
+      const { exitCode } = await runCommand([
+        "memory",
+        "ingest",
+        "--file",
+        path,
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(ipcCalls).toHaveLength(0);
+      expect(logOutput.join("\n")).toContain("Duplicate slugs in input");
+      expect(logOutput.join("\n")).toContain("page-0");
+    });
+  });
+
   test("rejects a non-array manifest without any IPC call", async () => {
     await withTempDir(async (dir) => {
       const path = join(dir, "manifest.json");
