@@ -61,6 +61,7 @@ import {
 import { APP_VERSION } from "../version.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
@@ -521,6 +522,20 @@ export async function runDaemon(): Promise<void> {
     log.warn(
       { err },
       "Default provider ensure pass failed — continuing startup",
+    );
+  }
+
+  // Runs on every boot, after the default-provider ensure (it keys off
+  // llm.defaultProvider) and before custom-profile materialization (so
+  // unedited hatch copies still deep-equal their templates when compared).
+  // See workspace/byok-default-profile-ensure.ts for the full rationale.
+  try {
+    ensureByokDefaultProfiles(getWorkspaceDir());
+    log.info("BYOK default profile ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "BYOK default profile ensure pass failed; continuing startup",
     );
   }
 
