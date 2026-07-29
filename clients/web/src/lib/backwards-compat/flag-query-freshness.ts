@@ -1,14 +1,14 @@
 /**
- * Backwards-compat gate: feature-flag query freshness.
+ * Backwards-compat gates for feature-flag query freshness.
  *
  * Vellum Assistant 0.8.5 introduced `sync_changed` broadcasts for the
- * feature-flag tags (PR #31921 / #31932). Web subscribers use those
- * pushes + `sse.opened` reconnect invalidation to keep the assistant
- * flag query cache fresh, so the previous 5s interval poll is redundant.
+ * feature-flag tags (PR #31921 / #31932). Web subscribers use those pushes
+ * and `sse.opened` reconnect invalidation to keep flag query caches fresh.
  *
- * Assistants on 0.8.4 or older have no push path for assistant flags.
- * They still need the poll to stay live. Client flags use their own
- * once-per-session query policy.
+ * Assistants on 0.8.4 or older have no push path for flags. They retain the
+ * 5-second poll so values still converge. Push-capable client flags stay fresh
+ * indefinitely until an explicit invalidation, while assistant flags use a
+ * 60-second stale window for their existing remount behavior.
  */
 import { useAssistantSupports } from "@/lib/backwards-compat/utils";
 
@@ -22,13 +22,21 @@ export interface FlagQueryFreshness {
   refetchInterval: number | false;
 }
 
-export function useFlagQueryFreshness(): FlagQueryFreshness {
+function useFlagQueryFreshnessFor(pushStaleTime: number): FlagQueryFreshness {
   const supportsPush = useAssistantSupports(MIN_VERSION);
   if (supportsPush) {
-    return { staleTime: PUSH_STALE_MS, refetchInterval: false };
+    return { staleTime: pushStaleTime, refetchInterval: false };
   }
   return {
     staleTime: POLL_INTERVAL_MS,
     refetchInterval: POLL_INTERVAL_MS,
   };
+}
+
+export function useFlagQueryFreshness(): FlagQueryFreshness {
+  return useFlagQueryFreshnessFor(PUSH_STALE_MS);
+}
+
+export function useClientFlagQueryFreshness(): FlagQueryFreshness {
+  return useFlagQueryFreshnessFor(Infinity);
 }

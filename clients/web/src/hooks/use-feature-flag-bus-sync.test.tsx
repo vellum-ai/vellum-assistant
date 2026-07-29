@@ -108,6 +108,32 @@ describe("useFeatureFlagBusSync", () => {
     });
   });
 
+  test("queues one refresh when invalidation races an active fetch", async () => {
+    const queryClient = freshQueryClient();
+    let finishActiveFetch: (() => void) | undefined;
+    const activeFetch = new Promise<void>((resolve) => {
+      finishActiveFetch = resolve;
+    });
+    let isFetching = true;
+    queryClient.isFetching = mock(() => (isFetching ? 1 : 0)) as never;
+    const spy = mock(() => (isFetching ? activeFetch : Promise.resolve()));
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    isFetching = false;
+    finishActiveFetch?.();
+
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+  });
+
   test("invalidates assistant feature flag query prefix on feature-flags:assistant sync tag", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());

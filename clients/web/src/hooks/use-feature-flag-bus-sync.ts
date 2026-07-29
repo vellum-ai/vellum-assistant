@@ -7,9 +7,10 @@
  * - `sse.opened` reconnects (non-fresh) to catch flag changes
  *   missed during the transport gap
  *
- * Client-flag invalidations are limited to one request per 30 seconds with
- * one trailing refresh. This bounds reconnect or duplicate-event bursts while
- * preserving an immediate refresh for the first real change.
+ * Client-flag signals are limited to one refresh per 30 seconds with one
+ * trailing refresh. A signal that races an active fetch queues one serialized
+ * follow-up after it settles, preserving correctness without overlapping
+ * requests.
  *
  * References:
  * - EVENT_BUS.md — bus subscription contract
@@ -45,10 +46,19 @@ export function useFeatureFlagBusSync(
     null,
   );
   const lastClientRefreshAtRef = useRef<number | null>(null);
+  const clientRefreshQueuedAfterFetchRef = useRef(false);
+  const clientRefreshGenerationRef = useRef(0);
 
   useEffect(() => {
+    const generation = clientRefreshGenerationRef.current + 1;
+    clientRefreshGenerationRef.current = generation;
     lastClientRefreshAtRef.current = null;
+    clientRefreshQueuedAfterFetchRef.current = false;
     return () => {
+      if (clientRefreshGenerationRef.current === generation) {
+        clientRefreshGenerationRef.current += 1;
+      }
+      clientRefreshQueuedAfterFetchRef.current = false;
       if (clientRefreshTimerRef.current) {
         clearTimeout(clientRefreshTimerRef.current);
         clientRefreshTimerRef.current = null;
@@ -59,15 +69,34 @@ export function useFeatureFlagBusSync(
   const invalidateClientFlags = () => {
     const refresh = () => {
       clientRefreshTimerRef.current = null;
+      const generation = clientRefreshGenerationRef.current;
+      const queryKey = featureFlagsClientFlagValuesRetrieveQueryKey();
+      const wasFetching =
+        queryClient.isFetching({ queryKey, exact: true, type: "active" }) > 0;
       lastClientRefreshAtRef.current = Date.now();
-      void queryClient.invalidateQueries(
+      const invalidation = queryClient.invalidateQueries(
         {
-          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+          queryKey,
         },
         // Keep an active request instead of canceling it and starting a
         // replacement. The query function also forwards its abort signal.
         { cancelRefetch: false },
       );
+      if (wasFetching && !clientRefreshQueuedAfterFetchRef.current) {
+        clientRefreshQueuedAfterFetchRef.current = true;
+        const refreshAfterSettle = () => {
+          if (generation !== clientRefreshGenerationRef.current) {
+            return;
+          }
+          clientRefreshQueuedAfterFetchRef.current = false;
+          if (clientRefreshTimerRef.current) {
+            clearTimeout(clientRefreshTimerRef.current);
+            clientRefreshTimerRef.current = null;
+          }
+          refresh();
+        };
+        void invalidation.then(refreshAfterSettle, refreshAfterSettle);
+      }
     };
     const lastRefreshAt = lastClientRefreshAtRef.current;
     const elapsed =

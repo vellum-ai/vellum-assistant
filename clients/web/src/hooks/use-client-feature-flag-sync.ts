@@ -10,6 +10,7 @@ import {
   CLIENT_STRING_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
+import { useClientFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import { featureFlagsClientFlagValuesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
@@ -59,6 +60,7 @@ function mapFlags(serverFlags: Record<string, boolean | string>): {
 }
 
 export function useClientFeatureFlagSync(enabled: boolean) {
+  const freshness = useClientFlagQueryFreshness();
   // The client-flag endpoint evaluates against the signed-in user + org, so an
   // authenticated request without `Vellum-Organization-Id` is rejected. The org
   // store hydrates asynchronously after auth, so an authenticated cold load can
@@ -74,10 +76,10 @@ export function useClientFeatureFlagSync(enabled: boolean) {
     queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
     queryFn: ({ signal }) => fetchClientFlagValues(signal),
     enabled: shouldFetch,
-    // Client flags load once per identity-scoped query cache. Actual flag
-    // changes and bounded reconnect catch-up invalidate this query explicitly.
-    staleTime: Infinity,
-    refetchInterval: false,
+    // Push-capable sessions load once per identity-scoped query cache. Actual
+    // flag changes and bounded reconnect catch-up invalidate explicitly.
+    // Assistants before 0.8.5 retain their polling fallback.
+    ...freshness,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     // Inherit the app-wide status-aware retry predicate and exponential delay.
