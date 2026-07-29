@@ -81,8 +81,8 @@ let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
 // When non-null, the change-machine-tier call rejects — drives the failure path.
 let machineTierError: unknown = null;
-// Success-toast messages captured from the mocked toast module — lets the
-// downgrade path assert its confirmation toast without rendering the Toaster.
+// Success-toast messages captured from the mocked toast module, so a path can
+// assert exactly which confirmations fired without rendering the Toaster.
 const toastSuccessCalls: string[] = [];
 // When false, the change-package promise never settles — used to observe the
 // in-flight (pending) disabled state.
@@ -214,6 +214,7 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 type CapturedResizeContext = {
   fromSnapshot: { machineSize: string | null; storageGib: number | null };
   credits: { fromTier: string | null; toTier: string | null } | null;
+  direction: string;
 };
 let takeoverResizeContext: CapturedResizeContext | undefined;
 mock.module(
@@ -630,7 +631,7 @@ afterEach(() => {
 });
 
 describe("PlansPage — Pro package switch (change-package)", () => {
-  test("Super → Mighty downgrade confirms, then calls change-package without opening the takeover", async () => {
+  test("Super → Mighty downgrade confirms, then calls change-package and opens the takeover", async () => {
     const { findByRole, findByTestId, getByTestId, queryByTestId } =
       renderInteractive(proSuperSubscription());
 
@@ -645,13 +646,15 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await waitFor(() => expect(changePackageCall).not.toBeNull());
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
 
-    // A downgrade caps the machine down immediately, so the dialog closes on a
-    // success toast and the provisioning takeover never opens.
+    // A downgrade caps the machine down and restarts the pod like any other
+    // switch, so it watches the same takeover, with no fire-and-forget toast.
     await waitFor(() =>
       expect(queryByTestId("confirm-package-switch-button")).toBeNull(),
     );
-    expect(toastSuccessCalls).toEqual(["Downgraded to Mighty."]);
-    expect(queryByTestId("resize-takeover")).toBeNull();
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+    expect(takeoverResizeContext?.direction).toBe("downgrade");
+    expect(toastSuccessCalls).toEqual([]);
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(upgradeCall).toBeNull();
   });
@@ -670,6 +673,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
+    expect(takeoverResizeContext?.direction).toBe("upgrade");
     // The sub holds no bundle and Ultra pins one, so the tier move is threaded.
     expect(takeoverResizeContext?.credits).toEqual({
       fromTier: null,
@@ -1060,6 +1064,8 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // No rank to compare against, so the takeover states a neutral change.
+    expect(takeoverResizeContext?.direction).toBe("change");
     expect(upgradeCall).toBeNull();
   });
 
@@ -1357,6 +1363,8 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
       machineSize: "large",
       storageGib: 10,
     });
+    // A per-dimension edit can move dimensions in both directions at once.
+    expect(takeoverResizeContext?.direction).toBe("change");
     expect(upgradeCall).toBeNull();
   });
 

@@ -32,6 +32,7 @@ import {
 } from "./provisioning-state";
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { TakeoverBackdrop } from "./takeover-backdrop";
+import { takeoverCopy, type TakeoverDirection } from "./takeover-copy";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
 import type { CreditTierChange } from "./use-provisioning-credits";
@@ -78,6 +79,8 @@ export interface ResizeTakeoverContext {
   fromSnapshot: ProvisioningDimensions;
   /** The credit tiers the change moves between; null when it left them alone. */
   credits: CreditTierChange | null;
+  /** Which way the change goes, which every surface here writes its copy to. */
+  direction: TakeoverDirection;
 }
 
 export interface BillingOnboardingModalProps {
@@ -199,6 +202,11 @@ export function BillingOnboardingModal({
 
   const { targets, assistantId, domainStepAvailable, onboardingSettled } =
     provisioning;
+
+  // Only an in-place change can go anywhere but up, and only it threads a
+  // context; checkout and a context-less resize mount both read as an upgrade.
+  const direction = isResize ? resizeContext?.direction : undefined;
+  const copy = takeoverCopy(direction);
 
   // An in-place change lands before this mounts, so its actuals already read
   // post-change and the captured snapshot is the only honest from-side.
@@ -358,12 +366,12 @@ export function BillingOnboardingModal({
     provisioning.kickProvisioning();
     toast.info(
       provisioning.kickError != null
-        ? "We'll retry your upgrade in the background."
-        : "Your upgrade continues in the background.",
+        ? copy.backgroundRetryToast
+        : copy.backgroundExitToast,
     );
     setBackgroundConfirmOpen(false);
     onClose();
-  }, [provisioning, onClose]);
+  }, [provisioning, onClose, copy]);
 
   // Cancelling keeps the user on the takeover, still waiting on the upgrade.
   const cancelBackgroundExit = useCallback(() => {
@@ -481,7 +489,7 @@ export function BillingOnboardingModal({
         // after the wizard has advanced past provisioning.
         open={backgroundConfirmOpen && machineBusy}
         title="Continue in the background?"
-        message="Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready."
+        message={copy.backgroundConfirmMessage}
         confirmLabel="Continue"
         cancelLabel="Keep waiting"
         onConfirm={confirmBackgroundExit}
@@ -493,11 +501,14 @@ export function BillingOnboardingModal({
   function renderStep() {
     if (step === "provisioning") {
       if (provisioning.confirmError || provisioning.targetsError) {
-        return <FetchErrorState onGoToBilling={onClose} />;
+        return (
+          <FetchErrorState onGoToBilling={onClose} direction={direction} />
+        );
       }
       return (
         <ProvisioningState
           state={provisioning.state}
+          direction={direction}
           softWaiting={provisioning.softWaiting}
           intent={intent}
           creditsChange={isResize ? resizeContext?.credits : undefined}
@@ -532,6 +543,6 @@ export function BillingOnboardingModal({
       );
     }
 
-    return <CompleteState assistantId={assistantId} />;
+    return <CompleteState assistantId={assistantId} direction={direction} />;
   }
 }

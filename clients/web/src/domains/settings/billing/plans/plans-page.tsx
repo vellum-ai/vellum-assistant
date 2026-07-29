@@ -37,6 +37,7 @@ import {
   BillingOnboardingModal,
   type ResizeTakeoverContext,
 } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import type { TakeoverDirection } from "@/domains/settings/billing/pro-onboarding/takeover-copy";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { usePreferredOrActiveAssistant } from "@/domains/settings/billing/pro-onboarding/use-preferred-or-active-assistant";
 import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
@@ -92,6 +93,15 @@ const DOCS_URL = "https://www.vellum.ai/docs/pricing";
 // How long the `?package=` deep link waits for its forced re-read of the
 // billing data before deciding on whatever the cache already holds.
 const DEEP_LINK_REFRESH_TIMEOUT_MS = 8_000;
+
+// How the takeover describes a package switch. The neutral "switch" relation is
+// a Custom sub, which has no catalog rank to compare against the target, so its
+// move has no knowable direction and the copy must not claim one.
+const TAKEOVER_DIRECTION: Record<SwitchRelation, TakeoverDirection> = {
+  upgrade: "upgrade",
+  downgrade: "downgrade",
+  switch: "change",
+};
 
 // The screen is a wall of creature avatars; warm the bundled component chunk at
 // module load so they resolve before first paint instead of popping in.
@@ -593,12 +603,23 @@ export function PlansPage() {
       },
     });
 
+    // A Custom sub (currentTierKey null) can't be ranked against the target, so
+    // it stays direction-neutral ("switch"); a clean-pinned sub gets the
+    // directional up/down relation. Drives the confirm copy and, once
+    // confirmed, the takeover's.
+    const switchRelation: SwitchRelation = switchTarget
+      ? currentTierKey === null
+        ? "switch"
+        : tierRelation(currentTierKey, switchTarget.key) === "downgrade"
+          ? "downgrade"
+          : "upgrade"
+      : "upgrade";
+
     const confirmSwitch = async () => {
       if (!switchTarget) {
         return;
       }
       const target = switchTarget;
-      const relation = tierRelation(currentTierKey, target.key);
       const before = capturePlanBefore();
       const result = await changePackage(target.key);
       if (!result) {
@@ -612,38 +633,22 @@ export function PlansPage() {
         toast.success("You're already on this plan.");
         return;
       }
-      // status === "ok": only an upgrade grows the machine, so only it needs
-      // the resize/provisioning takeover. A downgrade caps the machine down
-      // immediately server-side with no apply/restart step, so just confirm it.
-      // A Custom-sub switch has unknown direction, so it lands here as "upgrade"
-      // and opens the takeover — the provisioning step is grow-only/idempotent
-      // server-side, so it is the safe default when direction is unknown.
-      if (relation === "downgrade") {
-        toast.success(`Downgraded to ${target.name}.`);
-      } else {
-        const toCreditTier = (target.credit_tier ??
-          null) as CreditTierEnum | null;
-        setResizeContext({
-          fromSnapshot: before.fromSnapshot,
-          credits:
-            toCreditTier !== before.creditTier
-              ? { fromTier: before.creditTier, toTier: toCreditTier }
-              : null,
-        });
-        setResizeTakeoverOpen(true);
-      }
+      // status === "ok": every direction restarts the pod, a downgrade included
+      // (the server caps the machine down and the resize rolls out from there),
+      // so all of them watch the provisioning takeover. The direction only
+      // steers the copy.
+      const toCreditTier = (target.credit_tier ??
+        null) as CreditTierEnum | null;
+      setResizeContext({
+        fromSnapshot: before.fromSnapshot,
+        credits:
+          toCreditTier !== before.creditTier
+            ? { fromTier: before.creditTier, toTier: toCreditTier }
+            : null,
+        direction: TAKEOVER_DIRECTION[switchRelation],
+      });
+      setResizeTakeoverOpen(true);
     };
-
-    // A Custom sub (currentTierKey null) can't be ranked against the target, so
-    // the confirm copy stays direction-neutral ("switch"); a clean-pinned sub
-    // gets the directional up/down copy.
-    const switchRelation: SwitchRelation = switchTarget
-      ? currentTierKey === null
-        ? "switch"
-        : tierRelation(currentTierKey, switchTarget.key) === "downgrade"
-          ? "downgrade"
-          : "upgrade"
-      : "upgrade";
 
     const startCustomCheckout = (selection: CustomPlanSelection) =>
       startCheckout({
@@ -672,6 +677,9 @@ export function PlansPage() {
           credits: result.creditChanged
             ? { fromTier: before.creditTier, toTier: selection.creditTier }
             : null,
+          // A per-dimension edit can raise one dimension and lower another, so
+          // it has no single direction to state.
+          direction: "change",
         });
         setResizeTakeoverOpen(true);
       } else {
