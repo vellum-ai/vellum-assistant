@@ -78,6 +78,42 @@ describe("parsePluginIngressManifest", () => {
     expect(manifest.routes[0]!.path).toBe("realtime");
   });
 
+  it("defaults an undeclared signer to the plugin's own secret", () => {
+    // The safe default: a plugin gets no reach against the platform's key
+    // unless it asks for it and a guardian approves that declaration.
+    const manifest = parsePluginIngressManifest(JSON.parse(VALID));
+    expect(manifest.routes[0]!.signer).toBe("plugin");
+  });
+
+  it("accepts a declared vellum signer", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [
+        {
+          path: "realtime",
+          kind: "websocket",
+          signer: "vellum",
+          description: "platform-signed events",
+        },
+      ],
+    });
+    expect(manifest.routes[0]!.signer).toBe("vellum");
+  });
+
+  it("rejects an unknown signer", () => {
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "realtime",
+            kind: "http",
+            signer: "anyone",
+            description: "x",
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("rejects an absolute path", () => {
     expect(() =>
       parsePluginIngressManifest({

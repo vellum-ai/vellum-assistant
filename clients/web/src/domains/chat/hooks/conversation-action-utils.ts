@@ -38,12 +38,22 @@ export function resolveUnpinGroupId(
   prePinGroupIds: Map<string, string | undefined>,
 ): string {
   const stored = prePinGroupIds.get(conversation.conversationId);
-  if (stored) return stored;
+  if (stored) {
+    return stored;
+  }
   // Any external-channel conversation returns to its channel section
   // (bucketed under `system:all`), mirroring the prior Slack-only behavior.
-  if (isChannelConversation(conversation)) return "system:all";
-  if (shouldReturnToBackground(conversation)) return "system:background";
-  if (conversation.conversationType === "scheduled") return "system:scheduled";
-  if (conversation.conversationType === "background") return "system:background";
+  if (isChannelConversation(conversation)) {
+    return "system:all";
+  }
+  if (shouldReturnToBackground(conversation)) {
+    return "system:background";
+  }
+  if (conversation.conversationType === "scheduled") {
+    return "system:scheduled";
+  }
+  if (conversation.conversationType === "background") {
+    return "system:background";
+  }
   return "system:all";
 }

@@ -84,18 +84,30 @@ export function coerceStringBooleans(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) return input;
+  if (!schema) {
+    return input;
+  }
   const properties = schema.properties;
-  if (!isPlainObject(properties)) return input;
+  if (!isPlainObject(properties)) {
+    return input;
+  }
 
   let coerced: Record<string, unknown> | undefined;
   for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!isPlainObject(rawSubSchema)) continue;
-    if (rawSubSchema.type !== "boolean") continue;
+    if (!isPlainObject(rawSubSchema)) {
+      continue;
+    }
+    if (rawSubSchema.type !== "boolean") {
+      continue;
+    }
     const value = input[key];
-    if (typeof value !== "string") continue;
+    if (typeof value !== "string") {
+      continue;
+    }
     const normalized = value.trim().toLowerCase();
-    if (normalized !== "true" && normalized !== "false") continue;
+    if (normalized !== "true" && normalized !== "false") {
+      continue;
+    }
     coerced ??= { ...input };
     coerced[key] = normalized === "true";
   }
@@ -129,20 +141,32 @@ export function coerceStringNumbers(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  if (!schema) return input;
+  if (!schema) {
+    return input;
+  }
   const properties = schema.properties;
-  if (!isPlainObject(properties)) return input;
+  if (!isPlainObject(properties)) {
+    return input;
+  }
 
   let coerced: Record<string, unknown> | undefined;
   for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!isPlainObject(rawSubSchema)) continue;
-    if (rawSubSchema.type !== "string") continue;
+    if (!isPlainObject(rawSubSchema)) {
+      continue;
+    }
+    if (rawSubSchema.type !== "string") {
+      continue;
+    }
     const value = input[key];
-    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      continue;
+    }
     // An integer beyond the safe range was already rounded by JSON.parse;
     // coercing it would lock in a corrupted identifier. Skip it so validation
     // fails and the model retries with a lossless quoted string.
-    if (Number.isInteger(value) && !Number.isSafeInteger(value)) continue;
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      continue;
+    }
     coerced ??= { ...input };
     coerced[key] = String(value);
   }
@@ -164,9 +188,13 @@ export function validateInputAgainstSchema(
 ): InputValidationResult {
   // Skip when there's no schema or no properties block — matches today's
   // lenient behaviour for tools that declare only `{ type: "object" }`.
-  if (!schema) return { ok: true };
+  if (!schema) {
+    return { ok: true };
+  }
   const properties = schema.properties;
-  if (!isPlainObject(properties)) return { ok: true };
+  if (!isPlainObject(properties)) {
+    return { ok: true };
+  }
 
   const errors: string[] = [];
   const knownKeys = Object.keys(properties);
@@ -178,7 +206,9 @@ export function validateInputAgainstSchema(
   const required = schema.required;
   if (Array.isArray(required)) {
     for (const key of required) {
-      if (typeof key !== "string") continue;
+      if (typeof key !== "string") {
+        continue;
+      }
       if (!(key in input)) {
         errors.push(`${key} is required`);
       }
@@ -187,20 +217,28 @@ export function validateInputAgainstSchema(
 
   // 2. Per-property checks: type, enum, items.type.
   for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!(key in input)) continue;
+    if (!(key in input)) {
+      continue;
+    }
     const value = input[key];
     // Skip type-checking for absent values; presence is enforced by the
     // `required` check above. Note: `null` IS a present value and is
     // type-checked below — only schemas that explicitly opt in to null via
     // a union type (`type: ["string","null"]`) bypass the check, handled
     // by the `Array.isArray(declaredType)` skip immediately below.
-    if (value === undefined) continue;
-    if (!isPlainObject(rawSubSchema)) continue;
+    if (value === undefined) {
+      continue;
+    }
+    if (!isPlainObject(rawSubSchema)) {
+      continue;
+    }
 
     const declaredType = rawSubSchema.type;
     // Skip union types (e.g. `["string", "null"]`) — same lenient treatment
     // we give `oneOf`/`anyOf`/`$ref`. We only validate single-type schemas.
-    if (Array.isArray(declaredType)) continue;
+    if (Array.isArray(declaredType)) {
+      continue;
+    }
     if (typeof declaredType === "string" && SUPPORTED_TYPES.has(declaredType)) {
       const type = declaredType as SupportedType;
       if (!matchesType(value, type)) {
@@ -252,7 +290,9 @@ export function validateInputAgainstSchema(
     );
   }
 
-  if (errors.length === 0) return { ok: true };
+  if (errors.length === 0) {
+    return { ok: true };
+  }
   return { ok: false, errors };
 }
 

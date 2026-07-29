@@ -51,22 +51,30 @@ export function repairAdaptiveThinkingOnManagedProfiles(
   workspaceDir: string,
 ): void {
   const configPath = join(workspaceDir, "config.json");
-  if (!existsSync(configPath)) return;
+  if (!existsSync(configPath)) {
+    return;
+  }
 
   let config: Record<string, unknown>;
   try {
     const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return;
+    }
     config = raw as Record<string, unknown>;
   } catch {
     return;
   }
 
   const llm = readObject(config.llm);
-  if (llm === null) return;
+  if (llm === null) {
+    return;
+  }
 
   const profiles = readObject(llm.profiles);
-  if (profiles === null) return;
+  if (profiles === null) {
+    return;
+  }
 
   // Profiles without an explicit provider and without a model-implied provider
   // inherit llm.default.provider at resolution time; an absent
@@ -81,7 +89,9 @@ export function repairAdaptiveThinkingOnManagedProfiles(
 
   for (const name of TARGET_PROFILES) {
     const profile = readObject(profiles[name]);
-    if (profile === null) continue;
+    if (profile === null) {
+      continue;
+    }
 
     // Only patch managed Anthropic profiles.
     // Legacy profiles created before the `source` metadata field was introduced
@@ -91,17 +101,25 @@ export function repairAdaptiveThinkingOnManagedProfiles(
     // explicit `provider`, else the provider implied by a known catalog
     // `model`, else the inherited llm.default.provider. Explicit
     // `source: "user"` profiles are always skipped.
-    if (profile.source === "user") continue;
-    if (profile.source !== undefined && profile.source !== "managed") continue;
+    if (profile.source === "user") {
+      continue;
+    }
+    if (profile.source !== undefined && profile.source !== "managed") {
+      continue;
+    }
     const effectiveProvider = resolveEffectiveProvider(
       profile,
       defaultProvider,
     );
-    if (effectiveProvider !== "anthropic") continue;
+    if (effectiveProvider !== "anthropic") {
+      continue;
+    }
 
     // Skip if thinking is already enabled.
     const thinking = readObject(profile.thinking);
-    if (thinking !== null && thinking.enabled === true) continue;
+    if (thinking !== null && thinking.enabled === true) {
+      continue;
+    }
 
     profile.thinking = { ...ADAPTIVE_THINKING };
     profiles[name] = profile;
@@ -119,10 +137,14 @@ function resolveEffectiveProvider(
   profile: Record<string, unknown>,
   defaultProvider: string,
 ): string {
-  if (typeof profile.provider === "string") return profile.provider;
+  if (typeof profile.provider === "string") {
+    return profile.provider;
+  }
   if (typeof profile.model === "string") {
     const implied = getCatalogProviderForModel(profile.model);
-    if (implied !== undefined) return implied;
+    if (implied !== undefined) {
+      return implied;
+    }
   }
   return defaultProvider;
 }

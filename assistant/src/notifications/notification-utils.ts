@@ -10,7 +10,9 @@
 
 /** Return `value` trimmed, or `undefined` when blank/nullish. */
 export function nonEmpty(value: string | null | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
+  if (typeof value !== "string") {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
@@ -24,15 +26,18 @@ export function readPayloadString(
   payload: unknown,
   key: string,
 ): string | undefined {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return undefined;
+  }
   const value = (payload as Record<string, unknown>)[key];
   return typeof value === "string" ? value : undefined;
 }
 
 /** Truncate `text` to `maxLength`, appending "…" when exceeded. */
 export function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
+  if (text.length <= maxLength) {
+    return text;
+  }
   return text.slice(0, maxLength - 1) + "…";
 }
 

@@ -2,36 +2,38 @@ import { useCallback, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import {
-    AgreementsCard,
-    PrivacyPreferencesCard,
+  AgreementsCard,
+  PrivacyPreferencesCard,
 } from "@/domains/onboarding/components/consent-controls";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
-    emitOnboardingFunnelStepCompleted,
-    getOnboardingFunnelSessionId,
-    ONBOARDING_FUNNEL_STEPS,
+  emitOnboardingFunnelStepCompleted,
+  getOnboardingFunnelSessionId,
+  ONBOARDING_FUNNEL_STEPS,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { CHECKOUT_CONTINUE_PARAM } from "@/lib/billing/checkout-continuation";
+import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import {
-    clearCheckoutIntent,
-    readCheckoutIntent,
+  clearCheckoutIntent,
+  readCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
+import { buildCustomCheckoutSearch } from "@/lib/billing/custom-checkout-params";
 import { isLocalMode } from "@/lib/local-mode";
 import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
 import {
-    usePrivacyConsent,
-    useShareDiagnostics,
-    useTosAccepted,
+  usePrivacyConsent,
+  useShareDiagnostics,
+  useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { saveConsent } from "@/lib/consent/consent-persistence";
-import { routes } from "@/utils/routes";
+import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 export function PrivacyScreen() {
@@ -93,11 +95,15 @@ export function PrivacyScreen() {
 
     const hostingParam = searchParams.get("hosting");
     const params = new URLSearchParams();
-    if (hostingParam) params.set("hosting", hostingParam);
+    if (hostingParam) {
+      params.set("hosting", hostingParam);
+    }
     // Carry the marketing plugin attribution forward so the research runner can
     // read it off the URL and pre-install that plugin (see `plugin-attribution`).
     const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
-    if (pluginParam) params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
+    if (pluginParam) {
+      params.set(ATTRIBUTED_PLUGIN_PARAM, pluginParam);
+    }
     const qs = params.toString();
     // A local-hosting onboarding (hosting=local/docker in a local-mode build)
     // must run the foreground local hatch first, so it goes to `hatching`, which
@@ -110,7 +116,7 @@ export function PrivacyScreen() {
     });
     const onboardingNext = `${destination}${qs ? `?${qs}` : ""}`;
 
-    // A pricing-CTA signup stashes its chosen package (see navigation-resolver
+    // A pricing-CTA signup stashes its chosen plan (see navigation-resolver
     // post-auth). With consent now recorded, resume checkout so payment happens
     // after consent and before the assistant hatches. Resume ONLY a
     // signup-marked intent (`resumeAfterOnboarding`): an ordinary billing-surface
@@ -120,26 +126,23 @@ export function PrivacyScreen() {
     // re-stashing on a Stripe redirect, clearing it on an already-Pro no_op — so
     // this screen just hands off. Resuming only from this explicit Start click —
     // never a render effect — keeps consent and checkout from looping.
-    // A positively-off `marketing-pricing-takeover` drops the dead package and
+    // A positively-off `marketing-pricing-takeover` drops the dead selection and
     // continues onboarding: handing off would bounce through a gated checkout
     // route and out of the funnel before research runs. An unresolved flag still
     // resumes, carrying the onboarding step this click would otherwise have
     // taken: if the flag lands off, checkout returns the user there instead of
     // the plans takeover, so a pending→disabled race stays inside the funnel.
     const checkoutIntent = readCheckoutIntent();
-    if (
-      checkoutIntent?.kind === "package" &&
-      checkoutIntent.resumeAfterOnboarding === true
-    ) {
+    if (checkoutIntent?.resumeAfterOnboarding === true) {
       if (takeover === "disabled") {
         clearCheckoutIntent();
       } else {
-        const checkoutParams = new URLSearchParams({
-          package: checkoutIntent.packageKey,
-          [CHECKOUT_CONTINUE_PARAM]: onboardingNext,
-        });
-        void navigate(`${routes.checkout}?${checkoutParams.toString()}`);
-        return;
+        const checkoutParams = checkoutResumeSearch(checkoutIntent);
+        if (checkoutParams) {
+          checkoutParams.set(CHECKOUT_CONTINUE_PARAM, onboardingNext);
+          void navigate(`${routes.checkout}?${checkoutParams.toString()}`);
+          return;
+        }
       }
     }
 
@@ -170,7 +173,11 @@ export function PrivacyScreen() {
           </div>
         )}
         <h1
-          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
+          className={
+            electron
+              ? "text-title-large"
+              : "text-3xl font-semibold tracking-tight"
+          }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Before You Start
@@ -248,8 +255,27 @@ export function PrivacyScreen() {
             Back
           </Button>
         </div>
-
       </div>
     </OnboardingLayout>
   );
+}
+
+/**
+ * The checkout query a signup-marked stash resumes with, or `null` when it
+ * names nothing the checkout route could act on: a custom stash without the
+ * storage tier the upgrade endpoint requires. Only the marker-free
+ * billing-surface saves can write one, and those never resume here.
+ */
+function checkoutResumeSearch(intent: CheckoutIntent): URLSearchParams | null {
+  if (intent.kind === "package") {
+    return new URLSearchParams({ [PACKAGE_PARAM]: intent.packageKey });
+  }
+  if (intent.storageTier === null) {
+    return null;
+  }
+  return buildCustomCheckoutSearch({
+    machineTier: intent.machineTier,
+    storageTier: intent.storageTier,
+    creditTier: intent.creditTier,
+  });
 }

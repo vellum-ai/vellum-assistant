@@ -12,10 +12,22 @@ import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
  */
 
 const SAMPLE_QUOTES = [
-  { quotedText: "the river model of memory", replyText: "Expand on this a lot more, please." },
-  { quotedText: "finding the path of least resistance", replyText: "What does this mean concretely?" },
-  { quotedText: "an eddy that thinks it's the river", replyText: "Is this a metaphor for identity?" },
-  { quotedText: "your memories are a record or just a current", replyText: "Which one do you believe?" },
+  {
+    quotedText: "the river model of memory",
+    replyText: "Expand on this a lot more, please.",
+  },
+  {
+    quotedText: "finding the path of least resistance",
+    replyText: "What does this mean concretely?",
+  },
+  {
+    quotedText: "an eddy that thinks it's the river",
+    replyText: "Is this a metaphor for identity?",
+  },
+  {
+    quotedText: "your memories are a record or just a current",
+    replyText: "Which one do you believe?",
+  },
 ];
 
 /** Renders the strip plus a button that stages another quote (to test scroll). */
@@ -23,7 +35,9 @@ function StripHarness({ initialCount }: { initialCount: number }) {
   useEffect(() => {
     useQuoteReplyStore.setState({ stagedQuotes: [] });
     for (const q of SAMPLE_QUOTES.slice(0, initialCount)) {
-      useQuoteReplyStore.getState().addStagedQuote({ ...q, sourceMessageId: "msg-1" });
+      useQuoteReplyStore
+        .getState()
+        .addStagedQuote({ ...q, sourceMessageId: "msg-1" });
     }
     return () => useQuoteReplyStore.setState({ stagedQuotes: [] });
   }, [initialCount]);

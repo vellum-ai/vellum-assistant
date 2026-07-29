@@ -111,6 +111,10 @@
           "inference_profile": {
             "type": "string",
             "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use, e.g. to run a heavy task on a cheaper model. When omitted, runs use the default mainAgent model selection. Must name a configured profile."
+          },
+          "group": {
+            "type": "string",
+            "description": "Sidebar group (name or id) that conversations created by this schedule's runs are filed into, instead of the default Scheduled section. Must reference an existing group. Create one first with conversation_group_create (conversation-groups skill) if needed."
           }
         },
         "required": ["name", "description"]
@@ -230,6 +234,10 @@
           "inference_profile": {
             "type": ["string", "null"],
             "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use. Pass null to clear the override and revert to the default mainAgent model selection. Must name a configured profile."
+          },
+          "group": {
+            "type": ["string", "null"],
+            "description": "Sidebar group (name or id) that conversations created by future runs are filed into. Pass null to revert to the default Scheduled section. Existing conversations stay where they are; move them with conversation_move_to_group if asked."
           }
         },
         "required": ["job_id"]

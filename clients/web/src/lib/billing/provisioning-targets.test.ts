@@ -8,9 +8,7 @@ import {
   targetsMet,
 } from "./provisioning-targets";
 
-function opStatus(
-  overrides: Partial<OperationalStatus>,
-): OperationalStatus {
+function opStatus(overrides: Partial<OperationalStatus>): OperationalStatus {
   return {
     state: "active",
     detail_state: "",
@@ -112,9 +110,9 @@ describe("targetsMet", () => {
   });
 
   test("null actuals cannot meet a non-null machine target", () => {
-    expect(
-      targetsMet({ machineSize: "large", storageGib: null }, null),
-    ).toBe(false);
+    expect(targetsMet({ machineSize: "large", storageGib: null }, null)).toBe(
+      false,
+    );
   });
 
   test("null actual storage cannot meet a non-null storage target", () => {

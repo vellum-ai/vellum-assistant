@@ -11,9 +11,9 @@ describe("AcpAgentIcon", () => {
   });
 
   test("maps codex / gpt variants to the OpenAI mark", () => {
-    expect(renderToStaticMarkup(<AcpAgentIcon agent="gpt-5-codex" />)).toContain(
-      "chatgpt.svg",
-    );
+    expect(
+      renderToStaticMarkup(<AcpAgentIcon agent="gpt-5-codex" />),
+    ).toContain("chatgpt.svg");
   });
 
   test("matches model variants by substring (claude-sonnet)", () => {

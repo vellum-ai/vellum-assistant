@@ -115,7 +115,9 @@ function v3Injector(inner: string | null, commit?: () => void): Injector {
     name: "memory-v3-shadow",
     order: 1000,
     async produce(): Promise<InjectionBlock | null> {
-      if (inner === null) return null;
+      if (inner === null) {
+        return null;
+      }
       return {
         id: "memory-v3",
         text: inner === "" ? "" : `<memory>\n${inner}\n</memory>`,
@@ -169,7 +171,9 @@ describe("memory-v3-live v2 suppression", () => {
   });
 
   afterEach(() => {
-    for (const graph of seededGraphs) graph.dispose();
+    for (const graph of seededGraphs) {
+      graph.dispose();
+    }
     seededGraphs.length = 0;
   });
 

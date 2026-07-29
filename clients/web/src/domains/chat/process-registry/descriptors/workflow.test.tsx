@@ -125,9 +125,9 @@ describe("WORKFLOW_DESCRIPTOR — static metadata", () => {
     // The custom count slot renders the agent-avatar chip with the formatted
     // "N agents" label rather than the default string-count Typography.
     expect(getByTestId("workflow-inline-card-agents-chip")).toBeTruthy();
-    expect(
-      getByTestId("workflow-inline-card-step-count").textContent,
-    ).toBe("3 agents");
+    expect(getByTestId("workflow-inline-card-step-count").textContent).toBe(
+      "3 agents",
+    );
   });
 
   test("hides the renderCount chip for a 0-agent workflow", () => {

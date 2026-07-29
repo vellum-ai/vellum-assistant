@@ -20,11 +20,7 @@
  */
 import { useEffect, useLayoutEffect, useRef } from "react";
 
-import {
-  subscribe,
-  type BusEventName,
-  type BusHandler,
-} from "@/lib/event-bus";
+import { subscribe, type BusEventName, type BusHandler } from "@/lib/event-bus";
 
 export function useBusSubscription<K extends BusEventName>(
   event: K,

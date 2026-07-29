@@ -2,16 +2,17 @@ import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import {
-    getDefaultModelForProvider,
-    getModelsForProvider,
-    PROVIDER_DISPLAY_NAMES,
+  getDefaultModelForProvider,
+  getModelsForProvider,
+  PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
 
+import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import {
-    INFERENCE_PROVIDERS,
-} from "@/domains/settings/ai/constants";
-import { CUSTOM_SENTINEL, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
+  CUSTOM_SENTINEL,
+  isDraftActive,
+} from "@/domains/settings/ai/call-site-helpers";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 
 // ---------------------------------------------------------------------------
@@ -51,15 +52,22 @@ export function CallSiteOverrideRow({
   const overrideOn = isDraftActive(draft);
 
   const profileVal = (() => {
-    if (!draft || !overrideOn) return "";
-    if (draft.provider || draft.model) return CUSTOM_SENTINEL;
+    if (!draft || !overrideOn) {
+      return "";
+    }
+    if (draft.provider || draft.model) {
+      return CUSTOM_SENTINEL;
+    }
     return draft.profile ?? "";
   })();
 
   const isCustom = profileVal === CUSTOM_SENTINEL;
   const selectableInferenceProviders = useSelectableInferenceProviders();
-  const defaultProvider = selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
-  const currentProvider = selectableInferenceProviders.find((p) => p === draft?.provider) ?? defaultProvider;
+  const defaultProvider =
+    selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
+  const currentProvider =
+    selectableInferenceProviders.find((p) => p === draft?.provider) ??
+    defaultProvider;
   const availableModels = getModelsForProvider(currentProvider);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
@@ -70,7 +78,11 @@ export function CallSiteOverrideRow({
   function handleProfilePickerChange(val: string) {
     if (val === CUSTOM_SENTINEL) {
       const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      onDraftChange(id, { profile: null, provider: defaultProvider, model: defaultModel });
+      onDraftChange(id, {
+        profile: null,
+        provider: defaultProvider,
+        model: defaultModel,
+      });
     } else if (val === "") {
       onDraftChange(id, null);
     } else {
@@ -78,9 +90,16 @@ export function CallSiteOverrideRow({
     }
   }
 
-  function handleProviderChange(provider: (typeof INFERENCE_PROVIDERS)[number]) {
+  function handleProviderChange(
+    provider: (typeof INFERENCE_PROVIDERS)[number],
+  ) {
     const defaultModel = getDefaultModelForProvider(provider) ?? "";
-    onDraftChange(id, { ...(draft ?? {}), profile: null, provider, model: defaultModel });
+    onDraftChange(id, {
+      ...(draft ?? {}),
+      profile: null,
+      provider,
+      model: defaultModel,
+    });
   }
 
   function handleModelChange(model: string) {

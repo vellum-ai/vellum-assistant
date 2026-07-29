@@ -306,8 +306,12 @@ export class QdrantManager {
           () => ({ type: "fetch" as const, ok: false }),
         ),
       ]);
-      if (fetchOutcome.type === "exited") await throwOnExit(fetchOutcome.code);
-      if (fetchOutcome.type === "fetch" && fetchOutcome.ok) return;
+      if (fetchOutcome.type === "exited") {
+        await throwOnExit(fetchOutcome.code);
+      }
+      if (fetchOutcome.type === "fetch" && fetchOutcome.ok) {
+        return;
+      }
 
       // Race the poll-interval sleep with process exit so we don't waste time
       // sleeping after the subprocess has already died.
@@ -320,7 +324,9 @@ export class QdrantManager {
           ),
         ),
       ]);
-      if (sleepOutcome.type === "exited") await throwOnExit(sleepOutcome.code);
+      if (sleepOutcome.type === "exited") {
+        await throwOnExit(sleepOutcome.code);
+      }
     }
     throw new Error(
       `Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}` +
@@ -361,7 +367,9 @@ export class QdrantManager {
     try {
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          break;
+        }
         buffer += decoder.decode(value, { stream: true });
         if (buffer.length > limit) {
           buffer = buffer.slice(-limit);
@@ -392,7 +400,9 @@ export class QdrantManager {
 
   private cleanupStaleProcess(): void {
     const pid = this.readPid();
-    if (pid == null) return;
+    if (pid == null) {
+      return;
+    }
 
     try {
       process.kill(pid, 0); // Check if process exists
@@ -406,7 +416,9 @@ export class QdrantManager {
   }
 
   private readPid(): number | null {
-    if (!existsSync(this.pidPath)) return null;
+    if (!existsSync(this.pidPath)) {
+      return null;
+    }
     try {
       const pid = parseInt(readFileSync(this.pidPath, "utf-8").trim(), 10);
       return isNaN(pid) ? null : pid;
@@ -491,6 +503,8 @@ export function createQdrantManager(
  * never ran (e.g. shutdown before background init started).
  */
 export async function stopQdrantManager(): Promise<void> {
-  if (!instance) return;
+  if (!instance) {
+    return;
+  }
   await instance.stop();
 }

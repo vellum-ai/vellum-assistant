@@ -28,7 +28,10 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { routes } from "@/utils/routes";
 
-import { AssistantStage, useAssistantStage } from "./components/assistant-stage";
+import {
+  AssistantStage,
+  useAssistantStage,
+} from "./components/assistant-stage";
 import { PersonalitySliderRow } from "./components/personality-slider-row";
 import { applyPersonalityUpdate } from "./identity-actions/apply-personality-update";
 import {
@@ -44,7 +47,8 @@ export function PersonalityPage() {
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { components, traits, customImageUrl } = useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } =
+    useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const slidersQuery = useQuery({
     queryKey: personalitySlidersQueryKey(assistantId),
@@ -80,7 +84,9 @@ export function PersonalityPage() {
         toast.success("Personality updated — come say hi!");
         void navigate(routes.identity);
       } else {
-        toast.error("The personality update didn't go through. Please try again.");
+        toast.error(
+          "The personality update didn't go through. Please try again.",
+        );
       }
     });
   };
@@ -147,7 +153,10 @@ function PersonalityBody({
         className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6"
         style={{ paddingBottom: bottomReserve }}
       >
-        <div className="w-full min-h-14 shrink-[4]" style={{ flexBasis: "12%" }} />
+        <div
+          className="w-full min-h-14 shrink-[4]"
+          style={{ flexBasis: "12%" }}
+        />
 
         <div className="flex shrink-0 flex-col items-center gap-2 text-center">
           <h1
@@ -156,10 +165,7 @@ function PersonalityBody({
           >
             Shape my personality
           </h1>
-          <p
-            className="max-w-md text-[15px]"
-            style={{ color: tone.fgMuted }}
-          >
+          <p className="max-w-md text-[15px]" style={{ color: tone.fgMuted }}>
             Slide the dials, then hit update — I&rsquo;ll rewrite myself to
             match.
           </p>

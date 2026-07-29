@@ -265,10 +265,18 @@ describe("appendTextDelta", () => {
     // GIVEN this client attaches mid-turn: the live turn holds only the user
     // row, while the daemon already persisted a prefix under the reserved id,
     // which now sits in the history cache (the resolver returns it).
-    const historyTwin = makeAssistantMsg({ id: "row-B", ...seg("The persisted ") });
+    const historyTwin = makeAssistantMsg({
+      id: "row-B",
+      ...seg("The persisted "),
+    });
 
     // WHEN the first replayed delta (seq > the snapshot watermark) arrives
-    const result = appendTextDelta([userMsg], "answer", "row-B", () => historyTwin);
+    const result = appendTextDelta(
+      [userMsg],
+      "answer",
+      "row-B",
+      () => historyTwin,
+    );
 
     // THEN the delta extends the persisted prefix on the SAME row instead of
     // opening a fresh, prefix-less bubble — the opening text is not dropped.
@@ -279,7 +287,12 @@ describe("appendTextDelta", () => {
 
   it("opens a fresh bubble when the twin resolver finds no history prefix", () => {
     // GIVEN a genuinely new turn — no persisted prefix, resolver returns undefined.
-    const result = appendTextDelta([userMsg], "answer", "row-B", () => undefined);
+    const result = appendTextDelta(
+      [userMsg],
+      "answer",
+      "row-B",
+      () => undefined,
+    );
 
     // THEN behaviour is identical to before the seed existed: a fresh bubble.
     expect(result).toHaveLength(2);
@@ -1451,7 +1464,12 @@ describe("appendThinkingDelta", () => {
     });
 
     // WHEN the first replayed thinking delta arrives
-    const result = appendThinkingDelta([userMsg], "far", "row-B", () => historyTwin);
+    const result = appendThinkingDelta(
+      [userMsg],
+      "far",
+      "row-B",
+      () => historyTwin,
+    );
 
     // THEN it extends the persisted thinking prefix on the SAME row instead of
     // opening a fresh, prefix-less bubble.

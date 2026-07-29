@@ -107,9 +107,7 @@ describe("AssistantSideMenu · Chats category rows", () => {
     expect(html).not.toContain(">Recents<");
     expect(html).not.toContain(">Slack<");
 
-    expect(html.indexOf(">Pinned<")).toBeLessThan(
-      html.indexOf(">Chats<"),
-    );
+    expect(html.indexOf(">Pinned<")).toBeLessThan(html.indexOf(">Chats<"));
   });
 
   test("renders Slack as a conditional peer section after Recents", () => {
@@ -486,7 +484,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
 
     expect(html).toContain(">New Chat<");
     // It is a button row, not a navigation link.
-    expect(html).not.toContain("<a aria-label=\"New Chat\"");
+    expect(html).not.toContain('<a aria-label="New Chat"');
     // New Chat sits above the assistant row.
     expect(html.indexOf(">New Chat<")).toBeLessThan(
       html.indexOf("Your Assistant"),
@@ -526,13 +524,20 @@ describe("AssistantSideMenu · overlay close affordance", () => {
     expect(overlayHtml).toContain('aria-label="Close navigation"');
     expect(railHtml).not.toContain('aria-label="Close navigation"');
   });
+
+  test("keeps the search affordance in the overlay header", () => {
+    const overlayHtml = renderMenu({ conversations: [], variant: "overlay" });
+    expect(overlayHtml).toContain('aria-label="Search (⌘K)"');
+  });
 });
-
-
 
 describe("AssistantSideMenu · section header menus", () => {
   const conversations = [
-    makeConversation({ conversationId: "p1", title: "Pin one", isPinned: true }),
+    makeConversation({
+      conversationId: "p1",
+      title: "Pin one",
+      isPinned: true,
+    }),
     makeConversation({
       conversationId: "r1",
       title: "Recent one",

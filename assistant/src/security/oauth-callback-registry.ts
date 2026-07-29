@@ -49,7 +49,9 @@ export function registerPendingCallback(
 
 export function consumeCallback(state: string, code: string): boolean {
   const entry = pendingCallbacks.get(state);
-  if (!entry) return false;
+  if (!entry) {
+    return false;
+  }
   clearTimeout(entry.timer);
   pendingCallbacks.delete(state);
   entry.resolve(code);
@@ -58,7 +60,9 @@ export function consumeCallback(state: string, code: string): boolean {
 
 export function consumeCallbackError(state: string, error: string): boolean {
   const entry = pendingCallbacks.get(state);
-  if (!entry) return false;
+  if (!entry) {
+    return false;
+  }
   clearTimeout(entry.timer);
   pendingCallbacks.delete(state);
   entry.reject(new Error(error));

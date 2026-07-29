@@ -49,11 +49,17 @@ export function deriveActiveSkills(messages: Message[]): ActiveSkillEntry[] {
 
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "tool_result") continue;
-      if (!skillLoadUseIds.has(block.tool_use_id)) continue;
+      if (block.type !== "tool_result") {
+        continue;
+      }
+      if (!skillLoadUseIds.has(block.tool_use_id)) {
+        continue;
+      }
 
       const text = block.content;
-      if (!text) continue;
+      if (!text) {
+        continue;
+      }
 
       for (const match of text.matchAll(LOADED_SKILL_RE)) {
         const id = match[1];

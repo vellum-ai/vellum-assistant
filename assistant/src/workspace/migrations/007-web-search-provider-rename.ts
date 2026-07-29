@@ -9,54 +9,78 @@ export const webSearchProviderRenameMigration: WorkspaceMigration = {
     'Rename web-search provider from "anthropic-native" to "inference-provider-native"',
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const services = config.services;
-    if (!services || typeof services !== "object" || Array.isArray(services))
+    if (!services || typeof services !== "object" || Array.isArray(services)) {
       return;
+    }
 
     const webSearch = (services as Record<string, unknown>)["web-search"];
-    if (!webSearch || typeof webSearch !== "object" || Array.isArray(webSearch))
+    if (
+      !webSearch ||
+      typeof webSearch !== "object" ||
+      Array.isArray(webSearch)
+    ) {
       return;
+    }
 
     const ws = webSearch as Record<string, unknown>;
-    if (ws.provider !== "anthropic-native") return;
+    if (ws.provider !== "anthropic-native") {
+      return;
+    }
 
     ws.provider = "inference-provider-native";
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
   down(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const services = config.services;
-    if (!services || typeof services !== "object" || Array.isArray(services))
+    if (!services || typeof services !== "object" || Array.isArray(services)) {
       return;
+    }
 
     const webSearch = (services as Record<string, unknown>)["web-search"];
-    if (!webSearch || typeof webSearch !== "object" || Array.isArray(webSearch))
+    if (
+      !webSearch ||
+      typeof webSearch !== "object" ||
+      Array.isArray(webSearch)
+    ) {
       return;
+    }
 
     const ws = webSearch as Record<string, unknown>;
-    if (ws.provider !== "inference-provider-native") return;
+    if (ws.provider !== "inference-provider-native") {
+      return;
+    }
 
     ws.provider = "anthropic-native";
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

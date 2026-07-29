@@ -9,10 +9,7 @@ import type { ToolProgressCardState } from "@/domains/chat/components/tool-progr
  * {@link BackgroundProcessDescriptor}.
  */
 export type ProcessKind =
-  | "subagent"
-  | "workflow"
-  | "acp-run"
-  | "background-task";
+  "subagent" | "workflow" | "acp-run" | "background-task";
 
 /**
  * Pre-projected summary used to render a process's inline card.

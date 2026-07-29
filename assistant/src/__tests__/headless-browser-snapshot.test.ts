@@ -72,7 +72,9 @@ mock.module("../tools/browser/browser-manager.js", () => {
         elementId: string,
       ) => {
         const map = storedBackendNodeMaps.get(conversationId);
-        if (!map) return null;
+        if (!map) {
+          return null;
+        }
         return map.get(elementId) ?? null;
       },
       getPreferredBackendKind: (conversationId: string) =>

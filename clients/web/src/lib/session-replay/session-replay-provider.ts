@@ -148,12 +148,21 @@ const replayProvider: SessionReplayProvider = (() => {
     identify(uid, traits) {
       // Traits disallow undefined values, so attach only what's present.
       const userTraits: Record<string, string> = { surface: traits.surface };
-      if (traits.name) userTraits.name = traits.name;
-      if (traits.email) userTraits.email = traits.email;
-      if (traits.username) userTraits.username = traits.username;
+      if (traits.name) {
+        userTraits.name = traits.name;
+      }
+      if (traits.email) {
+        userTraits.email = traits.email;
+      }
+      if (traits.username) {
+        userTraits.username = traits.username;
+      }
       // Queue until the lazy SDK import resolves, then dispatch directly.
-      if (sdk) sdk.identify(uid, userTraits);
-      else pendingIdentify = { uid, traits: userTraits };
+      if (sdk) {
+        sdk.identify(uid, userTraits);
+      } else {
+        pendingIdentify = { uid, traits: userTraits };
+      }
       if (import.meta.env.DEV) {
         console.debug("[session-replay] identify", {
           uid,
@@ -163,7 +172,9 @@ const replayProvider: SessionReplayProvider = (() => {
     },
     stop() {
       active = false;
-      if (import.meta.env.DEV) console.debug("[session-replay] stop");
+      if (import.meta.env.DEV) {
+        console.debug("[session-replay] stop");
+      }
     },
     isActive: () => active,
   };

@@ -61,7 +61,9 @@ function getSessionStorage(): Storage | null {
 
 function getStoredOrganizationId(): string | null {
   const storage = getSessionStorage();
-  if (!storage) return null;
+  if (!storage) {
+    return null;
+  }
   try {
     return storage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
   } catch {
@@ -71,7 +73,9 @@ function getStoredOrganizationId(): string | null {
 
 function setStoredOrganizationId(organizationId: string): void {
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     storage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, organizationId);
   } catch {
@@ -81,7 +85,9 @@ function setStoredOrganizationId(organizationId: string): void {
 
 function clearStoredOrganizationId(): void {
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     storage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
   } catch {
@@ -93,7 +99,9 @@ function resolveActiveOrganizationId(
   organizations: readonly OrganizationRead[],
   candidateId: string | null,
 ): string | null {
-  if (organizations.length === 0) return null;
+  if (organizations.length === 0) {
+    return null;
+  }
   if (candidateId && organizations.some((org) => org.id === candidateId)) {
     return candidateId;
   }
@@ -234,17 +242,16 @@ export function setupOrganizationStore(): () => void {
   const unsubAuth = useAuthStore.subscribe((state, prevState) => {
     const hasSession = hasLivePlatformSession(state.platformSession);
     const hadSession = hasLivePlatformSession(prevState.platformSession);
-    if (
-      hasSession &&
-      (!hadSession || state.user?.id !== prevState.user?.id)
-    ) {
+    if (hasSession && (!hadSession || state.user?.id !== prevState.user?.id)) {
       useOrganizationStore.getState().fetchOrganizations();
     }
   });
 
   // 2. App resume — refetch if stale and platform session is active.
   const refetchIfStale = () => {
-    if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) return;
+    if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+      return;
+    }
     const { status } = useOrganizationStore.getState();
     if (
       (status === "ready" || status === "error") &&

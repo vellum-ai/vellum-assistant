@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.12
+  version: 0.11.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -11875,6 +11875,11 @@ paths:
                           type: string
                         name:
                           type: string
+                        icon:
+                          description: Client-chosen icon name; null when the group has none
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         sortPosition:
                           type: number
                         isSystemGroup:
@@ -11904,6 +11909,11 @@ paths:
                 name:
                   type: string
                   description: Group name
+                icon:
+                  description: Client-chosen icon name
+                  anyOf:
+                    - type: string
+                    - type: "null"
               required:
                 - name
       responses:
@@ -11918,6 +11928,11 @@ paths:
                     type: string
                   name:
                     type: string
+                  icon:
+                    description: Client-chosen icon name; null when the group has none
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   sortPosition:
                     type: number
                   isSystemGroup:
@@ -11953,7 +11968,7 @@ paths:
     patch:
       operationId: groups_by_groupId_patch
       summary: Update group
-      description: Update a conversation group's name or sort position.
+      description: Update a conversation group's name, icon, or sort position.
       tags:
         - groups
       parameters:
@@ -11971,6 +11986,11 @@ paths:
               properties:
                 name:
                   type: string
+                icon:
+                  description: Client-chosen icon name; null clears it
+                  anyOf:
+                    - type: string
+                    - type: "null"
                 sortPosition:
                   type: number
       responses:
@@ -11985,6 +12005,11 @@ paths:
                     type: string
                   name:
                     type: string
+                  icon:
+                    description: Client-chosen icon name; null when the group has none
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   sortPosition:
                     type: number
                   isSystemGroup:
@@ -14808,6 +14833,25 @@ paths:
                     properties:
                       resolved_endpoint:
                         type: string
+                      resolved_url:
+                        type: string
+                      model_id:
+                        type: string
+                      connection_name:
+                        type: string
+                      http_status:
+                        type: number
+                      upstream_error_body:
+                        type: string
+                      upstream_error_body_state:
+                        type: string
+                        enum:
+                          - captured
+                          - empty
+                          - truncated
+                          - unavailable
+                      upstream_error_body_bytes:
+                        type: number
                     additionalProperties: false
                 required:
                   - response
@@ -17748,7 +17792,9 @@ paths:
         "Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
         identity Memory card. Counts concept pages only and never builds the memory-concept graph. Also reports
         graph_supported: whether the memory-concept graph is available for this assistant (memory enabled and v3 live),
-        so callers can gate the graph entry point without building the graph."
+        so callers can gate the graph entry point without building the graph, plus tier: the coarse memory tier
+        explaining why the graph is unavailable (off = the user's Memory opt-out, v1/v2 = a legacy engine that has not
+        migrated to v3)."
       tags:
         - memory
       responses:
@@ -17765,9 +17811,18 @@ paths:
                   graph_supported:
                     type: boolean
                     description: Whether the memory-concept graph is available (memory enabled and v3 live)
+                  tier:
+                    type: string
+                    enum:
+                      - off
+                      - v1
+                      - v2
+                      - v3
+                    description: Coarse memory tier for this assistant; graph_supported is exactly tier === 'v3'
                 required:
                   - concepts
                   - graph_supported
+                  - tier
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:
@@ -18563,6 +18618,7 @@ paths:
                                           - brave
                                           - perplexity
                                           - tavily
+                                          - keenable
                                           - firecrawl
                                       resultCount:
                                         type: number
@@ -19001,6 +19057,7 @@ paths:
                                                   - brave
                                                   - perplexity
                                                   - tavily
+                                                  - keenable
                                                   - firecrawl
                                               resultCount:
                                                 type: number
@@ -22602,6 +22659,33 @@ paths:
                   - disconnected
                   - previousBaseUrl
                 additionalProperties: false
+  /v1/platform/plans:
+    get:
+      operationId: platform_plans_get
+      summary: Get the plan catalog with pricing
+      description:
+        "Fetches the platform plan catalog: base and pro plans with pricing (in cents), machine/storage/credit
+        tiers, and packages."
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                required:
+                  - plans
+                additionalProperties: false
   /v1/platform/status:
     get:
       operationId: platform_status_get
@@ -22653,6 +22737,91 @@ paths:
                   - available
                   - organizationId
                   - userId
+                additionalProperties: false
+  /v1/platform/subscription:
+    get:
+      operationId: platform_subscription_get
+      summary: Get the organization's current plan and subscription state
+      description:
+        Fetches the org's plan (base or pro), subscription status, renewal/period-end dates, cancellation state,
+        selected credit tier, package, and plan-gated entitlements from the platform.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  planId:
+                    type: string
+                    enum:
+                      - base
+                      - pro
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  renewalDate:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  currentPeriodEnd:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  cancelAtPeriodEnd:
+                    type: boolean
+                  cancelAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  selectedCreditTier:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  package:
+                    anyOf:
+                      - type: object
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          version:
+                            type: number
+                          customized:
+                            type: boolean
+                        required:
+                          - key
+                          - name
+                          - version
+                          - customized
+                        additionalProperties: false
+                      - type: "null"
+                  entitlements:
+                    type: object
+                    properties:
+                      managedEmail:
+                        type: boolean
+                      phoneNumber:
+                        type: boolean
+                    required:
+                      - managedEmail
+                      - phoneNumber
+                    additionalProperties: false
+                required:
+                  - planId
+                  - status
+                  - renewalDate
+                  - currentPeriodEnd
+                  - cancelAtPeriodEnd
+                  - cancelAt
+                  - selectedCreditTier
+                  - package
+                  - entitlements
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:
@@ -24748,6 +24917,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -24813,6 +24986,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -24955,6 +25129,10 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
                       createdFromConversationId:
                         anyOf:
                           - type: string
@@ -25020,6 +25198,7 @@ paths:
                       - retryBackoffMs
                       - timeoutMs
                       - inferenceProfile
+                      - groupId
                       - createdFromConversationId
                       - createdFromConversationExists
                       - createdFromConversationArchivedAt
@@ -25116,6 +25295,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25181,6 +25364,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -25274,6 +25458,10 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
                       createdFromConversationId:
                         anyOf:
                           - type: string
@@ -25339,6 +25527,7 @@ paths:
                       - retryBackoffMs
                       - timeoutMs
                       - inferenceProfile
+                      - groupId
                       - createdFromConversationId
                       - createdFromConversationExists
                       - createdFromConversationArchivedAt
@@ -25491,6 +25680,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25556,6 +25749,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -25652,6 +25846,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25717,6 +25915,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -25813,6 +26012,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25878,6 +26081,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -26111,6 +26315,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -26176,6 +26384,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -29336,8 +29545,8 @@ paths:
           schema:
             type: string
           description:
-            The subagent's own conversation ID. Fallback only — when the daemon knows the subagent (live or
-            rehydrated), it resolves the conversation itself and this parameter is ignored.
+            "The subagent's own conversation ID. Fallback only: when the assistant knows the subagent (live,
+            rehydrated, or in its durable records), it resolves the conversation itself and this parameter is ignored."
       responses:
         "200":
           description: Successful response
@@ -29403,6 +29612,8 @@ paths:
                   label:
                     type: string
                   parentToolUseId:
+                    type: string
+                  conversationId:
                     type: string
                 required:
                   - subagentId
@@ -29496,9 +29707,14 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation,
-        with the identity fields a client needs to rebuild a store entry it never saw spawn (label, the subagent's own
-        conversation id, and the spawning tool-use id). Subagents not in the response are orphaned.
+        "Returns the subagents the assistant knows for a given parent conversation (live, rehydrated, and durably
+        recorded), including recently finished runs whose in-memory metadata the retention sweep has already evicted.
+        Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal
+        state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child
+        conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from
+        scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports,
+        so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be
+        present; every other field is optional."
       tags:
         - subagents
       parameters:
@@ -29525,11 +29741,31 @@ paths:
                       properties:
                         status:
                           type: string
-                        label:
-                          type: string
                         conversationId:
                           type: string
+                        label:
+                          type: string
+                        objective:
+                          type: string
+                        isFork:
+                          type: boolean
                         parentToolUseId:
+                          type: string
+                        usage:
+                          type: object
+                          properties:
+                            inputTokens:
+                              type: number
+                            outputTokens:
+                              type: number
+                            estimatedCost:
+                              type: number
+                          required:
+                            - inputTokens
+                            - outputTokens
+                            - estimatedCost
+                          additionalProperties: false
+                        error:
                           type: string
                       required:
                         - status

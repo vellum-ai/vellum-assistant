@@ -29,14 +29,14 @@ import { type ReactNode, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-    buildPanelMenuItem,
-    PanelMenuDivider,
+  buildPanelMenuItem,
+  PanelMenuDivider,
 } from "@/domains/chat/components/panel-menu-item";
 import {
-    BottomSheet,
-    ContextMenu,
-    Menu,
-    Popover,
+  BottomSheet,
+  ContextMenu,
+  Menu,
+  Popover,
 } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -223,7 +223,10 @@ export interface GroupActionsMenuProps extends GroupMenuItemsProps {
  * menu items, so this menu and the header's right-click menu always offer the
  * same actions.
  */
-export function GroupActionsMenu({ label, ...menuProps }: GroupActionsMenuProps) {
+export function GroupActionsMenu({
+  label,
+  ...menuProps
+}: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const closeMenu = () => setOpen(false);

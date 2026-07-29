@@ -56,7 +56,8 @@ const LONG_TEXT =
 
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM memory_segments");
+  // memory_segments and memory_jobs live on the memory connection.
+  getMemoryDb()!.run("DELETE FROM memory_segments");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
   getMemoryDb()!.run("DELETE FROM memory_jobs");
@@ -87,7 +88,7 @@ function messageRow(messageId: string) {
 }
 
 function segmentCountFor(messageId: string): number {
-  return getDb()
+  return getMemoryDb()!
     .select()
     .from(memorySegments)
     .where(eq(memorySegments.messageId, messageId))

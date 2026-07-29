@@ -42,9 +42,9 @@ afterEach(() => {
   cleanup();
 });
 
-function renderHeader(props: Partial<
-  React.ComponentProps<typeof ChatLayoutHeader>
-> = {}) {
+function renderHeader(
+  props: Partial<React.ComponentProps<typeof ChatLayoutHeader>> = {},
+) {
   return render(
     <ChatLayoutHeader
       isMobile
@@ -66,7 +66,9 @@ describe("ChatLayoutHeader — right cluster", () => {
       topBarRightSlot: <button type="button">Notifications</button>,
     });
     expect(screen.getByTestId("voice-pill")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Search (Ctrl+K)" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeTruthy();
     expect(screen.getByText("Notifications")).toBeTruthy();
     expect(overflowTrigger()).toBeNull();
   });
@@ -98,7 +100,9 @@ describe("ChatLayoutHeader — right cluster", () => {
 
     fireEvent.click(overflowTrigger()!);
 
-    expect(screen.getByRole("button", { name: "Search (Ctrl+K)" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeTruthy();
     expect(screen.getByText("Notifications")).toBeTruthy();
   });
 
@@ -107,5 +111,18 @@ describe("ChatLayoutHeader — right cluster", () => {
     fireEvent.click(overflowTrigger()!);
     fireEvent.click(screen.getByRole("button", { name: "Search (Ctrl+K)" }));
     expect(toggleCommandPaletteSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ChatLayoutHeader mobile affordances", () => {
+  test("renders the hamburger and search affordances with their aria wiring", () => {
+    renderHeader({ drawerOpen: false });
+
+    const hamburger = screen.getByRole("button", { name: "Open navigation" });
+    expect(hamburger.getAttribute("aria-expanded")).toBe("false");
+    expect(hamburger.getAttribute("aria-controls")).toBe("chat-side-menu");
+    expect(
+      screen.getByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeTruthy();
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import type { CallSiteOverrideDraft, ProfileEntry } from "@/generated/daemon/types.gen";
+import type {
+  CallSiteOverrideDraft,
+  ProfileEntry,
+} from "@/generated/daemon/types.gen";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
   isDraftActive,
@@ -64,7 +67,9 @@ describe("draftsEqual", () => {
     };
     expect(draftsEqual(base, { ...base, profile: "slow" })).toBe(false);
     expect(draftsEqual(base, { ...base, provider: "anthropic" })).toBe(false);
-    expect(draftsEqual(base, { ...base, model: "claude-sonnet-4-20250514" })).toBe(false);
+    expect(
+      draftsEqual(base, { ...base, model: "claude-sonnet-4-20250514" }),
+    ).toBe(false);
   });
 
   test("null and undefined fields are treated as equivalent", () => {
@@ -94,11 +99,7 @@ describe("buildOrderedProfiles", () => {
   });
 
   test("skips names in profileOrder that are not in profiles", () => {
-    const result = buildOrderedProfiles(profiles, [
-      "beta",
-      "missing",
-      "alpha",
-    ]);
+    const result = buildOrderedProfiles(profiles, ["beta", "missing", "alpha"]);
     expect(result.map((p) => p.name)).toEqual(["beta", "alpha", "gamma"]);
   });
 

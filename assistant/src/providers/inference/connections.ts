@@ -38,7 +38,9 @@ const log = getLogger("providers/inference/connections");
  */
 function parseAuth(raw: unknown): Auth | null {
   const parsed = AuthSchema.safeParse(raw);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return null;
+  }
   const auth = parsed.data;
   return "credential" in auth
     ? { ...auth, credential: normalizeCredentialRef(auth.credential) }
@@ -46,7 +48,9 @@ function parseAuth(raw: unknown): Auth | null {
 }
 
 function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
-  if (raw === null || raw === "") return null;
+  if (raw === null || raw === "") {
+    return null;
+  }
   try {
     const parsed = z.array(ConnectionModelSchema).safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
@@ -73,9 +77,13 @@ export function listConnections(
 
   return rows.flatMap((row) => {
     const auth = parseAuth(JSON.parse(row.auth));
-    if (!auth) return [];
+    if (!auth) {
+      return [];
+    }
     const provider = ConnectionProviderSchema.safeParse(row.provider);
-    if (!provider.success) return [];
+    if (!provider.success) {
+      return [];
+    }
     return [
       {
         ...row,
@@ -100,11 +108,17 @@ export function getConnection(
     .where(eq(providerConnections.name, name))
     .get();
 
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   const auth = parseAuth(JSON.parse(row.auth));
-  if (!auth) return null;
+  if (!auth) {
+    return null;
+  }
   const provider = ConnectionProviderSchema.safeParse(row.provider);
-  if (!provider.success) return null;
+  if (!provider.success) {
+    return null;
+  }
   return {
     ...row,
     auth,
@@ -187,7 +201,9 @@ export function createConnection(
   const models = input.models ?? null;
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
-    if (!baseUrl) return { ok: false, error: { code: "base_url_required" } };
+    if (!baseUrl) {
+      return { ok: false, error: { code: "base_url_required" } };
+    }
     if (!models || models.length === 0) {
       return { ok: false, error: { code: "models_required" } };
     }
@@ -250,8 +266,9 @@ export function updateConnection(
     input.models !== undefined ? input.models : existing.models;
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(existing.provider)) {
-    if (!nextBaseUrl)
+    if (!nextBaseUrl) {
       return { ok: false, error: { code: "base_url_required" } };
+    }
     if (!nextModels || nextModels.length === 0) {
       return { ok: false, error: { code: "models_required" } };
     }
@@ -265,11 +282,16 @@ export function updateConnection(
     baseUrl?: string | null;
     models?: string | null;
   } = { auth: JSON.stringify(auth), updatedAt: now };
-  if (input.label !== undefined) setClause.label = input.label;
-  if (input.baseUrl !== undefined) setClause.baseUrl = input.baseUrl;
-  if (input.models !== undefined)
+  if (input.label !== undefined) {
+    setClause.label = input.label;
+  }
+  if (input.baseUrl !== undefined) {
+    setClause.baseUrl = input.baseUrl;
+  }
+  if (input.models !== undefined) {
     setClause.models =
       input.models === null ? null : JSON.stringify(input.models);
+  }
 
   db.update(providerConnections)
     .set(setClause)

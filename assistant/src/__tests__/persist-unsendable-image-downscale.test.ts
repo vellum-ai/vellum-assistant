@@ -40,7 +40,7 @@ import {
   createConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
 import { base64Source } from "../providers/media-resolve.js";
@@ -52,8 +52,8 @@ function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
-  db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_embeddings");
+  getMemorySqlite()?.run("DELETE FROM memory_segments");
+  getMemorySqlite()?.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }

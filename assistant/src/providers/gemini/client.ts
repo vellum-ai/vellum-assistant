@@ -12,6 +12,7 @@ import { getLogger } from "../../util/logger.js";
 import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -116,7 +117,9 @@ function buildThinkingConfig(
   thinking: Record<string, unknown> | undefined,
   model: string,
 ): genai.ThinkingConfig | undefined {
-  if (!thinking) return undefined;
+  if (!thinking) {
+    return undefined;
+  }
   const floor = geminiThinkingFloor(model);
 
   if (thinking.type === "disabled") {
@@ -125,7 +128,9 @@ function buildThinkingConfig(
       includeThoughts: false,
     };
   }
-  if (thinking.type !== "adaptive") return undefined;
+  if (thinking.type !== "adaptive") {
+    return undefined;
+  }
 
   const result: genai.ThinkingConfig = {};
   if (
@@ -196,13 +201,17 @@ export function detectGeminiContextOverflow(
   const status = error.status;
   // 400 = INVALID_ARGUMENT (prompt too long), 413 occasional,
   // 429 with RESOURCE_EXHAUSTED is the Vertex path.
-  if (status !== 400 && status !== 413 && status !== 429) return null;
+  if (status !== 400 && status !== 413 && status !== 429) {
+    return null;
+  }
   const message = error.message ?? "";
 
   // 429 has two meanings (quota vs context-overflow) — require a
   // token/context-specific phrase to classify as overflow.
   if (status === 429) {
-    if (!GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message)) return null;
+    if (!GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message)) {
+      return null;
+    }
     return extractOverflowTokensFromMessage(message);
   }
 
@@ -211,7 +220,9 @@ export function detectGeminiContextOverflow(
   const matches =
     /resource.?exhausted/i.test(message) ||
     GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message);
-  if (!matches) return null;
+  if (!matches) {
+    return null;
+  }
   return extractOverflowTokensFromMessage(message);
 }
 
@@ -370,6 +381,7 @@ export class GeminiProvider implements Provider {
       : undefined;
 
     try {
+      recordProviderRequestDiagnostics({ model_id: activeModel });
       const geminiContents = this.toGeminiContents(messages, activeModel);
 
       const geminiConfig: genai.GenerateContentConfig = {};
@@ -454,7 +466,9 @@ export class GeminiProvider implements Provider {
           if (functionCallParts.length > 0) {
             for (const part of functionCallParts) {
               const fc = part.functionCall;
-              if (!fc) continue;
+              if (!fc) {
+                continue;
+              }
               appendFunctionCall(fc, part.thoughtSignature);
             }
           } else {
@@ -812,18 +826,26 @@ export class GeminiProvider implements Provider {
     parts: genai.Part[],
     model: string,
   ): void {
-    if (!isGemini3Model(model)) return;
+    if (!isGemini3Model(model)) {
+      return;
+    }
 
     const functionCallParts = parts.filter((part) => part.functionCall);
-    if (functionCallParts.length === 0) return;
+    if (functionCallParts.length === 0) {
+      return;
+    }
 
     const hasRealThoughtSignature = functionCallParts.some((part) =>
       Boolean(part.thoughtSignature),
     );
-    if (hasRealThoughtSignature) return;
+    if (hasRealThoughtSignature) {
+      return;
+    }
 
     const firstFunctionCallPart = functionCallParts[0];
-    if (!firstFunctionCallPart) return;
+    if (!firstFunctionCallPart) {
+      return;
+    }
     firstFunctionCallPart.thoughtSignature =
       GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE;
   }

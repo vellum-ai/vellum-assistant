@@ -23,7 +23,11 @@ import {
 } from "@/domains/chat/utils/tool-call-card-utils";
 import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call-card-data";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  ScopeOption,
+} from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
@@ -56,7 +60,9 @@ export interface MultiActivityGroupProps {
     decision: ConfirmationDecision,
     toolCall: ChatMessageToolCall,
   ) => void | Promise<void>;
-  onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
+  onAllowAndCreateRule?: (
+    toolCall: ChatMessageToolCall,
+  ) => void | Promise<void>;
   // Unknown nudge props (pass-through)
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -447,8 +453,8 @@ function useCardExpanded(cardId: string | null): {
   value: boolean;
   onChange: (next: boolean) => void;
 } {
-  const persisted = useChatSessionStore(
-    (s) => (cardId != null ? s.expandedCardIds.get(cardId) : undefined),
+  const persisted = useChatSessionStore((s) =>
+    cardId != null ? s.expandedCardIds.get(cardId) : undefined,
   );
   const value = persisted ?? false;
 

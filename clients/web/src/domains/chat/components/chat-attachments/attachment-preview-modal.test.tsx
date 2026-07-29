@@ -10,12 +10,10 @@ type ContentResult = { data: Blob | null; error: { message: string } | null };
 
 // Mock only the daemon content endpoint; keep the rest of the generated SDK
 // real so any other consumer in the module graph is unaffected.
-const attachmentsByIdContentGet = mock(
-  async (): Promise<ContentResult> => ({
-    data: new Blob(["content"]),
-    error: null,
-  }),
-);
+const attachmentsByIdContentGet = mock(async (): Promise<ContentResult> => ({
+  data: new Blob(["content"]),
+  error: null,
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
@@ -28,9 +26,8 @@ globalThis.URL.createObjectURL = mock(
 );
 globalThis.URL.revokeObjectURL = mock((_url: string): void => undefined);
 
-const { AttachmentPreviewModal } = await import(
-  "@/domains/chat/components/chat-attachments/attachment-preview-modal"
-);
+const { AttachmentPreviewModal } =
+  await import("@/domains/chat/components/chat-attachments/attachment-preview-modal");
 
 const ATTACHMENT: DisplayAttachment = {
   id: "att-1",

@@ -49,7 +49,9 @@ export const seedLatencyCallSiteDefaultsMigration: WorkspaceMigration = {
     // If a platform default-config overlay is in play, it runs after
     // migrations and is the authoritative source for both provider and
     // call-site seeds. Skip to avoid mismatched provider/model pairs.
-    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) return;
+    if (process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH) {
+      return;
+    }
 
     const configPath = join(workspaceDir, "config.json");
     const configExisted = existsSync(configPath);
@@ -58,7 +60,9 @@ export const seedLatencyCallSiteDefaultsMigration: WorkspaceMigration = {
     if (configExisted) {
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
@@ -77,7 +81,9 @@ export const seedLatencyCallSiteDefaultsMigration: WorkspaceMigration = {
     }
     const provider = explicitProvider ?? "anthropic";
     const fastModel = resolveLatencyModel(provider);
-    if (fastModel === undefined) return;
+    if (fastModel === undefined) {
+      return;
+    }
 
     const callSites = readObject(llm.callSites) ?? {};
 
@@ -94,7 +100,9 @@ export const seedLatencyCallSiteDefaultsMigration: WorkspaceMigration = {
     let changed = false;
 
     for (const site of LATENCY_SITES) {
-      if (readObject(callSites[site]) !== null) continue;
+      if (readObject(callSites[site]) !== null) {
+        continue;
+      }
       callSites[site] = {
         model: fastModel,
         effort: "low",
@@ -114,7 +122,9 @@ export const seedLatencyCallSiteDefaultsMigration: WorkspaceMigration = {
       changed = true;
     }
 
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     llm.callSites = callSites;
     config.llm = llm;

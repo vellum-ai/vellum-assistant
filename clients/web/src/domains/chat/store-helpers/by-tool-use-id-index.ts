@@ -18,8 +18,12 @@ export function setToolUseAnchor(
   toolUseId: string | undefined,
   id: string,
 ): Map<string, string> {
-  if (!toolUseId) return index;
-  if (index.get(toolUseId) === id) return index;
+  if (!toolUseId) {
+    return index;
+  }
+  if (index.get(toolUseId) === id) {
+    return index;
+  }
   return new Map(index).set(toolUseId, id);
 }
 
@@ -34,8 +38,12 @@ export function clearToolUseAnchor(
   index: Map<string, string>,
   toolUseId: string | undefined,
 ): Map<string, string> {
-  if (!toolUseId) return index;
-  if (!index.has(toolUseId)) return index;
+  if (!toolUseId) {
+    return index;
+  }
+  if (!index.has(toolUseId)) {
+    return index;
+  }
   const next = new Map(index);
   next.delete(toolUseId);
   return next;

@@ -204,7 +204,9 @@ export function useProProvisioning({
   const [tracking, setTracking] = useState(true);
 
   useEffect(() => {
-    if (open) return;
+    if (open) {
+      return;
+    }
     setConfirmExpired(false);
     setConfirmGeneration(0);
     setOpenedAt(null);
@@ -228,7 +230,9 @@ export function useProProvisioning({
   // data while the refetch is in flight, so `openedAt` fences confirm
   // latching to data that actually landed after this open.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     setOpenedAt(Date.now());
     void queryClient.invalidateQueries({
       queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
@@ -244,7 +248,9 @@ export function useProProvisioning({
     ...organizationsBillingSubscriptionRetrieveOptions(),
     refetchInterval: (query) => {
       const planId = query.state.data?.plan_id;
-      if (planId === "pro" || confirmExpired) return false;
+      if (planId === "pro" || confirmExpired) {
+        return false;
+      }
       return PRO_POLL_INTERVAL_MS;
     },
     refetchIntervalInBackground: false,
@@ -259,7 +265,9 @@ export function useProProvisioning({
     (subscriptionFresh ? subscriptionQuery.data?.plan_id : null) ?? null;
 
   useEffect(() => {
-    if (!open || proConfirmed || observedPlanId !== "pro") return;
+    if (!open || proConfirmed || observedPlanId !== "pro") {
+      return;
+    }
     const confirmedAt = Date.now();
     setProConfirmedAt(confirmedAt);
     setNow(confirmedAt);
@@ -439,10 +447,10 @@ export function useProProvisioning({
   // ignored. Fall back to active until it lands fresh.
 
   const assistantId =
-    (onboardingFresh
-      ? onboardingQuery.data?.primary_assistant_id
-      : null) ??
-    (onboardingQuery.isPending ? null : (activeAssistantQuery.data?.id ?? null));
+    (onboardingFresh ? onboardingQuery.data?.primary_assistant_id : null) ??
+    (onboardingQuery.isPending
+      ? null
+      : (activeAssistantQuery.data?.id ?? null));
 
   // Actuals must track the same assistant the wizard targets — under
   // multi-assistant the active assistant may not be the one being resized.
@@ -467,12 +475,16 @@ export function useProProvisioning({
   );
 
   useEffect(() => {
-    if (resizeOperationInFlight) setSawOperation(true);
+    if (resizeOperationInFlight) {
+      setSawOperation(true);
+    }
   }, [resizeOperationInFlight]);
 
   const onboarding = onboardingQuery.data;
   const targets = useMemo<ProvisioningDimensions | null>(() => {
-    if (!onboarding) return null;
+    if (!onboarding) {
+      return null;
+    }
     return {
       // No machine tier on the package (e.g. Mighty), or a tier this bundle
       // doesn't know, yields no machine target; the machine treats a null
@@ -495,7 +507,9 @@ export function useProProvisioning({
 
   const assistant = assistantQuery.data;
   const actuals = useMemo<ProvisioningDimensions | null>(() => {
-    if (!assistant) return null;
+    if (!assistant) {
+      return null;
+    }
     return {
       machineSize: assistant.machine_size ?? null,
       storageGib: assistant.provisioned_storage_gib ?? null,
@@ -513,7 +527,9 @@ export function useProProvisioning({
   const currentTargetsMet = targetsMet(targets, actuals);
   const targetsMetMatchesAssistant = targetsMetAssistantId === assistantId;
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     if (currentTargetsMet) {
       setTargetsMetAt((prev) =>
         prev != null && targetsMetMatchesAssistant ? prev : Date.now(),
@@ -577,7 +593,9 @@ export function useProProvisioning({
   }, [shouldTrack]);
 
   useEffect(() => {
-    if (!open || !proConfirmed || isTerminal) return;
+    if (!open || !proConfirmed || isTerminal) {
+      return;
+    }
     const t = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
     return () => clearInterval(t);
   }, [open, proConfirmed, isTerminal]);

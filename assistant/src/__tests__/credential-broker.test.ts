@@ -132,7 +132,9 @@ describe("CredentialBroker", () => {
         toolName: "browser_fill_credential",
       });
       expect(auth.authorized).toBe(true);
-      if (!auth.authorized) return;
+      if (!auth.authorized) {
+        return;
+      }
 
       const result = broker.consume(auth.token.tokenId);
       expect(result.success).toBe(true);
@@ -148,7 +150,9 @@ describe("CredentialBroker", () => {
         field: "token",
         toolName: "browser_fill_credential",
       });
-      if (!auth.authorized) return;
+      if (!auth.authorized) {
+        return;
+      }
 
       broker.consume(auth.token.tokenId);
       const result = broker.consume(auth.token.tokenId);
@@ -173,7 +177,9 @@ describe("CredentialBroker", () => {
         field: "token",
         toolName: "browser_fill_credential",
       });
-      if (!auth.authorized) return;
+      if (!auth.authorized) {
+        return;
+      }
 
       expect(broker.revoke(auth.token.tokenId)).toBe(true);
       // After revocation, consume should fail
@@ -243,7 +249,9 @@ describe("CredentialBroker (encrypted store backend)", () => {
   let broker: CredentialBroker;
 
   beforeEach(() => {
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
     mkdirSync(TEST_DIR, { recursive: true });
     setStorePathForTesting(STORE_PATH);
     _resetBackend();
@@ -271,7 +279,9 @@ describe("CredentialBroker (encrypted store backend)", () => {
         toolName: "tool1",
       });
       expect(auth.authorized).toBe(true);
-      if (!auth.authorized) return;
+      if (!auth.authorized) {
+        return;
+      }
       const result = broker.consume(auth.token.tokenId);
 
       // THEN the transient value is returned alongside the storage key
@@ -286,7 +296,9 @@ describe("CredentialBroker (encrypted store backend)", () => {
         toolName: "tool1",
       });
       expect(auth2.authorized).toBe(true);
-      if (!auth2.authorized) return;
+      if (!auth2.authorized) {
+        return;
+      }
       const result2 = broker.consume(auth2.token.tokenId);
       expect(result2.success).toBe(true);
       expect(result2.value).toBeUndefined();
@@ -443,7 +455,9 @@ describe("CredentialBroker (encrypted store backend)", () => {
         field: "key",
         toolName: "t",
       });
-      if (!auth.authorized) return;
+      if (!auth.authorized) {
+        return;
+      }
       const result = broker.consume(auth.token.tokenId);
 
       // THEN the most recent transient value wins
@@ -462,14 +476,18 @@ describe("CredentialBroker (encrypted store backend)", () => {
         field: "key",
         toolName: "t",
       });
-      if (!authB.authorized) return;
+      if (!authB.authorized) {
+        return;
+      }
       const resultB = broker.consume(authB.token.tokenId);
       const authA = broker.authorize({
         service: "svcA",
         field: "key",
         toolName: "t",
       });
-      if (!authA.authorized) return;
+      if (!authA.authorized) {
+        return;
+      }
       const resultA = broker.consume(authA.token.tokenId);
 
       // THEN only svcA carries the transient value
@@ -511,7 +529,9 @@ describe("CredentialBroker (encrypted store backend)", () => {
 
       // THEN both injection templates are returned without leaking the secret
       expect(result.success).toBe(true);
-      if (!result.success) return;
+      if (!result.success) {
+        return;
+      }
       expect(result.injectionTemplates).toHaveLength(2);
       expect(result.injectionTemplates[0].hostPattern).toBe("*.fal.ai");
       expect(result.injectionTemplates[1].hostPattern).toBe("gateway.fal.ai");

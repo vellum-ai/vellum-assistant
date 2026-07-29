@@ -73,9 +73,13 @@ export async function buildVellumMutatingHeaders(
   options: BuildVellumHeadersOptions = {},
 ): Promise<Record<string, string>> {
   const headers = buildVellumHeaders(extra, options);
-  if (headers["Authorization"]) return headers;
+  if (headers["Authorization"]) {
+    return headers;
+  }
   // Electron authenticates via a token header - no CSRF needed.
-  if (isElectron()) return headers;
+  if (isElectron()) {
+    return headers;
+  }
   await ensureCsrfCookie();
   const csrfToken = getCsrfToken();
   if (csrfToken) {

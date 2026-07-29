@@ -20,7 +20,7 @@ A design system CSS is auto-injected inside a `@layer`, so your styles always ta
 | **Typography**  | `--v-font-family`, `--v-font-mono`, `--v-font-size-xs` (10px) / `-sm` (11px) / `-base` (14px) / `-lg` (17px) / `-xl` (22px) / `-2xl` (26px), `--v-line-height` |
 | **Animation**   | `--v-duration-fast` (0.15s) / `-standard` (0.25s) / `-slow` (0.4s)                                                                                             |
 | **Palettes**    | `--v-slate-{950..50}`, `--v-emerald-*`, `--v-violet-*`, `--v-indigo-*`, `--v-rose-*`, `--v-amber-*`                                                            |
-| **Constant**    | `--v-aux-white` (always `#FFFFFF` in both modes — use for text on filled/accent backgrounds)                                                                    |
+| **Constant**    | `--v-aux-white` (always `#FFFFFF` in both modes — use for text on filled/accent backgrounds)                                                                   |
 
 ---
 

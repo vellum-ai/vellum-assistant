@@ -65,7 +65,9 @@ export async function runComparison(
   let turnsSkipped = 0;
 
   for (const turn of oracleTurns) {
-    if (signal?.aborted) break;
+    if (signal?.aborted) {
+      break;
+    }
 
     const reconstructed = await reconstruct(turn);
     if (!reconstructed) {
@@ -78,11 +80,15 @@ export async function runComparison(
     // wrap LLM calls (e.g. the router retriever forwarding to `runRouter`) abort
     // the in-flight per-turn call on caller disconnect — the loop gating below
     // only stops scheduling new work, it can't cancel the current retrieval.
-    if (signal) reconstructed.input.signal = signal;
+    if (signal) {
+      reconstructed.input.signal = signal;
+    }
 
     const byRetriever: Record<string, TurnEval> = {};
     for (const retriever of retrievers) {
-      if (signal?.aborted) break;
+      if (signal?.aborted) {
+        break;
+      }
       const output = await retriever.retrieve(reconstructed.input);
       const turnEval = evalTurn(output, turn.groundTruthSlugs, ks);
       byRetriever[retriever.name] = turnEval;

@@ -609,13 +609,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     if (conditions.hasUncompletedVisibleSurface) {
       failingConditions.push("hasUncompletedVisibleSurface");
     }
-    if (
-      !(
-        conditions.isThinking ||
-        conditions.restoredProcessing ||
-        !conditions.hasStreamingAssistantMessage
-      )
-    ) {
+    if (!(
+      conditions.isThinking ||
+      conditions.restoredProcessing ||
+      !conditions.hasStreamingAssistantMessage
+    )) {
       failingConditions.push("streamingAssistantMessageActive");
     }
     if (conditions.hasStreamingAssistantThinking) {
@@ -625,7 +623,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       failingConditions.push("activeToolCallCount>0");
     }
 
-    const visible = shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext);
+    const visible = shouldShowThinkingIndicator(
+      turnState.phase,
+      turnState.activeToolCallCount,
+      uiContext,
+    );
     // Cross-check: the failingConditions list should be empty iff visible is
     // true. If this ever drifts we want the test suite (and DevTools users) to
     // notice immediately rather than chasing a confusing report.
@@ -662,19 +664,25 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
     return {
       isAssistantBusy: isAssistantBusy(turnState.phase, uiContext),
-      shouldShowThinkingIndicator: shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext),
+      shouldShowThinkingIndicator: shouldShowThinkingIndicator(
+        turnState.phase,
+        turnState.activeToolCallCount,
+        uiContext,
+      ),
       activeConversationIsProcessing: uiContext.activeConversationIsProcessing,
     };
   }
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
     recordDiagnostic("debug_force_reconcile_start", {
-      activeConversationId: useConversationStore.getState().activeConversationId,
+      activeConversationId:
+        useConversationStore.getState().activeConversationId,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
     recordDiagnostic("debug_force_reconcile_result", {
-      activeConversationId: useConversationStore.getState().activeConversationId,
+      activeConversationId:
+        useConversationStore.getState().activeConversationId,
       changed: result.changed,
       messagesAdded: result.messagesAdded,
       assistantProgress: result.assistantProgress,
@@ -787,7 +795,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     events: DiagnosticsEvent[],
     kindPrefix?: string,
   ): DiagnosticsEvent[] {
-    if (!kindPrefix) return events;
+    if (!kindPrefix) {
+      return events;
+    }
     return events.filter((event) => event.kind.startsWith(kindPrefix));
   }
 
@@ -920,8 +930,12 @@ export function installVellumDebugApi(
   chatApi: ChatDebugApi,
   flagsApi: VellumDebugFlagsApi,
 ): () => void {
-  if (typeof window === "undefined") return () => {};
-  const win = window as Omit<Window, typeof ROOT_NS> & { [ROOT_NS]?: VellumDebugRoot };
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const win = window as Omit<Window, typeof ROOT_NS> & {
+    [ROOT_NS]?: VellumDebugRoot;
+  };
   const existing: VellumDebugRoot = (win[ROOT_NS] ?? {}) as VellumDebugRoot;
   existing[EVENTS_NS] = eventsDebugApi;
   existing[CHAT_NS] = chatApi;
@@ -930,7 +944,9 @@ export function installVellumDebugApi(
   win[ROOT_NS] = existing;
   return () => {
     const current = win[ROOT_NS];
-    if (!current) return;
+    if (!current) {
+      return;
+    }
     // Gate every deletion on the chat-API identity check. If a newer
     // mount has already replaced our chatApi (strict-mode double-mount,
     // hot reload, etc.), our teardown is stale — leave the world alone.
@@ -968,7 +984,9 @@ export function installVellumDebugApi(
  */
 export function useChatDebugApi(refs: ChatDebugRefs): void {
   const latestRefs = useRef(refs);
-  useLayoutEffect(() => { latestRefs.current = refs; });
+  useLayoutEffect(() => {
+    latestRefs.current = refs;
+  });
 
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {

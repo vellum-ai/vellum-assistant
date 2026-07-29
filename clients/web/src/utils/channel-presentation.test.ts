@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  getChannelIcon,
-  getChannelLabel,
-} from "@/utils/channel-presentation";
+import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 
 describe("getChannelLabel", () => {
   test("maps known channel ids to friendly labels", () => {

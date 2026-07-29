@@ -21,7 +21,10 @@ function marker(ttl: string) {
   return { type: "ephemeral", ttl };
 }
 
-function textBlock(value: string, cacheControl?: { type: string; ttl: string }) {
+function textBlock(
+  value: string,
+  cacheControl?: { type: string; ttl: string },
+) {
   return {
     type: "text",
     text: value,
@@ -46,9 +49,7 @@ function seedPayload(id: string, system: string, user: string): void {
             : tool,
         ),
         system: [textBlock(system, marker("1h"))],
-        messages: [
-          { role: "user", content: [textBlock(user, marker("5m"))] },
-        ],
+        messages: [{ role: "user", content: [textBlock(user, marker("5m"))] }],
       },
       responsePayload: null,
     },
@@ -130,7 +131,11 @@ const fullMissEntry: LLMRequestLogEntry = {
   requestSections: [
     { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
     { kind: "system", label: "Memory", text: MEMORY_SECTION },
-    { kind: "tool_definitions", label: "Available tools", data: toolDefinitions },
+    {
+      kind: "tool_definitions",
+      label: "Available tools",
+      data: toolDefinitions,
+    },
     { kind: "user", label: "User", role: "user", text: USER_TURN },
   ],
 };
@@ -151,7 +156,11 @@ const healthyEntry: LLMRequestLogEntry = {
   },
   requestSections: [
     { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
-    { kind: "tool_definitions", label: "Available tools", data: toolDefinitions },
+    {
+      kind: "tool_definitions",
+      label: "Available tools",
+      data: toolDefinitions,
+    },
     { kind: "user", label: "User", role: "user", text: USER_TURN },
   ],
 };
@@ -178,7 +187,11 @@ const previousMissTurn: LLMRequestLogEntry = {
   requestSections: [
     { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
     { kind: "system", label: "Memory", text: PREVIOUS_MEMORY_SECTION },
-    { kind: "tool_definitions", label: "Available tools", data: toolDefinitions },
+    {
+      kind: "tool_definitions",
+      label: "Available tools",
+      data: toolDefinitions,
+    },
     { kind: "user", label: "User", role: "user", text: USER_TURN },
   ],
 };
@@ -203,7 +216,11 @@ const previousHealthyTurn: LLMRequestLogEntry = {
   },
   requestSections: [
     { kind: "system", label: "System prompt", text: SYSTEM_PROMPT },
-    { kind: "tool_definitions", label: "Available tools", data: toolDefinitions },
+    {
+      kind: "tool_definitions",
+      label: "Available tools",
+      data: toolDefinitions,
+    },
     { kind: "user", label: "User", role: "user", text: USER_TURN },
   ],
 };

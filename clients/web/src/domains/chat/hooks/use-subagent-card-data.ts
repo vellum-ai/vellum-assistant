@@ -37,7 +37,9 @@ import {
   type SubagentTimelineEvent,
 } from "@/domains/chat/subagent-store";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
+import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentStatus } from "@vellumai/assistant-api";
+import { isActiveStatus } from "@/utils/subagent-status";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { truncate } from "@/domains/chat/utils/truncate";
@@ -80,7 +82,11 @@ const EMPTY_EVENTS: SubagentTimelineEvent[] = [];
  * `web_search` steps, whose step shape carries no id field. `undefined` for
  * steps with no follow-up (thinking, tool_error).
  */
-export type ToolMeta = { startTs: number; toolName: string; toolUseId?: string };
+export type ToolMeta = {
+  startTs: number;
+  toolName: string;
+  toolUseId?: string;
+};
 
 /** Trim newlines + collapse whitespace, then clamp to TEXT_PREVIEW_MAX. */
 function trimTextPreview(input: string): string {
@@ -166,7 +172,9 @@ function reconstructInputBag(
   content: string,
 ): Record<string, unknown> {
   const name = toolName.toLowerCase();
-  if (!content) return {};
+  if (!content) {
+    return {};
+  }
 
   switch (name) {
     case "bash":
@@ -251,14 +259,20 @@ function matchInFlightTool(
 ): number {
   for (let i = candidates.length - 1; i >= 0; i--) {
     const candidate = candidates[i]!;
-    if (!candidate.running) continue;
+    if (!candidate.running) {
+      continue;
+    }
     if (event.toolUseId) {
-      if (candidate.toolCallId === event.toolUseId) return i;
+      if (candidate.toolCallId === event.toolUseId) {
+        return i;
+      }
       // Exact-match-only when the event carries a toolUseId — do NOT fall
       // through to toolName matching for a different ID.
       continue;
     }
-    if (!event.toolName || candidate.toolName === event.toolName) return i;
+    if (!event.toolName || candidate.toolName === event.toolName) {
+      return i;
+    }
   }
   return -1;
 }
@@ -345,11 +359,18 @@ export function applyTimelineEvent(
   if (event.type === "text") {
     const text = trimTextPreview(event.content);
     // Skip empty text events — they'd render as a blank thinking step.
-    if (text.length === 0) return;
+    if (text.length === 0) {
+      return;
+    }
     // `detailKey` (the source event id) lets the timeline pill open the full,
     // un-truncated reasoning via `buildSubagentStepDetails` — the pill itself
     // only carries the collapsed `text` preview.
-    steps.push({ kind: "thinking", durationLabel: "", text, detailKey: event.id });
+    steps.push({
+      kind: "thinking",
+      durationLabel: "",
+      text,
+      detailKey: event.id,
+    });
     toolMeta.push(undefined);
     return;
   }
@@ -415,7 +436,9 @@ export function applyTimelineEvent(
 
   if (event.type === "tool_result") {
     const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
-    if (matchIndex === -1) return;
+    if (matchIndex === -1) {
+      return;
+    }
     const target = steps[matchIndex]!;
     const start = toolMeta[matchIndex]?.startTs;
     const durationLabel = durationLabelBetween(start, event.timestamp);
@@ -448,7 +471,9 @@ export function applyTimelineEvent(
       };
       return;
     }
-    if (target.kind !== "tool") return;
+    if (target.kind !== "tool") {
+      return;
+    }
     steps[matchIndex] = {
       ...target,
       status: event.isError ? "error" : "completed",
@@ -497,7 +522,9 @@ export function computeSubagentSteps(events: SubagentTimelineEvent[]): {
   // entries with no follow-up (thinking, tool_error, web_fetch).
   const toolMeta: Array<ToolMeta | undefined> = [];
 
-  for (const event of events) applyTimelineEvent(steps, toolMeta, event);
+  for (const event of events) {
+    applyTimelineEvent(steps, toolMeta, event);
+  }
 
   return { steps, toolMeta };
 }
@@ -528,8 +555,38 @@ export function computeSubagentCardData(
  */
 export function deriveSubagentCardData(
   entry: SubagentEntry,
-  { steps, toolMeta }: { steps: ToolCallCardStep[]; toolMeta: Array<ToolMeta | undefined> },
+  {
+    steps,
+    toolMeta,
+  }: { steps: ToolCallCardStep[]; toolMeta: Array<ToolMeta | undefined> },
 ): ToolCallCardData {
+  // A settled (terminal) entry whose timeline hasn't been fetched yet: don't
+  // claim "0 steps": the subagent DID have steps, they just haven't loaded.
+  // Render a loading state until the fetch lands (see `detailSettled`), at
+  // which point the honest truth (its steps, or a resting empty state) takes
+  // over. `!isActiveStatus` so live cards keep their streaming "Working" state;
+  // `canAddressSubagentDetail` so a card on an old daemon that can never fetch
+  // falls back to today's behavior instead of spinning forever;
+  // `events.length === 0` so an already-loaded card is untouched.
+  const isLoadingDetail =
+    !isActiveStatus(entry.status) &&
+    canAddressSubagentDetail(entry) &&
+    entry.events.length === 0 &&
+    !entry.detailSettled;
+
+  if (isLoadingDetail) {
+    return {
+      state: "loading",
+      currentStepTitle: "Loading",
+      currentStepInfo: entry.label,
+      // Empty so the card chrome renders no step-count pill (the shell hides
+      // "", "0 …", and "1 …"); a real count follows once the fetch settles.
+      stepCount: "",
+      steps,
+      carouselItems: [],
+    };
+  }
+
   const state = deriveCardState(entry.status);
   const { currentStepTitle, currentStepInfo } = deriveCurrentStep(
     entry,
@@ -583,11 +640,17 @@ function deriveCurrentStep(
     // Branch on the actual terminal status so a subagent that failed, aborted,
     // or was interrupted before emitting any events doesn't read as "Finished".
     let title: string;
-    if (entry.status === "failed") title = "Failed";
-    else if (entry.status === "aborted") title = "Aborted";
-    else if (entry.status === "interrupted") title = "Interrupted";
-    else if (entry.status === "completed") title = "Finished";
-    else title = "Working";
+    if (entry.status === "failed") {
+      title = "Failed";
+    } else if (entry.status === "aborted") {
+      title = "Aborted";
+    } else if (entry.status === "interrupted") {
+      title = "Interrupted";
+    } else if (entry.status === "completed") {
+      title = "Finished";
+    } else {
+      title = "Working";
+    }
     return {
       currentStepTitle: title,
       // Falls back to the label when `error` is missing OR an empty
@@ -745,7 +808,9 @@ export function applyDetailEvent(
   // id to match the step's `detailKey`. Skip whitespace-only text exactly as
   // `computeSubagentCardData` does so steps and payloads stay aligned.
   if (event.type === "text") {
-    if ((event.content ?? "").trim().length === 0) return;
+    if ((event.content ?? "").trim().length === 0) {
+      return;
+    }
     payloads.push({
       toolCallId: event.id,
       toolName: "",
@@ -764,7 +829,9 @@ export function applyDetailEvent(
   if (event.type === "tool_call") {
     const toolCallId = event.toolUseId ?? "";
     // Skip calls without an id — they can't be keyed or clicked.
-    if (!toolCallId) return;
+    if (!toolCallId) {
+      return;
+    }
     const toolName = event.toolName ?? "";
     // Web search → a dedicated detail payload carrying the query and (once the
     // result lands) the parsed source list, rendered as favicon chips rather
@@ -820,7 +887,9 @@ export function applyDetailEvent(
       })),
       event,
     );
-    if (matchIndex === -1) return;
+    if (matchIndex === -1) {
+      return;
+    }
     const target = payloads[matchIndex]!;
     const start = meta[matchIndex]!.startTs;
     // Shared with `computeSubagentCardData` so the non-positive-delta
@@ -847,9 +916,7 @@ export function applyDetailEvent(
             // detail can show it untruncated — the timeline chip only carries
             // a `trimTextPreview` snippet. Parity with how a failed tool keeps
             // its full `result`.
-            result: event.isError
-              ? (event.result ?? event.content)
-              : undefined,
+            result: event.isError ? (event.result ?? event.content) : undefined,
           }
         : {
             ...target,
@@ -869,7 +936,9 @@ export function buildSubagentStepDetails(
   // matching follow-ups and duration calc. Indexed by `payloads` position.
   const meta: Array<{ startTs: number; running: boolean }> = [];
 
-  for (const event of events) applyDetailEvent(payloads, meta, event);
+  for (const event of events) {
+    applyDetailEvent(payloads, meta, event);
+  }
 
   // Every payload (including a failed web_search) is kept and keyed by its tool
   // id. The timeline's `web_search_error` step carries the same id as its

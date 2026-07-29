@@ -66,7 +66,9 @@ class DirectCDPClient {
           } else if (msg.method) {
             const handlers = this.eventHandlers.get(msg.method);
             if (handlers) {
-              for (const h of handlers) h(msg.params ?? {});
+              for (const h of handlers) {
+                h(msg.params ?? {});
+              }
             }
           }
         } catch (e) {
@@ -80,7 +82,9 @@ class DirectCDPClient {
     method: string,
     params?: Record<string, unknown>,
   ): Promise<unknown> {
-    if (!this.ws) throw new Error("Not connected");
+    if (!this.ws) {
+      throw new Error("Not connected");
+    }
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.callbacks.set(id, { resolve, reject });
@@ -132,7 +136,9 @@ export class NetworkRecorder {
 
   constructor(targetDomain?: string, cdpBaseUrl?: string) {
     this.targetDomain = targetDomain;
-    if (cdpBaseUrl) this.cdpBaseUrl = cdpBaseUrl;
+    if (cdpBaseUrl) {
+      this.cdpBaseUrl = cdpBaseUrl;
+    }
   }
 
   /**
@@ -140,8 +146,12 @@ export class NetworkRecorder {
    * Attaches to the browser-level target so events from all tabs are captured.
    */
   async startDirect(cdpBaseUrl?: string): Promise<void> {
-    if (this.running) return;
-    if (cdpBaseUrl) this.cdpBaseUrl = cdpBaseUrl;
+    if (this.running) {
+      return;
+    }
+    if (cdpBaseUrl) {
+      this.cdpBaseUrl = cdpBaseUrl;
+    }
 
     // Discover the browser's WebSocket debugger URL
     const versionRes = await fetch(`${this.cdpBaseUrl}/json/version`);
@@ -179,7 +189,9 @@ export class NetworkRecorder {
   }
 
   private async discoverAndAttachTargets(): Promise<void> {
-    if (!this.running) return;
+    if (!this.running) {
+      return;
+    }
     try {
       const res = await fetch(`${this.cdpBaseUrl}/json`);
       const pages = (await res.json()) as Array<{
@@ -233,7 +245,9 @@ export class NetworkRecorder {
   }
 
   async stop(): Promise<NetworkRecordedEntry[]> {
-    if (!this.running) return [];
+    if (!this.running) {
+      return [];
+    }
     this.running = false;
 
     // Stop polling for new tabs
@@ -272,7 +286,9 @@ export class NetworkRecorder {
    */
   async extractCookies(domain?: string): Promise<ExtractedCredential[]> {
     const client = this.pageClients[0];
-    if (!client) return [];
+    if (!client) {
+      return [];
+    }
     try {
       const result = (await client.send("Network.getAllCookies")) as {
         cookies: Array<{
@@ -314,7 +330,9 @@ export class NetworkRecorder {
   }
 
   private matchesDomain(url: string): boolean {
-    if (!this.targetDomain) return true;
+    if (!this.targetDomain) {
+      return true;
+    }
     try {
       const hostname = new URL(url).hostname;
       return (
@@ -330,11 +348,15 @@ export class NetworkRecorder {
 
   private handleRequestWillBeSent(params: Record<string, unknown>): void {
     const resourceType = params.type as string;
-    if (resourceType !== "XHR" && resourceType !== "Fetch") return;
+    if (resourceType !== "XHR" && resourceType !== "Fetch") {
+      return;
+    }
 
     const request = params.request as Record<string, unknown>;
     const url = request.url as string;
-    if (!this.matchesDomain(url)) return;
+    if (!this.matchesDomain(url)) {
+      return;
+    }
 
     const requestId = params.requestId as string;
     const headers = (request.headers as Record<string, string>) ?? {};
@@ -364,7 +386,9 @@ export class NetworkRecorder {
   private handleResponseReceived(params: Record<string, unknown>): void {
     const requestId = params.requestId as string;
     const entry = this.entries.get(requestId);
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
 
     const response = params.response as Record<string, unknown>;
     const status = (response.status as number) ?? 0;
@@ -398,10 +422,14 @@ export class NetworkRecorder {
   ): void {
     const requestId = params.requestId as string;
     const entry = this.entries.get(requestId);
-    if (!entry || !entry.response) return;
+    if (!entry || !entry.response) {
+      return;
+    }
 
     const mimeType = entry.response.mimeType;
-    if (!mimeType.includes("json") && !mimeType.includes("text")) return;
+    if (!mimeType.includes("json") && !mimeType.includes("text")) {
+      return;
+    }
 
     this.fetchResponseBody(requestId, entry, client);
   }
@@ -411,7 +439,9 @@ export class NetworkRecorder {
     entry: NetworkRecordedEntry,
     client: DirectCDPClient,
   ): Promise<void> {
-    if (!this.running) return;
+    if (!this.running) {
+      return;
+    }
     try {
       const result = (await client.send("Network.getResponseBody", {
         requestId,

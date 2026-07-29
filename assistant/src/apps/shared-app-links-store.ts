@@ -88,10 +88,14 @@ export function getSharedAppLink(
     .where(eq(sharedAppLinks.shareToken, shareToken))
     .get();
 
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
 
   const effectiveExpiry = row.expiresAt ?? row.createdAt + SHARE_LINK_TTL_MS;
-  if (effectiveExpiry < Date.now()) return null;
+  if (effectiveExpiry < Date.now()) {
+    return null;
+  }
 
   return {
     id: row.id,
@@ -113,7 +117,9 @@ export function deleteSharedAppLinkByToken(shareToken: string): boolean {
     .where(eq(sharedAppLinks.shareToken, shareToken))
     .get();
 
-  if (!existing) return false;
+  if (!existing) {
+    return false;
+  }
 
   db.delete(sharedAppLinks)
     .where(eq(sharedAppLinks.shareToken, shareToken))

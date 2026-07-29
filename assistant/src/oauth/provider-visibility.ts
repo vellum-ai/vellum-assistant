@@ -11,6 +11,8 @@ export function isProviderVisible(
   row: OAuthProviderRow,
   config: AssistantConfig,
 ): boolean {
-  if (!row.featureFlag) return true;
+  if (!row.featureFlag) {
+    return true;
+  }
   return isAssistantFeatureFlagEnabled(row.featureFlag, config);
 }

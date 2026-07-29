@@ -61,6 +61,7 @@ const localSelectedRef = {
   value: null as { assistantId: string; name?: string } | null,
 };
 mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => false,
   getSelectedAssistant: () => localSelectedRef.value,
   getActiveAssistant: () =>
     resolvedRef.activeAssistantId
@@ -151,9 +152,8 @@ mock.module("@/domains/chat/hooks/use-command-palette-sections", () => ({
   useCommandPaletteSections: useCommandPaletteSectionsMock,
 }));
 
-const { CommandPaletteWindowPage } = await import(
-  "@/components/command-palette/command-palette-window-page"
-);
+const { CommandPaletteWindowPage } =
+  await import("@/components/command-palette/command-palette-window-page");
 
 beforeEach(() => {
   authRef.sessionStatus = "authenticated";

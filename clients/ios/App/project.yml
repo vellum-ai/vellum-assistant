@@ -14,7 +14,11 @@ name: App
 
 options:
   deploymentTarget:
-    iOS: "15.0"
+    # Do not lower: Live Activities need 16.1, interactive Live Activity
+    # content 17.0, the Action Button 17.1. Keep in sync with
+    # IPHONEOS_DEPLOYMENT_TARGET in `App/Config/Base.xcconfig`, which wins
+    # for targets carrying an xcconfig; this covers those that don't.
+    iOS: "17.0"
   developmentLanguage: en
   defaultConfig: Release
   groupSortPosition: top
@@ -90,7 +94,9 @@ targetTemplates:
     # by `xcodegen generate`.
     scheme:
       configVariants: []
-    preBuildScripts:
+    # Anchored so `ExtensionEnvironment` can alias the identical guard
+    # instead of carrying a second copy that could drift.
+    preBuildScripts: &projectSpecFreshnessGuard
       # Fails the Xcode build with a clear, actionable error if the
       # generated project is older than the source-of-truth spec
       # (`clients/ios/App/project.yml`). This catches the case where a
@@ -114,6 +120,41 @@ targetTemplates:
             exit 1
           fi
 
+  # WidgetKit extension hosting the live-voice Live Activity. One per
+  # environment, so each app embeds an extension whose bundle ID is
+  # prefixed by its own — iOS requires that, and it is why there are
+  # three of these rather than one shared appex.
+  ExtensionEnvironment:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: VoiceActivity
+        excludes:
+          - "Info.plist"
+      # `App/Shared` holds everything both sides need, from one copy on
+      # disk rather than duplicated files whose halves drift apart: the
+      # ActivityKit wire model, the URL-scheme and color helpers, and —
+      # because a Control Center control is code in the appex — the deep
+      # link plus the App Intent that control invokes. The app targets
+      # already sweep the same directory up via `AppEnvironment`'s `App`
+      # source path.
+      - path: App/Shared
+    settings:
+      configs:
+        Debug:
+          OTHER_SWIFT_FLAGS: '$(inherited) "-DDEBUG"'
+          # VOICE_ACTIVITY_EXTENSION marks "this is the appex" for the
+          # `App/Shared` sources compiled into both sides.
+          # `VoiceModeDeepLink.route()` uses it to compile its
+          # `UIApplication`/`AppDelegate` body — extension-unsafe API the
+          # appex never reaches — out of the extension binary.
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG VOICE_ACTIVITY_EXTENSION
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: VOICE_ACTIVITY_EXTENSION
+    # No `scheme:` — extensions build as embedded dependencies of the app
+    # targets, so the three app schemes are the only ones worth having.
+    preBuildScripts: *projectSpecFreshnessGuard
+
 targets:
   App:
     templates: [AppEnvironment]
@@ -122,6 +163,9 @@ targets:
     configFiles:
       Debug: App/Config/App.xcconfig
       Release: App/Config/App.xcconfig
+    dependencies:
+      - target: VoiceActivity
+        embed: true
 
   "App Staging":
     templates: [AppEnvironment]
@@ -130,6 +174,9 @@ targets:
     configFiles:
       Debug: App/Config/App-Staging.xcconfig
       Release: App/Config/App-Staging.xcconfig
+    dependencies:
+      - target: "VoiceActivity Staging"
+        embed: true
 
   "App Dev":
     templates: [AppEnvironment]
@@ -138,3 +185,24 @@ targets:
     configFiles:
       Debug: App/Config/App-Dev.xcconfig
       Release: App/Config/App-Dev.xcconfig
+    dependencies:
+      - target: "VoiceActivity Dev"
+        embed: true
+
+  VoiceActivity:
+    templates: [ExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Extension.xcconfig
+      Release: App/Config/Extension.xcconfig
+
+  "VoiceActivity Staging":
+    templates: [ExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Extension-Staging.xcconfig
+      Release: App/Config/Extension-Staging.xcconfig
+
+  "VoiceActivity Dev":
+    templates: [ExtensionEnvironment]
+    configFiles:
+      Debug: App/Config/Extension-Dev.xcconfig
+      Release: App/Config/Extension-Dev.xcconfig

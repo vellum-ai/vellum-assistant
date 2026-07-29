@@ -141,9 +141,7 @@ export function GeneralPage() {
             void navigate(`${routes.workspace}?sort=size`)
           }
           onUpgradeStorage={
-            infraGate === "full"
-              ? () => void navigate(routes.plans)
-              : null
+            infraGate === "full" ? () => void navigate(routes.plans) : null
           }
         />
       )}

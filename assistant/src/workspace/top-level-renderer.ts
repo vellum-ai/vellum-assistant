@@ -53,7 +53,9 @@ export function renderWorkspaceTopLevelContext(
     lines.push("(list truncated — more entries exist)");
   }
   lines.push(`Host home directory: ${options.hostHomeDir ?? homedir()}`);
-  lines.push(`Host username: ${options.hostUsername ?? safeUserInfoUsername()}`);
+  lines.push(
+    `Host username: ${options.hostUsername ?? safeUserInfoUsername()}`,
+  );
   lines.push("</workspace>");
   return lines.join("\n");
 }

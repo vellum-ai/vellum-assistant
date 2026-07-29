@@ -86,10 +86,7 @@ describe("mergeConversations", () => {
   test("lets the archived list override a row present in any active list", () => {
     // Even when a conversation is in background/scheduled, the archived list
     // is authoritative for the flag.
-    const rows = mergeConversations(
-      [[conv("x")], [conv("x")]],
-      [conv("x")],
-    );
+    const rows = mergeConversations([[conv("x")], [conv("x")]], [conv("x")]);
 
     expect(rows).toHaveLength(1);
     expect(rows[0]?.archived).toBe(true);
@@ -228,22 +225,34 @@ describe("isBucketLoading", () => {
   test("'archived' doesn't wait on the active lists", () => {
     // The active backlog can be large; archived rows are already renderable.
     expect(
-      isBucketLoading("archived", { activeLoading: true, archivedLoading: false }),
+      isBucketLoading("archived", {
+        activeLoading: true,
+        archivedLoading: false,
+      }),
     ).toBe(false);
   });
 
   test("'active' doesn't wait on the archived list", () => {
     expect(
-      isBucketLoading("active", { activeLoading: false, archivedLoading: true }),
+      isBucketLoading("active", {
+        activeLoading: false,
+        archivedLoading: true,
+      }),
     ).toBe(false);
   });
 
   test("a bucket waits on its own source", () => {
     expect(
-      isBucketLoading("archived", { activeLoading: false, archivedLoading: true }),
+      isBucketLoading("archived", {
+        activeLoading: false,
+        archivedLoading: true,
+      }),
     ).toBe(true);
     expect(
-      isBucketLoading("active", { activeLoading: true, archivedLoading: false }),
+      isBucketLoading("active", {
+        activeLoading: true,
+        archivedLoading: false,
+      }),
     ).toBe(true);
   });
 
@@ -287,15 +296,15 @@ describe("isFatalError", () => {
   test("'all' is fatal when either source fails", () => {
     // "All conversations" is a completeness claim: rendering whichever list
     // loaded would present a partial view as the whole set.
-    expect(isFatalError("all", { activeError: true, archivedError: false })).toBe(
-      true,
-    );
-    expect(isFatalError("all", { activeError: false, archivedError: true })).toBe(
-      true,
-    );
-    expect(isFatalError("all", { activeError: false, archivedError: false })).toBe(
-      false,
-    );
+    expect(
+      isFatalError("all", { activeError: true, archivedError: false }),
+    ).toBe(true);
+    expect(
+      isFatalError("all", { activeError: false, archivedError: true }),
+    ).toBe(true);
+    expect(
+      isFatalError("all", { activeError: false, archivedError: false }),
+    ).toBe(false);
   });
 });
 

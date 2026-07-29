@@ -47,6 +47,7 @@ import type {
   ScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { perceivedStartedAt } from "@/domains/chat/utils/tool-call-status";
 import {
   extractInputSummary,
@@ -154,7 +155,9 @@ export function InlineConfirmationCard({
 
   // Close split menu when clicking outside
   useEffect(() => {
-    if (!showSplitMenu) return;
+    if (!showSplitMenu) {
+      return;
+    }
     const handleClickOutside = (e: MouseEvent) => {
       if (
         splitMenuRef.current &&
@@ -168,7 +171,9 @@ export function InlineConfirmationCard({
   }, [showSplitMenu]);
 
   const confirmation = toolCall.pendingConfirmation;
-  if (!confirmation) return null;
+  if (!confirmation) {
+    return null;
+  }
 
   const hasDetails = !!confirmation.input;
   const hasAllowlistOptions = (confirmation.allowlistOptions?.length ?? 0) > 0;
@@ -392,7 +397,9 @@ export function ToolCallChip({
 
   const handleConfirmationSubmit = useCallback(
     async (decision: ConfirmationDecision) => {
-      if (!onConfirmationSubmit) return;
+      if (!onConfirmationSubmit) {
+        return;
+      }
       setIsSubmittingConfirmation(true);
       try {
         await onConfirmationSubmit(decision, toolCall);
@@ -404,7 +411,9 @@ export function ToolCallChip({
   );
 
   const handleAllowAndCreateRule = useCallback(async () => {
-    if (!onAllowAndCreateRule) return;
+    if (!onAllowAndCreateRule) {
+      return;
+    }
     setIsSubmittingConfirmation(true);
     try {
       await onAllowAndCreateRule(toolCall);
@@ -415,7 +424,10 @@ export function ToolCallChip({
 
   const handleCopyOutput = useCallback(() => {
     if (toolCall.result !== undefined) {
-      void navigator.clipboard.writeText(toolCall.result);
+      copyToClipboard(toolCall.result, {
+        successMessage: "Output copied to clipboard.",
+        errorMessage: "Couldn't copy the output.",
+      });
     }
   }, [toolCall.result]);
 
@@ -625,7 +637,9 @@ export function ToolCallChip({
           role="button"
           tabIndex={canExpand ? 0 : undefined}
           onClick={() => {
-            if (canExpand) toggleExpanded(!expanded);
+            if (canExpand) {
+              toggleExpanded(!expanded);
+            }
           }}
           onKeyDown={(e) => {
             if (canExpand && (e.key === "Enter" || e.key === " ")) {
@@ -665,7 +679,9 @@ export function ToolCallChip({
       <button
         type="button"
         onClick={() => {
-          if (canExpand) toggleExpanded(!expanded);
+          if (canExpand) {
+            toggleExpanded(!expanded);
+          }
         }}
         className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-body-medium-default transition-colors ${
           isError

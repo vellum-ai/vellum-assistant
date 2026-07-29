@@ -188,8 +188,8 @@ function avatarModeFor(
  * body-morph and the reduced-motion gating all come from `AnimatedAvatar`
  * inside `ChatAvatar`.
  *
- * Nothing renders until the target assistant resolves and its avatar query
- * settles. `components ?? fallback`
+ * Nothing renders until something is drawable: the live query settling, or the
+ * stash captured at the Stripe hand-off. `components ?? fallback`
  * synthesizes traits from the first bundled entry of each list — a green blob —
  * so drawing during the fetch shows a different assistant's avatar for a beat,
  * and the takeover is the one surface that reliably mounts cold: the Stripe
@@ -234,6 +234,11 @@ function TakeoverAvatar({
       }
     >
       <div className="provision-avatar-stage">
+        {/* Always rendered, and first, so the creature reveals over it. */}
+        <div
+          data-testid="provision-avatar-placeholder"
+          className={`provision-avatar-placeholder${avatarReady ? " is-resolved" : ""}`}
+        />
         <div className="provision-avatar-layer">
           <div className="provision-avatar-current">
             <div className="provision-avatar-strain">
@@ -476,7 +481,11 @@ function TargetChips({
   fromSnapshot: ProvisioningDimensions;
   done?: boolean;
 }) {
-  const changes = buildResourceChanges({ targets, fromSnapshot, credits: null });
+  const changes = buildResourceChanges({
+    targets,
+    fromSnapshot,
+    credits: null,
+  });
   return (
     <ChipRow>
       {changes.map((change) => (

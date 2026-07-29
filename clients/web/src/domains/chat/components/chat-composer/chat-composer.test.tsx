@@ -20,6 +20,7 @@ import {
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { LiveVoicePreflightVerdict } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
@@ -175,8 +176,11 @@ mock.module("@/lib/backwards-compat/use-supports-live-voice", () => ({
 }));
 
 // Avatar data feeding the voice bar's wave accent. Mocked so the composer
-// renders without a QueryClientProvider (the real hook is React Query).
+// renders without a QueryClientProvider (the real hook is React Query). The
+// real module is spread back in so its other exports survive the mock: the
+// auth store reaches `avatarQueryKey` through the takeover avatar stash.
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: () => ({
     components: null,
     traits: null,
@@ -694,11 +698,15 @@ describe("ChatComposer — send/stop button visibility", () => {
  */
 function sendButtonHasDisabledAttr(html: string): boolean {
   const idx = html.indexOf('aria-label="Send message"');
-  if (idx === -1) return false;
+  if (idx === -1) {
+    return false;
+  }
   // Walk back to the opening '<' for this <button>, then forward to the next '>'.
   const openIdx = html.lastIndexOf("<button", idx);
   const closeIdx = html.indexOf(">", idx);
-  if (openIdx === -1 || closeIdx === -1) return false;
+  if (openIdx === -1 || closeIdx === -1) {
+    return false;
+  }
   const tag = html.slice(openIdx, closeIdx + 1);
   // The HTML disabled attribute renders as `disabled=""` or bare `disabled`
   // (followed by space or `>`). Class names always live INSIDE quotes, so an

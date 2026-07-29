@@ -23,7 +23,8 @@ interface CopyToClipboardOptions {
  * Clipboard writes can fail (permissions, unfocused document, webview
  * restrictions), so `errorMessage` is required: every caller surfaces an
  * error toast instead of failing silently. Failures are also reported via
- * `captureError`.
+ * `captureError`. The Clipboard API itself may be absent (insecure
+ * contexts, older webviews); that takes the same error path.
  *
  * Call sites that render a transient copied icon keep that state themselves
  * and flip it in `onCopied`. `useCopyToClipboard` from
@@ -34,6 +35,13 @@ export function copyToClipboard(
   text: string,
   options: CopyToClipboardOptions,
 ): void {
+  if (!navigator.clipboard?.writeText) {
+    captureError(new Error("Clipboard API unavailable"), {
+      context: "copyToClipboard",
+    });
+    toast.error(options.errorMessage);
+    return;
+  }
   navigator.clipboard.writeText(text).then(
     () => {
       options.onCopied?.();

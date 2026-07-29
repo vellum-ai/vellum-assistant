@@ -12,10 +12,14 @@ export function migrateToolInvocationsFk(database: DrizzleDb): void {
       `SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_invocations'`,
     )
     .get() as { sql: string } | null;
-  if (!row) return; // table doesn't exist yet (will be created above)
+  if (!row) {
+    return;
+  } // table doesn't exist yet (will be created above)
 
   // If the DDL already contains REFERENCES, the FK is in place
-  if (row.sql.includes("REFERENCES")) return;
+  if (row.sql.includes("REFERENCES")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

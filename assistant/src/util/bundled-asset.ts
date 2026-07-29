@@ -26,10 +26,14 @@ export function resolveBundledDir(
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(execDir, "..", "Resources", bundleName);
-    if (existsSync(resourcesPath)) return resourcesPath;
+    if (existsSync(resourcesPath)) {
+      return resourcesPath;
+    }
     // Next to the binary itself (non-app-bundle deployments)
     const execDirPath = join(execDir, bundleName);
-    if (existsSync(execDirPath)) return execDirPath;
+    if (existsSync(execDirPath)) {
+      return execDirPath;
+    }
   }
   return join(callerDir, relativePath);
 }

@@ -5,9 +5,9 @@ import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewpo
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 
 const BackgroundTaskDetailPanel = lazy(() =>
-  import(
-    "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
-  ).then((m) => ({ default: m.BackgroundTaskDetailPanel })),
+  import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel").then(
+    (m) => ({ default: m.BackgroundTaskDetailPanel }),
+  ),
 );
 
 interface MobileBackgroundTaskDetailOverlayProps {

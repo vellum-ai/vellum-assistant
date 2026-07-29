@@ -46,9 +46,9 @@ function sdkScheduleId(opts: {
 }
 
 const usageTotalsGetMock = mock(
-  async (
-    _opts: { query?: { scheduleId?: string } },
-  ): Promise<{ data: UsageTotals }> => ({
+  async (_opts: {
+    query?: { scheduleId?: string };
+  }): Promise<{ data: UsageTotals }> => ({
     data: {
       totalInputTokens: 120,
       totalOutputTokens: 80,
@@ -163,9 +163,9 @@ const usageSeriesGetMock = mock(
   },
 );
 
-const usageDailyGetMock = mock(
-  async (_opts: Record<string, unknown>) => ({ data: { buckets: [] } }),
-);
+const usageDailyGetMock = mock(async (_opts: Record<string, unknown>) => ({
+  data: { buckets: [] },
+}));
 
 // ---------------------------------------------------------------------------
 // Mock generated options factories — replaces @tanstack/react-query.gen
@@ -284,12 +284,12 @@ function renderUsageTab(initialEntry: string) {
 }
 
 function readLegendItems(container: HTMLElement) {
-  return Array.from(container.querySelectorAll("[data-usage-legend-state]")).map(
-    (item) => ({
-      label: item.querySelectorAll("span")[1]!,
-      state: item.getAttribute("data-usage-legend-state"),
-    }),
-  );
+  return Array.from(
+    container.querySelectorAll("[data-usage-legend-state]"),
+  ).map((item) => ({
+    label: item.querySelectorAll("span")[1]!,
+    state: item.getAttribute("data-usage-legend-state"),
+  }));
 }
 
 describe("UsageTab", () => {
@@ -298,26 +298,22 @@ describe("UsageTab", () => {
       "/assistant/settings/usage?range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
 
-    await waitFor(() =>
-      expect(usageSeriesGetMock.mock.calls).toHaveLength(1),
-    );
+    await waitFor(() => expect(usageSeriesGetMock.mock.calls).toHaveLength(1));
 
-    expect(
-      screen.queryByLabelText("Schedule usage filter"),
-    ).toBeNull();
+    expect(screen.queryByLabelText("Schedule usage filter")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Clear schedule filter" }),
     ).toBeNull();
     expect(screen.getByText("Schedule")).toBeTruthy();
-    expect(
-      usageTotalsGetMock.mock.calls[0]?.[0]?.query?.scheduleId,
-    ).toBe("schedule-123");
-    expect(
-      usageBreakdownGetMock.mock.calls[0]?.[0]?.query?.scheduleId,
-    ).toBe("schedule-123");
-    expect(
-      usageSeriesGetMock.mock.calls[0]?.[0]?.query?.scheduleId,
-    ).toBe("schedule-123");
+    expect(usageTotalsGetMock.mock.calls[0]?.[0]?.query?.scheduleId).toBe(
+      "schedule-123",
+    );
+    expect(usageBreakdownGetMock.mock.calls[0]?.[0]?.query?.scheduleId).toBe(
+      "schedule-123",
+    );
+    expect(usageSeriesGetMock.mock.calls[0]?.[0]?.query?.scheduleId).toBe(
+      "schedule-123",
+    );
 
     const legendItems = readLegendItems(container);
     expect(legendItems.map((item) => item.label.textContent)).toEqual([
@@ -341,9 +337,7 @@ describe("UsageTab", () => {
       "/assistant/settings/usage?range=7d&groupBy=schedule&scheduleId=schedule-deleted",
     );
 
-    await waitFor(() =>
-      expect(usageSeriesGetMock.mock.calls).toHaveLength(1),
-    );
+    await waitFor(() => expect(usageSeriesGetMock.mock.calls).toHaveLength(1));
 
     const legendItems = readLegendItems(container);
     expect(legendItems.map((item) => item.label.textContent)).toEqual([
@@ -364,24 +358,18 @@ describe("UsageTab", () => {
     );
 
     // Hidden by default.
-    expect(
-      screen.queryByRole("columnheader", { name: "Turns" }),
-    ).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Turns" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Turns" }));
 
-    expect(
-      screen.getByRole("columnheader", { name: "Turns" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Turns" })).toBeTruthy();
     // The mocked breakdown row has turnCount: null (a non-conversation
     // grouping), so the cell renders an em dash rather than a number.
     expect(screen.getByText("—")).toBeTruthy();
   });
 
   test("links conversation breakdown rows to their conversations", async () => {
-    renderUsageTab(
-      "/assistant/settings/usage?range=7d&groupBy=conversation",
-    );
+    renderUsageTab("/assistant/settings/usage?range=7d&groupBy=conversation");
 
     const conversationLink = await screen.findByRole("link", {
       name: "Trip planning",
@@ -396,9 +384,7 @@ describe("UsageTab", () => {
   });
 
   test("navigates to the conversation when a breakdown row is clicked", async () => {
-    renderUsageTab(
-      "/assistant/settings/usage?range=7d&groupBy=conversation",
-    );
+    renderUsageTab("/assistant/settings/usage?range=7d&groupBy=conversation");
 
     const conversationLink = await screen.findByRole("link", {
       name: "Trip planning",
@@ -418,10 +404,9 @@ describe("UsageTab", () => {
       expect(usageBreakdownGetMock.mock.calls.length).toBeGreaterThan(0),
     );
 
-    expect((await screen.findAllByText("Morning digest")).length)
-      .toBeGreaterThan(0);
     expect(
-      screen.queryByRole("link", { name: "Morning digest" }),
-    ).toBeNull();
+      (await screen.findAllByText("Morning digest")).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: "Morning digest" })).toBeNull();
   });
 });

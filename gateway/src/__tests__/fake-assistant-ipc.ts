@@ -4,33 +4,28 @@
  * Listens on assistant.sock inside the given workspace dir and responds
  * to the "health" JSON-RPC call with { status: "ok" }. This satisfies
  * the gateway's waitForAssistant() poll so it starts immediately.
+ *
+ * Speaks the daemon's length-prefixed framing through the shared
+ * reader/writer, because that is what the gateway client sends. A
+ * newline-delimited fake never parses the request, so the gateway sits
+ * behind its startup gate waiting on a health response that never arrives.
  */
 import { createServer, type Server } from "node:net";
-import { join } from "node:path";
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 
 export function startFakeAssistantIpc(workspaceDir: string): Server {
   mkdirSync(workspaceDir, { recursive: true });
   const socketPath = join(workspaceDir, "assistant.sock");
 
   const server = createServer((conn) => {
-    let buffer = "";
+    const reader = new IpcFrameReader((envelope) => {
+      writeMessage(conn, { id: envelope.id, result: { status: "ok" } });
+    });
     conn.on("data", (chunk) => {
-      buffer += chunk.toString();
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (!line) continue;
-        try {
-          const req = JSON.parse(line) as { id: string; method: string };
-          conn.write(
-            JSON.stringify({ id: req.id, result: { status: "ok" } }) + "\n",
-          );
-        } catch {
-          // ignore malformed
-        }
-      }
+      reader.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
   });
 

@@ -248,8 +248,12 @@ const KEY_DESCRIPTORS: Record<string, KeyDescriptor> = {
  */
 function resolveKeyDescriptor(key: string): KeyDescriptor | null {
   const fromMap = KEY_DESCRIPTORS[key];
-  if (fromMap) return fromMap;
-  if (key.length !== 1) return null;
+  if (fromMap) {
+    return fromMap;
+  }
+  if (key.length !== 1) {
+    return null;
+  }
   const charCode = key.charCodeAt(0);
   // a-z / A-Z
   if (
@@ -588,8 +592,12 @@ export async function navigateAndWait(
       // as retry-worthy; the timeout bound below guarantees we
       // don't loop forever. Abort errors are re-thrown so the
       // caller's AbortSignal is still honoured promptly.
-      if (err instanceof CdpError && err.code === "aborted") throw err;
-      if (!(err instanceof CdpError)) throw err;
+      if (err instanceof CdpError && err.code === "aborted") {
+        throw err;
+      }
+      if (!(err instanceof CdpError)) {
+        throw err;
+      }
     }
 
     await new Promise((r) => setTimeout(r, 100));
@@ -688,7 +696,9 @@ export async function waitForText(
       {},
       signal,
     );
-    if (found) return;
+    if (found) {
+      return;
+    }
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new CdpError("cdp_error", `Timed out waiting for text: ${text}`);

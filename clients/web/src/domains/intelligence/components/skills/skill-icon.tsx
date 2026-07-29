@@ -8,7 +8,11 @@ interface SkillIconProps {
   fallback?: string;
 }
 
-export function SkillIcon({ skill, className, fallback = "\u{1F9E9}" }: SkillIconProps) {
+export function SkillIcon({
+  skill,
+  className,
+  fallback = "\u{1F9E9}",
+}: SkillIconProps) {
   const [imgError, setImgError] = useState(false);
 
   if (skill.icon && !imgError) {

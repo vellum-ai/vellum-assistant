@@ -35,27 +35,39 @@ export const stripManagedProfileBodiesMigration: WorkspaceMigration = {
     "Strip seeded managed default-profile bodies down to thin workspace-owned stubs (content is code-owned)",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
     const profiles = readObject(llm.profiles);
-    if (profiles === null) return;
+    if (profiles === null) {
+      return;
+    }
 
     let changed = false;
     for (const name of DEFAULT_PROFILE_NAMES) {
       const entry = readObject(profiles[name]);
-      if (entry === null) continue;
-      if (entry.source !== undefined && entry.source !== "managed") continue;
+      if (entry === null) {
+        continue;
+      }
+      if (entry.source !== undefined && entry.source !== "managed") {
+        continue;
+      }
 
       const stub: Record<string, unknown> = { source: "managed" };
       for (const field of WORKSPACE_OWNED_FIELDS) {
@@ -69,7 +81,9 @@ export const stripManagedProfileBodiesMigration: WorkspaceMigration = {
       const alreadyThin =
         entryKeys.length === stubKeys.length &&
         entryKeys.every((key, i) => key === stubKeys[i]);
-      if (alreadyThin) continue;
+      if (alreadyThin) {
+        continue;
+      }
 
       profiles[name] = stub;
       changed = true;

@@ -18,7 +18,9 @@ const subscribeToDeepLinksMock = mock((cb: (link: DeepLink) => void) => {
   return unsubscribeMock;
 });
 const drainPendingDeepLinksMock = mock(async (): Promise<DeepLink[]> => {
-  if (drainError) throw drainError;
+  if (drainError) {
+    throw drainError;
+  }
   const drained = pendingFixture;
   pendingFixture = [];
   return drained;
@@ -50,9 +52,8 @@ import * as eventBus from "@/lib/event-bus";
 
 const publishSpy = spyOn(eventBus, "publish");
 
-const { publishElectronDeepLinksSource } = await import(
-  "@/runtime/event-sources/electron-deep-links"
-);
+const { publishElectronDeepLinksSource } =
+  await import("@/runtime/event-sources/electron-deep-links");
 
 beforeEach(() => {
   activeCallback = null;

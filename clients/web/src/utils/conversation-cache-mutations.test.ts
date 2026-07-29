@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 import {
   conversationsQueryKey,
@@ -77,24 +80,40 @@ function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
 }
 
 function getForeground(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
+  );
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(backgroundConversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(
+      backgroundConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
 }
 
 function getScheduled(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(scheduledConversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(
+      scheduledConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
 }
 
 function getArchived(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(archivedConversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
 }
 
 function getGroups(qc: QueryClient): ConversationGroup[] {
   return (
-    qc.getQueryData<GroupsGetResponse>(groupsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }))?.groups ?? []
+    qc.getQueryData<GroupsGetResponse>(
+      groupsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
+    )?.groups ?? []
   );
 }
 
@@ -217,7 +236,11 @@ describe("prependConversation", () => {
   test("works on empty cache", () => {
     seedForeground(qc, []);
 
-    prependConversation(qc, ASSISTANT_ID, makeConversation({ conversationId: "c1" }));
+    prependConversation(
+      qc,
+      ASSISTANT_ID,
+      makeConversation({ conversationId: "c1" }),
+    );
 
     expect(getForeground(qc)).toHaveLength(1);
   });
@@ -243,7 +266,10 @@ describe("removeConversation", () => {
 
   test("removes from background cache", () => {
     seedBackground(qc, [
-      makeConversation({ conversationId: "bg1", conversationType: "background" }),
+      makeConversation({
+        conversationId: "bg1",
+        conversationType: "background",
+      }),
     ]);
 
     removeConversation(qc, ASSISTANT_ID, "bg1");
@@ -262,9 +288,7 @@ describe("removeConversation", () => {
   });
 
   test("removes from archived cache", () => {
-    seedArchived(qc, [
-      makeConversation({ conversationId: "a1" }),
-    ]);
+    seedArchived(qc, [makeConversation({ conversationId: "a1" })]);
 
     removeConversation(qc, ASSISTANT_ID, "a1");
 
@@ -403,13 +427,7 @@ describe("surfaceConversationInCaches", () => {
       groupId: "system:background",
     });
 
-    surfaceConversationInCaches(
-      qc,
-      ASSISTANT_ID,
-      runConversation,
-      9000,
-      8500,
-    );
+    surfaceConversationInCaches(qc, ASSISTANT_ID, runConversation, 9000, 8500);
 
     expect(getForeground(qc)[0]).toMatchObject({
       conversationId: "run-1",
@@ -499,7 +517,11 @@ describe("appendGroup", () => {
   test("preserves sortPosition of 0", () => {
     seedGroups(qc, [makeGroup({ id: "g1", name: "First" })]);
 
-    appendGroup(qc, ASSISTANT_ID, makeGroup({ id: "g2", name: "Second", sortPosition: 0 }));
+    appendGroup(
+      qc,
+      ASSISTANT_ID,
+      makeGroup({ id: "g2", name: "Second", sortPosition: 0 }),
+    );
 
     expect(getGroups(qc)[1].sortPosition).toBe(0);
   });
@@ -507,7 +529,11 @@ describe("appendGroup", () => {
   test("preserves explicit non-zero sortPosition", () => {
     seedGroups(qc, []);
 
-    appendGroup(qc, ASSISTANT_ID, makeGroup({ id: "g1", name: "First", sortPosition: 5 }));
+    appendGroup(
+      qc,
+      ASSISTANT_ID,
+      makeGroup({ id: "g1", name: "First", sortPosition: 5 }),
+    );
 
     expect(getGroups(qc)[0].sortPosition).toBe(5);
   });
@@ -535,7 +561,11 @@ describe("replaceOptimisticGroup", () => {
   test("replaces optimistic group with server group", () => {
     seedGroups(qc, [makeGroup({ id: "optimistic-1", name: "Draft" })]);
 
-    const serverGroup = makeGroup({ id: "real-1", name: "Server Name", sortPosition: 3 });
+    const serverGroup = makeGroup({
+      id: "real-1",
+      name: "Server Name",
+      sortPosition: 3,
+    });
     replaceOptimisticGroup(qc, ASSISTANT_ID, "optimistic-1", serverGroup);
 
     const groups = getGroups(qc);
@@ -547,7 +577,12 @@ describe("replaceOptimisticGroup", () => {
   test("no-op when optimistic id not found", () => {
     seedGroups(qc, [makeGroup({ id: "g1", name: "Existing" })]);
 
-    replaceOptimisticGroup(qc, ASSISTANT_ID, "nonexistent", makeGroup({ id: "g2", name: "New" }));
+    replaceOptimisticGroup(
+      qc,
+      ASSISTANT_ID,
+      "nonexistent",
+      makeGroup({ id: "g2", name: "New" }),
+    );
 
     const groups = getGroups(qc);
     expect(groups).toHaveLength(1);
@@ -601,10 +636,18 @@ describe("deleteGroupAndResetConversations", () => {
       makeConversation({ conversationId: "c1", groupId: "g1" }),
     ]);
     seedBackground(qc, [
-      makeConversation({ conversationId: "bg1", groupId: "g1", conversationType: "background" }),
+      makeConversation({
+        conversationId: "bg1",
+        groupId: "g1",
+        conversationType: "background",
+      }),
     ]);
     seedScheduled(qc, [
-      makeConversation({ conversationId: "s1", groupId: "g1", conversationType: "scheduled" }),
+      makeConversation({
+        conversationId: "s1",
+        groupId: "g1",
+        conversationType: "scheduled",
+      }),
     ]);
     seedArchived(qc, [
       makeConversation({ conversationId: "a1", groupId: "g1" }),
@@ -620,7 +663,9 @@ describe("deleteGroupAndResetConversations", () => {
 
   test("no-op on conversations when no conversations have the groupId", () => {
     seedGroups(qc, [makeGroup({ id: "g1", name: "Delete" })]);
-    const original = [makeConversation({ conversationId: "c1", groupId: "other" })];
+    const original = [
+      makeConversation({ conversationId: "c1", groupId: "other" }),
+    ];
     seedForeground(qc, original);
 
     deleteGroupAndResetConversations(qc, ASSISTANT_ID, "g1");
@@ -656,11 +701,18 @@ describe("mergeListFirstPage", () => {
       makeConversation({ conversationId: "c-old", lastMessageAt: 1000 }),
     ];
     const fresh = [
-      makeConversation({ conversationId: "c-new", lastMessageAt: 5000, title: "Renamed" }),
+      makeConversation({
+        conversationId: "c-new",
+        lastMessageAt: 5000,
+        title: "Renamed",
+      }),
       makeConversation({ conversationId: "c-created", lastMessageAt: 4900 }),
     ];
 
-    const merged = mergeListFirstPage(prev, { conversations: fresh, hasMore: true });
+    const merged = mergeListFirstPage(prev, {
+      conversations: fresh,
+      hasMore: true,
+    });
 
     expect(merged.map((c) => c.conversationId)).toEqual([
       "c-new",
@@ -679,10 +731,17 @@ describe("mergeListFirstPage", () => {
     ];
     const fresh = [
       makeConversation({ conversationId: "c-top", lastMessageAt: 5000 }),
-      makeConversation({ conversationId: "c-pinned", lastMessageAt: 100, isPinned: true }),
+      makeConversation({
+        conversationId: "c-pinned",
+        lastMessageAt: 100,
+        isPinned: true,
+      }),
     ];
 
-    const merged = mergeListFirstPage(prev, { conversations: fresh, hasMore: true });
+    const merged = mergeListFirstPage(prev, {
+      conversations: fresh,
+      hasMore: true,
+    });
 
     expect(merged.map((c) => c.conversationId)).toEqual([
       "c-top",
@@ -693,13 +752,20 @@ describe("mergeListFirstPage", () => {
 
   test("always keeps client-local draft rows", () => {
     const prev = [
-      makeConversation({ conversationId: "c-draft", lastMessageAt: 6000, draft: true }),
+      makeConversation({
+        conversationId: "c-draft",
+        lastMessageAt: 6000,
+        draft: true,
+      }),
     ];
     const fresh = [
       makeConversation({ conversationId: "c-top", lastMessageAt: 5000 }),
     ];
 
-    const merged = mergeListFirstPage(prev, { conversations: fresh, hasMore: true });
+    const merged = mergeListFirstPage(prev, {
+      conversations: fresh,
+      hasMore: true,
+    });
 
     expect(merged.map((c) => c.conversationId)).toEqual(["c-top", "c-draft"]);
   });
@@ -709,9 +775,15 @@ describe("mergeListFirstPage", () => {
       makeConversation({ conversationId: "c1", lastMessageAt: 4000 }),
     ];
     const fresh = [
-      makeConversation({ conversationId: "c-pinned", lastMessageAt: 100, isPinned: true }),
+      makeConversation({
+        conversationId: "c-pinned",
+        lastMessageAt: 100,
+        isPinned: true,
+      }),
     ];
 
-    expect(mergeListFirstPage(prev, { conversations: fresh, hasMore: true })).toBe(prev);
+    expect(
+      mergeListFirstPage(prev, { conversations: fresh, hasMore: true }),
+    ).toBe(prev);
   });
 });

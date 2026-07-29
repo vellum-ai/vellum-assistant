@@ -34,7 +34,9 @@ export function migrateBackfillInlineAttachmentsToDisk(
       data_base64: string;
     }>;
 
-    if (rows.length === 0) break;
+    if (rows.length === 0) {
+      break;
+    }
 
     for (const row of rows) {
       const filePath = writeAttachmentToDisk(

@@ -78,8 +78,8 @@ const getLockfileAssistantMock = mock(
 );
 // The desktop (Electron) build reports local mode even for a managed hatch.
 let localMode = false;
-const saveLockfileAssistantMock = mock(async (_entry: unknown): Promise<void> =>
-  undefined,
+const saveLockfileAssistantMock = mock(
+  async (_entry: unknown): Promise<void> => undefined,
 );
 mock.module("@/lib/local-mode", () => ({
   probeLocalGatewayReady: probeLocalGatewayReadyMock,
@@ -145,7 +145,9 @@ const holdProvisioning = (): (() => void) => {
 };
 const awaitPurchasedProvisioningMock = mock(
   async (_options: unknown): Promise<PurchasedProvisioningOutcome> => {
-    if (provisioningGate) await provisioningGate;
+    if (provisioningGate) {
+      await provisioningGate;
+    }
     return provisioningOutcome;
   },
 );
@@ -193,7 +195,11 @@ async function until(predicate: () => boolean, timeoutMs = 300): Promise<void> {
 }
 
 beforeEach(() => {
-  hatchResult = { ok: true, status: 201, data: { id: "ast-research" } as never };
+  hatchResult = {
+    ok: true,
+    status: 201,
+    data: { id: "ast-research" } as never,
+  };
   getAssistantResult = {
     ok: true,
     status: 200,
@@ -912,7 +918,9 @@ describe("useBackgroundHatch", () => {
 
     // A fetch still pending past the ceiling is a stalled request the store
     // will never time out, so the retry replaces it rather than waiting again.
-    await waitFor(() => expect(fetchOrganizationsMock).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(fetchOrganizationsMock).toHaveBeenCalledTimes(1),
+    );
     // The replacement answering mid-wait lets the held hatch proceed.
     orgReadiness = "ready";
 

@@ -6,9 +6,9 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import type { ActivityLocationState } from "@/domains/home/components/notifications-bell";
 import { HomePage } from "@/domains/home/home-page";
 import {
-    useBackgroundConversationListQuery,
-    useConversationListQuery,
-    useScheduledConversationListQuery,
+  useBackgroundConversationListQuery,
+  useConversationListQuery,
+  useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { mergeConversationLists } from "@/utils/conversation-cache";
@@ -65,7 +65,9 @@ export function HomePageRoute() {
     } else {
       setTopBarCenter(null);
     }
-    return () => { setTopBarCenter(null); };
+    return () => {
+      setTopBarCenter(null);
+    };
   }, [isMobile, setTopBarCenter]);
 
   return (

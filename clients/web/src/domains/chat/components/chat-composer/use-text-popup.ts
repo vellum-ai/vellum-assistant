@@ -5,12 +5,16 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 // ---------------------------------------------------------------------------
 
 function listIndexUp(current: number, listLength: number): number {
-  if (listLength === 0) return 0;
+  if (listLength === 0) {
+    return 0;
+  }
   return current <= 0 ? listLength - 1 : current - 1;
 }
 
 function listIndexDown(current: number, listLength: number): number {
-  if (listLength === 0) return 0;
+  if (listLength === 0) {
+    return 0;
+  }
   return current >= listLength - 1 ? 0 : current + 1;
 }
 
@@ -77,7 +81,9 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
   const meetsMinLength = filter.length >= minFilterLength;
 
   const items = useMemo(() => {
-    if (!hasMatch || !meetsMinLength) return EMPTY_ARRAY as T[];
+    if (!hasMatch || !meetsMinLength) {
+      return EMPTY_ARRAY as T[];
+    }
     return search(filter);
   }, [hasMatch, meetsMinLength, filter, search]);
 
@@ -103,7 +109,9 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
 
   // Stable ref so dismiss always captures the text at invocation time.
   const textRef = useRef(text);
-  useLayoutEffect(() => { textRef.current = text; });
+  useLayoutEffect(() => {
+    textRef.current = text;
+  });
 
   const [, forceRender] = useState(0);
   const dismiss = useCallback(() => {

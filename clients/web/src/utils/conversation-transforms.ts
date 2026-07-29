@@ -41,7 +41,9 @@ function asString(value: string | unknown): string | undefined {
 function mapChannelBinding(
   raw: RawConversationSummary["channelBinding"],
 ): ConversationChannelBinding | undefined {
-  if (!raw) return undefined;
+  if (!raw) {
+    return undefined;
+  }
   return {
     sourceChannel: raw.sourceChannel,
     externalChatId: raw.externalChatId,
@@ -92,12 +94,9 @@ export function toConversation(raw: RawConversationSummary): Conversation {
     title: raw.title,
     createdAt: asNumber(raw.createdAt),
     lastMessageAt: asNumber(raw.lastMessageAt ?? raw.updatedAt),
-    hasUnseenLatestAssistantMessage:
-      attention?.hasUnseenLatestAssistantMessage,
+    hasUnseenLatestAssistantMessage: attention?.hasUnseenLatestAssistantMessage,
     latestAssistantMessageAt: asNumber(attention?.latestAssistantMessageAt),
-    lastSeenAssistantMessageAt: asNumber(
-      attention?.lastSeenAssistantMessageAt,
-    ),
+    lastSeenAssistantMessageAt: asNumber(attention?.lastSeenAssistantMessageAt),
     archivedAt: raw.archivedAt,
     surfacedAt: asNumber(raw.surfacedAt),
     groupId: asString(raw.groupId),
@@ -117,8 +116,6 @@ export function toConversation(raw: RawConversationSummary): Conversation {
  * `Conversation` shape. The detail and summary types share the same
  * structure from the daemon serializer.
  */
-export function detailToConversation(
-  raw: RawConversationDetail,
-): Conversation {
+export function detailToConversation(raw: RawConversationDetail): Conversation {
   return toConversation(raw as RawConversationSummary);
 }

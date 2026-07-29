@@ -23,7 +23,9 @@ export function coverCropSquare(
   srcW: number,
   srcH: number,
 ): { sx: number; sy: number; side: number } | null {
-  if (srcW <= 0 || srcH <= 0) return null;
+  if (srcW <= 0 || srcH <= 0) {
+    return null;
+  }
   const side = Math.min(srcW, srcH);
   return { sx: (srcW - side) / 2, sy: (srcH - side) / 2, side };
 }
@@ -58,7 +60,9 @@ async function rasterizeAvatar(
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
+  if (!ctx) {
+    return null;
+  }
   ctx.clearRect(0, 0, size, size);
 
   // `naturalWidth/Height` is the decoded pixel size (SVG sources fall back to
@@ -85,7 +89,9 @@ async function rasterizeAvatar(
   const blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob(resolve, "image/png");
   });
-  if (!blob) return null;
+  if (!blob) {
+    return null;
+  }
   return new Uint8Array(await blob.arrayBuffer());
 }
 
@@ -112,7 +118,9 @@ export function useElectronIconSync(
   traits: CharacterTraits | null,
 ): void {
   useEffect(() => {
-    if (!isElectron()) return;
+    if (!isElectron()) {
+      return;
+    }
 
     const render = resolveAvatarRender(
       customImageUrl,
@@ -129,10 +137,14 @@ export function useElectronIconSync(
     const src = render.kind === "character" ? render.dataUri : render.url;
     void rasterizeAvatar(src, ICON_SIZE)
       .then((bytes) => {
-        if (!cancelled) setAssistantIcon(bytes);
+        if (!cancelled) {
+          setAssistantIcon(bytes);
+        }
       })
       .catch(() => {
-        if (!cancelled) setAssistantIcon(null);
+        if (!cancelled) {
+          setAssistantIcon(null);
+        }
       });
 
     return () => {

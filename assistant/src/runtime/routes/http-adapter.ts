@@ -15,8 +15,12 @@ function resolveResponseHeaders(
   spec: RouteDefinition["responseHeaders"],
   args: ResponseHeaderArgs,
 ): Record<string, string> | undefined {
-  if (!spec) return undefined;
-  if (typeof spec === "function") return spec(args);
+  if (!spec) {
+    return undefined;
+  }
+  if (typeof spec === "function") {
+    return spec(args);
+  }
   return spec;
 }
 
@@ -24,8 +28,12 @@ function resolveResponseStatus(
   spec: RouteDefinition["responseStatus"],
   args: ResponseHeaderArgs,
 ): number {
-  if (!spec) return 200;
-  if (typeof spec === "function") return Number(spec(args));
+  if (!spec) {
+    return 200;
+  }
+  if (typeof spec === "function") {
+    return Number(spec(args));
+  }
   return Number(spec);
 }
 
@@ -52,7 +60,9 @@ export function routeDefinitionsToHTTPRoutes(
       try {
         if (r.requireGuardian) {
           const guardianError = await requireBoundGuardian(authContext);
-          if (guardianError) return guardianError;
+          if (guardianError) {
+            return guardianError;
+          }
         }
 
         const pathParams: Record<string, string> = {};

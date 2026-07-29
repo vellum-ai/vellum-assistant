@@ -110,6 +110,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "collapse-assistant-intermediates",
+      "scope": "client",
+      "key": "collapse-assistant-intermediates",
+      "label": "Collapse Assistant Intermediates",
+      "description": "Collapse completed intermediary assistant activity behind Earlier activity while keeping the final response visible",
+      "defaultEnabled": false
+    },
+    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",

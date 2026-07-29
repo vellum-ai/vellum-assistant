@@ -1,14 +1,14 @@
 import {
-    ArrowUpRight,
-    Bug,
-    ExternalLink,
-    GitPullRequest,
-    Globe,
-    Heart,
-    Play,
-    Sparkles,
-    Star,
-    Users,
+  ArrowUpRight,
+  Bug,
+  ExternalLink,
+  GitPullRequest,
+  Globe,
+  Heart,
+  Play,
+  Sparkles,
+  Star,
+  Users,
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
@@ -182,10 +182,7 @@ function ResourceCard({
       rel="noopener noreferrer"
       className="flex flex-1 cursor-pointer"
     >
-      <Card
-        className="flex-1 transition-shadow hover:shadow-md"
-        padding="lg"
-      >
+      <Card className="flex-1 transition-shadow hover:shadow-md" padding="lg">
         <div className="flex flex-col gap-4">
           <div className="flex items-start justify-between">
             <span
@@ -267,9 +264,7 @@ export function CommunityPage() {
           ]}
           primaryAction={{
             label: "Join Discord",
-            icon: (
-              <DiscordLogo size={16} style={{ color: "currentColor" }} />
-            ),
+            icon: <DiscordLogo size={16} style={{ color: "currentColor" }} />,
             onClick: joinDiscord,
           }}
         />

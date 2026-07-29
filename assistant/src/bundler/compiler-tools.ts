@@ -156,7 +156,9 @@ async function downloadAndExtract(
 
 function readManifest(baseDir: string): VersionManifest | null {
   const manifestPath = join(baseDir, "version.json");
-  if (!existsSync(manifestPath)) return null;
+  if (!existsSync(manifestPath)) {
+    return null;
+  }
   try {
     return JSON.parse(readFileSync(manifestPath, "utf-8"));
   } catch {
@@ -166,7 +168,9 @@ function readManifest(baseDir: string): VersionManifest | null {
 
 function isReady(baseDir: string): boolean {
   const manifest = readManifest(baseDir);
-  if (!manifest || manifest.toolsVersion !== TOOLS_VERSION) return false;
+  if (!manifest || manifest.toolsVersion !== TOOLS_VERSION) {
+    return false;
+  }
   return (
     existsSync(join(baseDir, "bin", "esbuild")) &&
     existsSync(join(baseDir, "node_modules", "preact"))
@@ -195,7 +199,9 @@ export async function ensureCompilerTools(): Promise<CompilerTools> {
 }
 
 async function install(baseDir: string): Promise<void> {
-  if (isReady(baseDir)) return;
+  if (isReady(baseDir)) {
+    return;
+  }
 
   const os = platform();
   const cpu = arch();
@@ -221,7 +227,9 @@ async function install(baseDir: string): Promise<void> {
           // Wait up to 60s for the other process to finish
           for (let i = 0; i < 60; i++) {
             await new Promise((r) => setTimeout(r, 1000));
-            if (isReady(baseDir)) return;
+            if (isReady(baseDir)) {
+              return;
+            }
           }
           log.warn("Timed out waiting for other installer, proceeding");
         } catch {
@@ -291,7 +299,9 @@ async function install(baseDir: string): Promise<void> {
     // Atomic swap: clear old install, move new files in
     const { readdirSync } = await import("node:fs");
     for (const entry of readdirSync(baseDir)) {
-      if (entry.startsWith(".") || entry === tmpDir.split("/").pop()) continue;
+      if (entry.startsWith(".") || entry === tmpDir.split("/").pop()) {
+        continue;
+      }
       rmSync(join(baseDir, entry), { recursive: true, force: true });
     }
     for (const entry of readdirSync(tmpDir)) {

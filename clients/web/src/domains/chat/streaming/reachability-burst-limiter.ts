@@ -65,7 +65,9 @@ export function createReachabilityBurstLimiter(
 
   return {
     handleReachabilityPhase(phase) {
-      if (phase !== "ready") return;
+      if (phase !== "ready") {
+        return;
+      }
 
       const nowMs = now();
       if (nowMs - burstStartedAt > STREAM_RETRY_BURST_WINDOW_MS) {

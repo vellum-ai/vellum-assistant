@@ -31,7 +31,9 @@ const NOTICE_PATH = getConfigQuarantineNoticePath();
 
 function writeNotice(quarantinedAt: string): void {
   const dir = dirname(NOTICE_PATH);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
   writeFileSync(
     NOTICE_PATH,
     JSON.stringify(

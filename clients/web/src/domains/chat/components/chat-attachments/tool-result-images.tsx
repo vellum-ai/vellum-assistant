@@ -81,6 +81,19 @@ function toolNameToFilePrefix(toolName?: string): string {
     .toLowerCase();
 }
 
+function toolResultImageInputs(toolCall: ChatMessageToolCall): {
+  refIds: string[];
+  base64Images: string[];
+} {
+  const refIds = toolCall.imageAttachmentIds ?? [];
+  const base64Images = toolCall.imageDataList?.length
+    ? toolCall.imageDataList
+    : toolCall.imageData
+      ? [toolCall.imageData]
+      : [];
+  return { refIds, base64Images };
+}
+
 /**
  * Project a message's tool-result images into {@link DisplayAttachment}
  * objects.
@@ -107,12 +120,7 @@ function buildToolResultAttachments(
   const attachments: DisplayAttachment[] = [];
   let globalIndex = 0;
   for (const tc of toolCalls) {
-    const refIds = tc.imageAttachmentIds ?? [];
-    const base64Images = tc.imageDataList?.length
-      ? tc.imageDataList
-      : tc.imageData
-        ? [tc.imageData]
-        : [];
+    const { refIds, base64Images } = toolResultImageInputs(tc);
     const total = refIds.length + base64Images.length;
     const prefix = toolNameToFilePrefix(tc.name);
     let localIndex = 0;
@@ -149,6 +157,13 @@ function buildToolResultAttachments(
   return attachments;
 }
 
+export function hasToolResultImages(toolCalls: ChatMessageToolCall[]): boolean {
+  return toolCalls.some((toolCall) => {
+    const { refIds, base64Images } = toolResultImageInputs(toolCall);
+    return refIds.length > 0 || base64Images.length > 0;
+  });
+}
+
 const IMAGE_CLASS =
   "max-h-72 max-w-full rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] object-contain sm:max-w-[28rem]";
 
@@ -174,7 +189,10 @@ const ToolResultImageThumb: FC<{
     );
   }
   return (
-    <ReferencedToolResultImage attachment={attachment} assistantId={assistantId} />
+    <ReferencedToolResultImage
+      attachment={attachment}
+      assistantId={assistantId}
+    />
   );
 };
 

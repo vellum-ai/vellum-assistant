@@ -101,7 +101,9 @@ export function listCompletedBackgroundTools(
   conversationId?: string,
 ): CompletedBackgroundTool[] {
   const all = completedRing.slice();
-  if (conversationId === undefined) return all;
+  if (conversationId === undefined) {
+    return all;
+  }
   return all.filter((t) => t.conversationId === conversationId);
 }
 
@@ -137,7 +139,9 @@ export function cancelBackgroundTools(
 ): BackgroundTool[] {
   const cancelled: BackgroundTool[] = [];
   for (const tool of Array.from(registry.values())) {
-    if (!shouldCancel(tool)) continue;
+    if (!shouldCancel(tool)) {
+      continue;
+    }
     tool.cancel(reason);
     registry.delete(tool.id);
     cancelled.push(tool);

@@ -127,13 +127,17 @@ function writeConfig(config: SoundsConfig): void {
 
 function hasSupportedExtension(filename: string): boolean {
   const idx = filename.lastIndexOf(".");
-  if (idx < 0 || idx === filename.length - 1) return false;
+  if (idx < 0 || idx === filename.length - 1) {
+    return false;
+  }
   return SUPPORTED_EXTENSIONS.has(filename.slice(idx + 1).toLowerCase());
 }
 
 function displayLabel(filename: string): string {
   const idx = filename.lastIndexOf(".");
-  if (idx <= 0) return filename;
+  if (idx <= 0) {
+    return filename;
+  }
   return filename.slice(0, idx);
 }
 
@@ -169,10 +173,16 @@ function handleListAvailableSounds() {
     const entries = readdirSync(dir, { withFileTypes: true });
     const sounds: Array<{ label: string; filename: string }> = [];
     for (const entry of entries) {
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
       const name = entry.name;
-      if (name === CONFIG_FILENAME) continue;
-      if (!hasSupportedExtension(name)) continue;
+      if (name === CONFIG_FILENAME) {
+        continue;
+      }
+      if (!hasSupportedExtension(name)) {
+        continue;
+      }
       sounds.push({ label: displayLabel(name), filename: name });
     }
     sounds.sort((a, b) =>

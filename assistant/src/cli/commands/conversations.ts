@@ -46,7 +46,9 @@ type SeedResult =
   | { error: string };
 
 function readSeedMessages(contentFile?: string): SeedResult {
-  if (!contentFile) return { messages: undefined };
+  if (!contentFile) {
+    return { messages: undefined };
+  }
   if (!existsSync(contentFile)) {
     return { error: `content file not found: ${contentFile}` };
   }
@@ -177,7 +179,9 @@ export function registerConversationsCommand(program: Command): void {
             body: { includeArchived: opts?.includeArchived ?? false },
           });
 
-          if (!result.ok) return exitFromIpcResult(result);
+          if (!result.ok) {
+            return exitFromIpcResult(result);
+          }
 
           const all = result.result!.conversations;
           if (all.length === 0) {
@@ -264,7 +268,9 @@ export function registerConversationsCommand(program: Command): void {
             body: { conversationId, format },
           });
 
-          if (!result.ok) return exitFromIpcResult(result);
+          if (!result.ok) {
+            return exitFromIpcResult(result);
+          }
 
           const exported = result.result!;
 
@@ -394,7 +400,9 @@ export function registerConversationsCommand(program: Command): void {
           },
         );
 
-        if (!result.ok) return exitFromIpcResult(result);
+        if (!result.ok) {
+          return exitFromIpcResult(result);
+        }
 
         log.info(`Cleared ${result.result!.cleared} conversations. Done.`);
       });

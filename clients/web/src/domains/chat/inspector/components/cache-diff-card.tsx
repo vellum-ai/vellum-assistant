@@ -123,9 +123,15 @@ interface ChangedChip {
 
 function changedChips(groups: CacheDiffChangedGroups): ChangedChip[] {
   const chips: ChangedChip[] = [];
-  if (groups.model) chips.push({ key: "model", label: "Model", tone: "negative" });
-  if (groups.tools) chips.push({ key: "tools", label: "Tools", tone: "warning" });
-  if (groups.system) chips.push({ key: "system", label: "System", tone: "warning" });
+  if (groups.model) {
+    chips.push({ key: "model", label: "Model", tone: "negative" });
+  }
+  if (groups.tools) {
+    chips.push({ key: "tools", label: "Tools", tone: "warning" });
+  }
+  if (groups.system) {
+    chips.push({ key: "system", label: "System", tone: "warning" });
+  }
   if (groups.messages) {
     chips.push({ key: "messages", label: "Messages", tone: "warning" });
   }
@@ -325,7 +331,9 @@ function DiffPreview({
     : entries.slice(0, MAX_VISIBLE_DIFF_ENTRIES);
 
   function computeFullDiff(): void {
-    if (!source) return;
+    if (!source) {
+      return;
+    }
     const result = diffLines(
       source.previousText,
       source.currentText,
@@ -417,17 +425,23 @@ export function CacheDiffCard({
     needsPreviousFetch ? previous?.id : undefined,
   );
 
-  if (!previous) return null;
+  if (!previous) {
+    return null;
+  }
 
   const currentSections = current.requestSections ?? [];
-  if (currentSections.length === 0) return null;
+  if (currentSections.length === 0) {
+    return null;
+  }
 
   if (needsPreviousFetch) {
     if (isPreviousLoading) {
       return <StateNote>Loading the previous call to compare…</StateNote>;
     }
     if (isPreviousError) {
-      return <StateNote>Couldn't load the previous call to diff against.</StateNote>;
+      return (
+        <StateNote>Couldn't load the previous call to diff against.</StateNote>
+      );
     }
   }
 
@@ -435,7 +449,11 @@ export function CacheDiffCard({
     ? previous.requestSections
     : (previousDetail?.requestSections ?? null);
   if (!previousSections || previousSections.length === 0) {
-    return <StateNote>The previous call's prompt isn't available to compare.</StateNote>;
+    return (
+      <StateNote>
+        The previous call's prompt isn't available to compare.
+      </StateNote>
+    );
   }
 
   const result = computeCacheDiff(

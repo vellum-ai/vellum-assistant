@@ -84,7 +84,9 @@ function DiffLine({ row }: { row: DiffRow }) {
       <span className="w-10 shrink-0 select-none px-2 text-right text-[var(--content-tertiary)] tabular-nums">
         {row.newNo ?? GUTTER}
       </span>
-      <span className="w-4 shrink-0 select-none text-center">{rowMarker(row.type)}</span>
+      <span className="w-4 shrink-0 select-none text-center">
+        {rowMarker(row.type)}
+      </span>
       <span className="flex-1 pr-3">{row.text}</span>
     </div>
   );

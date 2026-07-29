@@ -43,7 +43,7 @@ import { z } from "zod";
 
 import { type AgentEvent, AgentLoop } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
+import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
 import { isPersonalMemoryAllowed } from "../daemon/trust-context.js";
@@ -328,7 +328,14 @@ function validateProfile(profile: string): string {
 }
 
 function profileExists(profile: string): boolean {
-  return getEffectiveProfile(getConfig().llm.profiles, profile) != null;
+  const { llm } = getConfig();
+  return (
+    resolveDefaultProfileForProvider(
+      llm.profiles,
+      profile,
+      llm.defaultProvider ?? null,
+    ) != null
+  );
 }
 
 /**

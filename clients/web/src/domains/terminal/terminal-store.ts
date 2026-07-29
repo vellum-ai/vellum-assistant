@@ -65,7 +65,12 @@ const useTerminalStoreBase = create<TerminalStore>()((set, get) => ({
 
   connectSucceeded: (sessionId: string) => {
     if (get().status === "connecting") {
-      set({ status: "connected", sessionId, errorMessage: null, reconnectAttempts: 0 });
+      set({
+        status: "connected",
+        sessionId,
+        errorMessage: null,
+        reconnectAttempts: 0,
+      });
     }
   },
 
@@ -77,7 +82,11 @@ const useTerminalStoreBase = create<TerminalStore>()((set, get) => ({
 
   disconnected: () => {
     if (get().status === "connected") {
-      set({ status: "error", errorMessage: "Connection lost.", sessionId: null });
+      set({
+        status: "error",
+        errorMessage: "Connection lost.",
+        sessionId: null,
+      });
     }
   },
 
@@ -95,7 +104,12 @@ const useTerminalStoreBase = create<TerminalStore>()((set, get) => ({
 
   reconnectSucceeded: (sessionId: string) => {
     if (get().status === "reconnecting") {
-      set({ status: "connected", sessionId, errorMessage: null, reconnectAttempts: 0 });
+      set({
+        status: "connected",
+        sessionId,
+        errorMessage: null,
+        reconnectAttempts: 0,
+      });
     }
   },
 
@@ -114,7 +128,12 @@ const useTerminalStoreBase = create<TerminalStore>()((set, get) => ({
   },
 
   reset: () => {
-    set({ status: "idle", errorMessage: null, reconnectAttempts: 0, sessionId: null });
+    set({
+      status: "idle",
+      errorMessage: null,
+      reconnectAttempts: 0,
+      sessionId: null,
+    });
   },
 }));
 

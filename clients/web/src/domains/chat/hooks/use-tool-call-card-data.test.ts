@@ -847,9 +847,9 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
     };
     const data = computeToolCallCardData(toolCalls, liveWebActivity);
     // No web_search_error step is produced from a web_fetch failure.
-    expect(
-      data.steps.some((step) => step.kind === "web_search_error"),
-    ).toBe(false);
+    expect(data.steps.some((step) => step.kind === "web_search_error")).toBe(
+      false,
+    );
     // The friendly web_search backend copy is never surfaced for a fetch error.
     expect(data.currentStepInfo).not.toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
   });
@@ -904,9 +904,9 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
       },
     };
     const data = computeToolCallCardData(toolCalls, liveWebActivity);
-    expect(
-      data.steps.some((step) => step.kind === "web_search_error"),
-    ).toBe(false);
+    expect(data.steps.some((step) => step.kind === "web_search_error")).toBe(
+      false,
+    );
     expect(data.steps[0]!.kind).toBe("web_search");
     expect(data.currentStepInfo).not.toBe(CANONICAL_BACKEND_FAILURE_MESSAGE);
   });
@@ -927,11 +927,9 @@ describe("computeToolCallCardData — web_search backend-failure copy", () => {
       },
     };
     const data = computeToolCallCardData(toolCalls, liveWebActivity);
-    expect(
-      data.steps.some((step) => step.kind === "web_search_error"),
-    ).toBe(false);
+    expect(data.steps.some((step) => step.kind === "web_search_error")).toBe(
+      false,
+    );
     expect(data.steps[0]!.kind).toBe("web_search");
   });
 });
-
-

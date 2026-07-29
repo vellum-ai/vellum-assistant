@@ -550,7 +550,9 @@ function validateStartFrame(
 
   const audio = value.audio;
   const audioConfig = validateAudioConfig(audio);
-  if (!audioConfig.ok) return audioConfig;
+  if (!audioConfig.ok) {
+    return audioConfig;
+  }
 
   if ("conversationId" in value && !isNonEmptyString(value.conversationId)) {
     return protocolError(
@@ -757,7 +759,9 @@ function isPositiveInteger(value: unknown): value is number {
 }
 
 function isValidBase64Payload(value: string): boolean {
-  if (value.length === 0 || value.length % 4 !== 0) return false;
+  if (value.length === 0 || value.length % 4 !== 0) {
+    return false;
+  }
   return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
     value,
   );

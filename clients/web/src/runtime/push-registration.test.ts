@@ -104,7 +104,9 @@ let deleteError: unknown = undefined;
 let upsertGate: Promise<void> | null = null;
 
 const upsertMock = mock(async (arg: UpsertArg) => {
-  if (upsertGate) await upsertGate;
+  if (upsertGate) {
+    await upsertGate;
+  }
   lastUpsertArg = arg;
   return { data: {}, error: upsertError };
 });

@@ -175,9 +175,13 @@ describe("createRecordStorageAccessor", () => {
   }
 
   function parseEntry(raw: unknown): TestEntry | null {
-    if (!raw || typeof raw !== "object") return null;
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
     const r = raw as Record<string, unknown>;
-    if (typeof r.value !== "number" || typeof r.label !== "string") return null;
+    if (typeof r.value !== "number" || typeof r.label !== "string") {
+      return null;
+    }
     return { value: r.value as number, label: r.label as string };
   }
 

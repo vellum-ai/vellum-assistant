@@ -104,7 +104,9 @@ const log = getLogger("conversation-management-routes");
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
+  if (!id) {
+    throw new NotFoundError(`Conversation ${rawId} not found`);
+  }
   return id;
 }
 
@@ -479,7 +481,9 @@ async function handleDeleteConversation({
 
   await cancelScheduleIfLast(resolvedId);
 
-  destroyActiveConversation(resolvedId);
+  // In-memory teardown only: `deleteConversation` drops the durable subagent
+  // rows inside its own transaction.
+  destroyActiveConversation(resolvedId, { keepSubagentRecords: true });
   const deleted = deleteConversation(resolvedId);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {

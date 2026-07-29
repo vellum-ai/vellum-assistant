@@ -56,9 +56,9 @@ describe("settleWithoutServerValues", () => {
 
     useClientFeatureFlagStore.getState().settleWithoutServerValues(null);
 
-    expect(
-      useClientFeatureFlagStore.getState().marketingPricingTakeover,
-    ).toBe(true);
+    expect(useClientFeatureFlagStore.getState().marketingPricingTakeover).toBe(
+      true,
+    );
   });
 });
 
@@ -69,7 +69,9 @@ describe("beginScope", () => {
       .getState()
       .setFlags({ marketingPricingTakeover: true }, "anonymous:org:none");
 
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
     const state = useClientFeatureFlagStore.getState();
     expect(state.hydrated).toBe(false);
@@ -84,20 +86,29 @@ describe("beginScope", () => {
       .getState()
       .setStringFlags({ proactiveTips: "on" }, "anonymous:org:none");
 
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
-    expect(
-      useClientFeatureFlagStore.getState().stringFlags.proactiveTips,
-    ).toBe(CLIENT_STRING_FLAG_DEFAULTS.proactiveTips);
+    expect(useClientFeatureFlagStore.getState().stringFlags.proactiveTips).toBe(
+      CLIENT_STRING_FLAG_DEFAULTS.proactiveTips,
+    );
   });
 
   test("is a no-op for the scope already claimed", () => {
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true }, "user:user-123:org:org-abc");
+      .beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .setFlags(
+        { marketingPricingTakeover: true },
+        "user:user-123:org:org-abc",
+      );
 
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
     const state = useClientFeatureFlagStore.getState();
     expect(state.hydrated).toBe(true);
@@ -108,18 +119,22 @@ describe("beginScope", () => {
     localStorage.setItem("vellum:ff:marketingPricingTakeover", "true");
     useClientFeatureFlagStore.getState().beginScope("anonymous:org:none");
 
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
-    expect(
-      useClientFeatureFlagStore.getState().marketingPricingTakeover,
-    ).toBe(true);
+    expect(useClientFeatureFlagStore.getState().marketingPricingTakeover).toBe(
+      true,
+    );
   });
 });
 
 describe("scope guarding", () => {
   test("drops flags evaluated for a superseded scope", () => {
     useClientFeatureFlagStore.getState().beginScope("anonymous:org:none");
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
     useClientFeatureFlagStore
       .getState()
@@ -134,23 +149,30 @@ describe("scope guarding", () => {
 
   test("drops string flags evaluated for a superseded scope", () => {
     useClientFeatureFlagStore.getState().beginScope("anonymous:org:none");
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
     useClientFeatureFlagStore
       .getState()
       .setStringFlags({ proactiveTips: "on" }, "anonymous:org:none");
 
-    expect(
-      useClientFeatureFlagStore.getState().stringFlags.proactiveTips,
-    ).toBe(CLIENT_STRING_FLAG_DEFAULTS.proactiveTips);
+    expect(useClientFeatureFlagStore.getState().stringFlags.proactiveTips).toBe(
+      CLIENT_STRING_FLAG_DEFAULTS.proactiveTips,
+    );
   });
 
   test("applies flags evaluated for the scope in hand", () => {
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
     useClientFeatureFlagStore
       .getState()
-      .setFlags({ marketingPricingTakeover: true }, "user:user-123:org:org-abc");
+      .setFlags(
+        { marketingPricingTakeover: true },
+        "user:user-123:org:org-abc",
+      );
 
     const state = useClientFeatureFlagStore.getState();
     expect(state.hydrated).toBe(true);
@@ -159,7 +181,9 @@ describe("scope guarding", () => {
 
   test("drops a settle decided under a superseded scope", () => {
     useClientFeatureFlagStore.getState().beginScope("anonymous:org:none");
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
     useClientFeatureFlagStore
       .getState()
@@ -169,7 +193,9 @@ describe("scope guarding", () => {
   });
 
   test("settles the scope the decision was made under", () => {
-    useClientFeatureFlagStore.getState().beginScope("user:user-123:org:org-abc");
+    useClientFeatureFlagStore
+      .getState()
+      .beginScope("user:user-123:org:org-abc");
 
     useClientFeatureFlagStore
       .getState()

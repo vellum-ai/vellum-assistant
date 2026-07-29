@@ -34,9 +34,15 @@ export function stripMediaPayloadsForRetry(
   let latestUserIndex: number | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role !== "user") continue;
-    if (isToolResultOnlyMessage(msg)) continue;
-    if (getSummaryFromContextMessage(msg) != null) continue;
+    if (msg.role !== "user") {
+      continue;
+    }
+    if (isToolResultOnlyMessage(msg)) {
+      continue;
+    }
+    if (getSummaryFromContextMessage(msg) != null) {
+      continue;
+    }
     latestUserIndex = i;
     break;
   }
@@ -162,9 +168,15 @@ export function estimateUnconditionalStubTokens(
   let latestUserIndex: number | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role !== "user") continue;
-    if (isToolResultOnlyMessage(msg)) continue;
-    if (getSummaryFromContextMessage(msg) != null) continue;
+    if (msg.role !== "user") {
+      continue;
+    }
+    if (isToolResultOnlyMessage(msg)) {
+      continue;
+    }
+    if (getSummaryFromContextMessage(msg) != null) {
+      continue;
+    }
     latestUserIndex = i;
     break;
   }

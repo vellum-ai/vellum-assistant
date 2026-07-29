@@ -42,7 +42,9 @@ function scheduleTombstoneEviction(
 ): ReturnType<typeof setTimeout> {
   const timer = setTimeout(() => {
     const cur = buffers.get(conversationId);
-    if (cur?.state === "tombstoned") buffers.delete(conversationId);
+    if (cur?.state === "tombstoned") {
+      buffers.delete(conversationId);
+    }
   }, TOMBSTONE_TTL_MS);
   timer.unref?.();
   return timer;
@@ -60,9 +62,13 @@ export function bufferIfDeferred(
   originatingConversationId: string | undefined,
   params: EmitSignalParams<string>,
 ): EmitSignalResult | null {
-  if (!originatingConversationId) return null;
+  if (!originatingConversationId) {
+    return null;
+  }
   const entry = buffers.get(originatingConversationId);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   if (entry.state === "tombstoned") {
     // Refresh the eviction timer so the tombstone outlives any continuing
     // turn activity. Otherwise a long-running orphan `processMessage` could
@@ -92,7 +98,9 @@ export async function commitDeferredConversation(
   conversationId: string,
 ): Promise<void> {
   const entry = buffers.get(conversationId);
-  if (!entry || entry.state !== "buffered") return;
+  if (!entry || entry.state !== "buffered") {
+    return;
+  }
   buffers.delete(conversationId);
   for (const params of entry.items) {
     try {
@@ -113,9 +121,13 @@ export async function commitDeferredConversation(
  */
 export function discardDeferredConversation(conversationId: string): number {
   const entry = buffers.get(conversationId);
-  if (!entry) return 0;
+  if (!entry) {
+    return 0;
+  }
   const droppedCount = entry.state === "buffered" ? entry.items.length : 0;
-  if (entry.state === "tombstoned") clearTimeout(entry.timer);
+  if (entry.state === "tombstoned") {
+    clearTimeout(entry.timer);
+  }
   buffers.set(conversationId, {
     state: "tombstoned",
     timer: scheduleTombstoneEviction(conversationId),

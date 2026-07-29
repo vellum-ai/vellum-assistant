@@ -19,7 +19,9 @@ const log = getLogger("schedule-recovery");
  */
 export async function recoverStaleSchedules(): Promise<number> {
   const stale = findStaleInFlightJobs(0);
-  if (stale.length === 0) return 0;
+  if (stale.length === 0) {
+    return 0;
+  }
 
   log.info({ count: stale.length }, "Recovering stale in-flight schedules");
 
@@ -27,7 +29,9 @@ export async function recoverStaleSchedules(): Promise<number> {
   for (const { jobId, staleRunId } of stale) {
     try {
       const job = getSchedule(jobId);
-      if (!job) continue;
+      if (!job) {
+        continue;
+      }
 
       const errorMsg =
         "Process terminated during execution (recovered on restart)";

@@ -1,14 +1,15 @@
 import { Button, Popover } from "@vellumai/design-library";
 import {
-    ChevronLeft,
-    ChevronRight,
-    Menu as MenuIcon,
-    MoreHorizontal,
-    PanelLeft,
-    Search,
+  ChevronLeft,
+  ChevronRight,
+  Menu as MenuIcon,
+  MoreHorizontal,
+  PanelLeft,
+  Search,
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
+import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
 import { isElectron } from "@/runtime/is-electron";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
@@ -85,7 +86,9 @@ export function ChatLayoutHeader({
   onGoForward,
 }: ChatLayoutHeaderProps) {
   const toggleCommandPalette = useCommandPaletteStore.use.toggle();
-  const handleSearchClick = useCallback(() => { toggleCommandPalette(); }, [toggleCommandPalette]);
+  const handleSearchClick = useCallback(() => {
+    toggleCommandPalette();
+  }, [toggleCommandPalette]);
 
   // In the Electron shell the header doubles as the macOS title bar: it sits
   // inline with the traffic lights and drives window dragging
@@ -105,6 +108,7 @@ export function ChatLayoutHeader({
       iconOnly={<Search />}
       aria-label="Search (Ctrl+K)"
       tooltip="Search (Ctrl+K)"
+      className={NATIVE_IOS_BARE_ICON_BUTTON}
       onClick={handleSearchClick}
     />
   ) : null;
@@ -142,8 +146,12 @@ export function ChatLayoutHeader({
           // `minWidth` reserves the sidebar column on desktop only. The Electron
           // inset clears the inline traffic lights regardless of `isMobile` —
           // they stay put even in the narrow mobile layout.
-          ...(isMobile ? {} : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
-          ...(electron ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE } : {}),
+          ...(isMobile
+            ? {}
+            : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
+          ...(electron
+            ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
+            : {}),
         }}
       >
         {isMobile ? (
@@ -154,6 +162,7 @@ export function ChatLayoutHeader({
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
             tooltip="Open navigation"
+            className={NATIVE_IOS_BARE_ICON_BUTTON}
             onClick={toggleSidebar}
           />
         ) : (

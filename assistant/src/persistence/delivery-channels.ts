@@ -62,7 +62,9 @@ const MAX_DELIVERED_RUNS = 10_000;
  * early, preserving the at-most-once delivery guarantee.
  */
 export function claimRunDelivery(runId: string): boolean {
-  if (deliveredRuns.has(runId)) return false;
+  if (deliveredRuns.has(runId)) {
+    return false;
+  }
   if (deliveredRuns.size >= MAX_DELIVERED_RUNS) {
     // Only evict entries whose TTL has expired. Map iteration order
     // matches insertion order, so oldest entries come first.

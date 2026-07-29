@@ -9,7 +9,9 @@ let cached: string | null | undefined;
 
 /** The session token in Electron, or `null` on web / when signed out. */
 export function getElectronSessionToken(): string | null {
-  if (!isElectron()) return null;
+  if (!isElectron()) {
+    return null;
+  }
   if (cached === undefined) {
     cached = window.vellum?.auth?.getSessionToken?.() ?? null;
   }

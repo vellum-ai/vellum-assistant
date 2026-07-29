@@ -33,7 +33,9 @@ export function migrateAssistantIdToSelf(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // On fresh installs the tables are created without assistant_id (PR 7+). Skip the
   // migration if NONE of the four affected tables have the column — pre-seed the

@@ -209,7 +209,9 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
       | { preamble: string; content: string; postamble: string }
       | undefined;
     expect(sandwich).toBeDefined();
-    if (!sandwich) throw new Error("sandwich missing");
+    if (!sandwich) {
+      throw new Error("sandwich missing");
+    }
 
     // Content (assistant role) holds the untrusted material.
     expect(sandwich.content).toContain("Watcher: Linear inbox");
@@ -329,7 +331,9 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
     const sandwich = opts.assistantSandwich as
       | { preamble: string; content: string; postamble: string }
       | undefined;
-    if (!sandwich) throw new Error("sandwich missing");
+    if (!sandwich) {
+      throw new Error("sandwich missing");
+    }
 
     // The attacker string appears ONLY in assistant-role content.
     expect(sandwich.content).toContain(

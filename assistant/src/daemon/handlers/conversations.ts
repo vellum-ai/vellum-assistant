@@ -365,7 +365,9 @@ export function steerOnEnqueuedMessageIfQuestionParked(
   const hasParkedQuestion = pendingInteractions
     .getByConversation(conversationId)
     .some((interaction) => interaction.kind === "question");
-  if (!hasParkedQuestion) return false;
+  if (!hasParkedQuestion) {
+    return false;
+  }
   steerToMessage(conversationId, enqueuedRequestId);
   return true;
 }
@@ -392,7 +394,9 @@ export function supersedePendingInteractionsOnEnqueue(
   enqueuedRequestId: string,
 ): void {
   const conversation = findConversation(conversationId);
-  if (!conversation) return;
+  if (!conversation) {
+    return;
+  }
 
   if (conversation.hasAnyPendingConfirmation()) {
     for (const interaction of pendingInteractions.getByConversation(

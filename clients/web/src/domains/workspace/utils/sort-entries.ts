@@ -29,7 +29,9 @@ export function sortEntries<T extends SortableWorkspaceEntry>(
   entries: T[],
   mode: WorkspaceSortMode,
 ): T[] {
-  if (mode === "name") return entries;
+  if (mode === "name") {
+    return entries;
+  }
   const copy = entries.slice();
   copy.sort((a, b) => {
     const aSize = a.size ?? null;
@@ -37,9 +39,15 @@ export function sortEntries<T extends SortableWorkspaceEntry>(
     if (aSize === null && bSize === null) {
       return (a.name ?? "").localeCompare(b.name ?? "");
     }
-    if (aSize === null) return 1;
-    if (bSize === null) return -1;
-    if (aSize !== bSize) return bSize - aSize;
+    if (aSize === null) {
+      return 1;
+    }
+    if (bSize === null) {
+      return -1;
+    }
+    if (aSize !== bSize) {
+      return bSize - aSize;
+    }
     return (a.name ?? "").localeCompare(b.name ?? "");
   });
   return copy;

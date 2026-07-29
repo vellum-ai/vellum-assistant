@@ -82,7 +82,9 @@ mock.module("node:fs", () => ({
 mock.module("../../../util/read-stdin.js", () => ({
   STDIN_FD: 0,
   readStdinSync: () => {
-    if (stdinReturnsText) return "piped text";
+    if (stdinReturnsText) {
+      return "piped text";
+    }
     throw new Error("stdin unavailable");
   },
 }));
@@ -140,7 +142,9 @@ async function runCommand(
     const program = buildProgram();
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;

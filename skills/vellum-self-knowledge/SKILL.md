@@ -1,6 +1,6 @@
 ---
 name: vellum-self-knowledge
-description: Answer questions about Vellum, the assistant's architecture, capabilities, and current configuration by routing to live sources of truth
+description: Answer questions about Vellum's architecture, configuration, and hosting from live sources of truth
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🪞"
@@ -8,12 +8,14 @@ metadata:
     category: "system"
     display-name: "Vellum Self-Knowledge"
     activation-hints:
-      - "When the user asks what model the assistant is running on"
-      - "When the user asks about Vellum, how the assistant works, or its architecture"
-      - "When the user asks about the assistant's current configuration or settings"
-      - "When the user asks what the assistant can do or what skills/tools are available"
+      - "what model the assistant is running on"
+      - "how Vellum works or its architecture"
+      - "its current configuration or settings"
+      - "what it can do, or what skills/tools are available"
+      - "how to self-host a Vellum assistant"
+      - "how to configure your own model API key"
     avoid-when:
-      - "When the user wants to change configuration (use in-chat config instead)"
+      - "changing configuration (use in-chat config instead)"
 ---
 
 ## Critical Rule

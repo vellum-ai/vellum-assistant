@@ -8,7 +8,9 @@
 
 function truncate(value: string, maxLen: number): string {
   const trimmed = value.trim();
-  if (trimmed.length <= maxLen) return trimmed;
+  if (trimmed.length <= maxLen) {
+    return trimmed;
+  }
   return `${trimmed.slice(0, maxLen)}…`;
 }
 

@@ -144,7 +144,9 @@ function createHarness(opts: HarnessOptions = {}): Harness {
     helpers: {
       probeDevToolsJsonVersion: async (probeOpts: unknown) => {
         probeCalls += 1;
-        if (opts.probeImpl) return opts.probeImpl(probeOpts);
+        if (opts.probeImpl) {
+          return opts.probeImpl(probeOpts);
+        }
         return {
           browser: "Chrome/125.0.0.0",
           protocolVersion: "1.3",
@@ -153,7 +155,9 @@ function createHarness(opts: HarnessOptions = {}): Harness {
       },
       listDevToolsTargets: async (listOpts: unknown) => {
         listCalls += 1;
-        if (opts.listImpl) return opts.listImpl(listOpts);
+        if (opts.listImpl) {
+          return opts.listImpl(listOpts);
+        }
         return [
           {
             id: "target-1",
@@ -170,7 +174,9 @@ function createHarness(opts: HarnessOptions = {}): Harness {
         connectOpts?: { connectTimeoutMs?: number },
       ) => {
         connectCalls += 1;
-        if (opts.connectImpl) return opts.connectImpl(url, connectOpts);
+        if (opts.connectImpl) {
+          return opts.connectImpl(url, connectOpts);
+        }
         return createFakeTransport({
           onSend: transportOnSend,
           trackSends: sends,

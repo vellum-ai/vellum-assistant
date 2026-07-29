@@ -20,7 +20,9 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const dbPath = join(workspaceDir, "data", "db", "assistant.db");
-    if (!existsSync(dbPath)) return; // Fresh install — pages will embed at the new default.
+    if (!existsSync(dbPath)) {
+      return;
+    } // Fresh install — pages will embed at the new default.
 
     let db: Database;
     try {
@@ -35,14 +37,18 @@ export const memoryV2Bm25BDefaultReembedMigration: WorkspaceMigration = {
           `SELECT name FROM sqlite_master WHERE type='table' AND name='memory_jobs'`,
         )
         .get();
-      if (!tableRow) return;
+      if (!tableRow) {
+        return;
+      }
 
       const existing = db
         .query(
           `SELECT id FROM memory_jobs WHERE type='memory_v2_reembed' AND status IN ('pending','running') LIMIT 1`,
         )
         .get();
-      if (existing) return;
+      if (existing) {
+        return;
+      }
 
       const now = Date.now();
       db.query(

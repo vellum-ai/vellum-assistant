@@ -26,7 +26,9 @@ type KnownDaemonUrl = "/v1/assistants/{assistant_id}/config";
 
 function activeAssistantId(): string {
   const id = useResolvedAssistantsStore.getState().activeAssistantId;
-  if (!id) throw new Error("No active assistant");
+  if (!id) {
+    throw new Error("No active assistant");
+  }
   return id;
 }
 

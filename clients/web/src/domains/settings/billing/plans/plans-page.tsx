@@ -34,6 +34,7 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
@@ -334,6 +335,7 @@ export function PlansPage() {
                 creditTier: body.credit_tier ?? null,
               },
         );
+        captureTakeoverAvatarStash(queryClient);
         openUrl(result.checkout_url);
       } else {
         await queryClient.invalidateQueries({
@@ -666,13 +668,13 @@ export function PlansPage() {
         <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 items-start gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
-            name="Free"
+            name="Base"
             tagline={freeCopy?.tagline ?? ""}
-            priceLabel="$0/month"
+            priceLabel="Free"
             priceCaption={freeCopy?.priceCaption ?? "Forever"}
             ctaLabel={
               freeRelation === "downgrade"
-                ? downgradeLabel("Free")
+                ? downgradeLabel("Base")
                 : (freeCopy?.cta ?? "Start Free")
             }
             features={FREE_FEATURES}

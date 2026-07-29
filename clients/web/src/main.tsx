@@ -25,6 +25,8 @@ import { router } from "./routes";
 import "@/lib/api-interceptors";
 import "./index.css";
 
+import { initNativeKeyboard } from "@/runtime/native-keyboard";
+import { initNativePlatformAttributes } from "@/runtime/native-platform-attributes";
 import { initSafeAreaBridge } from "@/runtime/native-safe-area";
 import { initInputModality } from "@vellumai/design-library";
 
@@ -34,7 +36,9 @@ async function boot() {
   installTranslateDomGuard();
 
   initInputModality();
+  initNativePlatformAttributes();
   await initSafeAreaBridge();
+  void initNativeKeyboard();
   initSentry();
   initSessionReplay();
   installConsentRefreshListeners();
@@ -74,7 +78,9 @@ async function boot() {
             Sentry.captureException(error, {
               tags: {
                 context: "RouterProvider",
-                boundary: isChunkLoadError(error) ? "lazy-route" : "route-render",
+                boundary: isChunkLoadError(error)
+                  ? "lazy-route"
+                  : "route-render",
               },
             });
           }}

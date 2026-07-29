@@ -61,7 +61,9 @@ export function buildResearchCorrection({
     ].join(" ");
   }
   const cleaned = removedClaims.map((c) => c.trim()).filter(Boolean);
-  if (cleaned.length === 0) return null;
+  if (cleaned.length === 0) {
+    return null;
+  }
   return [
     "Quick correction on what you found about me — these aren't true, so please",
     "disregard them and don't remember them as facts about me:",
@@ -88,7 +90,9 @@ export async function sendResearchCorrection({
   rejectedAll,
 }: SendResearchCorrectionOptions): Promise<void> {
   const content = buildResearchCorrection({ removedClaims, rejectedAll });
-  if (!content) return;
+  if (!content) {
+    return;
+  }
   try {
     const body: MessagesPostData["body"] = {
       conversationId,

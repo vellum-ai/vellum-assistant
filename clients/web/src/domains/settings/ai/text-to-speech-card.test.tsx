@@ -386,9 +386,9 @@ describe("TextToSpeechCard — Vellum provider", () => {
     };
     renderCard();
 
-    fireEvent.click(document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Voice"]',
-    )!);
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>('button[aria-label="Voice"]')!,
+    );
     // The row renders, but with no sample there's no per-row preview button.
     expect(
       document.querySelector('[role="option"]:not([aria-label])'),

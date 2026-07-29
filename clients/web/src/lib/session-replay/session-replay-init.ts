@@ -13,8 +13,12 @@ import { isNativePlatform } from "@/runtime/native-auth";
  * runs the web bundle (mirrors `resolveDsn()` in `sentry-init.ts`).
  */
 function sessionReplaySurface(): SessionReplayConfig["surface"] {
-  if (isElectron()) return "macos";
-  if (isNativePlatform()) return "ios";
+  if (isElectron()) {
+    return "macos";
+  }
+  if (isNativePlatform()) {
+    return "ios";
+  }
   return "web";
 }
 
@@ -26,7 +30,9 @@ function sessionReplaySurface(): SessionReplayConfig["surface"] {
  */
 export function initSessionReplay(): void {
   const appId = import.meta.env.VITE_SESSION_REPLAY_APP_ID;
-  if (!appId) return;
+  if (!appId) {
+    return;
+  }
   const config: SessionReplayConfig = {
     appId,
     surface: sessionReplaySurface(),

@@ -60,7 +60,9 @@ export function useBackgroundTaskCardData(
   const entry = useBackgroundTaskStore((s) => s.byId[id]);
 
   return useMemo(() => {
-    if (!entry) return null;
+    if (!entry) {
+      return null;
+    }
     return {
       state: deriveCardState(entry.status),
       title: backgroundTaskTitle(entry.status),

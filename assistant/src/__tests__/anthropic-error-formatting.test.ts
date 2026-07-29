@@ -35,7 +35,9 @@ mock.module("@anthropic-ai/sdk", () => ({
         return this;
       },
       async finalMessage() {
-        if (nextThrown) throw nextThrown;
+        if (nextThrown) {
+          throw nextThrown;
+        }
         return {
           content: [],
           model: "claude-sonnet-4-6",

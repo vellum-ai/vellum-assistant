@@ -319,7 +319,9 @@ export function HeaderStepCarousel({
                   {shimmer &&
                   !hasTitle &&
                   typeof displayed.info === "string" ? (
-                    <StreamingShimmerText>{displayed.info}</StreamingShimmerText>
+                    <StreamingShimmerText>
+                      {displayed.info}
+                    </StreamingShimmerText>
                   ) : (
                     displayed.info
                   )}

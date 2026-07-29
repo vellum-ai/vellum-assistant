@@ -107,19 +107,25 @@ export const collapseProviderConnectionsMigration: WorkspaceMigration = {
     "Rewrite managed/subscription provider_connection references onto provider values; drop conventional connection names and the legacy llm.default blob",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     let changed = false;
 
@@ -159,8 +165,12 @@ export const collapseProviderConnectionsMigration: WorkspaceMigration = {
     if (profiles !== null) {
       for (const key of Object.keys(profiles)) {
         const entry = readObject(profiles[key]);
-        if (entry === null) continue;
-        if (rewriteEntry(entry, `llm.profiles.${key}`)) changed = true;
+        if (entry === null) {
+          continue;
+        }
+        if (rewriteEntry(entry, `llm.profiles.${key}`)) {
+          changed = true;
+        }
       }
     }
 
@@ -173,7 +183,9 @@ export const collapseProviderConnectionsMigration: WorkspaceMigration = {
     if (callSites !== null) {
       for (const key of Object.keys(callSites)) {
         const entry = readObject(callSites[key]);
-        if (entry === null || entry.provider_connection === undefined) continue;
+        if (entry === null || entry.provider_connection === undefined) {
+          continue;
+        }
         delete entry.provider_connection;
         changed = true;
         log.info(
@@ -229,7 +241,9 @@ function rewriteEntry(entry: Record<string, unknown>, label: string): boolean {
     return changed;
   }
 
-  if (connection === null) return false;
+  if (connection === null) {
+    return false;
+  }
 
   if (connection === VELLUM_CONNECTION) {
     const decoded = decodeRoutedModel(entry.model);
@@ -299,12 +313,18 @@ function rewriteEntry(entry: Record<string, unknown>, label: string): boolean {
  * through untouched.
  */
 function decodeRoutedModel(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string") {
+    return null;
+  }
   const slash = value.indexOf("/");
-  if (slash <= 0) return null;
+  if (slash <= 0) {
+    return null;
+  }
   const prefix = value.slice(0, slash);
   const rest = value.slice(slash + 1);
-  if (!MANAGED_PREFIX_PROVIDERS.has(prefix) || rest.length === 0) return null;
+  if (!MANAGED_PREFIX_PROVIDERS.has(prefix) || rest.length === 0) {
+    return null;
+  }
   return MANAGED_MODEL_IDS.has(rest) ? rest : null;
 }
 

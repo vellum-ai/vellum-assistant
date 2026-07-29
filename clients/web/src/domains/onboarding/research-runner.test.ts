@@ -25,11 +25,7 @@ import {
 
 type Match = Parameters<typeof selectRecommendableCapabilities>[0][number];
 
-function match(
-  name: string,
-  repo: string,
-  description?: string,
-): Match {
+function match(name: string, repo: string, description?: string): Match {
   return {
     name,
     path: `github:${repo}@abc123`,
@@ -42,14 +38,25 @@ function match(
 describe("selectRecommendableCapabilities", () => {
   test("keeps vellum-hosted plugins and drops external-owner ones", () => {
     const { capabilities, validNames } = selectRecommendableCapabilities([
-      match("marketing-expert", "vellum-ai/marketing-expert", "Full-stack marketing."),
+      match(
+        "marketing-expert",
+        "vellum-ai/marketing-expert",
+        "Full-stack marketing.",
+      ),
       match("admin-copilot", "vellum-ai/admin-copilot", "Chief-of-staff."),
       match("caveman", "JuliusBrussee/caveman", "Compression mode."),
       match("dynamic-notch", "AnitaKirkovska/dynamic-notch", "Notch UI."),
-      match("ai-hero-engineer-kit", "marinatrajk/ai-hero-engineer-kit", "Eng skills."),
+      match(
+        "ai-hero-engineer-kit",
+        "marinatrajk/ai-hero-engineer-kit",
+        "Eng skills.",
+      ),
     ]);
 
-    expect([...validNames].sort()).toEqual(["admin-copilot", "marketing-expert"]);
+    expect([...validNames].sort()).toEqual([
+      "admin-copilot",
+      "marketing-expert",
+    ]);
     expect(capabilities.map((c) => c.name).sort()).toEqual([
       "admin-copilot",
       "marketing-expert",
@@ -92,7 +99,11 @@ describe("resolveOnboardingPluginInstalls", () => {
   test("includes admin-copilot from the first-party catalog for every role", () => {
     const { validNames } = selectRecommendableCapabilities([
       match("admin-copilot", "vellum-ai/admin-copilot", "Chief-of-staff."),
-      match("marketing-expert", "vellum-ai/marketing-expert", "Full-stack marketing."),
+      match(
+        "marketing-expert",
+        "vellum-ai/marketing-expert",
+        "Full-stack marketing.",
+      ),
     ]);
 
     expect(
@@ -107,7 +118,11 @@ describe("resolveOnboardingPluginInstalls", () => {
   test("dedupes deterministic and model picks while rejecting non-catalog names", () => {
     const { validNames } = selectRecommendableCapabilities([
       match("admin-copilot", "vellum-ai/admin-copilot", "Chief-of-staff."),
-      match("marketing-expert", "vellum-ai/marketing-expert", "Full-stack marketing."),
+      match(
+        "marketing-expert",
+        "vellum-ai/marketing-expert",
+        "Full-stack marketing.",
+      ),
       match("caveman", "JuliusBrussee/caveman", "Compression mode."),
     ]);
 
@@ -123,35 +138,35 @@ describe("resolveOnboardingPluginInstalls", () => {
 
 describe("shouldSettleResearchPoll", () => {
   test("does not settle an incomplete response even after repeated identical polls", () => {
-    expect(
-      shouldSettleResearchPoll({ complete: false, stableReads: 20 }),
-    ).toBe(false);
+    expect(shouldSettleResearchPoll({ complete: false, stableReads: 20 })).toBe(
+      false,
+    );
   });
 
   test("settles a complete response after the stable-read threshold", () => {
-    expect(
-      shouldSettleResearchPoll({ complete: true, stableReads: 2 }),
-    ).toBe(true);
+    expect(shouldSettleResearchPoll({ complete: true, stableReads: 2 })).toBe(
+      true,
+    );
   });
 
   test("waits for the complete response to stabilize", () => {
-    expect(
-      shouldSettleResearchPoll({ complete: true, stableReads: 1 }),
-    ).toBe(false);
+    expect(shouldSettleResearchPoll({ complete: true, stableReads: 1 })).toBe(
+      false,
+    );
   });
 });
 
 describe("resolveResearchCompletionStatus", () => {
   test("marks complete JSON payloads done", () => {
-    expect(
-      resolveResearchCompletionStatus({ sawCompletePayload: true }),
-    ).toBe("done");
+    expect(resolveResearchCompletionStatus({ sawCompletePayload: true })).toBe(
+      "done",
+    );
   });
 
   test("marks timed-out partial payloads as error", () => {
-    expect(
-      resolveResearchCompletionStatus({ sawCompletePayload: false }),
-    ).toBe("error");
+    expect(resolveResearchCompletionStatus({ sawCompletePayload: false })).toBe(
+      "error",
+    );
   });
 });
 
@@ -191,14 +206,20 @@ describe("useResearchRunner reset", () => {
     const { result } = renderRunner();
 
     act(() => {
-      result.current.start({ awaitAssistantId: hatch.awaitAssistantId, subject });
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
     });
     expect(result.current.status).toBe("running");
     expect(hatch.calls).toBe(1);
 
     // The dedupe that makes an unchanged resubmit a no-op.
     act(() => {
-      result.current.start({ awaitAssistantId: hatch.awaitAssistantId, subject });
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
     });
     expect(hatch.calls).toBe(1);
 
@@ -209,7 +230,10 @@ describe("useResearchRunner reset", () => {
 
     // Same subject, but the run it belonged to is gone — so it fires again.
     act(() => {
-      result.current.start({ awaitAssistantId: hatch.awaitAssistantId, subject });
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
     });
     expect(hatch.calls).toBe(2);
     expect(result.current.status).toBe("running");
@@ -220,7 +244,10 @@ describe("useResearchRunner reset", () => {
     const { result } = renderRunner();
 
     act(() => {
-      result.current.start({ awaitAssistantId: hatch.awaitAssistantId, subject });
+      result.current.start({
+        awaitAssistantId: hatch.awaitAssistantId,
+        subject,
+      });
     });
     act(() => {
       result.current.reset();

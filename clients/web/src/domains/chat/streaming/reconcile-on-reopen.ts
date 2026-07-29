@@ -69,7 +69,9 @@ export function createReconcileOnReopen(
   const { assistantId, conversationId } = deps;
   return {
     handleSseOpened({ assistantId: openedFor, cause }) {
-      if (openedFor !== assistantId) return;
+      if (openedFor !== assistantId) {
+        return;
+      }
       const epoch = useStreamStore.getState().bumpEpoch();
       recordLifecycleDiagnostic("sse_stream_opened", {
         assistantId,
@@ -77,7 +79,9 @@ export function createReconcileOnReopen(
         epoch,
         cause,
       });
-      if (cause === "fresh" || cause === "anchor") return;
+      if (cause === "fresh" || cause === "anchor") {
+        return;
+      }
       if (cause === "watchdog" || cause === "error") {
         void runTransportRecoveryReconcile(deps, epoch, cause);
         return;
@@ -174,7 +178,9 @@ async function runTransportRecoveryReconcile(
     return;
   }
   deps.startReconciliationLoop(epoch);
-  if (cause !== "watchdog") return;
+  if (cause !== "watchdog") {
+    return;
+  }
   recordWatchdogRescue(
     assistantId,
     conversationId,

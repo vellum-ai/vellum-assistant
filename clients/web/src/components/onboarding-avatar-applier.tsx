@@ -34,8 +34,7 @@ export function shouldDropAvatarHandoff(failedAttempts: number): boolean {
 }
 
 export function OnboardingAvatarApplier() {
-  const pendingAvatarTraits =
-    useOnboardingFocusStore.use.pendingAvatarTraits();
+  const pendingAvatarTraits = useOnboardingFocusStore.use.pendingAvatarTraits();
   const setPendingAvatarTraits =
     useOnboardingFocusStore.use.setPendingAvatarTraits();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
@@ -48,7 +47,9 @@ export function OnboardingAvatarApplier() {
   const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
-    if (!pendingAvatarTraits || !assistantId || savingRef.current) return;
+    if (!pendingAvatarTraits || !assistantId || savingRef.current) {
+      return;
+    }
     const currentHandoff = currentHandoffRef.current;
     if (
       currentHandoff?.assistantId !== assistantId ||
@@ -66,7 +67,9 @@ export function OnboardingAvatarApplier() {
     const traits = pendingAvatarTraits;
     void saveCharacterTraits(assistantId, traits)
       .then((saved) => {
-        if (!saved) throw new Error("Avatar traits were not saved");
+        if (!saved) {
+          throw new Error("Avatar traits were not saved");
+        }
         if (!cancelled) {
           currentHandoffRef.current = null;
           failedAttemptsRef.current = 0;
@@ -74,7 +77,9 @@ export function OnboardingAvatarApplier() {
         }
       })
       .catch(() => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         const failedAttempts = failedAttemptsRef.current + 1;
         failedAttemptsRef.current = failedAttempts;
         if (shouldDropAvatarHandoff(failedAttempts)) {
@@ -87,13 +92,17 @@ export function OnboardingAvatarApplier() {
         }, getAvatarApplyRetryDelayMs(failedAttempts));
       })
       .finally(() => {
-        if (!cancelled) savingRef.current = false;
+        if (!cancelled) {
+          savingRef.current = false;
+        }
       });
 
     return () => {
       cancelled = true;
       savingRef.current = false;
-      if (retryTimer) clearTimeout(retryTimer);
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
     };
   }, [pendingAvatarTraits, assistantId, retryNonce, setPendingAvatarTraits]);
 

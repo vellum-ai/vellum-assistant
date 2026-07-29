@@ -501,11 +501,10 @@ export function ChatLayout({
   );
   const handleRequestRenameGroup = useCallback(
     (groupId: string) => {
-      const currentName =
-        conversationGroups.find((g) => g.id === groupId)?.name ?? "";
+      const group = conversationGroups.find((g) => g.id === groupId);
       useGroupNameRequestStore
         .getState()
-        .requestRenameGroup(groupId, currentName);
+        .requestRenameGroup(groupId, group?.name ?? "", group?.icon ?? null);
     },
     [conversationGroups],
   );
@@ -573,6 +572,18 @@ export function ChatLayout({
       startNewConversation,
       switchConversation: handleSelectConversation,
     });
+
+  // Mount the palette on its first open and keep it mounted so the
+  // AnimatePresence exit inside CommandPalette has a host; CommandPalette
+  // renders nothing while closed on surfaces that have no exit. Items that
+  // navigate outside this layout (Settings) unmount the subtree in the same
+  // commit as the close, so those selections skip the exit.
+  const [paletteEverOpened, setPaletteEverOpened] = useState(false);
+  useEffect(() => {
+    if (commandPalette.isOpen && !paletteEverOpened) {
+      setPaletteEverOpened(true);
+    }
+  }, [commandPalette.isOpen, paletteEverOpened]);
 
   // Electron host commands (File menu / global hotkeys). The hook is a
   // no-op on the web host. Handlers close over the latest state via an
@@ -1012,7 +1023,7 @@ export function ChatLayout({
         renameGroup={renameGroup}
         moveToGroup={handleMoveToGroup}
       />
-      {commandPalette.isOpen ? (
+      {commandPalette.isOpen || paletteEverOpened ? (
         <LazyBoundary>
           <CommandPalette
             isOpen={commandPalette.isOpen}

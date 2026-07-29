@@ -32,7 +32,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -132,7 +134,9 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
   test("first launch (no config.json) persists managed service modes but not the platform embedding provider", () => {
     // No config.json on disk: this is the first-launch SEED path that writes a
     // default config so the file exists for users to edit.
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -218,7 +222,9 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
   });
 
   test("first launch seeds memory.v3 with only `live` — tuning knobs resolve from the schema, not disk", () => {
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     delete process.env.IS_PLATFORM;
 
     const config = loadConfig();

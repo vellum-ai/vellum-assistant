@@ -1,5 +1,11 @@
-
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 import { searchGlobal } from "@/domains/chat/api/global-search";
@@ -57,11 +63,13 @@ export function useCommandPalette({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<GlobalSearchResponse | null>(null);
+  const [searchResults, setSearchResults] =
+    useState<GlobalSearchResponse | null>(null);
 
   const itemCountGetterRef = useRef<() => number>(() => 0);
   useLayoutEffect(() => {
-    itemCountGetterRef.current = typeof itemCountProp === "function" ? itemCountProp : () => itemCountProp;
+    itemCountGetterRef.current =
+      typeof itemCountProp === "function" ? itemCountProp : () => itemCountProp;
   });
 
   // Refs for debounce + abort management.
@@ -83,6 +91,10 @@ export function useCommandPalette({
   }, [storeOpen]);
 
   const close = useCallback(() => {
+    // Focus stays where it is: item selection runs its action before closing,
+    // and actions such as "New Conversation" focus the composer. Releasing
+    // focus held inside the palette itself is the palette component's job
+    // (see `command-palette.tsx`).
     storeClose();
     setQuery("");
     setSelectedIndex(0);

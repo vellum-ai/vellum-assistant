@@ -34,11 +34,17 @@ let cachedLookup: LookupFn | null = null;
 let loadPromise: Promise<void> | null = null;
 
 function loadEmojiCatalog(): Promise<void> {
-  if (cachedSearch && cachedLookup) return Promise.resolve();
-  if (loadPromise) return loadPromise;
+  if (cachedSearch && cachedLookup) {
+    return Promise.resolve();
+  }
+  if (loadPromise) {
+    return loadPromise;
+  }
   loadPromise = import("./emoji-catalog-data").then((m) => {
     cachedSearch = m.searchEmoji;
-    const shortcodeMap = new Map(m.EMOJI_CATALOG.map((e) => [e.shortcode, e.emoji]));
+    const shortcodeMap = new Map(
+      m.EMOJI_CATALOG.map((e) => [e.shortcode, e.emoji]),
+    );
     cachedLookup = (sc: string) => shortcodeMap.get(sc);
   });
   return loadPromise;
@@ -51,13 +57,19 @@ function loadEmojiCatalog(): Promise<void> {
  * the returned function performs real lookups.
  */
 export function useEmojiSearch(): SearchFn {
-  const [search, setSearch] = useState<SearchFn>(() => cachedSearch ?? emptySearch);
+  const [search, setSearch] = useState<SearchFn>(
+    () => cachedSearch ?? emptySearch,
+  );
 
   useEffect(() => {
-    if (cachedSearch) return;
+    if (cachedSearch) {
+      return;
+    }
     let cancelled = false;
     void loadEmojiCatalog().then(() => {
-      if (!cancelled && cachedSearch) setSearch(() => cachedSearch!);
+      if (!cancelled && cachedSearch) {
+        setSearch(() => cachedSearch!);
+      }
     });
     return () => {
       cancelled = true;
@@ -75,13 +87,19 @@ const noopLookup: LookupFn = () => undefined;
  * `:shortcode:` rendering).
  */
 export function useEmojiLookup(): LookupFn {
-  const [lookup, setLookup] = useState<LookupFn>(() => cachedLookup ?? noopLookup);
+  const [lookup, setLookup] = useState<LookupFn>(
+    () => cachedLookup ?? noopLookup,
+  );
 
   useEffect(() => {
-    if (cachedLookup) return;
+    if (cachedLookup) {
+      return;
+    }
     let cancelled = false;
     void loadEmojiCatalog().then(() => {
-      if (!cancelled && cachedLookup) setLookup(() => cachedLookup!);
+      if (!cancelled && cachedLookup) {
+        setLookup(() => cachedLookup!);
+      }
     });
     return () => {
       cancelled = true;

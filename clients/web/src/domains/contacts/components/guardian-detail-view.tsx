@@ -57,9 +57,7 @@ function GuardianDetailViewInner({
   const canSave = dirty && !savePending;
 
   const interactionLabel = `${contact.interactionCount} interaction${contact.interactionCount === 1 ? "" : "s"}`;
-  const headerName = principalId
-    ? "You"
-    : `${contact.displayName} (You)`;
+  const headerName = principalId ? "You" : `${contact.displayName} (You)`;
 
   return (
     <div className="flex flex-col gap-6">
@@ -139,7 +137,9 @@ function GuardianDetailViewInner({
         />
       </DetailCard>
 
-      {onGenerateInviteLink ? <ShareConnectionLinkButton onClick={onGenerateInviteLink} /> : null}
+      {onGenerateInviteLink ? (
+        <ShareConnectionLinkButton onClick={onGenerateInviteLink} />
+      ) : null}
     </div>
   );
 }

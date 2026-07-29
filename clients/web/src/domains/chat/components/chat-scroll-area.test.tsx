@@ -16,19 +16,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ChatScrollAreaProps } from "@/domains/chat/components/chat-scroll-area";
 
 // Stub heavy children that aren't relevant to the layout assertions.
-mock.module(
-  "@/domains/chat/transcript/transcript",
-  () => ({
-    Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
-  }),
-);
+mock.module("@/domains/chat/transcript/transcript", () => ({
+  Transcript: () => <div data-testid="transcript">TRANSCRIPT</div>,
+}));
 
-mock.module(
-  "@/domains/chat/components/maintenance-recovery-card",
-  () => ({
-    MaintenanceRecoveryCard: () => <div>MAINTENANCE</div>,
-  }),
-);
+mock.module("@/domains/chat/components/maintenance-recovery-card", () => ({
+  MaintenanceRecoveryCard: () => <div>MAINTENANCE</div>,
+}));
 
 mock.module("@/domains/chat/components/chat-skeleton", () => ({
   ChatSkeleton: () => <div>SKELETON</div>,

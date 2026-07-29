@@ -77,7 +77,9 @@ function seedHealthyDb(opts: { walMode?: boolean } = {}): void {
     const ins = db.prepare(
       "INSERT INTO conversations (id, title) VALUES (?, ?)",
     );
-    for (let i = 0; i < 50; i++) ins.run(`c-${i}`, `t-${i}`);
+    for (let i = 0; i < 50; i++) {
+      ins.run(`c-${i}`, `t-${i}`);
+    }
   } finally {
     db.close();
   }
@@ -144,7 +146,9 @@ async function runRepair(args: string[]): Promise<{
     try {
       await program.parseAsync(["node", "assistant", "db", ...args]);
     } catch (e) {
-      if ((e as Error).message !== "__test_exit__") throw e;
+      if ((e as Error).message !== "__test_exit__") {
+        throw e;
+      }
     }
   } finally {
     process.stdout.write = origOut;

@@ -35,7 +35,9 @@ mock.module("@/generated/daemon/client.gen", () => ({
     }) => {
       requests.push({ url, path, query });
       const next = nextResponses.shift();
-      if (!next) throw new Error(`No staged response for ${url}`);
+      if (!next) {
+        throw new Error(`No staged response for ${url}`);
+      }
       const response = {
         status: next.status,
         ok: next.status >= 200 && next.status < 300,

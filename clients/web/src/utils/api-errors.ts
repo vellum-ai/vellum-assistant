@@ -47,7 +47,9 @@ export function extractErrorMessage(
       return error.detail;
     }
     if ("error" in error) {
-      if (typeof error.error === "string") return error.error;
+      if (typeof error.error === "string") {
+        return error.error;
+      }
       if (
         error.error &&
         typeof error.error === "object" &&

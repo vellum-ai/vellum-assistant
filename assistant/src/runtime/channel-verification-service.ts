@@ -69,7 +69,9 @@ export async function getGuardianBinding(
 ): Promise<GuardianBinding | null> {
   const list = await getGuardianDelivery({ channelTypes: [channel] });
   const delivery = list ? guardianForChannel(list, channel) : undefined;
-  if (!delivery) return null;
+  if (!delivery) {
+    return null;
+  }
 
   const now = Date.now();
   return {
@@ -108,7 +110,9 @@ export async function isGuardianBoundForChannel(
   // Existence guards read fresh because gateway-side binding writes don't
   // invalidate the daemon cache.
   const list = await getGuardianDeliveryFresh({ channelTypes: [channel] });
-  if (list === null) return true;
+  if (list === null) {
+    return true;
+  }
   return !!guardianForChannel(list, channel);
 }
 
@@ -123,7 +127,9 @@ export async function isGuardian(
 ): Promise<boolean> {
   const list = await getGuardianDelivery({ channelTypes: [channel] });
   const delivery = list ? guardianForChannel(list, channel) : undefined;
-  if (!delivery) return false;
+  if (!delivery) {
+    return false;
+  }
 
   return delivery.address.toLowerCase() === address.toLowerCase();
 }

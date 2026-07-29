@@ -23,7 +23,9 @@ export function NewChatPluginsSection({
   const { plugins, isSelected, toggle } = useNewChatPlugins(assistantId);
   const [revealed, setRevealed] = useState(false);
 
-  if (plugins.length === 0) return null;
+  if (plugins.length === 0) {
+    return null;
+  }
 
   if (!revealed) {
     return (

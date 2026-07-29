@@ -8,11 +8,7 @@
 
 /** Stable key resolved to a brand/lucide icon by the icon resolver. */
 export type SuggestionIconKey =
-  | "gmail"
-  | "google-calendar"
-  | "google-drive"
-  | "vellum"
-  | "generic";
+  "gmail" | "google-calendar" | "google-drive" | "vellum" | "generic";
 
 /** A single requirement shown in the detail drawer "Here's what we'll need". */
 export interface SuggestionRequirement {

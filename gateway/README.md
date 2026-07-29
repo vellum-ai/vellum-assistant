@@ -78,15 +78,16 @@ The `/webhooks/twilio/voice` endpoint handles both outbound and inbound voice ca
 When the voice webhook is called without a `callSessionId` query parameter, the gateway treats it as an inbound call and resolves the assistant using the standard routing chain:
 
 1. **`resolveAssistantByPhoneNumber(config, To)`** — Reverse lookup of the inbound `To` number against `assistantPhoneNumbers`. If the dialed number matches an assistant's configured phone number, that assistant handles the call.
-2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `conversation_id` match, `actor_id` match, then the unmapped policy.
-3. **TwiML Reject for unmapped** — When the unmapped policy is `reject` (and no route matches), the gateway returns `<Reject reason="rejected"/>` TwiML directly to Twilio. Twilio plays a busy signal and hangs up. The call is never forwarded to the runtime.
+2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `conversation_id` match, `actor_id` match, then the local assistant.
+3. **Admission, not routing, denies a call** — Routing resolves every identified caller (and anonymous callers too; voice lines are intentionally open). A call is refused with `<Reject reason="rejected"/>` TwiML only when the `phone` admission policy is `no_one`, which is checked before routing runs.
 4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/internal/twilio/voice-webhook` with a JSON body containing `{ params, originalUrl, assistantId }`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns `<Connect><Stream>` TwiML pointing Twilio to the gateway's media-stream WebSocket proxy (after a daemon-side STT/TTS credential preflight; calls that fail it get `<Say>` setup-required copy plus `<Hangup/>`).
 
 ### Inbound call lifecycle (gateway perspective)
 
 ```
 Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
-  → resolveAssistantByPhoneNumber(To) || resolveAssistant(From) || TwiML Reject
+  → phone admission floor (`no_one` → TwiML Reject)
+  → resolveAssistantByPhoneNumber(To) || resolveAssistant(From) || local assistant
   → forward to runtime /v1/internal/twilio/voice-webhook (JSON: { params, originalUrl, assistantId })
   → runtime returns TwiML (<Connect><Stream> media-stream connect)
   → Twilio opens WebSocket → Gateway /webhooks/twilio/media-stream/<callSessionId>/<token> → Runtime /v1/calls/media-stream
@@ -369,14 +370,14 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 
 ## Troubleshooting
 
-| Symptom                        | Check                                                                                                                                                                          |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Telegram messages not arriving | Is the webhook registered? `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`                                                                                           |
-| 401 on webhook                 | Does `TELEGRAM_WEBHOOK_SECRET` match the `secret_token` in setWebhook?                                                                                                         |
-| "No route configured" replies  | Add a routing entry or configure the unmapped policy to `default` with a default assistant via workspace config                                                                |
-| Runtime errors                 | Is the assistant runtime reachable? Check runtime logs.                                                                                                                        |
-| No reply from assistant        | Is the assistant runtime processing messages? Check that the runtime HTTP server is running.                                                                                   |
-| 403 on channel inbound         | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`~/.vellum/protected/actor-token-signing-key`). |
+| Symptom                           | Check                                                                                                                                                                                                                             |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram messages not arriving    | Is the webhook registered? `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`                                                                                                                                              |
+| 401 on webhook                    | Does `TELEGRAM_WEBHOOK_SECRET` match the `secret_token` in setWebhook?                                                                                                                                                            |
+| Inbound messages silently dropped | Routing only drops events with no conversation _and_ no actor id (`"No routable identity"` in the `routing` logger). Anything else resolves; if it still never reaches the assistant, check the channel's admission policy floor. |
+| Runtime errors                    | Is the assistant runtime reachable? Check runtime logs.                                                                                                                                                                           |
+| No reply from assistant           | Is the assistant runtime processing messages? Check that the runtime HTTP server is running.                                                                                                                                      |
+| 403 on channel inbound            | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`~/.vellum/protected/actor-token-signing-key`).                                                    |
 
 ### Guardian-Specific Troubleshooting
 

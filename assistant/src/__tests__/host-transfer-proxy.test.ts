@@ -20,7 +20,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_file" && mockHasClient ? { id: "mock-client" } : null,
     listClientsByCapability: (_cap: string) =>
-      mockHasClient ? [{ clientId: "mock-client", capabilities: ["host_file"] }] : [],
+      mockHasClient
+        ? [{ clientId: "mock-client", capabilities: ["host_file"] }]
+        : [],
     getClientById: (_id: string) => null,
   },
 }));
@@ -442,9 +444,7 @@ describe("HostTransferProxy", () => {
       proxy.getTransferContent(transferId);
 
       // Different transferId should still return null
-      expect(
-        proxy.takeJustConsumedTransferMetadata("other-id"),
-      ).toBeNull();
+      expect(proxy.takeJustConsumedTransferMetadata("other-id")).toBeNull();
 
       const requestId = sent.requestId as string;
       proxy.resolveTransferResult(requestId, { isError: false });

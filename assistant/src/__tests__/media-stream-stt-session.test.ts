@@ -276,7 +276,10 @@ describe("MediaStreamSttSession", () => {
 
   test("non-mark frames do not fire onMark", () => {
     const onMark = jest.fn();
-    const session = new MediaStreamSttSession({}, { onMark, onDtmf: jest.fn() });
+    const session = new MediaStreamSttSession(
+      {},
+      { onMark, onDtmf: jest.fn() },
+    );
 
     session.handleMessage(makeStartMessage());
     session.handleMessage(makeMediaMessage());
@@ -322,7 +325,9 @@ describe("MediaStreamSttSession", () => {
 
     // Flush the async handleTurnEnd promise chain (microtask flush —
     // must NOT use setTimeout which is faked).
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
 
     expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
     expect(onTranscriptFinal).toHaveBeenCalledWith(
@@ -351,7 +356,9 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -381,7 +388,9 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -412,7 +421,9 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -438,7 +449,9 @@ describe("MediaStreamSttSession", () => {
     session.handleMessage(makeMediaMessage());
 
     jest.advanceTimersByTime(400);
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(
@@ -486,12 +499,16 @@ describe("MediaStreamSttSession", () => {
     jest.advanceTimersByTime(400);
     // Flush the async promise chain to let handleTurnEnd reach the
     // transcriber.transcribe() call which creates the abort timeout
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
 
     // Now advance past the transcription timeout to fire the AbortController
     jest.advanceTimersByTime(1100);
     // Flush the abort/reject microtasks
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+    }
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith("timeout", expect.any(String));
@@ -648,7 +665,9 @@ describe("MediaStreamSttSession", () => {
       jest.advanceTimersByTime(500);
 
       // Flush async promise chain
-      for (let i = 0; i < 20; i++) await Promise.resolve();
+      for (let i = 0; i < 20; i++) {
+        await Promise.resolve();
+      }
 
       // The transcript should have been emitted mid-call (before stop)
       expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
@@ -672,7 +691,9 @@ describe("MediaStreamSttSession", () => {
       // Now stop event arrives — finalizes the second in-flight turn
       session.handleMessage(makeStopMessage());
 
-      for (let i = 0; i < 20; i++) await Promise.resolve();
+      for (let i = 0; i < 20; i++) {
+        await Promise.resolve();
+      }
 
       expect(onTranscriptFinal).toHaveBeenCalledTimes(1);
 
@@ -698,7 +719,9 @@ describe("MediaStreamSttSession", () => {
 
       // Advance well past silence threshold
       jest.advanceTimersByTime(2000);
-      for (let i = 0; i < 10; i++) await Promise.resolve();
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
 
       // No turn should have started, so no transcript emitted
       expect(onSpeechStart).not.toHaveBeenCalled();

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type {
   Message,
   Provider,
@@ -104,5 +105,76 @@ describe("agent loop — built-in history-repair recovery", () => {
     // Initial call + exactly one deep-repair retry, then the rejection surfaces.
     expect(callCount()).toBe(2);
     expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
+  test("dispatches post-model-call but lets native repair drive the ordering retry", async () => {
+    // A user hook that observes the rejection and blindly continues without
+    // repairing. It must still fire (the hook contract dispatches at every
+    // model-call outcome), but native ordering repair takes precedence, so the
+    // retry sends a repaired history rather than the hook's unrepaired continue.
+    let genericContinueFired = 0;
+    registerPlugin({
+      manifest: { name: "generic-continue", version: "0.0.1" },
+      hooks: {
+        "post-model-call": async (ctx) => {
+          if (ctx.error) {
+            genericContinueFired += 1;
+            ctx.decision = "continue";
+          }
+        },
+      },
+    });
+
+    // History with an orphan tool_use: deep repair appends a synthetic
+    // tool_result so the retry is well-formed.
+    const orphanHistory: Message[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "noop", input: {} }],
+      },
+    ];
+
+    let calls = 0;
+    let retryMessages: Message[] | null = null;
+    const provider: Provider = {
+      name: "test-ordering",
+      async sendMessage(messages): Promise<ProviderResponse> {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error(ORDERING_REJECTION);
+        }
+        retryMessages = messages;
+        return textResponse("recovered");
+      },
+    };
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: orphanHistory,
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // The hook observed the rejection (contract preserved).
+    expect(genericContinueFired).toBeGreaterThanOrEqual(1);
+    // Recovery happened in exactly one retry, and that retry used the repaired
+    // history: the orphan tool_use now has a matching tool_result. If the hook's
+    // unrepaired continue had driven the retry, this block would be absent.
+    expect(calls).toBe(2);
+    const repaired: Message[] = retryMessages ?? [];
+    const hasPairedResult = repaired.some((m) =>
+      m.content.some((b) => b.type === "tool_result" && b.tool_use_id === "t1"),
+    );
+    expect(hasPairedResult).toBe(true);
   });
 });

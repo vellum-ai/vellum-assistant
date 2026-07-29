@@ -22,6 +22,12 @@ mock.module("@/components/avatar-renderer", () => ({
   AvatarRenderer: () => <div data-testid="avatar" />,
 }));
 
+// Detail addressability is version-gated; pin it on so the open-fetch tests
+// below exercise the parent-only fallback a 0.11.0+ daemon supports.
+mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
+  supportsSubagentDetailSelfLookup: () => true,
+}));
+
 mock.module("@/domains/chat/components/subagent-status-badge", () => ({
   StatusBadge: ({ status }: { status: string }) => (
     <div data-testid="status-badge" data-status={status} />
@@ -41,7 +47,9 @@ mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
   }: {
     onStepDetailClick?: (detailKey: string) => void;
     expandedKeys?: Set<string>;
-    onExpandedKeysChange?: (updater: (prev: Set<string>) => Set<string>) => void;
+    onExpandedKeysChange?: (
+      updater: (prev: Set<string>) => Set<string>,
+    ) => void;
   }) => (
     <div data-testid="timeline">
       {/* Surfaces the controlled expand state so a test can assert the panel
@@ -137,7 +145,12 @@ describe("SubagentDetailPanel — metric cards", () => {
   test("running with zero usage renders real zeros, not skeletons", () => {
     const { container } = render(
       <SubagentDetailPanel
-        entry={makeEntry({ status: "running", inputTokens: 0, outputTokens: 0, totalCost: 0 })}
+        entry={makeEntry({
+          status: "running",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalCost: 0,
+        })}
         onClose={noop}
       />,
     );
@@ -153,7 +166,12 @@ describe("SubagentDetailPanel — metric cards", () => {
   test("running with usage renders real values", () => {
     const { container } = render(
       <SubagentDetailPanel
-        entry={makeEntry({ status: "running", inputTokens: 1200, outputTokens: 340, totalCost: 0.68 })}
+        entry={makeEntry({
+          status: "running",
+          inputTokens: 1200,
+          outputTokens: 340,
+          totalCost: 0.68,
+        })}
         onClose={noop}
       />,
     );
@@ -166,7 +184,12 @@ describe("SubagentDetailPanel — metric cards", () => {
   test("terminal subagent renders real values including a legitimate zero", () => {
     const { container } = render(
       <SubagentDetailPanel
-        entry={makeEntry({ status: "completed", inputTokens: 0, outputTokens: 0, totalCost: 0 })}
+        entry={makeEntry({
+          status: "completed",
+          inputTokens: 0,
+          outputTokens: 0,
+          totalCost: 0,
+        })}
         onClose={noop}
       />,
     );
@@ -179,7 +202,9 @@ describe("SubagentDetailPanel — metric cards", () => {
 
 describe("SubagentDetailPanel — timeline empty state", () => {
   test("empty events renders 'No events yet'", () => {
-    render(<SubagentDetailPanel entry={makeEntry({ events: [] })} onClose={noop} />);
+    render(
+      <SubagentDetailPanel entry={makeEntry({ events: [] })} onClose={noop} />,
+    );
     expect(screen.getByText("No events yet")).toBeDefined();
     expect(screen.queryByTestId("timeline")).toBeNull();
   });
@@ -208,6 +233,59 @@ describe("SubagentDetailPanel — timeline empty state", () => {
     );
     expect(screen.queryByText("No events yet")).toBeNull();
     expect(screen.getByTestId("timeline")).toBeDefined();
+  });
+});
+
+/**
+ * Opening the panel is what pays for a settled subagent's timeline: the
+ * conversation-load auto-fetch only covers live rows, so this is the single
+ * fetch trigger for everything reconcile materializes as terminal.
+ */
+describe("SubagentDetailPanel: detail fetch on open", () => {
+  function requestedIdsFor(entry: Partial<SubagentEntry>): string[] {
+    const requested: string[] = [];
+    render(
+      <SubagentDetailPanel
+        entry={makeEntry(entry)}
+        onClose={noop}
+        onRequestDetail={(id) => requested.push(id)}
+      />,
+    );
+    return requested;
+  }
+
+  test("fetches a settled row with an empty timeline", () => {
+    expect(
+      requestedIdsFor({ status: "completed", conversationId: "conv-child" }),
+    ).toEqual(["sub-1"]);
+  });
+
+  test("fetches a stub that knows only its parent conversation", () => {
+    // The child-semantic `conversationId` is deliberately unset on such a
+    // stub; gating the fetch on it left the panel permanently empty.
+    expect(
+      requestedIdsFor({ conversationId: undefined, parentConversationId: "conv-parent" }),
+    ).toEqual(["sub-1"]);
+  });
+
+  test("does not fetch for an entry no id can address", () => {
+    expect(requestedIdsFor({ conversationId: undefined })).toEqual([]);
+  });
+
+  test("does not fetch for an entry that already has a timeline", () => {
+    expect(
+      requestedIdsFor({
+        conversationId: "conv-child",
+        events: [
+          {
+            id: "te-1",
+            type: "text",
+            content: "hello",
+            timestamp: Date.now(),
+          },
+        ],
+      }),
+    ).toEqual([]);
   });
 });
 
@@ -539,7 +617,9 @@ describe("SubagentDetailPanel — nested tool detail", () => {
 
     // Drilling into a step reveals the breadcrumb's clickable subagent crumb.
     fireEvent.click(screen.getByTestId("timeline-pill"));
-    expect(screen.getByRole("button", { name: "Research agent" })).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Research agent" }),
+    ).toBeDefined();
   });
 
   test("clicking a timeline tool pill swaps the body to the tool detail while keeping the header", () => {

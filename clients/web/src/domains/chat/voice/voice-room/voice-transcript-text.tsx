@@ -101,7 +101,9 @@ export function VoiceTranscriptText({
                 // takes over (the motion entrance below owns transform/opacity).
                 transition: "color 0.45s ease",
               }}
-              initial={reduce ? false : { opacity: 0, y: 5, filter: "blur(2px)" }}
+              initial={
+                reduce ? false : { opacity: 0, y: 5, filter: "blur(2px)" }
+              }
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               transition={{ duration: reduce ? 0 : 0.32, ease: "easeOut" }}
             >

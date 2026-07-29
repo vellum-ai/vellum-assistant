@@ -85,7 +85,11 @@ interface ComposerPeekProps {
   active: boolean;
 }
 
-export function ComposerPeek({ components, traits, active }: ComposerPeekProps) {
+export function ComposerPeek({
+  components,
+  traits,
+  active,
+}: ComposerPeekProps) {
   const reduce = useReducedMotion();
   // The onboarding tour floods the composer itself — never compete with it.
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
@@ -220,7 +224,10 @@ export function ComposerPeek({ components, traits, active }: ComposerPeekProps) 
         ),
       )
     : PEEK_EXPOSED_FRAC_FALLBACK;
-  const peekSize = Math.min(PEEK_SIZE_MAX, PEEK_EXPOSED_MAX_PX / peekExposedFrac);
+  const peekSize = Math.min(
+    PEEK_SIZE_MAX,
+    PEEK_EXPOSED_MAX_PX / peekExposedFrac,
+  );
   const peekExposedPx = peekSize * peekExposedFrac;
   const clipHeight = peekExposedPx + CLIP_HEADROOM;
   const risePx = peekExposedPx + 8;
@@ -240,7 +247,10 @@ export function ComposerPeek({ components, traits, active }: ComposerPeekProps) 
     : TOP_CUT_FRACTION_FALLBACK;
   const topVisibleFrac = 1 - topCut;
   const topSize = Math.min(
-    Math.min(TOP_SIZE_MAX, Math.max(TOP_SIZE_MIN, rect.width * TOP_SIZE_FRACTION)),
+    Math.min(
+      TOP_SIZE_MAX,
+      Math.max(TOP_SIZE_MIN, rect.width * TOP_SIZE_FRACTION),
+    ),
     TOP_DANGLE_MAX_PX / topVisibleFrac,
   );
   const topExposed = topSize * topVisibleFrac;

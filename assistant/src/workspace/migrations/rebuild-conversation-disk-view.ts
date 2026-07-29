@@ -33,8 +33,9 @@ function hasExpectedDiskViewArtifacts(
     !existsSync(metaPath) ||
     !existsSync(messagesPath) ||
     !existsSync(attachDir)
-  )
+  ) {
     return false;
+  }
 
   try {
     const existing = JSON.parse(readFileSync(metaPath, "utf-8"));
@@ -50,21 +51,31 @@ function convergeDualConversationDirsToCanonical(
   canonicalDirPath: string,
   legacyDirPath: string,
 ): void {
-  if (!existsSync(canonicalDirPath) || !existsSync(legacyDirPath)) return;
-  if (!hasExpectedDiskViewArtifacts(conv, canonicalDirPath)) return;
+  if (!existsSync(canonicalDirPath) || !existsSync(legacyDirPath)) {
+    return;
+  }
+  if (!hasExpectedDiskViewArtifacts(conv, canonicalDirPath)) {
+    return;
+  }
   rmSync(legacyDirPath, { recursive: true, force: true });
 }
 
 function getProjectedAttachmentFilenames(messagesPath: string): Set<string> {
   const filenames = new Set<string>();
-  if (!existsSync(messagesPath)) return filenames;
+  if (!existsSync(messagesPath)) {
+    return filenames;
+  }
 
   const raw = readFileSync(messagesPath, "utf-8");
   for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
+    if (!line.trim()) {
+      continue;
+    }
     try {
       const parsed = JSON.parse(line) as { attachments?: unknown };
-      if (!Array.isArray(parsed.attachments)) continue;
+      if (!Array.isArray(parsed.attachments)) {
+        continue;
+      }
       for (const attachment of parsed.attachments) {
         if (typeof attachment === "string") {
           filenames.add(attachment);
@@ -82,11 +93,15 @@ function pruneUnreferencedProjectedAttachments(
   attachDir: string,
   messagesPath: string,
 ): void {
-  if (!existsSync(attachDir)) return;
+  if (!existsSync(attachDir)) {
+    return;
+  }
 
   const referenced = getProjectedAttachmentFilenames(messagesPath);
   for (const entry of readdirSync(attachDir)) {
-    if (referenced.has(entry)) continue;
+    if (referenced.has(entry)) {
+      continue;
+    }
     rmSync(join(attachDir, entry), { recursive: true, force: true });
   }
 }

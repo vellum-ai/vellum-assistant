@@ -82,7 +82,9 @@ mock.module("../tools/background-tool-registry.js", () => ({
   },
   removeBackgroundTool: (id: string) => {
     const idx = registeredTools.findIndex((t) => t.id === id);
-    if (idx !== -1) registeredTools.splice(idx, 1);
+    if (idx !== -1) {
+      registeredTools.splice(idx, 1);
+    }
   },
   recordCompletedBackgroundTool: () => {},
   generateBackgroundToolId: () => "bg-obs-test",

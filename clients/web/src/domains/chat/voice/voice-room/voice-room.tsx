@@ -51,7 +51,7 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
-  liveVoiceStateLabel,
+  liveVoiceSurfaceLabel,
   minimizeVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
@@ -66,7 +66,6 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
-
 import { resolveWaveAccentHex } from "./wave-accent";
 
 import {
@@ -152,10 +151,13 @@ function VoiceRoomOverlay() {
   // The label + sr-only announcement must follow the same audio-aware mapping as
   // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
   // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
-  // the assistant is talking while it's actually silent (JARVIS-1279).
-  const labelState =
-    state === "speaking" && !assistantAudioActive ? "thinking" : state;
-  const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
+  // the assistant is talking while it's actually silent (JARVIS-1279). Shared
+  // with the iOS Live Activity mirror, which shows this exact string.
+  const stateLabel = liveVoiceSurfaceLabel(
+    state,
+    reconnecting,
+    assistantAudioActive,
+  );
 
   // The state caption (e.g. "Listening…") shows only while the assistant
   // transcript is hidden; the captions toggle itself lives in the room's
@@ -173,7 +175,8 @@ function VoiceRoomOverlay() {
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
   // fallback look's listening waves (null for custom-image / "none" /
-  // still-loading avatars, where the waves keep their aurora fallback).
+  // still-loading avatars, where the waves keep their aurora fallback) — the
+  // same derivation the iOS Live Activity mirrors, so island and room agree.
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
   const look = resolveVoiceRoomLook(components, traits, customImageUrl);
@@ -283,7 +286,9 @@ function VoiceRoomOverlay() {
           {/* Same state caption + gating as the color look (stands down while
               the assistant transcript is on), in the same shared lower zone —
               both looks name the beat from one baseline. */}
-          {!showAssistantTranscript ? <VoiceStateCaption visual={visual} /> : null}
+          {!showAssistantTranscript ? (
+            <VoiceStateCaption visual={visual} />
+          ) : null}
         </>
       )}
 

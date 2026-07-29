@@ -13,7 +13,10 @@ interface LibraryDocumentCardProps {
   onOpen: (documentSurfaceId: string) => void;
 }
 
-export function LibraryDocumentCard({ document, onOpen }: LibraryDocumentCardProps) {
+export function LibraryDocumentCard({
+  document,
+  onOpen,
+}: LibraryDocumentCardProps) {
   return (
     <div className="group relative flex flex-col gap-2">
       <button

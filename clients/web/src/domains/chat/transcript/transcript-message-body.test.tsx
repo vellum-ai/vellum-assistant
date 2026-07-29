@@ -1,4 +1,12 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -50,13 +58,8 @@ mock.module("@vellumai/design-library/components/modal", () => {
     );
   return {
     Modal: {
-      Root: ({
-        open,
-        children,
-      }: {
-        open?: boolean;
-        children?: ReactNode;
-      }) => (open ? <div role="dialog">{children}</div> : null),
+      Root: ({ open, children }: { open?: boolean; children?: ReactNode }) =>
+        open ? <div role="dialog">{children}</div> : null,
       Content: passthrough("modal-content"),
       Header: passthrough("modal-header"),
       Title: ({ children }: { children?: ReactNode }) => (
@@ -279,6 +282,7 @@ import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const noop = () => {};
 
@@ -296,6 +300,10 @@ function clickVellumLink(href: string, linkText: string) {
 /** Clicks an action button inside the vellum file action modal. */
 function clickModalAction(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
+}
+
+function expandEarlierActivity() {
+  fireEvent.click(screen.getByRole("button", { name: "Earlier activity" }));
 }
 
 // `TranscriptMessageBody` renders a row's body by walking its unified
@@ -334,8 +342,16 @@ function surfaceBlock(surfaceId: string): ConversationContentBlock {
 afterAll(() => {
   mock.restore();
 });
+beforeEach(() => {
+  useClientFeatureFlagStore.setState({
+    collapseAssistantIntermediates: true,
+  });
+});
 afterEach(() => {
   cleanup();
+  useClientFeatureFlagStore.setState({
+    collapseAssistantIntermediates: false,
+  });
 });
 
 function renderMessage(
@@ -396,9 +412,7 @@ describe("TranscriptMessageBody", () => {
     expect(markdown!.textContent).toBe("line one\nline two");
     expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
     // The text run is wrapped in the user bubble.
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).not.toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).not.toBeNull();
   });
 
   test("uses the latest tool completion as the message activity timestamp", () => {
@@ -601,6 +615,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     const card = container.querySelector("[data-testid='tool-progress-card']");
     expect(card).not.toBeNull();
     expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
@@ -613,6 +629,276 @@ describe("TranscriptMessageBody", () => {
     expect(
       Array.from(markdowns).some((m) => m.textContent === "the answer"),
     ).toBe(true);
+  });
+
+  test("collapses completed assistant activity before the final text response", () => {
+    const { getByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will check that.")).toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+
+    const trigger = getByRole("button", { name: "Earlier activity" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("keeps completed assistant activity visible when the flag is disabled", () => {
+    useClientFeatureFlagStore.setState({
+      collapseAssistantIntermediates: false,
+    });
+
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "ungated-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-ungated-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("keeps all assistant activity visible while the response is streaming", () => {
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "streaming-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I am checking that."),
+            toolUseBlock({
+              id: "tc-streaming-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is what I found so far."),
+          ],
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(queryByText("I am checking that.")).not.toBeNull();
+    expect(queryByText("Here is what I found so far.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("animates earlier activity closed when streaming completes", async () => {
+    const message: DisplayMessage = {
+      id: "settling-response",
+      role: "assistant",
+      contentBlocks: [
+        textBlock("I am checking that."),
+        toolUseBlock({
+          id: "tc-settling-check",
+          name: "bash",
+          input: {},
+          completedAt: 1,
+        }),
+        textBlock("Here is the final answer."),
+      ],
+    };
+    const { getByRole, getByTestId, rerender } = render(
+      <TranscriptMessageBody
+        message={message}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    rerender(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+    );
+
+    const trigger = getByRole("button", { name: "Earlier activity" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      getByTestId("assistant-earlier-activity").style.animationDuration,
+    ).toBe("var(--anim-standard)");
+
+    await waitFor(() => {
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
+  test("keeps result artifacts visible outside collapsed earlier activity", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-result-image",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+      result: "Generated an image",
+      imageDataList: ["img-a"],
+      completedAt: 1,
+    };
+    const { container, getAllByRole, getByText, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-artifacts",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will create that."),
+            toolUseBlock(toolCall),
+            textBlock("I will summarize it."),
+            textBlock("Here are the results."),
+          ],
+          toolCalls: [toolCall],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will create that.")).toBeNull();
+    expect(queryByText("I will summarize it.")).toBeNull();
+    expect(queryByText("Here are the results.")).not.toBeNull();
+    const image = container.querySelector("[data-testid='tool-result-image']");
+    expect(image).not.toBeNull();
+
+    const triggers = getAllByRole("button", { name: "Earlier activity" });
+    expect(triggers.length).toBe(2);
+    triggers.forEach((trigger) => fireEvent.click(trigger));
+
+    const firstText = getByText("I will create that.");
+    const secondText = getByText("I will summarize it.");
+    const finalText = getByText("Here are the results.");
+    expect(
+      firstText.compareDocumentPosition(image!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      image!.compareDocumentPosition(secondText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      secondText.compareDocumentPosition(finalText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  test("keeps surface lead-in text visible as part of the final response", () => {
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-surface-lead-in",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Here is the chart:"),
+            surfaceBlock("result-surface"),
+            textBlock("The totals increased."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("Here is the chart:")).not.toBeNull();
+    expect(queryByText("The totals increased.")).not.toBeNull();
+    expect(
+      container.querySelector("[data-surface-id='result-surface']"),
+    ).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+  });
+
+  test("keeps inline surfaces visible outside collapsed earlier text", () => {
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-inline-surface",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will build that."),
+            textBlock(
+              'Before surface<ui_show surface_type="card" template="task_progress"> {"title":"Result"} </ui_show>After surface',
+            ),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will build that.")).toBeNull();
+    expect(queryByText("Before surface")).not.toBeNull();
+    expect(queryByText("After surface")).not.toBeNull();
+    expect(container.querySelector("[data-testid='surface']")).not.toBeNull();
+  });
+
+  test("keeps running activity visible outside collapsed earlier text", () => {
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "completed-with-running-tool",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will start that."),
+            toolUseBlock({
+              id: "tc-running",
+              name: "bash",
+              input: {},
+            }),
+            textBlock("It is running in the background."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("I will start that.")).toBeNull();
+    expect(queryByText("It is running in the background.")).not.toBeNull();
+    expect(
+      container.querySelector("[data-tool-call-id='tc-running']"),
+    ).not.toBeNull();
+  });
+
+  test("does not add a disclosure to a single assistant text response", () => {
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "single-response",
+          role: "assistant",
+          contentBlocks: [textBlock("A concise answer.")],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("A concise answer.")).not.toBeNull();
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
   });
 
   test("merges contiguous thinking + tool runs into one card per run", () => {
@@ -635,6 +921,8 @@ describe("TranscriptMessageBody", () => {
     const { container } = render(
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
+
+    expandEarlierActivity();
 
     // Exactly two merged tool cards (one per run).
     const cards = container.querySelectorAll(
@@ -886,6 +1174,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     expect(
       container.querySelector("[data-testid='tool-progress-card']"),
     ).not.toBeNull();
@@ -940,6 +1230,8 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    expandEarlierActivity();
+
     expect(
       container.querySelector("[data-testid='thought-process-link']"),
     ).not.toBeNull();
@@ -956,20 +1248,26 @@ describe("TranscriptMessageBody", () => {
     // GIVEN a persisted assistant turn whose reasoning precedes its answer,
     // with no interleaved tool call
     // WHEN it is rendered as a settled row
-    const html = renderMessage({
-      id: "m-think",
-      role: "assistant",
-      contentBlocks: [
-        thinkingBlock("chain of thought"),
-        textBlock("the answer"),
-      ],
-      timestamp: 1_000,
-    });
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-think",
+          role: "assistant",
+          contentBlocks: [
+            thinkingBlock("chain of thought"),
+            textBlock("the answer"),
+          ],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+    expandEarlierActivity();
 
     // THEN the reasoning renders as a completed SingleActivity, not a
     // perpetually-streaming "Thinking" link
-    expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking");
+    expect(container.textContent).toContain("Thought process");
+    expect(container.textContent).not.toContain("Thinking");
   });
 
   test("labels trailing reasoning as 'Thinking' while the row is live", () => {
@@ -1043,6 +1341,8 @@ describe("TranscriptMessageBody", () => {
       <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
 
+    expandEarlierActivity();
+
     // No legacy summary card.
     expect(
       container.querySelector("[data-testid='turn-activity-header']"),
@@ -1082,9 +1382,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     // Exactly one bubble container carries the user-bubble background.
     expect(bubbles.length).toBe(1);
 
@@ -1123,9 +1421,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     expect(bubbles.length).toBe(1);
     expect(bubbles[0]!.querySelector("img")?.getAttribute("src")).toBe(
       "blob:preview",
@@ -1234,7 +1530,10 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    clickVellumLink("vellum://workspace/qa-delete-desktop-dialog.png", "desktop");
+    clickVellumLink(
+      "vellum://workspace/qa-delete-desktop-dialog.png",
+      "desktop",
+    );
     clickModalAction("Download file");
     expect(downloadAttachmentMock).toHaveBeenCalledTimes(1);
     expect(
@@ -1366,9 +1665,7 @@ describe("TranscriptMessageBody", () => {
     expect(
       container.querySelector("[data-testid='attachments']"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).toBeNull();
   });
 
   test("suppresses native text selection on user bubbles for coarse pointers", () => {
@@ -1468,9 +1765,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    const bubble = container.querySelector(
-      "[class*='user-bubble-bg']",
-    );
+    const bubble = container.querySelector("[class*='user-bubble-bg']");
     expect(bubble).not.toBeNull();
     // Text lives inside the bubble.
     expect(bubble!.querySelector("[data-testid='markdown']")?.textContent).toBe(
@@ -1506,9 +1801,7 @@ describe("TranscriptMessageBody", () => {
     ).toBeTruthy();
 
     // The surface is NOT inside a user bubble; the text IS.
-    const bubble = container.querySelector(
-      "[class*='user-bubble-bg']",
-    );
+    const bubble = container.querySelector("[class*='user-bubble-bg']");
     expect(bubble).not.toBeNull();
     expect(bubble!.contains(surface)).toBe(false);
     expect(bubble!.contains(markdown)).toBe(true);
@@ -1557,9 +1850,7 @@ describe("TranscriptMessageBody", () => {
 
     // The tool chip is never wrapped inside a user text bubble — the
     // text runs render inline and the chip sits between them.
-    const bubbles = container.querySelectorAll(
-      "[class*='user-bubble-bg']",
-    );
+    const bubbles = container.querySelectorAll("[class*='user-bubble-bg']");
     for (const bubble of bubbles) {
       expect(bubble.contains(toolChip)).toBe(false);
     }
@@ -1586,9 +1877,7 @@ describe("TranscriptMessageBody", () => {
 
     // No visible text and no attachments: the empty user bubble must
     // not render.
-    expect(
-      container.querySelector("[class*='user-bubble-bg']"),
-    ).toBeNull();
+    expect(container.querySelector("[class*='user-bubble-bg']")).toBeNull();
     // The lone tool still renders as the inline chip.
     expect(
       container.querySelector("[data-testid='inline-tool-link']"),

@@ -22,6 +22,8 @@ import * as platformGateMod from "@/hooks/use-platform-gate";
 import type { PlatformGateStateWithPending } from "@/hooks/use-platform-gate";
 import * as takeoverMod from "@/hooks/use-marketing-pricing-takeover";
 import type { MarketingPricingTakeoverState } from "@/hooks/use-marketing-pricing-takeover";
+import type { CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 const CHECKOUT_URL = "https://stripe.test/checkout/session";
 const INTENT_KEY = "vellum.pro-checkout-intent";
@@ -29,6 +31,9 @@ const INTENT_KEY = "vellum.pro-checkout-intent";
 // otherwise have taken, so a checkout that doesn't happen resumes the funnel.
 const ONBOARDING_NEXT = "/assistant/onboarding/research?hosting=managed";
 const ONBOARDING_ENTRY = `/assistant/checkout?package=super&continue=${encodeURIComponent(ONBOARDING_NEXT)}`;
+// The package-less encoding: the same funnel carrying a custom tier config.
+const CUSTOM_ENTRY =
+  "/assistant/checkout?machine_tier=large&storage_tier=s&credit_tier=credits_50";
 
 type Captured = { body?: unknown };
 const upgradeCalls: Captured[] = [];
@@ -116,7 +121,33 @@ mock.module("@/hooks/use-marketing-pricing-takeover", () => ({
 }));
 
 const { useOrganizationStore } = await import("@/stores/organization-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { avatarQueryKey } = await import("@/hooks/use-assistant-avatar");
+const {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+  saveTakeoverAvatarStash,
+} = await import("@/lib/billing/takeover-avatar-stash");
 const { CheckoutPage } = await import("./checkout-page");
+
+const AVATAR_TRAITS: CharacterTraits = {
+  bodyShape: "blob",
+  eyeStyle: "curious",
+  color: "purple",
+};
+
+/**
+ * The cached avatar the hand-off snapshots. The live query key appends a
+ * `supportsManifest` boolean, so the seed has to carry one too.
+ */
+function seedCachedAvatar(client: QueryClient, assistantId: string) {
+  client.setQueryData([...avatarQueryKey(assistantId), true], {
+    components: BUNDLED_COMPONENTS,
+    traits: AVATAR_TRAITS,
+    customImageUrl: null,
+  });
+}
 
 function LocationProbe() {
   const location = useLocation();
@@ -183,6 +214,13 @@ beforeEach(() => {
   heldUpgrade = null;
   upgradeData = { status: "redirect", checkout_url: CHECKOUT_URL, message: "" };
   sessionStorage.removeItem(INTENT_KEY);
+  // The line above only drops the intent key, so clear the avatar stash's own.
+  clearTakeoverAvatarStash();
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -190,8 +228,16 @@ afterEach(() => {
 });
 
 describe("CheckoutPage", () => {
-  test("valid package + full gate fires the upgrade, stashes intent, opens Stripe", async () => {
-    renderCheckout("/assistant/checkout?package=super");
+  test("valid package + full gate fires the upgrade, stashes intent and avatar, opens Stripe", async () => {
+    const client = freshQueryClient();
+    seedCachedAvatar(client, "a1");
+    // Capture only stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistantsHydrated: true,
+    });
+    render(checkoutTree("/assistant/checkout?package=super", client));
 
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
     expect(upgradeCalls[0]!.body).toEqual({
@@ -210,6 +256,9 @@ describe("CheckoutPage", () => {
       kind: "package",
       packageKey: "super",
     });
+    // The avatar goes with it, so the post-checkout takeover can draw the
+    // creature on a cold return instead of holding an empty stage.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("holds the upgrade while org is resolving, then fires once it hydrates", async () => {
@@ -285,6 +334,11 @@ describe("CheckoutPage", () => {
       packageKey: "super",
       resumeAfterOnboarding: true,
     });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
     const { getByTestId } = renderCheckout("/assistant/checkout?package=super");
 
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
@@ -296,6 +350,9 @@ describe("CheckoutPage", () => {
     );
     expect(openedUrl).toBeNull();
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    // The avatar snapshot is stashed for a checkout return that is no longer
+    // coming, so it goes out with the intent.
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("an error renders the retry UI, and Try again re-fires the upgrade", async () => {
@@ -318,6 +375,11 @@ describe("CheckoutPage", () => {
       packageKey: "super",
       resumeAfterOnboarding: true,
     });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
     const { findByRole, getByTestId } = renderCheckout(
       "/assistant/checkout?package=super",
     );
@@ -329,6 +391,7 @@ describe("CheckoutPage", () => {
       expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
     );
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("the error escape resumes the carried onboarding step", async () => {
@@ -435,6 +498,11 @@ describe("CheckoutPage", () => {
       packageKey: "super",
       resumeAfterOnboarding: true,
     });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
     const { getByTestId } = renderCheckout(ONBOARDING_ENTRY);
 
     await waitFor(() =>
@@ -443,6 +511,9 @@ describe("CheckoutPage", () => {
     expect(upgradeCalls.length).toBe(0);
     expect(openedUrl).toBeNull();
     expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    // The avatar snapshot is stashed for a checkout that never happened, so the
+    // bail drops it alongside the intent.
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("the hand-off rewrites a marked stash without the marker", async () => {
@@ -699,5 +770,111 @@ describe("CheckoutPage", () => {
     takeoverValue = "enabled";
     rerender(makeTree());
     await waitFor(() => expect(upgradeCalls.length).toBe(1));
+  });
+
+  test("a custom tier configuration checks out with no package in the body", async () => {
+    renderCheckout(CUSTOM_ENTRY);
+
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
+    // `package` is mutually exclusive with the tier fields server-side, so the
+    // custom body carries the three dimensions and nothing else.
+    expect(upgradeCalls[0]!.body).toEqual({
+      target_plan_id: "pro",
+      confirm: true,
+      machine_tier: "large",
+      storage_tier: "s",
+      credit_tier: "credits_50",
+      return_target: "web",
+    });
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    // The post-checkout provisioning takeover renders its per-dimension chips
+    // off this stash, so it has to be written before the hand-off.
+    expect(JSON.parse(sessionStorage.getItem(INTENT_KEY)!)).toMatchObject({
+      kind: "custom",
+      machineTier: "large",
+      storageTier: "s",
+      creditTier: "credits_50",
+    });
+  });
+
+  test("omitted machine and credit params check out as the null baseline", async () => {
+    renderCheckout("/assistant/checkout?storage_tier=xs");
+
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
+    // Small machine, no credit bundle: the endpoint reads those as explicit
+    // nulls, not as fields to leave off.
+    expect(upgradeCalls[0]!.body).toEqual({
+      target_plan_id: "pro",
+      confirm: true,
+      machine_tier: null,
+      storage_tier: "xs",
+      credit_tier: null,
+      return_target: "web",
+    });
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    expect(JSON.parse(sessionStorage.getItem(INTENT_KEY)!)).toMatchObject({
+      kind: "custom",
+      machineTier: null,
+      storageTier: "xs",
+      creditTier: null,
+    });
+  });
+
+  test("an explicit package wins over tier params on the same URL", async () => {
+    renderCheckout(
+      "/assistant/checkout?package=super&machine_tier=large&storage_tier=s",
+    );
+
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
+    // A body carrying both is a 400, so the client picks one side of the
+    // mutual exclusion rather than passing the conflict along.
+    expect(upgradeCalls[0]!.body).toEqual({
+      target_plan_id: "pro",
+      package: "super",
+      confirm: true,
+      return_target: "web",
+    });
+
+    await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
+    expect(JSON.parse(sessionStorage.getItem(INTENT_KEY)!)).toMatchObject({
+      kind: "package",
+      packageKey: "super",
+    });
+  });
+
+  test("tier params the endpoint would reject bail out and drop the stash", async () => {
+    // Legacy `xxl` storage 400s server-side. A mangled link has to bail rather
+    // than check out some other configuration the user never chose.
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    const { getByTestId } = renderCheckout(
+      "/assistant/checkout?machine_tier=large&storage_tier=xxl",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+    expect(upgradeCalls.length).toBe(0);
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+  });
+
+  test("a no_op on a custom configuration falls back to plans", async () => {
+    // Already Pro: the upgrade endpoint no-ops instead of minting a session,
+    // for a custom body exactly as it does for a package.
+    upgradeData = { status: "no_op", checkout_url: null, message: "" };
+    const { getByTestId } = renderCheckout(CUSTOM_ENTRY);
+
+    await waitFor(() => expect(upgradeCalls.length).toBe(1));
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe("/assistant/plans"),
+    );
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
   });
 });

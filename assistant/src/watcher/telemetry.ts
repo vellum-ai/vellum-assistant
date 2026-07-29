@@ -49,7 +49,9 @@ let warnedInventoryDbUnavailable = false;
 export function recordWatcherInventoryIfDue(now: number): void {
   try {
     const last = Number(getMemoryCheckpoint(INVENTORY_CHECKPOINT_KEY) ?? "0");
-    if (now - last < WATCHER_INVENTORY_INTERVAL_MS) return;
+    if (now - last < WATCHER_INVENTORY_INTERVAL_MS) {
+      return;
+    }
     for (const watcher of listWatchers({ enabledOnly: true })) {
       const recorded = recordLifecycleEvent(
         `watcher_enabled:${watcher.providerId}`,

@@ -40,10 +40,7 @@ export interface UnknownEvent {
  * incorrectly clear processing indicators.
  */
 export type UserFacingInteractionKind =
-  | "confirmation"
-  | "secret"
-  | "question"
-  | "acp_confirmation";
+  "confirmation" | "secret" | "question" | "acp_confirmation";
 
 export type HostProxyInteractionKind =
   | "host_bash"
@@ -54,8 +51,7 @@ export type HostProxyInteractionKind =
   | "host_transfer";
 
 export type InteractionKind =
-  | UserFacingInteractionKind
-  | HostProxyInteractionKind;
+  UserFacingInteractionKind | HostProxyInteractionKind;
 
 /**
  * Allowlist of interaction kinds that signal the daemon has handed control
