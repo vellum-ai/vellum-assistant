@@ -67,6 +67,14 @@ export interface UseSttLanguageSelection {
    */
   currentCode: string;
   /**
+   * Daemon id of the provider a pick would steer: the CONFIGURED one, with
+   * the legacy managed-mode and schema-default fallbacks applied. Meaningful
+   * only alongside `available` (before config arrives it holds the schema
+   * default); surfaces without a draft of their own pass this to
+   * `sttLanguageOptionsFor`.
+   */
+  configuredProviderId: string;
+  /**
    * Whether the daemon probe reports the given daemon provider id as
    * manually language-selectable. `available` describes the CONFIGURED
    * provider; a form whose dropdown holds an unsaved DRAFT choice gates its
@@ -151,6 +159,7 @@ export function useSttLanguageSelection(
   return {
     available,
     currentCode,
+    configuredProviderId: configuredProvider,
     isLanguageSelectable,
     selectLanguage,
     selecting,

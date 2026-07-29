@@ -13,10 +13,17 @@
  *   which hot-applies on the assistant's next reply. Managed assistants only;
  *   a bring-your-own provider gets the disabled row and its Settings link (see
  *   {@link VoiceSettingRow}).
+ * - **Listening language**: the spoken language STT recognizes, as an inline
+ *   dropdown (the catalog is short and static, so it fits the popover; no
+ *   modal indirection like the query-backed voice list needs). Writes
+ *   `services.stt.language` through {@link useSttLanguageSelection}, which
+ *   hot-applies from the user's next spoken turn. Only rendered when the
+ *   daemon reports the configured STT provider as manually
+ *   language-selectable; auto-detecting providers and old daemons get no row.
  *
  * Captions are bound to the same `voice-prefs` store the Settings page uses;
- * voice is bound to daemon config, the source of truth the Settings → Voice
- * card also writes.
+ * voice and listening language are bound to daemon config, the source of
+ * truth the Settings page's speech cards also write.
  */
 
 import { useState } from "react";
@@ -24,11 +31,14 @@ import { useState } from "react";
 import { Captions, Settings } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { VoicePickerModal } from "@/components/speech/voice-picker-modal";
 import { VoiceSettingRow } from "@/domains/chat/voice/voice-room/voice-setting-row";
+import { sttLanguageOptionsFor } from "@/lib/stt/language-catalog";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 interface VoiceRoomSettingsMenuProps {
@@ -115,6 +125,11 @@ export function VoiceRoomSettingsMenu({
               }}
               className="mt-2"
             />
+
+            {/* Listening language → inline dropdown. Only when the daemon
+                reports the configured STT provider as language-selectable;
+                collapses to nothing otherwise, like the Voice row. */}
+            <ListeningLanguageRow assistantId={assistantId} className="mt-2" />
           </div>
         </Popover.Content>
       </Popover.Root>
@@ -124,5 +139,60 @@ export function VoiceRoomSettingsMenu({
         onOpenChange={setVoiceModalOpen}
       />
     </>
+  );
+}
+
+/**
+ * The "Listening language" section: a divider, a label, the language dropdown,
+ * and a caption stating when a pick lands. Renders nothing when the daemon
+ * doesn't offer manual language selection for the configured STT provider
+ * (auto-detecting providers, old daemons), so the popover never shows a
+ * control the daemon would ignore.
+ *
+ * The dropdown stays inline: the catalog is short and static, and with no
+ * `PortalContainerProvider` on the chat route its menu renders inside the
+ * popover content, so option clicks don't trip the popover's outside-click
+ * dismissal.
+ */
+function ListeningLanguageRow({
+  assistantId,
+  className,
+}: {
+  assistantId: string | null;
+  className?: string;
+}) {
+  const { available, currentCode, configuredProviderId, selectLanguage } =
+    useSttLanguageSelection(assistantId);
+
+  if (!available) {
+    return null;
+  }
+
+  return (
+    <div className={cn("flex flex-col", className)}>
+      {/* Same straight full-width divider the Voice row draws (a border on a
+          rounded child would render with rounded ends). */}
+      <div className="border-t border-[var(--border-subtle)]" />
+      <span className="mt-2 px-1 text-body-medium-default text-[var(--content-default)]">
+        Listening language
+      </span>
+      <Dropdown
+        size="compact"
+        value={currentCode}
+        onChange={selectLanguage}
+        options={sttLanguageOptionsFor(currentCode, configuredProviderId).map(
+          (l) => ({
+            value: l.code,
+            label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
+            tooltip: l.description,
+          }),
+        )}
+        aria-label="Listening language"
+        className="mt-1.5"
+      />
+      <p className="mt-1.5 px-1 text-label-small-default text-[var(--content-tertiary)]">
+        Applies from your next spoken turn.
+      </p>
+    </div>
   );
 }

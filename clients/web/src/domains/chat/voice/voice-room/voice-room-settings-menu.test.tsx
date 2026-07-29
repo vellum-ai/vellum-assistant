@@ -21,6 +21,22 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
   useManagedVoiceSelection: () => voiceSelection,
 }));
 
+// Same shape for the listening-language row: unavailable by default so the
+// menu renders without the daemon query graph. Mutable so tests can offer
+// languages and observe picks; `sttLanguageOptionsFor` itself is real.
+let languagePicks: string[] = [];
+let languageSelection = {
+  available: false,
+  currentCode: "",
+  configuredProviderId: "vellum",
+  isLanguageSelectable: () => false,
+  selectLanguage: (code: string) => languagePicks.push(code),
+  selecting: false,
+};
+mock.module("@/components/speech/use-stt-language-selection", () => ({
+  useSttLanguageSelection: () => languageSelection,
+}));
+
 // The BYO row links to Models & Services; a plain anchor renders it without a
 // Router.
 mock.module("react-router", () => ({
@@ -33,6 +49,12 @@ const { VoiceRoomSettingsMenu } = await import("./voice-room-settings-menu");
 
 beforeEach(() => {
   voiceSelection = { ...voiceSelection, available: false, isByok: false };
+  languagePicks = [];
+  languageSelection = {
+    ...languageSelection,
+    available: false,
+    currentCode: "",
+  };
   useVoicePrefsStore.setState({
     showUserTranscript: false,
     showAssistantTranscript: false,
@@ -94,5 +116,56 @@ describe("VoiceRoomSettingsMenu", () => {
     openMenu();
     expect(screen.queryByText("Voice")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  test("hides the Listening language row when selection is unavailable", () => {
+    // Auto-detecting providers and old daemons report unavailable; the menu
+    // must show no language control rather than one the daemon ignores.
+    openMenu();
+    expect(screen.queryByText("Listening language")).toBeNull();
+    expect(screen.queryByLabelText("Listening language")).toBeNull();
+  });
+
+  test("shows the Listening language row with the current pick", () => {
+    languageSelection = {
+      ...languageSelection,
+      available: true,
+      currentCode: "es",
+    };
+    openMenu();
+    expect(screen.getByText("Listening language")).toBeTruthy();
+    const trigger = screen.getByRole("combobox", {
+      name: "Listening language",
+    });
+    expect(trigger.textContent).toContain("Spanish (Español)");
+    expect(
+      screen.getByText("Applies from your next spoken turn."),
+    ).toBeTruthy();
+  });
+
+  test("picking a language passes its code to selectLanguage", () => {
+    languageSelection = { ...languageSelection, available: true };
+    openMenu();
+    fireEvent.click(
+      screen.getByRole("combobox", { name: "Listening language" }),
+    );
+    fireEvent.click(screen.getByRole("option", { name: "French (Français)" }));
+    expect(languagePicks).toEqual(["fr"]);
+  });
+
+  test("language row leaves the Captions toggle and Voice row intact", () => {
+    languageSelection = { ...languageSelection, available: true };
+    voiceSelection = { ...voiceSelection, available: false, isByok: true };
+    openMenu();
+    // Captions still flips both prefs together.
+    fireEvent.click(screen.getByLabelText("Show captions"));
+    expect(useVoicePrefsStore.getState().showUserTranscript).toBe(true);
+    expect(useVoicePrefsStore.getState().showAssistantTranscript).toBe(true);
+    // The Voice row (BYO variant here) still renders alongside the language
+    // dropdown.
+    expect(screen.getByText("Your API key")).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Listening language" }),
+    ).toBeTruthy();
   });
 });
