@@ -15,11 +15,48 @@
 import type { MemoryTier } from "@/domains/intelligence/memory-graph/get-memory-stats";
 
 /**
- * Seeds the upgrade chat. Deliberately states the goal and not a procedure: the
- * right migration depends on whether the concept corpus is empty (backfill) or
- * populated (a staged reform), which the assistant can determine and this
- * surface cannot. Asking for confirmation before the rewrite is part of the
- * ask, since the corpus is not regenerable.
+ * Seeds the upgrade chat on a **v2** assistant, where the concept-page corpus
+ * already exists and the job is to reform it into v3 article shape.
+ *
+ * Names the skill and holds it to its own hard rules, because every clause
+ * here maps to a gate that skill already defines and that a run can silently
+ * skip: the Step 0.5 preflight, the size-and-confirm gate, the judge's
+ * leaf-profile check (a profile can pass config validation and still no-op as
+ * a workflow leaf, returning a vacuous pass), and the Step 10 close-out. The
+ * one instruction that is not a gate is "reorganize properly": mechanical
+ * reformatting satisfies the shape and defeats the point, and it is the
+ * failure mode the skill was written against.
+ *
+ * Editorial calls (taxonomy, article structure) are explicitly delegated, so
+ * background autonomy doesn't turn into a stream of check-ins about judgement
+ * the assistant is better placed to make.
+ */
+export const MEMORY_V3_REFORM_PROMPT = `Please migrate your memory from v2 to v3 by running your "Memory v3 Migration" skill. Follow it exactly. Its hard rules are the point, so don't work around them.
+
+Before any real work:
+
+- Run the preflight checks. If any fail, stop and tell me rather than working around them.
+- At the skill's confirm gate, show me the corpus size (page count and bytes), then wait for my go-ahead.
+
+During the run:
+
+- Reorganize properly: merge fragmented stubs into topical articles with a real lead and ## sections. Mechanical reformatting is the failure mode here.
+- Pin a known-working leaf profile for the judge and confirm the verdict count matches packets × panel size. A profile can validate fine and still no-op as a leaf, which would hand me a vacuous pass.
+- Don't cut over on a fail, a low-confidence verdict, or an unrun gate. On any of those, leave everything on v2 and show me what happened.
+
+When you're done, give me the skill's Step 10 report, including the loss-audit result, whether consolidation actually resumed, and the backup path.
+
+Run it in the background. Wake me for: a failed preflight, a failed or low-confidence eval, or a load-bearing drop you can't patch cleanly. Taxonomy and article structure are your call, don't check in on those.`;
+
+/**
+ * Seeds the upgrade chat on a **v1** assistant, which has no concept pages at
+ * all: its memory lives in the legacy PKB graph.
+ *
+ * Deliberately vaguer than the v2 seed, and deliberately does NOT name the
+ * reform skill. That skill's own `avoid-when` rules it out for an empty or
+ * near-empty corpus and send the assistant to the backfill migration instead,
+ * so naming it here would seed an instruction the skill itself rejects. State
+ * the goal, have the assistant look, and let it pick.
  */
 export const MEMORY_V3_UPGRADE_PROMPT =
   "Upgrade my memory to v3 so the memory graph works. Check whether your " +
@@ -44,6 +81,13 @@ export interface MemoryUnavailableCopy {
   title: string;
   detail: string;
   action: MemoryUnavailableAction;
+  /**
+   * Seed for the chat this state's CTA opens, where it opens one. Carried on
+   * the copy rather than chosen by the component: which seed is correct is a
+   * property of the tier (a v2 corpus gets reformed, a v1 one gets backfilled),
+   * and that decision belongs next to the tier's other copy.
+   */
+  prompt?: string;
 }
 
 /**
@@ -92,6 +136,7 @@ export function describeMemoryUnavailable(
       detail:
         "Your assistant isn't keeping anything from your conversations, so there's no map to draw. Turn Memory back on to start remembering again.",
       action: "settings",
+      prompt: MEMORY_ENABLE_PROMPT,
     };
   }
   if (tier === "v1" || tier === "v2") {
@@ -100,6 +145,11 @@ export function describeMemoryUnavailable(
       detail:
         "Your assistant is on an older memory engine. Memory v3 reorganizes what it knows into a linked wiki of concepts, and that wiki is what this map draws.",
       action: "upgrade",
+      // v2 already holds concept pages, so the job is the staged reform and
+      // the seed can name that skill and hold it to its gates. v1 holds none,
+      // so it gets the open-ended seed and lets the assistant route itself.
+      prompt:
+        tier === "v2" ? MEMORY_V3_REFORM_PROMPT : MEMORY_V3_UPGRADE_PROMPT,
     };
   }
   return {
