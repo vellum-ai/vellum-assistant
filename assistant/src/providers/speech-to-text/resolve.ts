@@ -56,9 +56,8 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
 
   if (provider === "vellum") {
     // Managed batch transcription rides the platform's speech proxy, which
-    // accepts no language parameter. Forwarding `services.stt.language` here
-    // requires a platform-side change and is deferred; streaming is the
-    // covered path for managed language selection.
+    // accepts no language parameter, so `services.stt.language` does not
+    // apply here; streaming is the path that honors it for managed speech.
     return (await sttProviderKeyResolves("vellum"))
       ? createDaemonBatchTranscriber(null, "vellum")
       : null;
