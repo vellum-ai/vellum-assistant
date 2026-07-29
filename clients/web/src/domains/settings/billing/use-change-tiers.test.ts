@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type {
@@ -31,6 +31,7 @@ let onboardingFixture: OnboardingStateResponse | null = null;
 let plansFixture: PlanListResponse | null = null;
 // When true, the onboarding query stays pending (its first load never lands).
 let onboardingHangs = false;
+let onboardingFails = false;
 
 /** Pro catalog whose machine tiers carry the prices used to rank up/downgrades. */
 function proPlans(): PlanListResponse {
@@ -94,9 +95,17 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingSubscriptionOnboardingRetrieveOptions: () => ({
     queryKey: ONBOARDING_KEY,
     // When `onboardingHangs`, never resolves — models the first onboarding load
-    // still in flight so `currentReady` can be exercised.
-    queryFn: () =>
-      onboardingHangs ? new Promise(() => {}) : onboardingFixture,
+    // still in flight so `currentReady` can be exercised. When
+    // `onboardingFails`, rejects, which settles the query with no data at all.
+    queryFn: () => {
+      if (onboardingHangs) {
+        return new Promise(() => {});
+      }
+      if (onboardingFails) {
+        return Promise.reject(new Error("onboarding read failed"));
+      }
+      return onboardingFixture;
+    },
   }),
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey: () =>
     ONBOARDING_KEY,
@@ -226,6 +235,7 @@ describe("useChangeTiers", () => {
     storageImpl = async () => ({});
     creditImpl = async () => ({});
     onboardingHangs = false;
+    onboardingFails = false;
     subscriptionFetches = 0;
     subscriptionFixture = proSubscription();
     onboardingFixture = onboarding();
@@ -298,6 +308,29 @@ describe("useChangeTiers", () => {
   test("currentReady is true once the onboarding data is present", () => {
     const { result } = setup();
     expect(result.current.currentReady).toBe(true);
+  });
+
+  test("currentKnown is false when the onboarding read failed", async () => {
+    // The read settles, so `currentReady` says go, but every dimension behind
+    // it is null. A caller ranking the machine tier must not read that null as
+    // the machine-less floor.
+    onboardingFails = true;
+    const { result } = setup({ seedOnboarding: false });
+    await waitFor(() => expect(result.current.currentReady).toBe(true));
+    expect(result.current.currentKnown).toBe(false);
+    expect(result.current.current.machineTier).toBeNull();
+  });
+
+  test("currentKnown is true once the onboarding payload is in hand", () => {
+    const { result } = setup();
+    expect(result.current.currentKnown).toBe(true);
+  });
+
+  test("currentKnown is true for a base sub (no onboarding to read)", () => {
+    subscriptionFixture = proSubscription({ plan_id: "base" });
+    onboardingHangs = true;
+    const { result } = setup({ seedOnboarding: false });
+    expect(result.current.currentKnown).toBe(true);
   });
 
   test("currentReady is true for a base sub (no onboarding to await)", () => {

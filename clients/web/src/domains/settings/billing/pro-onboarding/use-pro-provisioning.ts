@@ -257,6 +257,14 @@ export function useProProvisioning({
   // verdict or an error into the next open's session.
   const ensureGenerationRef = useRef(0);
   const [sawOperation, setSawOperation] = useState(false);
+  // The assistant whose marker was watched. Until the onboarding payload names
+  // a primary the hook polls the active-assistant fallback, so a marker can be
+  // observed on one assistant and the watch then re-keyed to another. An
+  // unkeyed latch would carry that unrelated marker across as evidence that a
+  // downsize on the new assistant had already rolled out.
+  const [sawOperationAssistantId, setSawOperationAssistantId] = useState<
+    string | null
+  >(null);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
   // The assistant the frozen snapshot describes, so it can be re-captured when
@@ -282,6 +290,7 @@ export function useProProvisioning({
     setProConfirmedAt(null);
     setResumedAt(null);
     setSawOperation(false);
+    setSawOperationAssistantId(null);
     setActualsSnapshot(null);
     setSnapshotAssistantId(null);
     setTracking(true);
@@ -589,8 +598,10 @@ export function useProProvisioning({
   useEffect(() => {
     if (resizeOperationInFlight) {
       setSawOperation(true);
+      setSawOperationAssistantId(assistantId);
     }
-  }, [resizeOperationInFlight]);
+  }, [resizeOperationInFlight, assistantId]);
+  const sawOperationMatchesAssistant = sawOperationAssistantId === assistantId;
 
   const onboarding = onboardingQuery.data;
   const targets = useMemo<ProvisioningDimensions | null>(() => {
@@ -808,7 +819,10 @@ export function useProProvisioning({
     // snapshot from a prior target must never drive the before/after verdict.
     initialActuals: snapshotMatchesAssistant ? actualsSnapshot : null,
     resizeOperationInFlight,
-    sawOperation,
+    // Same rule as the snapshot: a marker watched on a prior target says
+    // nothing about this one, and under a downward change it is the only
+    // evidence the completion gate accepts.
+    sawOperation: sawOperation && sawOperationMatchesAssistant,
     msSinceWatchStart,
     confirmExpired,
     serverVerdict,

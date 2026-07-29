@@ -548,7 +548,8 @@ function renderInteractive(
     seedOnboarding = true,
   }: {
     plans?: PlanListResponse;
-    onboardingData?: OnboardingStateResponse;
+    /** Null models a read that settled with no payload, e.g. one that failed. */
+    onboardingData?: OnboardingStateResponse | null;
     /** False leaves the onboarding query to fetch, so it mounts unsettled. */
     seedOnboarding?: boolean;
   } = {},
@@ -661,6 +662,25 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(toastSuccessCalls).toEqual([]);
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(upgradeCall).toBeNull();
+  });
+
+  test("an unread current tier is treated as able to lower, not as the floor", async () => {
+    // A failed onboarding read settles `currentReady` while leaving every
+    // dimension null, and a null machine tier is what a machine-less package
+    // reports. Ranking that null would read a Super sub as sitting on the
+    // floor and hand a real downgrade the inference only a raise earns.
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      { onboardingData: null },
+    );
+
+    fireEvent.click(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    );
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
   });
 
   test("Super → Ultra upgrade confirms, then calls change-package with the ultra key", async () => {

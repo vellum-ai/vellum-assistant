@@ -202,6 +202,7 @@ export function PlansPage() {
     isPending: changeTiersPending,
     current,
     currentReady,
+    currentKnown,
     primaryAssistantId,
   } = useChangeTiers({ enabled: platformReady });
   // Native iOS keeps Checkout inside an in-app sheet, so the page holds
@@ -630,11 +631,16 @@ export function PlansPage() {
       // credits are not a provisioned resource at all.
       //
       // A Custom sub has no catalog rank, so its own ceiling can sit anywhere
-      // relative to the target's, and an unread ceiling can't be ranked at all.
-      // Neither may claim the fast inference.
+      // relative to the target's, and an unranked ceiling can't be compared at
+      // all. Neither may claim the fast inference. `currentKnown` is what
+      // separates a tier that is absent from one that was never read: a failed
+      // onboarding read settles `currentReady` while leaving `machineTier`
+      // null, which is indistinguishable from a package that names no machine
+      // and would rank an Ultra sub as if it sat on the floor.
       const canLowerResources =
         currentTierKey === null ||
         !currentReady ||
+        !currentKnown ||
         lowersMachineCeiling(current.machineTier, target.machine_tier);
       const result = await changePackage(target.key);
       if (!result) {
@@ -681,11 +687,11 @@ export function PlansPage() {
       const before = capturePlanBefore();
       // The modal seeds from `current`, so the machine tier it is moving away
       // from is read here rather than guessed. A credit-only or storage-only
-      // edit leaves the ceiling alone and keeps its fast no-op inference.
-      const canLowerResources = lowersMachineCeiling(
-        current.machineTier,
-        selection.machineTier,
-      );
+      // edit leaves the ceiling alone and keeps its fast no-op inference, while
+      // a tier that was never read cannot be ranked and so cannot claim it.
+      const canLowerResources =
+        !currentKnown ||
+        lowersMachineCeiling(current.machineTier, selection.machineTier);
       const result = await changeTiers(selection);
       if (!result) {
         // The hook toasted; keep the modal open so the user can retry.

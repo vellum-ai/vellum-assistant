@@ -78,6 +78,15 @@ export interface UseChangeTiersResult {
    */
   currentReady: boolean;
   /**
+   * Whether `current`'s server-read dimensions were actually READ: for a Pro
+   * sub, the onboarding payload behind them is in hand. `currentReady` only
+   * says that read settled, so it is true for one that failed, and a failed
+   * read leaves `machineTier` null, which is exactly what a package naming no
+   * machine reports. Callers that rank the machine tier must consult this and
+   * treat an unread tier as unknown rather than as the machine-less floor.
+   */
+  currentKnown: boolean;
+  /**
    * The assistant the server provisions against, from the same onboarding
    * payload `current` reads. Null while that payload is absent, or when the org
    * names no primary; callers fall back to the active assistant, which is how
@@ -171,6 +180,10 @@ export function useChangeTiers({
   // that first load settles (success or error) — an error leaves the tiers null,
   // which the caller safely reads as "not representable" and routes to manage.
   const currentReady = !onPro || !onboardingQuery.isPending;
+  // Settling covers a read that FAILED, which leaves every dimension null. The
+  // payload actually being in hand is the only thing that separates "this
+  // package names no machine" from "we could not read the machine at all".
+  const currentKnown = !onPro || onboardingQuery.data != null;
 
   const isPending =
     changeMachineTierMutation.isPending ||
@@ -320,6 +333,7 @@ export function useChangeTiers({
     current,
     eligible,
     currentReady,
+    currentKnown,
     primaryAssistantId: onboardingQuery.data?.primary_assistant_id ?? null,
   };
 }
