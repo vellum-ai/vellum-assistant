@@ -9,6 +9,8 @@
  * parser silently drops events that do not.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { UISurfaceShowEventSchema } from "../api/events/ui-surface-show.js";
@@ -22,6 +24,7 @@ import type { SurfaceType } from "../daemon/message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "../daemon/message-protocol.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { uiShowTool } from "../tools/ui-surface/definitions.js";
+import { validateVisualHtml } from "../tools/ui-surface/visual-validation.js";
 
 const HTML = '<div style="color:var(--content-default)">Hello</div>';
 
@@ -232,6 +235,72 @@ describe("ui_show visual fragment guards", () => {
     expect(proxied).toBe(false);
   });
 
+  test("rejects a bare label whose only same-palette fill is a distant pill", async () => {
+    // The fragment that rendered at 1.04:1 in dark mode: two labels painted
+    // directly on the transparent background, with the matching light stops
+    // used as pill fills several hundred characters away.
+    const pill = (palette: string): string =>
+      `<span style="background:var(--color-${palette}-100);color:var(--color-${palette}-900);` +
+      'border-radius:var(--radius-pill);padding:2px 8px">tag</span>';
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          '<svg role="img" viewBox="0 0 680 220"><title>Lookup</title><desc>Walk</desc>' +
+          '<rect x="40" y="30" width="120" height="44" rx="4" fill="var(--surface-lift)" stroke="var(--border-element)"/>' +
+          '<rect x="180" y="30" width="120" height="44" rx="4" fill="var(--surface-lift)" stroke="var(--border-element)"/>' +
+          '<rect x="320" y="30" width="120" height="44" rx="4" fill="var(--surface-lift)" stroke="var(--border-element)"/>' +
+          '<text x="100" y="52" dominant-baseline="central" font-size="12" fill="var(--content-default)">key</text>' +
+          '<text x="240" y="52" dominant-baseline="central" font-size="12" fill="var(--content-default)">hash</text>' +
+          '<text x="390" y="70" font-size="12" fill="var(--color-forest-900)">found!</text>' +
+          '<text x="470" y="70" font-size="12" fill="var(--color-danger-900)">check next</text></svg>' +
+          '<div style="padding:0.5rem 0;font:400 12px var(--font-sans);color:var(--content-secondary)">' +
+          "Buckets hold one entry each; a collision walks forward to the next free slot. " +
+          "Load factor stays under 0.7 so the walk stays short and lookups stay near constant time. " +
+          "The table doubles when it crosses that line, which rehashes every key once.</div>" +
+          `<div style="display:flex;gap:12px">${pill("forest")}${pill("danger")}</div>`,
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("--color-forest-900");
+    expect(result.content).toContain("--color-danger-900");
+    expect(result.content).toContain("invisible in dark mode");
+    expect(proxied).toBe(false);
+  });
+
+  test("accepts a label painted beside its box in the same group", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          '<svg role="img" viewBox="0 0 680 120"><title>t</title><desc>d</desc>' +
+          '<g><rect x="40" y="30" width="180" height="44" rx="4" fill="var(--color-forest-100)"/>' +
+          '<text x="130" y="52" text-anchor="middle" dominant-baseline="central" ' +
+          'fill="var(--color-forest-900)">Ingest</text></g></svg>',
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("accepts a label whose box fill comes from the group's class rule", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          '<svg role="img" viewBox="0 0 680 80"><title>t</title><desc>d</desc>' +
+          "<style>.bx rect{fill:var(--color-emerald-100);stroke:var(--color-emerald-600)}</style>" +
+          '<g class="bx"><rect x="0" y="0" width="200" height="60" rx="4"/>' +
+          '<text x="100" y="30" fill="var(--color-emerald-900)">Worker</text></g></svg>',
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
   test("rejects dark ramp text with no light fill of the same palette", async () => {
     const { result, proxied } = await runUiShow({
       surface_type: "visual",
@@ -252,7 +321,9 @@ describe("ui_show visual fragment guards", () => {
     expect(proxied).toBe(false);
   });
 
-  test("accepts dark ramp text once a matched light fill is present", async () => {
+  // Which elements a selector reaches is not knowable from the markup, so a
+  // fill anywhere in the fragment pairs a stylesheet-painted label.
+  test("accepts stylesheet-painted text once a matched light fill is present", async () => {
     const { result, proxied } = await runUiShow({
       surface_type: "visual",
       data: {
@@ -341,6 +412,40 @@ describe("ui_show visual fragment guards", () => {
     expect(result.content).not.toContain("app-builder");
     expect(proxied).toBe(true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Skill reference examples
+// ---------------------------------------------------------------------------
+
+describe("the visualize reference examples pass the fragment guards", () => {
+  const referencesDir = join(
+    import.meta.dir,
+    "../config/bundled-skills/visualize/references",
+  );
+
+  const examples = readdirSync(referencesDir)
+    .filter((file) => file.endsWith(".md"))
+    .sort()
+    .flatMap((file) => {
+      const source = readFileSync(join(referencesDir, file), "utf8");
+      return [...source.matchAll(/```(\w*)\n([\s\S]*?)```/g)].map(
+        (match, index) => ({
+          name: `${file} example ${index + 1} (${match[1] || "text"})`,
+          body: match[2],
+        }),
+      );
+    });
+
+  test("every fenced example is present", () => {
+    expect(examples.length).toBe(19);
+  });
+
+  for (const example of examples) {
+    test(`${example.name} is accepted verbatim`, () => {
+      expect(validateVisualHtml(example.body)).toEqual([]);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------

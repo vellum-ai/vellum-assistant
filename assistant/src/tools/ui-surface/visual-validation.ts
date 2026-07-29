@@ -190,6 +190,15 @@ const TEXT_COLOR_DECLARATION_PATTERN = /(?<![-\w])color\s*:\s*[^;}"'>]*/gi;
 /** Open tags of the two SVG elements that paint glyphs. */
 const SVG_TEXT_TAG_PATTERN = /<(?:text|tspan)\b[^>]*>/gi;
 
+/** Any element's open tag, the span that carries one element's own paint. */
+const START_TAG_PATTERN = /<[a-zA-Z][^>]*>/g;
+
+/** `<g>` open and close tags, used to bound the group around a label. */
+const GROUP_BOUNDARY_PATTERN = /<g\b[^>]*>|<\/g\s*>/gi;
+
+/** Class names an element carries, used to reach the rules that paint it. */
+const CLASS_ATTRIBUTE_PATTERN = /\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+
 /**
  * Style rules, used to spot the ones that paint text via `fill:`. The selector
  * is bounded by `<`, `>`, `;` and `}` so it cannot swallow preceding markup.
@@ -199,7 +208,68 @@ const FILL_DECLARATION_PATTERN = /\bfill\s*:/i;
 const FONT_DECLARATION_PATTERN = /\bfont(?:-[a-z]+)?\s*:/i;
 const TEXT_SELECTOR_PATTERN = /(?:^|[\s,>+~])(?:text|tspan)\b/i;
 
+/**
+ * How much markup either side of a painted label counts as "beside it". A
+ * two-line SVG node — rect plus title plus subtitle — runs about 350
+ * characters, so this reaches the shape a label belongs to without reaching the
+ * rest of the drawing.
+ */
+const LOCAL_PAIRING_WINDOW = 400;
+
+/**
+ * Largest `<g>` that still reads as one paired shape. Past this a group is a
+ * layout container, and treating it as a pairing context would clear a palette
+ * for the whole drawing.
+ */
+const MAX_LOCAL_GROUP_CHARS = 2000;
+
 type SourceRange = { start: number; end: number };
+
+type CssRule = SourceRange & { selector: string; body: string };
+
+/** Every `{…}` rule in the fragment, split into selector and body. */
+function collectCssRules(html: string): CssRule[] {
+  const rules: CssRule[] = [];
+  for (const match of html.matchAll(CSS_RULE_PATTERN)) {
+    const text = match[0];
+    const start = match.index ?? 0;
+    const braceIndex = text.indexOf("{");
+    rules.push({
+      start,
+      end: start + text.length,
+      selector: text.slice(0, braceIndex),
+      body: text.slice(braceIndex),
+    });
+  }
+  return rules;
+}
+
+function collectRanges(html: string, pattern: RegExp): SourceRange[] {
+  const ranges: SourceRange[] = [];
+  for (const match of html.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    ranges.push({ start, end: start + match[0].length });
+  }
+  return ranges;
+}
+
+/** Spans of balanced `<g>…</g>` pairs. Unclosed groups are ignored. */
+function collectGroupRanges(html: string): SourceRange[] {
+  const ranges: SourceRange[] = [];
+  const open: number[] = [];
+  for (const match of html.matchAll(GROUP_BOUNDARY_PATTERN)) {
+    const index = match.index ?? 0;
+    if (match[0].startsWith("</")) {
+      const start = open.pop();
+      if (start !== undefined) {
+        ranges.push({ start, end: index + match[0].length });
+      }
+    } else if (!match[0].endsWith("/>")) {
+      open.push(index);
+    }
+  }
+  return ranges;
+}
 
 /**
  * Spans of the fragment that paint text: `color:` declarations, `<text>` and
@@ -207,26 +277,18 @@ type SourceRange = { start: number; end: number };
  * because the rule also sets a font property or because its selector names a
  * text element. A ramp token inside one of these is a text colour.
  */
-function collectTextColorRanges(html: string): SourceRange[] {
-  const ranges: SourceRange[] = [];
-  for (const match of html.matchAll(TEXT_COLOR_DECLARATION_PATTERN)) {
-    const start = match.index ?? 0;
-    ranges.push({ start, end: start + match[0].length });
-  }
-  for (const match of html.matchAll(SVG_TEXT_TAG_PATTERN)) {
-    const start = match.index ?? 0;
-    ranges.push({ start, end: start + match[0].length });
-  }
-  for (const match of html.matchAll(CSS_RULE_PATTERN)) {
-    const rule = match[0];
-    const selector = rule.slice(0, rule.indexOf("{"));
+function collectTextColorRanges(html: string, rules: CssRule[]): SourceRange[] {
+  const ranges = [
+    ...collectRanges(html, TEXT_COLOR_DECLARATION_PATTERN),
+    ...collectRanges(html, SVG_TEXT_TAG_PATTERN),
+  ];
+  for (const rule of rules) {
     if (
-      FILL_DECLARATION_PATTERN.test(rule) &&
-      (FONT_DECLARATION_PATTERN.test(rule) ||
-        TEXT_SELECTOR_PATTERN.test(selector))
+      FILL_DECLARATION_PATTERN.test(rule.body) &&
+      (FONT_DECLARATION_PATTERN.test(rule.body) ||
+        TEXT_SELECTOR_PATTERN.test(rule.selector))
     ) {
-      const start = match.index ?? 0;
-      ranges.push({ start, end: start + rule.length });
+      ranges.push({ start: rule.start, end: rule.end });
     }
   }
   return ranges;
@@ -236,70 +298,176 @@ function isInsideRange(index: number, ranges: SourceRange[]): boolean {
   return ranges.some((range) => index >= range.start && index < range.end);
 }
 
-/**
- * Ramp stops are theme-invariant, so ramp-coloured text only reads when it sits
- * on a matching ramp fill. Text painted with a dark stop and no light fill of
- * the same palette anywhere in the fragment is sitting on the transparent
- * widget background, where it vanishes in dark mode (and the mirror case
- * vanishes in light mode).
- *
- * The check is deliberately loose about placement: any counterpart fill of the
- * same palette clears the palette, so a correct matched triple never trips it.
- */
-function collectRampContrastProblems(html: string): string[] {
-  const textRanges = collectTextColorRanges(html);
-  const darkText = new Map<string, Set<string>>();
-  const lightText = new Map<string, Set<string>>();
-  const fillStops = new Map<string, Set<string>>();
-
-  for (const match of html.matchAll(RAMP_TOKEN_PATTERN)) {
-    const token = match[0];
-    const palette = match[1];
-    const stop = match[2];
-    if (!isInsideRange(match.index ?? 0, textRanges)) {
-      const stops = fillStops.get(palette) ?? new Set<string>();
-      stops.add(stop);
-      fillStops.set(palette, stops);
+/** The tightest range containing the index, if any. */
+function innermostRange<T extends SourceRange>(
+  index: number,
+  ranges: T[],
+): T | undefined {
+  let found: T | undefined;
+  for (const range of ranges) {
+    if (index < range.start || index >= range.end) {
       continue;
     }
-    const bucket = DARK_RAMP_STOPS.has(stop)
-      ? darkText
-      : LIGHT_RAMP_STOPS.has(stop)
-        ? lightText
-        : undefined;
-    if (bucket) {
-      const tokens = bucket.get(palette) ?? new Set<string>();
-      tokens.add(token);
-      bucket.set(palette, tokens);
+    if (!found || range.end - range.start < found.end - found.start) {
+      found = range;
+    }
+  }
+  return found;
+}
+
+/** Whether a stop of `palette` from `allowed` is painted anywhere in `text`. */
+function hasCounterpartStop(
+  text: string,
+  palette: string,
+  allowed: ReadonlySet<string>,
+): boolean {
+  for (const match of text.matchAll(RAMP_TOKEN_PATTERN)) {
+    if (match[1] === palette && allowed.has(match[2])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The markup a directly painted label is paired against: its own open tag, the
+ * window of markup around it, the group immediately containing it, and the
+ * bodies of the rules that paint the classes named in that window.
+ */
+function localPairingContexts(
+  html: string,
+  index: number,
+  rules: CssRule[],
+  tags: SourceRange[],
+  groups: SourceRange[],
+): string[] {
+  const nearby = html.slice(
+    Math.max(0, index - LOCAL_PAIRING_WINDOW),
+    index + LOCAL_PAIRING_WINDOW,
+  );
+  const contexts = [nearby];
+
+  const tag = innermostRange(index, tags);
+  if (tag) {
+    contexts.push(html.slice(tag.start, tag.end));
+  }
+
+  const group = innermostRange(index, groups);
+  if (group && group.end - group.start <= MAX_LOCAL_GROUP_CHARS) {
+    contexts.push(html.slice(group.start, group.end));
+  }
+
+  const classNames = new Set<string>();
+  for (const match of nearby.matchAll(CLASS_ATTRIBUTE_PATTERN)) {
+    for (const name of (match[1] ?? match[2] ?? "").split(/\s+/)) {
+      if (name) {
+        classNames.add(name);
+      }
+    }
+  }
+  for (const rule of rules) {
+    if ([...classNames].some((name) => rule.selector.includes(`.${name}`))) {
+      contexts.push(rule.body);
     }
   }
 
-  const hasStopIn = (palette: string, allowed: ReadonlySet<string>): boolean =>
-    [...(fillStops.get(palette) ?? [])].some((stop) => allowed.has(stop));
+  return contexts;
+}
 
-  const problems: string[] = [];
-  const unbacked = [...darkText]
-    .filter(([palette]) => !hasStopIn(palette, LIGHT_FILL_STOPS))
-    .flatMap(([, tokens]) => [...tokens]);
-  if (unbacked.length > 0) {
-    problems.push(
-      `Dark ramp stops used as text colour with no matching light fill: ${quote(unbacked)}. ` +
-        "Ramp stops are the same colour in both themes, so dark ramp text on the transparent widget " +
-        "background is invisible in dark mode. Put ramp-coloured text only on a matching light ramp " +
-        "fill (a 50–300 stop of the same palette), or use a --content-* token for text that sits on " +
-        "the page background.",
-    );
+/**
+ * Ramp stops are theme-invariant, so ramp-coloured text only reads when it sits
+ * on a matching ramp fill — and the fill has to be the one actually behind the
+ * glyphs. Text painted with a dark stop and no light fill of the same palette
+ * beside it is sitting on the transparent widget background, where it vanishes
+ * in dark mode (and the mirror case vanishes in light mode).
+ *
+ * Pairing is therefore local. A label painted directly — an inline `style`, a
+ * `fill` attribute on `<text>` — pairs against its own element, the markup
+ * around it, the group containing it, or the rules painting the classes in that
+ * window. A label painted through a style rule pairs inside that rule, and
+ * otherwise against the fragment as a whole: which elements a selector reaches
+ * is not knowable without a DOM, so the rule's own placement carries no signal.
+ */
+function collectRampContrastProblems(html: string): string[] {
+  const rules = collectCssRules(html);
+  const textRanges = collectTextColorRanges(html, rules);
+  const tags = collectRanges(html, START_TAG_PATTERN);
+  const groups = collectGroupRanges(html);
+
+  const occurrences = [...html.matchAll(RAMP_TOKEN_PATTERN)].map((match) => ({
+    token: match[0],
+    palette: match[1],
+    stop: match[2],
+    index: match.index ?? 0,
+  }));
+
+  const fillStops = new Map<string, Set<string>>();
+  for (const occurrence of occurrences) {
+    if (isInsideRange(occurrence.index, textRanges)) {
+      continue;
+    }
+    const stops = fillStops.get(occurrence.palette) ?? new Set<string>();
+    stops.add(occurrence.stop);
+    fillStops.set(occurrence.palette, stops);
   }
 
-  const unbackedLight = [...lightText]
-    .filter(([palette]) => !hasStopIn(palette, DARK_RAMP_STOPS))
-    .flatMap(([, tokens]) => [...tokens]);
-  if (unbackedLight.length > 0) {
+  const hasFillStopIn = (
+    palette: string,
+    allowed: ReadonlySet<string>,
+  ): boolean =>
+    [...(fillStops.get(palette) ?? [])].some((stop) => allowed.has(stop));
+
+  const unpairedDark = new Set<string>();
+  const unpairedLight = new Set<string>();
+
+  for (const occurrence of occurrences) {
+    if (!isInsideRange(occurrence.index, textRanges)) {
+      continue;
+    }
+    const bucket = DARK_RAMP_STOPS.has(occurrence.stop)
+      ? unpairedDark
+      : LIGHT_RAMP_STOPS.has(occurrence.stop)
+        ? unpairedLight
+        : undefined;
+    if (!bucket) {
+      continue;
+    }
+    const counterparts =
+      bucket === unpairedDark ? LIGHT_FILL_STOPS : DARK_RAMP_STOPS;
+
+    const rule = innermostRange(occurrence.index, rules);
+    const paired = rule
+      ? hasCounterpartStop(rule.body, occurrence.palette, counterparts) ||
+        hasFillStopIn(occurrence.palette, counterparts)
+      : localPairingContexts(html, occurrence.index, rules, tags, groups).some(
+          (context) =>
+            hasCounterpartStop(context, occurrence.palette, counterparts),
+        );
+
+    if (!paired) {
+      bucket.add(occurrence.token);
+    }
+  }
+
+  const problems: string[] = [];
+  if (unpairedDark.size > 0) {
     problems.push(
-      `Light ramp stops used as text colour with no matching dark fill: ${quote(unbackedLight)}. ` +
+      `Dark ramp stops used as text colour with no matching light fill behind them: ${quote([...unpairedDark])}. ` +
+        "Ramp stops are the same colour in both themes, so dark ramp text on the transparent widget " +
+        "background is invisible in dark mode. Ramp-coloured text has to sit on a matching light ramp " +
+        "fill (a 50–300 stop of the same palette) set on the same element, in the same style rule, or " +
+        "on the group immediately around it — or use a --content-* token for text that sits on the " +
+        "page background.",
+    );
+  }
+  if (unpairedLight.size > 0) {
+    problems.push(
+      `Light ramp stops used as text colour with no matching dark fill behind them: ${quote([...unpairedLight])}. ` +
         "Ramp stops are the same colour in both themes, so light ramp text on the transparent widget " +
-        "background is invisible in light mode. Put it on a matching dark ramp fill (a 700–950 stop of " +
-        "the same palette), or use a --content-* token for text that sits on the page background.",
+        "background is invisible in light mode. Ramp-coloured text has to sit on a matching dark ramp " +
+        "fill (a 700–950 stop of the same palette) set on the same element, in the same style rule, or " +
+        "on the group immediately around it — or use a --content-* token for text that sits on the " +
+        "page background.",
     );
   }
 

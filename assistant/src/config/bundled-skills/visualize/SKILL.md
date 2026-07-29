@@ -38,7 +38,7 @@ ui_show {
 
 Prose goes in your reply, the visual goes in the tool: no titles, headings, intros, captions, or explanatory paragraphs inside the fragment. The chat message around it carries all of that.
 
-Pick the form and sketch the structure in a sentence or two of thought, then write the fragment. Do not deliberate at length and do not draft competing versions in your head — the validator catches mistakes and another call is cheap, so a thought budget spent weighing options is a budget that produces nothing on screen.
+Pick the form and sketch the structure in a sentence or two of thought, then write the fragment. The fragment is written IN the ui_show call — once the form is chosen, emit the call and compose the markup there. Never draft it in your reasoning: markup written in thought has to be written again in the call, and a long enough draft runs out of tokens before the call is ever made. Do not deliberate at length and do not draft competing versions in your head — the validator catches mistakes and another call is cheap, so a thought budget spent weighing options is a budget that produces nothing on screen.
 
 ## Not this skill
 
@@ -123,7 +123,7 @@ background: var(--color-forest-100); border-color: var(--color-forest-600); colo
 
 Title text on a tinted fill uses the 900 stop; secondary text on that fill uses 800. Never put --content-default (which flips) on a ramp fill (which does not) — it vanishes in one of the two modes.
 
-The reverse is the more common mistake and is rejected outright: text sitting directly on the page background — every SVG label, axis tick, node title, and paragraph outside a tinted fill — uses --content-* and never a ramp stop. A ramp stop is one constant colour, so --color-forest-900 text on the transparent background is invisible in dark mode and --color-forest-100 text is invisible in light mode. The validator flags a dark ramp stop used as a text colour when no light stop of that palette is used as a fill anywhere in the fragment, and the mirror case.
+The reverse is the more common mistake and is rejected outright: text sitting directly on the page background — every SVG label, axis tick, node title, and paragraph outside a tinted fill — uses --content-* and never a ramp stop. A ramp stop is one constant colour, so --color-forest-900 text on the transparent background is invisible in dark mode and --color-forest-100 text is invisible in light mode. The validator flags a dark ramp stop used as a text colour when the matching light stop is not painted right there — on the same element, in the same style rule, or on the group immediately around the label — and the mirror case. A pill using that palette elsewhere in the fragment does not cover a bare label.
 
 Never hardcode a colour for text, background, border, or SVG fill or stroke. Every colour comes from a variable above — hex literals (#2563eb), rgb(), rgba(), hsl(), and oklch() are rejected outright. Only transparent and currentColor are allowed as literal colour keywords.
 
