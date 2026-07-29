@@ -351,8 +351,9 @@ consumed by generated clients:
   `reembed-skills`, `router-prompt-template`, `simulate-router`, `validate`
   (operation ids `memory_v2_*`)
 - `memory/v3/*` — `backfill-sections`, `rebuild-index`
-- `memory/ingest` (`memory_ingest`): POST, deterministic batch concept-page
-  ingestion
+- `memory/ingest` (IPC method `memory_ingest`; the generated OpenAPI/HTTP
+  operation id is `memory_ingest_post`): POST, deterministic batch
+  concept-page ingestion
 - `memory/worker/*`, `memory/eval/*`
 - `consolidation/config`, `consolidation/run-now`, `consolidation/runs`
 - `filing/config`, `filing/run-now` (v1)
