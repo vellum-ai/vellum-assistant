@@ -21,6 +21,7 @@ import {
 import type { DefaultProfileProvider } from "../config/default-profile-names.js";
 import type { ProfileEntry } from "../config/schemas/llm.js";
 import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
+import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 
 let workspaceDir: string;
 let originalIsPlatform: string | undefined;
@@ -112,6 +113,13 @@ function uneditedByokConfig(): Record<string, unknown> {
       },
     },
   };
+}
+
+/** Asserts a second run leaves the config file byte-identical. */
+function expectSecondRunNoop(): void {
+  const first = readFileSync(configPath(), "utf-8");
+  ensureByokDefaultProfiles(workspaceDir);
+  expect(readFileSync(configPath(), "utf-8")).toBe(first);
 }
 
 beforeEach(() => {
@@ -221,21 +229,159 @@ describe("ensureByokDefaultProfiles", () => {
     expect(callSites.subagentSpawn?.profile).toBe("cost-optimized");
   });
 
-  test("label and status differences do not count as edits", () => {
+  test("bodies baked by ensureCompleteCustomProfiles on a prior boot convert fully", () => {
+    writeConfig(uneditedByokConfig());
+    ensureCompleteCustomProfiles(workspaceDir);
+    // Sanity: completion actually baked defaulted fields onto the copies.
+    expect(profiles()["custom-balanced"]?.speed).toBe("standard");
+    expect(
+      (profiles()["custom-balanced"]?.contextWindow as Record<string, unknown>)
+        .overflowRecovery,
+    ).toBeDefined();
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(profiles()["custom-quality-optimized"]).toBeUndefined();
+    expect(profiles()["custom-cost-optimized"]).toBeUndefined();
+    expect(profiles().balanced).toBeUndefined();
+    expect(llm().activeProfile).toBe("balanced");
+    expect(llm().advisorProfile).toBe("quality-optimized");
+    expectSecondRunNoop();
+  });
+
+  test.each([
+    ["anthropic", "quality-optimized", "claude-opus-4-7"],
+    ["anthropic", "quality-optimized", "claude-opus-4-8"],
+    ["openrouter", "quality-optimized", "anthropic/claude-opus-4.8"],
+    ["gemini", "cost-optimized", "gemini-3.1-flash-lite-preview"],
+    ["fireworks", "balanced", "accounts/fireworks/models/kimi-k2p5"],
+    ["fireworks", "balanced", "accounts/fireworks/models/kimi-k2p6"],
+    [
+      "fireworks",
+      "quality-optimized",
+      "accounts/fireworks/models/deepseek-v4-flash",
+    ],
+  ] as const)(
+    "a historical intent-era copy converts (%s %s pinned to %s)",
+    (provider, key, model) => {
+      writeConfig({
+        llm: {
+          defaultProvider: { provider },
+          activeProfile: `custom-${key}`,
+          profiles: {
+            [`custom-${key}`]: { ...hatchBody(key, provider), model },
+          },
+        },
+      });
+
+      ensureByokDefaultProfiles(workspaceDir);
+
+      expect(profiles()[`custom-${key}`]).toBeUndefined();
+      expect(llm().activeProfile).toBe(key);
+      expectSecondRunNoop();
+    },
+  );
+
+  test("a historical model pinned on the wrong key does not convert", () => {
+    // claude-opus-4-7 was only ever the quality intent; on custom-balanced it
+    // is a user edit.
     const config = uneditedByokConfig();
     const profileMap = (config.llm as Record<string, unknown>)
       .profiles as Record<string, Record<string, unknown>>;
     profileMap["custom-balanced"] = {
       ...profileMap["custom-balanced"],
-      label: "Balanced (renamed)",
-      status: "disabled",
+      model: "claude-opus-4-7",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeDefined();
+    expect(llm().activeProfile).toBe("custom-balanced");
+  });
+
+  test("a renamed copy converts and carries the label onto a thin stub", () => {
+    const config = uneditedByokConfig();
+    const profileMap = (config.llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    profileMap["custom-balanced"] = {
+      ...profileMap["custom-balanced"],
+      label: "My Balanced",
     };
     writeConfig(config);
 
     ensureByokDefaultProfiles(workspaceDir);
 
     expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(profiles().balanced).toEqual({
+      source: "managed",
+      label: "My Balanced",
+    });
     expect(llm().activeProfile).toBe("balanced");
+    const resolved = resolveDefaultProfileForProvider(
+      profiles() as Record<string, ProfileEntry>,
+      "balanced",
+      { provider: "anthropic" },
+    );
+    expect(resolved?.label).toBe("My Balanced");
+    expect(resolved?.provider).toBe("anthropic");
+    expectSecondRunNoop();
+  });
+
+  test("a disabled copy converts and carries the status onto a thin stub", () => {
+    const config = uneditedByokConfig();
+    const profileMap = (config.llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    profileMap["custom-quality-optimized"] = {
+      ...profileMap["custom-quality-optimized"],
+      status: "disabled",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-quality-optimized"]).toBeUndefined();
+    expect(profiles()["quality-optimized"]).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    // The advisor pointed at the now-disabled default, so the same write
+    // repaired it to the strongest active one.
+    expect(llm().advisorProfile).toBe("balanced");
+    expectSecondRunNoop();
+  });
+
+  test("a hatch-identical label and absent status convert with no stub", () => {
+    writeConfig(uneditedByokConfig());
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles().balanced).toBeUndefined();
+    expect(profiles()["quality-optimized"]).toBeUndefined();
+    expect(profiles()["cost-optimized"]).toBeUndefined();
+  });
+
+  test("an absent advisor profile is filled in the conversion write", () => {
+    const config = uneditedByokConfig();
+    delete (config.llm as Record<string, unknown>).advisorProfile;
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(llm().advisorProfile).toBe("quality-optimized");
+    expectSecondRunNoop();
+  });
+
+  test("an active profile naming a nonexistent profile is repointed at balanced", () => {
+    const config = uneditedByokConfig();
+    (config.llm as Record<string, unknown>).activeProfile = "ghost-profile";
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(llm().activeProfile).toBe("balanced");
+    expectSecondRunNoop();
   });
 
   test("the frozen pre-136 fireworks kimi body converts", () => {

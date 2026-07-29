@@ -43,6 +43,11 @@ import { getProviderKeyAsync } from "../security/secure-keys.js";
 // setup; absence falls through to custom profiles and the login fallback.
 // Other provider values can't be schema echoes and stay trustworthy as-is.
 
+// Historical repair signal only: the BYOK conversion pass
+// (byok-default-profile-ensure.ts) retires unedited `custom-*` copies, so on
+// converted installs these names are gone and recovery of a hand-deleted
+// `llm.defaultProvider` falls through to `loginFallback`; the persisted
+// field's presence is load-bearing there.
 const CUSTOM_PROFILE_ORDER = [
   "custom-balanced",
   "custom-quality-optimized",
