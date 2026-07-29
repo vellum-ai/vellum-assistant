@@ -84,9 +84,10 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
 ];
 
 /**
- * When each dimension was first seen to meet what the takeover displays for it,
- * keyed to the assistant those instants describe. The per-dimension analogue of
- * `targetsMetAt`, feeding the presentation-only landed flags.
+ * When each dimension was first seen to meet what the takeover displays for it
+ * with no status fetch out, keyed to the assistant those instants describe. The
+ * per-dimension analogue of `targetsMetAt`, feeding the presentation-only
+ * landed flags.
  */
 interface DimensionMetLatch {
   assistantId: string | null;
@@ -120,7 +121,7 @@ export interface ProProvisioningResult {
   /**
    * Per-dimension provisioning progress: a dimension has landed once what the
    * takeover displays for it is met, its own resize is no longer in flight, and
-   * the operational status has been read since that dimension read met. A
+   * a status fetch that started after that dimension read met has come back. A
    * machine-less package is measured against `machineFloor` and the actual
    * size, because its null machine target reads met by definition.
    *
@@ -621,6 +622,15 @@ export function useProProvisioning({
   // reading taken after a dimension read met is the one guaranteed to find that
   // dimension's marker, or find it retired. Keyed to the provisioning assistant
   // for the reason above.
+  //
+  // The instant is only taken while the status query is idle, because
+  // `dataUpdatedAt` records when a response was stored, not when its request
+  // began. A fetch already out when the dimension reads met observed the world
+  // before the resize marker existed, yet storing its answer still advances
+  // `dataUpdatedAt` past the latch. Waiting for idle makes the next advance a
+  // fetch that started after the latch, which is the reading the fence below
+  // asks for.
+  const statusQueryIdle = operationalStatusQuery.fetchStatus === "idle";
   const dimensionMetMatchesAssistant =
     dimensionMetAt.assistantId === assistantId;
   useEffect(() => {
@@ -630,11 +640,13 @@ export function useProProvisioning({
     setDimensionMetAt((prev) => {
       const carried =
         prev.assistantId === assistantId ? prev : NO_DIMENSIONS_MET;
+      // Null while a status fetch is out, holding the dimension unlatched.
+      const latchAt = statusQueryIdle ? Date.now() : null;
       const machine = displayTargetsMet.machine
-        ? (carried.machine ?? Date.now())
+        ? (carried.machine ?? latchAt)
         : null;
       const storage = displayTargetsMet.storage
-        ? (carried.storage ?? Date.now())
+        ? (carried.storage ?? latchAt)
         : null;
       if (
         prev.assistantId === assistantId &&
@@ -645,7 +657,7 @@ export function useProProvisioning({
       }
       return { assistantId, machine, storage };
     });
-  }, [open, displayTargetsMet, assistantId]);
+  }, [open, displayTargetsMet, assistantId, statusQueryIdle]);
 
   // Pairs the same questions the state machine pairs globally, per dimension.
   // Met-ness alone would not do: the platform persists the effective sizes at
@@ -654,6 +666,15 @@ export function useProProvisioning({
   // status queries poll independently: in the window where the assistant poll
   // holds the persisted sizes and the status query still holds its pre-resize
   // reading, a flag would land and the next poll would take it back.
+  //
+  // These flags are fenced more strictly than the terminal
+  // `statusObservedSinceTargetsMet` gate below, which compares `dataUpdatedAt`
+  // against its own latch and so counts a fetch that was already out. That gate
+  // is one-way: reaching a terminal state stops the poll, so a slightly early
+  // completion is absorbed and never visibly reverses. These flags render
+  // continuously, so the same false positive shows a chip checking off and then
+  // regressing to a spinner. That asymmetry is why the stricter fence lives
+  // here and not there.
   const landed = useMemo<ProvisioningDimensionFlags>(() => {
     const inFlight = resizeDimensionsInFlight(operationalStatusQuery.data);
     const statusReadSince = (metAt: number | null) =>

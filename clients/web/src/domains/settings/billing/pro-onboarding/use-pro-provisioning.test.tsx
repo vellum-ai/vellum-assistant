@@ -146,6 +146,8 @@ let assistantEndpointsFail = false;
 let onboardingFails = false;
 /** Holds the onboarding fetch in flight so isFetching can be observed. */
 let onboardingGate: Deferred | null = null;
+/** Holds the operational-status fetch in flight, mid-poll. */
+let operationalStatusGate: Deferred | null = null;
 let assistantCalls = 0;
 let assistantByIdCalls = 0;
 let operationalStatusCalls = 0;
@@ -233,15 +235,18 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
-  assistantsOperationalStatusDetailRead: () => {
+  assistantsOperationalStatusDetailRead: async () => {
     operationalStatusCalls += 1;
     if (assistantEndpointsFail) {
-      return Promise.reject(new Error("502 Bad Gateway"));
+      throw new Error("502 Bad Gateway");
     }
-    return Promise.resolve({
-      data: operationalStatusResponse,
-      response: { ok: true },
-    });
+    // Read at request time, so a gated fetch answers with the reading the
+    // server held when it started rather than one written while it was out.
+    const data = operationalStatusResponse;
+    if (operationalStatusGate) {
+      await operationalStatusGate.promise;
+    }
+    return { data, response: { ok: true } };
   },
   organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate: () => {
     ensureCalls += 1;
@@ -351,6 +356,7 @@ beforeEach(() => {
   assistantEndpointsFail = false;
   onboardingFails = false;
   onboardingGate = null;
+  operationalStatusGate = null;
   assistantCalls = 0;
   assistantByIdCalls = 0;
   operationalStatusCalls = 0;
@@ -1488,5 +1494,63 @@ describe("useProProvisioning presentation signals", () => {
       expect(latest!.landed).toEqual({ machine: true, storage: true });
     });
     expect(latest!.state).toBe("DONE");
+  }, 20_000);
+
+  test("a status fetch already out when a dimension meets its target does not land it", async () => {
+    // `started` queues the resize on a worker, so the status query can be out
+    // with its pre-resize reading when the assistant poll lands the persisted
+    // target sizes.
+    ensureResponse = makeEnsureResponse("started");
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // A status fetch goes out carrying the pre-resize reading, and is still out
+    // when the assistant poll reports the persisted target sizes.
+    const gate = makeDeferred();
+    operationalStatusGate = gate;
+    act(() => {
+      void client.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+    });
+    await waitFor(() =>
+      expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe(
+        "fetching",
+      ),
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await act(async () => {
+      client.setQueryData(ASSISTANT_QUERY_KEY, assistantResponse);
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The clock moves on before that fetch answers, so its result stores
+    // strictly after the dimensions read met: it postdates them by
+    // `dataUpdatedAt` alone, though it observed the world before them. It may
+    // not land anything.
+    dateNowOffsetMs += 50;
+    operationalStatusGate = null;
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    await waitFor(() =>
+      expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe("idle"),
+    );
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+    // The terminal gate compares the same timestamp without the fence and so
+    // takes that reading, which is the asymmetry the flags are stricter than.
+    expect(latest!.state).toBe("DONE");
+
+    // The first fetch that starts after them does land them.
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
   }, 20_000);
 });
