@@ -5,7 +5,8 @@ interface ResolveBootstrappedConversationIdArgs {
   onboardingDraftConversationId?: string | null;
   /**
    * Client-minted draft key for platforms that cold-launch into a new chat
-   * (the Capacitor iOS shell). Absent everywhere else.
+   * (the Capacitor iOS shell), supplied only while nothing is selected yet
+   * (see `shouldMintNewChatDraft`). Absent everywhere else.
    */
   newChatDraftConversationId?: string | null;
   currentConversationId: string | null;
@@ -26,6 +27,34 @@ export function createDraftConversationId(): string {
       // cases (older Safari / non-secure context) so draft creation does not
       // hard-crash.
       `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+interface ShouldMintNewChatDraftArgs {
+  /** True on platforms that cold-launch into a new chat (the iOS shell). */
+  platformStartsInNewChat: boolean;
+  urlConversationId: string | null;
+  currentConversationId: string | null;
+}
+
+/**
+ * Whether the bootstrap should mint a fresh draft key for a platform that
+ * cold-launches into a new chat.
+ *
+ * True only while nothing is selected in the URL or the conversation store,
+ * which is the cold-launch pass. Once a key is selected (including one a deep
+ * link just navigated to) the draft is withheld, so the bootstrap resolves the
+ * existing selection instead of replacing the route with an empty composer.
+ */
+export function shouldMintNewChatDraft({
+  platformStartsInNewChat,
+  urlConversationId,
+  currentConversationId,
+}: ShouldMintNewChatDraftArgs): boolean {
+  return (
+    platformStartsInNewChat &&
+    urlConversationId == null &&
+    currentConversationId == null
+  );
 }
 
 function isStoredConversationSelectable(
