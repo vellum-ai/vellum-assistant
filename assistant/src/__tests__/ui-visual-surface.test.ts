@@ -265,7 +265,7 @@ describe("ui_show visual fragment guards", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("--color-forest-900");
     expect(result.content).toContain("--color-danger-900");
-    expect(result.content).toContain("invisible in dark mode");
+    expect(result.content).toContain("mirror across their own ramp");
     expect(proxied).toBe(false);
   });
 
@@ -316,7 +316,7 @@ describe("ui_show visual fragment guards", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("--color-forest-900");
     expect(result.content).toContain("--color-forest-800");
-    expect(result.content).toContain("invisible in dark mode");
+    expect(result.content).toContain("mirror across their own ramp");
     expect(result.content).toContain("--content-*");
     expect(proxied).toBe(false);
   });
@@ -438,7 +438,7 @@ describe("the visualize reference examples pass the fragment guards", () => {
     });
 
   test("every fenced example is present", () => {
-    expect(examples.length).toBe(19);
+    expect(examples.length).toBe(20);
   });
 
   for (const example of examples) {

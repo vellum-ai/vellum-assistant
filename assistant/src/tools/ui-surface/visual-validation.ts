@@ -2,8 +2,9 @@
  * Validation for the `visual` ui_show surface: a self-contained HTML fragment
  * rendered inside a sandboxed frame.
  *
- * The frame has no network access and injects a fixed set of design tokens on
- * `:root`, so an external sub-resource silently never loads and a `var()` to
+ * The frame has no network access and injects a fixed vocabulary of design
+ * tokens on `:root`, so an external sub-resource silently never loads and a
+ * `var()` to
  * anything outside that vocabulary resolves to nothing. Both failures render a
  * blank or unthemed widget with no error anywhere, so they are caught here and
  * reported as teaching errors the model can act on before the surface is ever
@@ -112,7 +113,7 @@ const TOKEN_FAMILY_SUMMARY =
   WIDGET_TOKEN_PROPERTIES.filter((name) => !name.startsWith("--color-")).join(
     ", ",
   ) +
-  ", and the fixed ramps --color-<moss|stone>-<50-950> and --color-<forest|emerald|danger|amber>-<100-950>";
+  ", and the palette ramps --color-<moss|stone>-<50-950> and --color-<forest|emerald|danger|amber>-<100-950>";
 
 /**
  * Sub-resource loads the sandbox blocks outright. Catching them here turns a
@@ -166,8 +167,10 @@ const RAMP_TOKEN_PATTERN = new RegExp(
 );
 
 /**
- * Stops dark enough that text painted with them disappears against the dark
- * theme's background, and light enough to disappear against the light one.
+ * The two ends of a ramp, the stops that only read against a fill from the
+ * opposite end. The host mirrors ramp stops under the dark scheme, so an end
+ * stop swaps sides with the theme while the page background it might be
+ * painted on does not — pairing is what keeps the relationship intact.
  */
 const DARK_RAMP_STOPS: ReadonlySet<string> = new Set([
   "700",
@@ -375,11 +378,12 @@ function localPairingContexts(
 }
 
 /**
- * Ramp stops are theme-invariant, so ramp-coloured text only reads when it sits
- * on a matching ramp fill — and the fill has to be the one actually behind the
- * glyphs. Text painted with a dark stop and no light fill of the same palette
- * beside it is sitting on the transparent widget background, where it vanishes
- * in dark mode (and the mirror case vanishes in light mode).
+ * The host mirrors each ramp stop onto its opposite under the dark scheme, so a
+ * ramp is theme-adaptive only relative to itself: a matched fill and text pair
+ * inverts together and stays legible, while a lone ramp label is left against
+ * the page background, which takes no part in that mirror. Ramp-coloured text
+ * therefore only reads when it sits on a matching ramp fill — and the fill has
+ * to be the one actually behind the glyphs.
  *
  * Pairing is therefore local. A label painted directly — an inline `style`, a
  * `fill` attribute on `<text>` — pairs against its own element, the markup
@@ -453,8 +457,10 @@ function collectRampContrastProblems(html: string): string[] {
   if (unpairedDark.size > 0) {
     problems.push(
       `Dark ramp stops used as text colour with no matching light fill behind them: ${quote([...unpairedDark])}. ` +
-        "Ramp stops are the same colour in both themes, so dark ramp text on the transparent widget " +
-        "background is invisible in dark mode. Ramp-coloured text has to sit on a matching light ramp " +
+        "Ramp stops mirror across their own ramp in dark mode, so a dark stop used as text flips to a " +
+        "light tint there while the page background takes no part in that mirror — a ramp-coloured " +
+        "label sitting on it has no reliable contrast in either theme. Ramp-coloured text has to sit " +
+        "on a matching light ramp " +
         "fill (a 50–300 stop of the same palette) set on the same element, in the same style rule, or " +
         "on the group immediately around it — or use a --content-* token for text that sits on the " +
         "page background.",
@@ -463,8 +469,9 @@ function collectRampContrastProblems(html: string): string[] {
   if (unpairedLight.size > 0) {
     problems.push(
       `Light ramp stops used as text colour with no matching dark fill behind them: ${quote([...unpairedLight])}. ` +
-        "Ramp stops are the same colour in both themes, so light ramp text on the transparent widget " +
-        "background is invisible in light mode. Ramp-coloured text has to sit on a matching dark ramp " +
+        "Light ramp text on the transparent widget background is invisible in light mode, and in dark " +
+        "mode the stop mirrors to the darkest end of its own ramp — invisible there too. " +
+        "Ramp-coloured text has to sit on a matching dark ramp " +
         "fill (a 700–950 stop of the same palette) set on the same element, in the same style rule, or " +
         "on the group immediately around it — or use a --content-* token for text that sits on the " +
         "page background.",

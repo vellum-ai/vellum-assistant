@@ -7,6 +7,7 @@ import {
   buildWidgetStyle,
   buildWidgetStyleTag,
   readWidgetTokens,
+  WIDGET_RAMP_DARK_MIRROR,
   WIDGET_TOKEN_PROPERTIES,
 } from "@/utils/widget-tokens";
 
@@ -15,6 +16,19 @@ function applyTokens(css: string): HTMLStyleElement {
   style.textContent = css;
   document.head.appendChild(style);
   return style;
+}
+
+/**
+ * Declare every allowlisted token with a value that names the property it was
+ * declared on, so a snapshot reveals which variable each emitted name read
+ * from.
+ */
+function applyIdentifiableTokens(): void {
+  applyTokens(
+    `:root{${WIDGET_TOKEN_PROPERTIES.map(
+      (property) => `${property}:value-for${property}`,
+    ).join(";")}}`,
+  );
 }
 
 afterEach(() => {
@@ -76,6 +90,70 @@ describe("WIDGET_TOKEN_PROPERTIES", () => {
   });
 });
 
+describe("WIDGET_RAMP_DARK_MIRROR", () => {
+  test("pairs the 10-stop accents symmetrically from 100/950 to 500/600", () => {
+    for (const [step, mirrored] of [
+      ["100", "950"],
+      ["200", "900"],
+      ["300", "800"],
+      ["400", "700"],
+      ["500", "600"],
+    ]) {
+      // GIVEN an accent ramp, WHEN the pair is read in either direction
+      // THEN both halves name each other.
+      expect(WIDGET_RAMP_DARK_MIRROR.get(`--color-forest-${step}`)).toBe(
+        `--color-forest-${mirrored}`,
+      );
+      expect(WIDGET_RAMP_DARK_MIRROR.get(`--color-forest-${mirrored}`)).toBe(
+        `--color-forest-${step}`,
+      );
+    }
+  });
+
+  test("pairs the 11-stop neutrals from 50/950, leaving 500 on itself", () => {
+    for (const [step, mirrored] of [
+      ["50", "950"],
+      ["100", "900"],
+      ["200", "800"],
+      ["300", "700"],
+      ["400", "600"],
+      ["500", "500"],
+    ]) {
+      expect(WIDGET_RAMP_DARK_MIRROR.get(`--color-stone-${step}`)).toBe(
+        `--color-stone-${mirrored}`,
+      );
+      expect(WIDGET_RAMP_DARK_MIRROR.get(`--color-stone-${mirrored}`)).toBe(
+        `--color-stone-${step}`,
+      );
+    }
+  });
+
+  test("covers every ramp variable and nothing else, and is an involution", () => {
+    // GIVEN the allowlist split into ramp and semantic names
+    const rampProperties = WIDGET_TOKEN_PROPERTIES.filter((property) =>
+      property.startsWith("--color-"),
+    );
+
+    // THEN the mirror spans exactly the ramps — a missed stop would fall back
+    // to reading itself and break the matched triple it belongs to.
+    expect([...WIDGET_RAMP_DARK_MIRROR.keys()].sort()).toEqual(
+      [...rampProperties].sort(),
+    );
+
+    // AND applying it twice is the identity, in both palette families.
+    for (const [property, mirrored] of WIDGET_RAMP_DARK_MIRROR) {
+      expect(WIDGET_RAMP_DARK_MIRROR.get(mirrored)).toBe(property);
+      expect(rampProperties).toContain(mirrored);
+    }
+  });
+
+  test("keeps a mirrored stop inside its own palette", () => {
+    for (const [property, mirrored] of WIDGET_RAMP_DARK_MIRROR) {
+      expect(mirrored.replace(/-\d+$/, "")).toBe(property.replace(/-\d+$/, ""));
+    }
+  });
+});
+
 describe("readWidgetTokens", () => {
   test("reads resolved values and skips properties that resolve empty", () => {
     // GIVEN a host document declaring two of the allowlisted tokens
@@ -88,6 +166,59 @@ describe("readWidgetTokens", () => {
     expect(tokens["--surface-lift"]).toBe("#ffffff");
     expect(tokens["--content-default"]).toBe("#24292e");
     expect(tokens["--color-amber-200"]).toBeUndefined();
+  });
+
+  test("passes every token through unchanged under the light scheme", () => {
+    // GIVEN a host declaring every allowlisted token
+    applyIdentifiableTokens();
+
+    // WHEN the light snapshot is taken
+    const tokens = readWidgetTokens(undefined, "light");
+
+    // THEN each name carries its own declared value — ramps included.
+    for (const property of WIDGET_TOKEN_PROPERTIES) {
+      expect(tokens[property]).toBe(`value-for${property}`);
+    }
+  });
+
+  test("emits each ramp variable with its mirrored stop's value under dark", () => {
+    // GIVEN the same host declarations
+    applyIdentifiableTokens();
+
+    // WHEN the dark snapshot is taken
+    const tokens = readWidgetTokens(undefined, "dark");
+
+    // THEN a matched triple authored against the light reading inverts: the
+    // 100 fill becomes the darkest stop and the 900 text becomes a light one.
+    expect(tokens["--color-forest-100"]).toBe("value-for--color-forest-950");
+    expect(tokens["--color-forest-600"]).toBe("value-for--color-forest-500");
+    expect(tokens["--color-forest-900"]).toBe("value-for--color-forest-200");
+    // AND the neutrals pair off their own 11-stop ramp, 500 onto itself.
+    expect(tokens["--color-moss-50"]).toBe("value-for--color-moss-950");
+    expect(tokens["--color-moss-500"]).toBe("value-for--color-moss-500");
+    // AND the semantic tokens, which flip on their own, are untouched.
+    expect(tokens["--surface-lift"]).toBe("value-for--surface-lift");
+    expect(tokens["--content-default"]).toBe("value-for--content-default");
+    expect(tokens["--system-positive-strong"]).toBe(
+      "value-for--system-positive-strong",
+    );
+  });
+
+  test("resolves every allowlisted name to a non-empty value in both schemes", () => {
+    // GIVEN a host declaring every allowlisted token
+    applyIdentifiableTokens();
+
+    // THEN neither scheme drops a name: a mirrored source that resolved to
+    // nothing would silently delete the declaration inside the frame.
+    for (const colorScheme of ["light", "dark"] as const) {
+      const tokens = readWidgetTokens(undefined, colorScheme);
+      expect(Object.keys(tokens).sort()).toEqual(
+        [...WIDGET_TOKEN_PROPERTIES].sort(),
+      );
+      for (const property of WIDGET_TOKEN_PROPERTIES) {
+        expect(tokens[property]).not.toBe("");
+      }
+    }
   });
 
   test("strips characters that could terminate the declaration", () => {
@@ -139,5 +270,18 @@ describe("buildWidgetStyle", () => {
     // Every non-light theme (velvet included) declares the dark scheme.
     expect(buildWidgetStyle("velvet")).toContain("color-scheme:dark");
     expect(buildWidgetStyle("light")).toContain("color-scheme:light");
+  });
+
+  test("mirrors the ramps for dark-family themes and passes them through for light", () => {
+    applyIdentifiableTokens();
+
+    expect(buildWidgetStyle("light")).toContain(
+      "--color-forest-100:value-for--color-forest-100;",
+    );
+    for (const theme of ["dark", "velvet"]) {
+      expect(buildWidgetStyle(theme)).toContain(
+        "--color-forest-100:value-for--color-forest-950;",
+      );
+    }
   });
 });

@@ -51,6 +51,12 @@ Durable things the user reopens — a dashboard they check weekly, a tracker, a 
 - Compact — show the essential, explain the rest in prose.
 - Honest — every number on screen is one you actually have or actually computed.
 
+## Choosing the form
+
+Pick the lightest form that carries the idea. A static annotated diagram or a side-by-side comparison beats a stepper whenever there is no real sequence — a stepper is for stages that genuinely follow one another, not for slicing a flat subject into slides. Interaction has to earn its place; tabs and steppers are not the default.
+
+Vary the layout between visuals in one conversation. Two steppers in a row read as a template rather than as two answers.
+
 ## Sandbox constraints (hard)
 
 The frame has no network access. Anything external is blocked and fails silently, leaving a broken visual on screen.
@@ -91,9 +97,9 @@ What follows is the COMPLETE list of CSS variables that exist inside the frame. 
 
 You may declare your own custom properties in the fragment's own style block and use them (`:root{--gap:8px}` then `var(--gap)`); that is fine. What is rejected is referencing a name that is neither injected nor declared by you.
 
-Two families. Knowing the difference is the single biggest defence against dark-mode bugs.
+Two families, both theme-aware, but adapting in different ways. Knowing the difference is the single biggest defence against dark-mode bugs.
 
-### Theme-aware tokens — flip automatically between light and dark
+### Semantic tokens — flip automatically between light and dark
 
 Use these for every surface, every piece of body text, every border, and every status colour.
 
@@ -104,9 +110,9 @@ Use these for every surface, every piece of body text, every border, and every s
 - Type: --font-sans (DM Sans, the default), --font-mono (DM Mono), --font-serif (Instrument Serif — editorial pull-quote moments only, never UI chrome).
 - Radius: --radius-xs 2px, --radius-sm 4px, --radius-md 8px, --radius-lg 12px, --radius-xl 16px, --radius-xxl 20px, --radius-pill 999px.
 
-### Fixed palette ramps — do NOT flip with the theme
+### Palette ramps — mirror across themselves, for categorical encoding only
 
-Every stop is one constant colour in both modes. They exist for categorical encoding, never for page surfaces or body text.
+Six ramps. They exist for categorical encoding, never for page surfaces or body text.
 
 - --color-moss-50 through --color-moss-950 — cool neutral
 - --color-stone-50 through --color-stone-950 — warm neutral
@@ -117,15 +123,17 @@ Every stop is one constant colour in both modes. They exist for categorical enco
 
 Stops run 100 lightest to 950 darkest (moss and stone also have a 50).
 
-Because a ramp does not flip, always use a matched triple so it reads correctly in both modes:
+Author every ramp value once, against the LIGHT reading: light fill, mid border, dark text. Inside the frame the host mirrors each stop onto its opposite in dark mode — 100 renders as 950, 200 as 900, 600 as 500, and so on down the ramp — so that one authored triple inverts as a unit and lands as a soft dark tint carrying light text. Never write a second set of values and never branch on the theme.
+
+It only inverts as a unit if fill and text come from the same ramp, so always use a matched triple:
 
 ```css
 background: var(--color-forest-100); border-color: var(--color-forest-600); color: var(--color-forest-900);
 ```
 
-Title text on a tinted fill uses the 900 stop; secondary text on that fill uses 800. Never put --content-default (which flips) on a ramp fill (which does not) — it vanishes in one of the two modes.
+Title text on a tinted fill uses the 900 stop; secondary text on that fill uses 800. Never put --content-default (which flips to its own counterpart) on a ramp fill (which mirrors) — the two move independently and one of the modes loses the text.
 
-The reverse is the more common mistake and is rejected outright: text sitting directly on the page background — every SVG label, axis tick, node title, and paragraph outside a tinted fill — uses --content-* and never a ramp stop. A ramp stop is one constant colour, so --color-forest-900 text on the transparent background is invisible in dark mode and --color-forest-100 text is invisible in light mode. The validator flags a dark ramp stop used as a text colour when the matching light stop is not painted right there — on the same element, in the same style rule, or on the group immediately around the label — and the mirror case. A pill using that palette elsewhere in the fragment does not cover a bare label.
+The reverse is the more common mistake and is rejected outright: text sitting directly on the page background — every SVG label, axis tick, node title, and paragraph outside a tinted fill — uses --content-* and never a ramp stop. The mirror pairs a ramp against itself, not against the page, so a bare ramp label has no reliable contrast: --color-forest-100 as text is invisible on the light page and mirrors to near-black in dark mode, and a bare --color-forest-900 label swaps from dark ink to a light tint between the two. The validator flags a dark ramp stop used as a text colour when the matching light stop is not painted right there — on the same element, in the same style rule, or on the group immediately around the label — and the converse case. A pill using that palette elsewhere in the fragment does not cover a bare label.
 
 Never hardcode a colour for text, background, border, or SVG fill or stroke. Every colour comes from a variable above — hex literals (#2563eb), rgb(), rgba(), hsl(), and oklch() are rejected outright. Only transparent and currentColor are allowed as literal colour keywords.
 
@@ -133,6 +141,7 @@ Never hardcode a colour for text, background, border, or SVG fill or stroke. Eve
 
 - Colour encodes meaning, not sequence. Do not walk the ramps step 1 green, step 2 amber, step 3 red. Group by category: everything of one kind shares one ramp.
 - At most two accent ramps per visual, plus neutral. The palette is deliberately narrow — moss or stone for structure, one accent for the thing that matters, a second only when the contrast between two categories is the point.
+- One accent moment per visual. Most of the canvas stays neutral; an accent spread across three regions stops marking anything.
 - Use the system tokens when the meaning is genuinely success, failure, warning, or information. Use ramps for everything else categorical.
 - If colour carries meaning, add a one-line legend.
 
@@ -142,7 +151,7 @@ Never hardcode a colour for text, background, border, or SVG fill or stroke. Eve
 - Sizes: 18px section label, 15px item title, 14px body, 12px secondary, 11px floor. No others.
 - Weights: 400 and 500 only. Never 600 or 700 — they read heavy against the host UI.
 - Sentence case everywhere, including SVG labels and table headers. Never Title Case, never ALL CAPS.
-- Identifiers, column names, code, and tabular numbers go in --font-mono.
+- Identifiers, column names, code, and tabular numbers go in --font-mono. Mono is for those alone — never a sentence, a label, a whole card, or a whole panel.
 - No bold mid-sentence. Bold is for labels and headings.
 
 ## Shape and spacing
@@ -150,9 +159,10 @@ Never hardcode a colour for text, background, border, or SVG fill or stroke. Eve
 - Borders: 1px solid var(--border-base); use --border-element when the edge must stay visible against a lift surface.
 - Card: background var(--surface-lift), 1px border, border-radius var(--radius-lg), padding 1rem 1.25rem.
 - Tile (metric, stat): background var(--surface-sunken), no border, border-radius var(--radius-md), padding 1rem.
-- Controls: border-radius var(--radius-sm) or var(--radius-md).
+- Controls: buttons and pills take var(--radius-pill) or var(--radius-sm) — pick one and use it for every control in the visual. Inputs and panels take var(--radius-sm) or var(--radius-md).
 - Never round a single-sided border. A border-left accent gets border-radius 0.
 - Vertical rhythm in rem (0.5, 1, 1.5, 2). Internal gaps in px (8, 12, 16).
+- Size height to content honestly. No large empty vertical band above, below, or between blocks — a min-height goes to the tallest state, not beyond it, and the `height` you pass to ui_show is an estimate the host corrects, so never pad the fragment to fill it.
 - No box-shadow except a functional focus ring.
 
 ## Numbers
@@ -281,7 +291,7 @@ Read the reference for the form you are drawing BEFORE authoring it, with `file_
 
 - `diagram.md` — flowcharts, structural and illustrative drawings. Node patterns, arrow routing, row and tree packing, choosing the diagram family, what not to draw as a diagram.
 - `chart.md` — bars, lines, areas, donuts, sparklines. Mark choice, plot margins, scales, axes and gridlines, honesty rules.
-- `interactive.md` — steppers, tabs, sliders, filters, live calculations. When interaction earns its place, panel layout, stepper and slider patterns.
+- `interactive.md` — steppers, segmented compares, sliders, filters, live calculations. When interaction earns its place, plus three distinct skeletons to choose between.
 - `mockup.md` — cards, records, forms, settings panels, faux screens. Metric tiles, badges, list rows, faux viewport for modals and phones.
 
 Read a second reference when a visual mixes forms — a stepper whose panels contain a chart needs both.
