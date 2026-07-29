@@ -18,6 +18,7 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
 const CONFIG = {
   assistantRuntimeBaseUrl: "http://runtime.test:7821",
   runtimeTimeoutMs: 1000,
+  maxWebhookPayloadBytes: 1024,
 } as GatewayConfig;
 
 const PLUGIN_SECRET = "plugin-webhook-secret";
@@ -368,6 +369,7 @@ function socketData(
     plugin: "meeting-bot",
     path: "realtime",
     queue: [],
+    queuedBytes: 0,
     delivering: false,
     closed: false,
     fetchImpl,
@@ -466,6 +468,59 @@ describe("frame delivery", () => {
 
     expect(closes).toHaveLength(1);
     expect(closes[0]!.code).toBe(1008);
+  });
+
+  it("refuses a single frame larger than the webhook payload cap", async () => {
+    // It could never be delivered anyway — the plugin route would reject it
+    // as an oversized webhook body.
+    const seen: string[] = [];
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(async (_url, init) => {
+      seen.push(String(init?.body));
+      return new Response("", { status: 200 });
+    });
+    const { ws, closes } = fakeSocket(data);
+
+    handlers.message(ws, "x".repeat(2048));
+    await settle();
+
+    expect(closes).toHaveLength(1);
+    expect(closes[0]!.code).toBe(1008);
+    expect(seen).toEqual([]);
+  });
+
+  it("bounds the queue by bytes, not just frame count", async () => {
+    // 100 frames of Bun's maximum size would be gigabytes, so the count
+    // alone is not a memory bound.
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(
+      async () =>
+        new Promise<Response>(() => {
+          /* never settles, so the queue backs up */
+        }),
+    );
+    const { ws, closes } = fakeSocket(data);
+
+    // Each frame is under the per-frame cap, and there are fewer than
+    // MAX_PENDING_FRAMES of them — only the byte budget can reject these.
+    for (let i = 0; i < 20; i++) handlers.message(ws, "x".repeat(1000));
+
+    expect(closes).toHaveLength(1);
+    expect(closes[0]!.code).toBe(1008);
+    expect(data.queuedBytes).toBe(0);
+  });
+
+  it("releases queued bytes as frames are delivered", async () => {
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(async () => new Response("", { status: 200 }));
+    const { ws } = fakeSocket(data);
+
+    handlers.message(ws, "x".repeat(100));
+    handlers.message(ws, "x".repeat(100));
+    await settle();
+
+    expect(data.queue).toEqual([]);
+    expect(data.queuedBytes).toBe(0);
   });
 
   it("drops undelivered frames when the caller goes away", async () => {

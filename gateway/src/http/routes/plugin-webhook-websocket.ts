@@ -18,7 +18,10 @@ import type { IngressSigner } from "../../channels/plugin-ingress.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
-import { resolveCredentialWithRefresh } from "../../credential-refresh.js";
+import {
+  resolveCredentialWithRefresh,
+  verifySecretWithRefresh,
+} from "../../credential-refresh.js";
 import { getLogger } from "../../logger.js";
 import {
   VELLUM_TIMESTAMP_HEADER,
@@ -33,8 +36,25 @@ const log = getLogger("plugin-webhook-ws");
  * Frames buffered while a delivery is in flight. Matches the STT relay's cap
  * — a caller that outruns the plugin is disconnected rather than allowed to
  * grow the gateway's heap.
+ *
+ * The count alone is not a memory bound: Bun accepts frames far larger than
+ * a webhook payload, so a hundred of them would be gigabytes. Queued bytes
+ * are capped as well, and an oversized single frame is refused outright —
+ * each frame becomes a webhook-sized POST, so `maxWebhookPayloadBytes` is
+ * the size that has to hold.
  */
 const MAX_PENDING_FRAMES = 100;
+
+/** Total bytes a connection may hold queued, across all pending frames. */
+function maxQueuedBytes(config: GatewayConfig): number {
+  return config.maxWebhookPayloadBytes * 8;
+}
+
+function frameByteLength(frame: string | Uint8Array): number {
+  return typeof frame === "string"
+    ? Buffer.byteLength(frame, "utf8")
+    : frame.byteLength;
+}
 
 export type FetchImpl = (
   input: string | URL | Request,
@@ -48,6 +68,8 @@ export type PluginWebhookSocketData = {
   path: string;
   /** Frames waiting on the in-flight delivery. */
   queue: (string | Uint8Array)[];
+  /** Bytes held in {@link queue}, tracked so the cap is on memory not count. */
+  queuedBytes: number;
   /** True while a POST is outstanding, so deliveries stay serialised. */
   delivering: boolean;
   closed: boolean;
@@ -138,7 +160,18 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
       return new Response("Forbidden", { status: 403 });
     }
     const signed = handshakeSignedPayload(timestamp, new URL(req.url).pathname);
-    if (!verifyVellumSignature(req.headers, signed, secret)) {
+    // Verify through the refresh helper rather than against the value read
+    // above: a secret that rotated while the cache still held the old one
+    // would otherwise fail an upgrade that is actually valid.
+    const signatureValid = await verifySecretWithRefresh({
+      credentials,
+      key: secretKey,
+      verify: (candidate) =>
+        verifyVellumSignature(req.headers, signed, candidate),
+      log,
+      label: "Plugin webhook WS handshake",
+    });
+    if (!signatureValid) {
       log.warn(
         { plugin, path, signer: route.signer },
         "Plugin webhook WS: signature verification failed",
@@ -153,6 +186,7 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
         plugin,
         path,
         queue: [],
+        queuedBytes: 0,
         delivering: false,
         closed: false,
         fetchImpl,
@@ -221,11 +255,29 @@ async function drain(data: PluginWebhookSocketData): Promise<void> {
   try {
     while (data.queue.length > 0 && !data.closed) {
       const frame = data.queue.shift()!;
+      data.queuedBytes -= frameByteLength(frame);
       await deliverFrame(data, frame);
     }
   } finally {
     data.delivering = false;
   }
+}
+
+/**
+ * Refuse the rest of a connection that has exceeded its budget.
+ *
+ * Marks it closed before asking for the close: `close` is not immediate, and
+ * a caller already outrunning us keeps sending in the meantime. Without this
+ * every one of those frames would close again.
+ */
+function closeOverBudget(
+  ws: import("bun").ServerWebSocket<PluginWebhookSocketData>,
+  reason: string,
+): void {
+  ws.data.closed = true;
+  ws.data.queue = [];
+  ws.data.queuedBytes = 0;
+  ws.close(1008, reason);
 }
 
 export function getPluginWebhookWebsocketHandlers() {
@@ -244,23 +296,41 @@ export function getPluginWebhookWebsocketHandlers() {
       const data = ws.data;
       if (data.closed) return;
 
-      if (data.queue.length >= MAX_PENDING_FRAMES) {
+      const frame =
+        message instanceof ArrayBuffer ? new Uint8Array(message) : message;
+      const size = frameByteLength(frame);
+
+      // A single oversized frame is refused rather than queued: it could
+      // never be delivered anyway, since it exceeds what the plugin's route
+      // accepts as a webhook payload.
+      if (size > data.config.maxWebhookPayloadBytes) {
         log.warn(
-          { plugin: data.plugin, path: data.path },
-          "Plugin webhook frame buffer overflow — closing connection",
+          { plugin: data.plugin, path: data.path, size },
+          "Plugin webhook frame exceeds the webhook payload cap — closing connection",
         );
-        // Mark closed before asking for the close: `close` is not immediate,
-        // and a caller that is already outrunning us will keep sending in the
-        // meantime. Without this every one of those frames closes again.
-        data.closed = true;
-        data.queue = [];
-        ws.close(1008, "Buffer overflow");
+        closeOverBudget(ws, "Frame too large");
         return;
       }
 
-      const frame =
-        message instanceof ArrayBuffer ? new Uint8Array(message) : message;
+      if (
+        data.queue.length >= MAX_PENDING_FRAMES ||
+        data.queuedBytes + size > maxQueuedBytes(data.config)
+      ) {
+        log.warn(
+          {
+            plugin: data.plugin,
+            path: data.path,
+            queued: data.queue.length,
+            queuedBytes: data.queuedBytes,
+          },
+          "Plugin webhook frame buffer overflow — closing connection",
+        );
+        closeOverBudget(ws, "Buffer overflow");
+        return;
+      }
+
       data.queue.push(frame);
+      data.queuedBytes += size;
       void drain(data);
     },
 
@@ -275,6 +345,7 @@ export function getPluginWebhookWebsocketHandlers() {
       // plugin's view should not gain events after the stream ended.
       const dropped = data.queue.length;
       data.queue = [];
+      data.queuedBytes = 0;
       log.info(
         { plugin: data.plugin, path: data.path, code, reason, dropped },
         "Plugin webhook WS closed",
