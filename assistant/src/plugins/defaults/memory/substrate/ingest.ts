@@ -1,0 +1,259 @@
+// SUBSTRATE (v2+v3).
+/**
+ * Memory substrate: deterministic batch concept-page ingest.
+ *
+ * Validates and writes a batch of caller-supplied concept pages (full page
+ * markdown, frontmatter + body) into `memory/concepts/`. Purely mechanical:
+ * no LLM calls, no network I/O. Every page is validated individually and
+ * reported individually, so one malformed page never sinks the batch.
+ *
+ * Writes hold the consolidation lock so an ingest cannot interleave with a
+ * consolidation pass rewriting the same corpus; after the lock is released,
+ * reindex follow-up jobs are enqueued so the freshly written pages become
+ * retrievable.
+ */
+
+import { join } from "node:path";
+
+import {
+  enqueueMemoryJob,
+  hasPendingJobOfType,
+  type MemoryJobType,
+} from "../../../../persistence/jobs-store.js";
+import { getLogger } from "../logging.js";
+import {
+  getConsolidationLockPath,
+  releaseLock,
+  tryAcquireLock,
+} from "./consolidation-lock.js";
+import {
+  listPages,
+  parsePageContent,
+  validateSlug,
+  writePage,
+} from "./page-store.js";
+import type { ConceptPage } from "./types.js";
+
+const log = getLogger("memory-ingest");
+
+/** One page to ingest. `content` is the full page markdown (frontmatter + body). */
+export interface IngestPageInput {
+  slug: string;
+  content: string;
+}
+
+export interface IngestOptions {
+  /** Validate and report without touching disk or the lock. */
+  dryRun?: boolean;
+  /** Rewrite pages whose slug already exists on disk (default: skip them). */
+  overwrite?: boolean;
+}
+
+export interface IngestPageResult {
+  slug: string;
+  action: "written" | "skipped_exists" | "invalid";
+  warnings: string[];
+  error?: string;
+}
+
+export interface IngestSummary {
+  results: IngestPageResult[];
+  written: number;
+  skipped: number;
+  invalid: number;
+  dryRun: boolean;
+}
+
+/** Hard cap on batch size; larger batches should be split by the caller. */
+export const MAX_INGEST_PAGES_PER_CALL = 200;
+
+/** Thrown when the consolidation lock is held by another writer. */
+export class IngestLockedError extends Error {
+  /** The lock file's holder payload (typically `<pid> <timestamp> <tag>`). */
+  readonly holder: string;
+
+  constructor(holder: string) {
+    super(`memory ingest skipped: consolidation lock held by ${holder}`);
+    this.name = "IngestLockedError";
+    this.holder = holder;
+  }
+}
+
+/**
+ * Reindex fan-out after a batch that wrote at least one page, mirroring the
+ * post-consolidation follow-ups: a conservative full reembed (the embedder's
+ * content-hash cache makes unchanged pages effectively free) plus v3 index
+ * maintenance (a no-op job on installs where v3 is not live).
+ */
+const REINDEX_JOB_TYPES: readonly MemoryJobType[] = [
+  "memory_v2_reembed",
+  "memory_v3_maintain",
+];
+
+/**
+ * Validate and write a batch of concept pages under `workspaceDir`.
+ *
+ * Per page, in order:
+ *   1. Slug shape (`validateSlug`) and in-batch uniqueness (a later duplicate
+ *      of an earlier slug is `invalid`).
+ *   2. Content parse via `parsePageContent`. A schema failure or a degraded
+ *      parse (unterminated frontmatter fence) yields `invalid` with the parse
+ *      error string: validation is per-page and loud, never a silent drop
+ *      (see the `.strict()` incident documented on
+ *      `ConceptPageFrontmatterSchema` for what silent dropping cost).
+ *   3. Provenance warnings (non-blocking): missing `source` frontmatter, and
+ *      an `origin_date` that `Date.parse` cannot read.
+ *   4. Collision against on-disk slugs: `skipped_exists` unless
+ *      `opts.overwrite`.
+ *
+ * With `dryRun` the summary is returned without touching disk or the lock.
+ * Otherwise the consolidation lock is held across the writes; a held lock
+ * throws {@link IngestLockedError} before anything is written. After release,
+ * reindex follow-ups are enqueued when at least one page was written.
+ *
+ * Throws `RangeError` when the batch exceeds {@link MAX_INGEST_PAGES_PER_CALL}.
+ */
+export async function ingestPages(
+  workspaceDir: string,
+  pages: IngestPageInput[],
+  opts?: IngestOptions,
+): Promise<IngestSummary> {
+  if (pages.length > MAX_INGEST_PAGES_PER_CALL) {
+    throw new RangeError(
+      `ingest batch of ${pages.length} pages exceeds the per-call cap of ` +
+        `${MAX_INGEST_PAGES_PER_CALL}; split it into smaller batches`,
+    );
+  }
+
+  const dryRun = opts?.dryRun === true;
+  const overwrite = opts?.overwrite === true;
+
+  const existingSlugs = new Set(await listPages(workspaceDir));
+  const seenSlugs = new Set<string>();
+  const results: IngestPageResult[] = [];
+  const toWrite: ConceptPage[] = [];
+
+  for (const input of pages) {
+    const warnings: string[] = [];
+    const invalid = (error: string): IngestPageResult => ({
+      slug: input.slug,
+      action: "invalid",
+      warnings,
+      error,
+    });
+
+    try {
+      validateSlug(input.slug);
+    } catch (err) {
+      results.push(invalid(err instanceof Error ? err.message : String(err)));
+      continue;
+    }
+
+    if (seenSlugs.has(input.slug)) {
+      results.push(invalid(`duplicate slug within batch: ${input.slug}`));
+      continue;
+    }
+    seenSlugs.add(input.slug);
+
+    let page: ConceptPage;
+    try {
+      page = parsePageContent(input.slug, input.content);
+    } catch (err) {
+      results.push(invalid(err instanceof Error ? err.message : String(err)));
+      continue;
+    }
+    if (page.parseWarning !== undefined) {
+      results.push(invalid(page.parseWarning));
+      continue;
+    }
+
+    if (page.frontmatter.source === undefined) {
+      warnings.push(
+        "missing `source` frontmatter; imported pages should carry a " +
+          "provenance tag (convention `import:<provider>`)",
+      );
+    }
+    if (
+      page.frontmatter.origin_date !== undefined &&
+      Number.isNaN(Date.parse(page.frontmatter.origin_date))
+    ) {
+      warnings.push(
+        `unparseable \`origin_date\`: ${page.frontmatter.origin_date}`,
+      );
+    }
+
+    if (existingSlugs.has(input.slug) && !overwrite) {
+      results.push({ slug: input.slug, action: "skipped_exists", warnings });
+      continue;
+    }
+
+    results.push({ slug: input.slug, action: "written", warnings });
+    toWrite.push(page);
+  }
+
+  const summary: IngestSummary = {
+    results,
+    written: results.filter((r) => r.action === "written").length,
+    skipped: results.filter((r) => r.action === "skipped_exists").length,
+    invalid: results.filter((r) => r.action === "invalid").length,
+    dryRun,
+  };
+
+  if (dryRun) {
+    return summary;
+  }
+
+  const lockPath = getConsolidationLockPath(join(workspaceDir, "memory"));
+  const holder = tryAcquireLock(lockPath, "ingest");
+  if (holder !== null) {
+    throw new IngestLockedError(holder);
+  }
+  try {
+    for (const page of toWrite) {
+      await writePage(workspaceDir, page);
+    }
+  } finally {
+    releaseLock(lockPath);
+  }
+
+  if (summary.written > 0) {
+    enqueueReindexFollowUps();
+    log.info(
+      {
+        written: summary.written,
+        skipped: summary.skipped,
+        invalid: summary.invalid,
+      },
+      "ingest batch written",
+    );
+  }
+
+  return summary;
+}
+
+/**
+ * Best-effort reindex fan-out. Each enqueue coalesces with an already-pending
+ * job of the same type: follow-ups carry no payload and read all state at
+ * execution time, so one pending row covers any number of completed batches.
+ * A failed enqueue does not undo the writes; the next consolidation pass
+ * performs the same fan-out.
+ */
+function enqueueReindexFollowUps(): void {
+  for (const jobType of REINDEX_JOB_TYPES) {
+    try {
+      if (hasPendingJobOfType(jobType)) {
+        log.debug(
+          { jobType },
+          "ingest: reindex follow-up already pending; skipping duplicate enqueue",
+        );
+        continue;
+      }
+      enqueueMemoryJob(jobType, {});
+    } catch (err) {
+      log.warn(
+        { err, jobType },
+        "ingest: failed to enqueue reindex follow-up; continuing",
+      );
+    }
+  }
+}
