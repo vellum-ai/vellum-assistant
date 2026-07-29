@@ -22,7 +22,7 @@
  * Slugs in `excludeSlugs` (core + hot members) are dropped before the K cut —
  * those pages already sit in the stable prefix, so re-listing them would only
  * spend fresh slots on duplicates. Synthetic capability entries carry
- * `freshAt: 0` and are skipped: they have no on-disk write to be fresh by.
+ * `freshAt: null` and are skipped: they have no on-disk write to be fresh by.
  */
 
 import type { Slug } from "./types.js";
@@ -31,8 +31,9 @@ import type { Slug } from "./types.js";
 export interface FreshSetEntry {
   slug: Slug;
   /** Effective recency in epoch ms (origin date when declared, else file
-   *  mtime); `0` for synthetic entries (skills, CLI commands). */
-  freshAt: number;
+   *  mtime); pre-epoch origin dates are valid zero or negative values.
+   *  `null` for synthetic entries (skills, CLI commands). */
+  freshAt: number | null;
 }
 
 export interface FreshSetOptions {
@@ -58,7 +59,12 @@ export function computeFreshSet(
   }
 
   return entries
-    .filter((entry) => entry.freshAt > 0 && !excludeSlugs.has(entry.slug))
+    .filter(
+      (entry): entry is FreshSetEntry & { freshAt: number } =>
+        entry.freshAt !== null &&
+        Number.isFinite(entry.freshAt) &&
+        !excludeSlugs.has(entry.slug),
+    )
     .sort((a, b) => b.freshAt - a.freshAt || (a.slug < b.slug ? -1 : 1))
     .slice(0, k)
     .map((entry) => entry.slug);

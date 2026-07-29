@@ -391,7 +391,22 @@ describe("getPageIndex", () => {
     expect(entry.freshAt).toBe(Date.parse("2019-03-05"));
     // The file was written just now, so its raw mtime is far past the
     // backdated origin: modifiedAt must not follow origin_date.
-    expect(entry.modifiedAt).toBeGreaterThan(entry.freshAt);
+    expect(entry.modifiedAt).toBeGreaterThan(Date.parse("2019-03-05"));
+  });
+
+  test("freshAt keeps a pre-epoch origin_date as its negative parsed epoch", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("archival", { summary: "A", originDate: "1969-07-20" }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("archival")!;
+    // 1969-07-20 parses to a negative epoch-ms value; the declared
+    // chronology wins over the current file mtime.
+    expect(entry.freshAt).toBe(Date.parse("1969-07-20"));
+    expect(entry.freshAt).toBeLessThan(0);
+    expect(entry.freshAt).not.toBe(entry.modifiedAt);
   });
 
   test("freshAt falls back to file mtime when origin_date is absent", async () => {
@@ -415,11 +430,11 @@ describe("getPageIndex", () => {
     expect(entry.freshAt).toBe(entry.modifiedAt);
   });
 
-  test("synthetic skill entries carry freshAt 0", async () => {
+  test("synthetic skill entries carry freshAt null", async () => {
     skillState.entries = [{ id: "browser", content: "Drive a browser." }];
 
     const idx = await getPageIndex(workspaceDir);
-    expect(idx.bySlug.get("skills/browser")?.freshAt).toBe(0);
+    expect(idx.bySlug.get("skills/browser")?.freshAt).toBeNull();
   });
 
   test("collision dedupe leaves non-colliding pages and skills intact", async () => {

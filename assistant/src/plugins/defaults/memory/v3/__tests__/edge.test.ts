@@ -13,7 +13,7 @@ function entry(id: number, slug: Slug, edges: number[] = []): PageIndexEntry {
     edges,
     leaves: [],
     modifiedAt: 0,
-    freshAt: 0,
+    freshAt: null,
   };
 }
 

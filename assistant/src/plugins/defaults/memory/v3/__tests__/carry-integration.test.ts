@@ -442,7 +442,7 @@ async function buildFixtureLanes(): Promise<FixtureLanes> {
     edges: [],
     leaves: [],
     modifiedAt: 0,
-    freshAt: 0,
+    freshAt: null,
   }));
   const edgeGraph = await buildEdgeGraph(entries, async (slug) => RAW[slug]!);
 

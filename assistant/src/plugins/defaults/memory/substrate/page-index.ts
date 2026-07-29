@@ -73,14 +73,15 @@ export interface PageIndexEntry {
   modifiedAt: number;
   /**
    * Effective recency in epoch ms: `Date.parse(frontmatter.origin_date)` when
-   * that field is present and parseable, else the file mtime; 0 for synthetic
-   * entries. Imported or backfilled pages carry the date their content is
-   * about, so recency-ranked consumers (the v3 fresh lane, card date stamps)
-   * read this instead of `modifiedAt`. `splitTier1` deliberately keeps sorting
-   * on `modifiedAt`: consolidation-facing tier ranking reflects actual edit
-   * recency.
+   * that field is present and parseable (pre-epoch dates yield zero or
+   * negative values and are kept), else the file mtime; `null` for synthetic
+   * entries (skills, CLI commands), which have no recency signal. Imported or
+   * backfilled pages carry the date their content is about, so recency-ranked
+   * consumers (the v3 fresh lane, card date stamps) read this instead of
+   * `modifiedAt`. `splitTier1` deliberately keeps sorting on `modifiedAt`:
+   * consolidation-facing tier ranking reflects actual edit recency.
    */
-  freshAt: number;
+  freshAt: number | null;
 }
 
 /**
@@ -157,7 +158,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     outgoingSlugs: string[];
     leaves: string[];
     modifiedAt: number;
-    freshAt: number;
+    freshAt: number | null;
   }
 
   const [
@@ -240,7 +241,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: [],
       leaves: [],
       modifiedAt: 0,
-      freshAt: 0,
+      freshAt: null,
     });
   }
 
@@ -251,7 +252,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: [],
       leaves: [],
       modifiedAt: 0,
-      freshAt: 0,
+      freshAt: null,
     });
   }
 
@@ -304,9 +305,11 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
 
 /**
  * Effective recency for a real concept page: the parsed `origin_date`
- * frontmatter (ISO 8601 date or datetime) when present and parseable to a
- * positive epoch-ms value, else the file mtime. An unparseable value degrades
- * to mtime rather than dropping the page from recency ranking.
+ * frontmatter (ISO 8601 date or datetime) when present and parseable, else
+ * the file mtime. Any finite parse result is accepted — dates at or before
+ * 1970-01-01 yield zero or negative epoch ms and are valid chronology. An
+ * unparseable value degrades to mtime rather than dropping the page from
+ * recency ranking.
  */
 function resolveFreshAt(
   originDate: string | undefined,
@@ -316,7 +319,7 @@ function resolveFreshAt(
     return mtimeMs;
   }
   const parsed = Date.parse(originDate);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : mtimeMs;
+  return Number.isFinite(parsed) ? parsed : mtimeMs;
 }
 
 /** First line of an error's message — parse errors (YAML) are multi-line with

@@ -331,7 +331,11 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
       return `[lane: ${lane}]`;
     }
     const freshAt = freshAtBySlug.get(slug);
-    if (freshAt === undefined || !Number.isFinite(freshAt) || freshAt <= 0) {
+    if (
+      freshAt === undefined ||
+      freshAt === null ||
+      !Number.isFinite(freshAt)
+    ) {
       return "[lane: fresh]";
     }
     const stamp = new Date(freshAt)

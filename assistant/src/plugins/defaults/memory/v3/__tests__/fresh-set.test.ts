@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { computeFreshSet } from "../fresh-set.js";
 
-const entry = (slug: string, freshAt: number) => ({ slug, freshAt });
+const entry = (slug: string, freshAt: number | null) => ({ slug, freshAt });
 
 describe("computeFreshSet", () => {
   test("ranks by effective recency, newest first", () => {
@@ -39,12 +39,29 @@ describe("computeFreshSet", () => {
     expect(slugs).toEqual(["b", "c"]);
   });
 
-  test("skips synthetic entries (freshAt 0)", () => {
+  test("skips synthetic entries (freshAt null)", () => {
     const slugs = computeFreshSet(
-      [entry("skills/oura", 0), entry("real-page", 500)],
+      [entry("skills/oura", null), entry("real-page", 500)],
       { k: 5, excludeSlugs: new Set() },
     );
     expect(slugs).toEqual(["real-page"]);
+  });
+
+  test("a pre-epoch page is included and ranks below newer pages", () => {
+    // 1969-07-20 parses to a negative epoch-ms value. The page must stay in
+    // the lane with its declared chronology instead of being dropped or
+    // ranked by mtime.
+    const preEpoch = Date.parse("1969-07-20");
+    expect(preEpoch).toBeLessThan(0);
+    const slugs = computeFreshSet(
+      [
+        entry("apollo-archive", preEpoch),
+        entry("written-today", Date.parse("2026-07-29")),
+        entry("epoch-day", 0),
+      ],
+      { k: 3, excludeSlugs: new Set() },
+    );
+    expect(slugs).toEqual(["written-today", "epoch-day", "apollo-archive"]);
   });
 
   test("k = 0 disables the lane", () => {
