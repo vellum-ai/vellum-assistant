@@ -76,6 +76,7 @@ function makePage(
     summary?: string;
     body?: string;
     leaves?: string[];
+    originDate?: string;
   } = {},
 ): ConceptPage {
   return {
@@ -86,6 +87,9 @@ function makePage(
       ref_urls: [],
       ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
       ...(opts.leaves !== undefined ? { leaves: opts.leaves } : {}),
+      ...(opts.originDate !== undefined
+        ? { origin_date: opts.originDate }
+        : {}),
     },
     body: opts.body ?? "",
   };
@@ -374,6 +378,79 @@ describe("getPageIndex", () => {
     expect(idx.bySlug.get("skills/browser")?.summary).toBe(
       "Seeded skill content.",
     );
+  });
+
+  test("freshAt is the parsed origin_date; modifiedAt stays raw mtime", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("imported", { summary: "I", originDate: "2019-03-05" }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("imported")!;
+    expect(entry.freshAt).toBe(Date.parse("2019-03-05"));
+    // The file was written just now, so its raw mtime is far past the
+    // backdated origin: modifiedAt must not follow origin_date.
+    expect(entry.modifiedAt).toBeGreaterThan(Date.parse("2019-03-05"));
+  });
+
+  test("freshAt keeps a pre-epoch origin_date as its negative parsed epoch", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("archival", { summary: "A", originDate: "1969-07-20" }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("archival")!;
+    // 1969-07-20 parses to a negative epoch-ms value; the declared
+    // chronology wins over the current file mtime.
+    expect(entry.freshAt).toBe(Date.parse("1969-07-20"));
+    expect(entry.freshAt).toBeLessThan(0);
+    expect(entry.freshAt).not.toBe(entry.modifiedAt);
+  });
+
+  test("freshAt reads an offset-less ISO datetime as UTC", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("meeting", {
+        summary: "M",
+        originDate: "2019-06-10T14:23:00",
+      }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("meeting")!;
+    // Deterministic across host timezones: the offset-less datetime is
+    // normalized to UTC before parsing.
+    expect(entry.freshAt).toBe(Date.parse("2019-06-10T14:23:00Z"));
+  });
+
+  test("freshAt falls back to file mtime when origin_date is absent", async () => {
+    await writePage(workspaceDir, makePage("alice", { summary: "A" }));
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("alice")!;
+    expect(entry.freshAt).toBeGreaterThan(0);
+    expect(entry.freshAt).toBe(entry.modifiedAt);
+  });
+
+  test("freshAt falls back to file mtime when origin_date is unparseable", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("garbled", { summary: "G", originDate: "not-a-date" }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("garbled")!;
+    expect(entry.freshAt).toBeGreaterThan(0);
+    expect(entry.freshAt).toBe(entry.modifiedAt);
+  });
+
+  test("synthetic skill entries carry freshAt null", async () => {
+    skillState.entries = [{ id: "browser", content: "Drive a browser." }];
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("skills/browser")?.freshAt).toBeNull();
   });
 
   test("collision dedupe leaves non-colliding pages and skills intact", async () => {
