@@ -289,6 +289,16 @@ export interface ResolveStreamingTranscriberOptions {
    * Ignored without `utteranceBoundaryFinals`. Default: 1000.
    */
   utteranceEndMs?: number;
+  /**
+   * Spoken language to transcribe, forwarded to adapters that accept one.
+   * Defaults to `services.stt.language`; pass explicitly to override the
+   * config for a single session.
+   *
+   * See {@link CreateStreamingTranscriberOptions.language} for how each
+   * provider treats it — notably, leaving it unset is not auto-detection on
+   * Deepgram or the managed relay.
+   */
+  language?: string;
 }
 
 /**
@@ -372,11 +382,17 @@ export async function resolveStreamingTranscriber(
     return null;
   }
 
+  // Config-level language applies to every streaming caller (live voice,
+  // dictation, telephony) unless one overrides it for a single session, so
+  // the setting lands in one place rather than at each call site.
+  const language = options.language ?? getConfig().services.stt.language;
+
   return createStreamingTranscriber(apiKey ?? "", provider, {
     sampleRate: options.sampleRate,
     diarize: enableDiarization,
     utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
     utteranceEndMs: options.utteranceEndMs,
+    ...(language ? { language } : {}),
   });
 }
 
@@ -415,6 +431,20 @@ interface CreateStreamingTranscriberOptions {
    * is set. Defaults to {@link UTTERANCE_BOUNDARY_END_MS}.
    */
   utteranceEndMs?: number;
+  /**
+   * Spoken language, forwarded to the adapters that accept one: Deepgram,
+   * xAI, and the managed relay (which passes it to Deepgram server-side).
+   *
+   * Gemini and Whisper take no language option — both auto-detect natively
+   * from the audio — so this is silently ignored for them, matching how
+   * `diarize` is ignored by adapters without diarization.
+   *
+   * Unset is NOT auto-detect on Deepgram: omitting the param makes Deepgram
+   * decode as English, so non-English speech comes back as English-sounding
+   * nonsense rather than failing loudly. `"multi"` selects nova-3's
+   * code-switching mode (the managed relay pins nova-3).
+   */
+  language?: string;
 }
 
 /**
@@ -437,6 +467,7 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...(options.language ? { language: options.language } : {}),
         ...(options.diarize ? { diarize: true } : {}),
         ...(options.utteranceBoundaryFinals
           ? {
@@ -469,6 +500,7 @@ async function createStreamingTranscriber(
       const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
       return new XAIRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...(options.language ? { language: options.language } : {}),
         ...(options.diarize ? { diarize: true } : {}),
       });
     }
@@ -498,6 +530,10 @@ async function createStreamingTranscriber(
         await import("./vellum-managed-realtime.js");
       return new VellumManagedRealtimeTranscriber(connection, {
         sampleRate: options.sampleRate,
+        // `language` IS in the relay's param allowlist, and the relay pins
+        // the STT model to nova-3 server-side — so "multi" code-switching
+        // needs nothing from the platform, only this forward.
+        ...(options.language ? { language: options.language } : {}),
         ...(options.utteranceBoundaryFinals
           ? { utteranceBoundaryFinals: true }
           : {}),
