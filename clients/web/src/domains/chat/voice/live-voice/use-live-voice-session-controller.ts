@@ -45,7 +45,6 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { drainPendingVoiceStartDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
 import {
   activateVoiceAudioSession,
@@ -80,17 +79,23 @@ export type UseLiveVoiceSessionControllerOptions = Pick<
  * Off the iOS shell every call is a no-op (see `runtime/native-audio-session`),
  * so this is inert in the browser and on Electron.
  *
- * **Gated on `ios-voice-audio-session`, default off, and it must stay off until
- * a physical device says otherwise.** WebKit owns the shared `AVAudioSession`
- * that backs `getUserMedia` in a `WKWebView`, and reconfiguring it around a live
- * capture unit is exactly what `docs/CAPACITOR.md` § "Full-duplex TTS must
- * render through a MediaStream track" forbids: that shipped once (#39331) and
- * produced no capture at all, reverted in #39345. Echo cancellation no longer
- * depends on this — #39347 gets it from WebKit's own voice-processing unit by
- * routing TTS through a `MediaStreamAudioDestinationNode`. What is left
- * unmeasured is whether a backgrounded/locked session needs the native session
- * to keep its audio alive, and the Simulator cannot answer that (mock audio
- * device: it has no acoustic path to break, so it passes either way).
+ * **This is the riskiest call in the iOS voice feature — do not change it
+ * without a handset.** WebKit owns the shared `AVAudioSession` backing
+ * `getUserMedia` in a `WKWebView`, so activating our own around a live capture
+ * unit is what `docs/CAPACITOR.md` § "Full-duplex TTS must render through a
+ * MediaStream track" warns about: the same pattern shipped as #39331, produced
+ * no capture at all, and was reverted in #39345.
+ *
+ * Two things keep it in the tree anyway. Activation happens once, at the
+ * session's leading edge, never re-asserted mid-session (the re-assert was the
+ * prime suspect in #39331) — that is what `holdingAudioSession` guarantees. And
+ * echo cancellation no longer rides on it at all: #39347 gets AEC from WebKit's
+ * own voice-processing unit via a `MediaStreamAudioDestinationNode`, so the only
+ * thing left on this call is background/lock-screen audio.
+ *
+ * **The Simulator cannot evaluate any of that** — its mock audio device has no
+ * acoustic path, so it passes whether or not a real handset would go silent.
+ * Every Simulator run passed during #39331.
  */
 function useNativeAudioSessionLifecycle(): void {
   useEffect(() => {
@@ -102,17 +107,6 @@ function useNativeAudioSessionLifecycle(): void {
     const sync = (state: LiveVoiceSessionState): void => {
       const active = isLiveVoiceSessionActive(state);
       if (active === holdingAudioSession) {
-        return;
-      }
-      // Read at transition time, not at mount: flags hydrate asynchronously and
-      // a `false` here is the safe answer either way. Deliberately gates only
-      // the *activate* — `holdingAudioSession` decides the release, so a flag
-      // flipped off mid-session still deactivates the session we actually hold
-      // instead of stranding it active.
-      if (
-        active &&
-        !useClientFeatureFlagStore.getState().iosVoiceAudioSession
-      ) {
         return;
       }
       holdingAudioSession = active;

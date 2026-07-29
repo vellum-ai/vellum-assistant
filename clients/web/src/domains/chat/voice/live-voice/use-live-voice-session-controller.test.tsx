@@ -80,8 +80,6 @@ const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
   await import("@/stores/pending-deep-link-store");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
-const { useClientFeatureFlagStore } =
-  await import("@/stores/client-feature-flag-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -161,10 +159,6 @@ beforeEach(() => {
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   interruptionHandlers = [];
-  // The native audio session is gated off by default (see the hook's doc
-  // comment). The lifecycle tests below are about *when* activate/deactivate
-  // fire, not about the gate, so opt them in; the gate has its own block.
-  useClientFeatureFlagStore.setState({ iosVoiceAudioSession: true });
   activateVoiceAudioSession.mockClear();
   activateVoiceAudioSession.mockImplementation(async () => true);
   deactivateVoiceAudioSession.mockClear();
@@ -338,57 +332,6 @@ describe("session lifetime", () => {
 // ---------------------------------------------------------------------------
 // Native audio session — held for exactly the span of a voice session
 // ---------------------------------------------------------------------------
-
-// The gate exists because reconfiguring the shared AVAudioSession under
-// WebKit's live capture unit already shipped once and killed capture outright
-// (#39331 → #39345). Default off until a physical device proves otherwise; the
-// Simulator's mock audio device cannot tell the difference.
-describe("native audio session — the ios-voice-audio-session gate", () => {
-  test("does not touch the native session when the flag is off", async () => {
-    useClientFeatureFlagStore.setState({ iosVoiceAudioSession: false });
-    const h = renderPersistentController();
-
-    await startListeningViaStarter(h);
-    expect(activateVoiceAudioSession).not.toHaveBeenCalled();
-
-    await act(async () => {
-      useLiveVoiceStore.getState().controls?.stop();
-      await Promise.resolve();
-    });
-    // Nothing was held, so nothing may be released either — a stray
-    // `setActive(false, .notifyOthersOnDeactivation)` would interrupt whatever
-    // other audio the phone is playing.
-    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
-  });
-
-  test("an unhydrated flag store fails closed", async () => {
-    // Flags hydrate asynchronously; a session started inside that window must
-    // read the conservative answer rather than the risky one.
-    useClientFeatureFlagStore.setState({
-      iosVoiceAudioSession: undefined as unknown as boolean,
-    });
-    const h = renderPersistentController();
-
-    await startListeningViaStarter(h);
-    expect(activateVoiceAudioSession).not.toHaveBeenCalled();
-  });
-
-  test("a flag flipped off mid-session still releases the session it holds", async () => {
-    // The gate covers activate only. If it also covered deactivate, a flip
-    // during a live call would strand the native session active for good.
-    const h = renderPersistentController();
-    await startListeningViaStarter(h);
-    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
-
-    useClientFeatureFlagStore.setState({ iosVoiceAudioSession: false });
-    await act(async () => {
-      useLiveVoiceStore.getState().controls?.stop();
-      await Promise.resolve();
-    });
-
-    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
-  });
-});
 
 describe("native audio session", () => {
   test("activates once per session, not once per phase change", async () => {
