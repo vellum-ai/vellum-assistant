@@ -1,5 +1,6 @@
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import { managedSpeechAvailable } from "../../../../platform/managed-speech.js";
+import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../../../providers/speech-to-text/deepgram.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -62,24 +63,15 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
 };
 
 /**
- * Curated spoken-language codes for `services.stt.language`. The set is
- * Deepgram nova-3's `multi` (code-switching) roster plus `multi` itself,
- * mirroring the web settings catalog
- * (`clients/web/src/lib/stt/language-catalog.ts`). The config schema accepts
- * any non-empty string, but this tool only offers the curated set so a
- * conversational request cannot persist an unvalidated code.
+ * Curated spoken-language codes for `services.stt.language`: Deepgram
+ * nova-3's `multi` (code-switching) roster plus `multi` itself, derived from
+ * the daemon's single roster source (`DEEPGRAM_MULTI_LANGUAGE_CODES`, which
+ * the web settings catalog mirrors under a parity test). The config schema
+ * accepts any non-empty string, but this tool only offers the curated set so
+ * a conversational request cannot persist an unvalidated code.
  */
 const VALID_STT_LANGUAGES = [
-  "en",
-  "es",
-  "fr",
-  "de",
-  "hi",
-  "ru",
-  "pt",
-  "ja",
-  "it",
-  "nl",
+  ...DEEPGRAM_MULTI_LANGUAGE_CODES,
   "multi",
 ] as const;
 
@@ -257,6 +249,24 @@ function deleteLegacySpeechMode(
   delete (entry as Record<string, unknown>).mode;
 }
 
+/**
+ * Whether a raw `services.stt` block already names a provider, walking the
+ * raw shape with the same defensive guards as {@link deleteLegacySpeechMode}
+ * (the raw file is untrusted JSON, not schema output).
+ */
+function rawSttProviderPresent(raw: Record<string, unknown>): boolean {
+  const services = raw.services;
+  if (!services || typeof services !== "object" || Array.isArray(services)) {
+    return false;
+  }
+  const stt = (services as Record<string, unknown>).stt;
+  if (!stt || typeof stt !== "object" || Array.isArray(stt)) {
+    return false;
+  }
+  const provider = (stt as Record<string, unknown>).provider;
+  return typeof provider === "string" && provider.trim().length > 0;
+}
+
 export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
@@ -376,6 +386,23 @@ export async function run(
   // forwards the language only to adapters that accept one (and drops "multi"
   // for xAI), matching how stt_provider does not cross-validate credentials.
   if (setting === "stt_language") {
+    // A sparse raw config may lack `services.stt.provider` entirely. Writing
+    // only the language would persist `{ stt: { language } }`, and
+    // SttServiceSchema requires `provider` (the services-level default fills
+    // it only when `services.stt` is wholly absent), so the block would fail
+    // validation and trip the loader's salvage ladder: the language never
+    // applies and the whole `services` section (including unrelated TTS
+    // settings) can reset to defaults (the LUM-2758 failure family). Like the
+    // schema's alias preprocessing and this tool's curated-value validation,
+    // keep the write self-consistent: seed the provider from the effective
+    // config in the same write.
+    if (!rawSttProviderPresent(raw)) {
+      setNestedValue(
+        raw,
+        "services.stt.provider",
+        getConfig().services.stt.provider,
+      );
+    }
     setNestedValue(raw, "services.stt.language", validation.coerced);
     saveRawConfig(raw);
     invalidateConfigCache();

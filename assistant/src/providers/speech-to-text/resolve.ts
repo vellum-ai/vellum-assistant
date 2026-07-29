@@ -511,14 +511,12 @@ async function createStreamingTranscriber(
     }
     case "xai": {
       const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
+      const { xaiLanguageOptions } = await import("./xai.js");
       return new XAIRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
-        // "multi" is Deepgram's code-switching mode, not a BCP-47 code, so it
-        // never reaches xAI (which expects BCP-47 and auto-handles
-        // multilingual audio well enough without a hint).
-        ...(options.language && options.language !== "multi"
-          ? { language: options.language }
-          : {}),
+        // Drops "multi" (a Deepgram-specific mode, not a language code); see
+        // xaiLanguageOptions.
+        ...xaiLanguageOptions(options.language),
         ...(options.diarize ? { diarize: true } : {}),
       });
     }

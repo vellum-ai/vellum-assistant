@@ -97,6 +97,21 @@ export interface XAIProviderOptions {
   language?: string;
 }
 
+/**
+ * xAI constructor options implied by a language selection, for spreading
+ * into adapter constructor options (the batch adapter and the streaming
+ * resolver spread this the same way, mirroring `deepgramLanguageOptions`).
+ *
+ * `"multi"` is Deepgram's code-switching mode, not a language code, so xAI
+ * receives no language for it: the adapter falls back to xAI's native
+ * multilingual auto-detection, which needs no hint.
+ */
+export function xaiLanguageOptions(language: string | undefined): {
+  language?: string;
+} {
+  return language && language !== "multi" ? { language } : {};
+}
+
 export class XAIProvider {
   private readonly apiKey: string;
   private readonly language: string | undefined;
