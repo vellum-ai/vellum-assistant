@@ -17,6 +17,7 @@ import {
 import { pluginIngressApprovals } from "../db/schema.js";
 import { PLUGIN_INGRESS_MANIFEST_RELPATH } from "./plugin-ingress.js";
 import {
+  findServableRoute,
   ingressDeclarationDigest,
   resolvePluginIngress,
 } from "./plugin-ingress-approvals.js";
@@ -225,5 +226,76 @@ describe("resolvePluginIngress", () => {
     expect(approved).toEqual([]);
     expect(pending).toEqual([]);
     expect(problems.map((p) => p.plugin)).toEqual(["broken"]);
+  });
+});
+
+describe("findServableRoute", () => {
+  const http = (signer: "plugin" | "vellum") => ({
+    path: "hook",
+    kind: "http" as const,
+    signer,
+    description: "d",
+  });
+
+  function resolution(
+    over: Partial<{
+      approved: { plugin: string; routes: unknown[]; digest: string }[];
+      pending: { plugin: string; routes: unknown[]; digest: string }[];
+    }> = {},
+  ) {
+    return {
+      approved: [],
+      pending: [],
+      problems: [],
+      ...over,
+    } as never;
+  }
+
+  it("serves an approved route", () => {
+    const res = resolution({
+      approved: [
+        { plugin: "p", routes: [http("plugin")], digest: "d".repeat(32) },
+      ],
+    });
+    expect(findServableRoute(res, "p", "hook", "http")?.path).toBe("hook");
+  });
+
+  it("does not serve a plugin-signed route awaiting approval", () => {
+    const res = resolution({
+      pending: [
+        { plugin: "p", routes: [http("plugin")], digest: "d".repeat(32) },
+      ],
+    });
+    expect(findServableRoute(res, "p", "hook", "http")).toBeUndefined();
+  });
+
+  it("serves a vellum-signed route without approval", () => {
+    // Only a caller holding the platform secret can open it, and that trust
+    // was already given when the account was connected.
+    const res = resolution({
+      pending: [
+        { plugin: "p", routes: [http("vellum")], digest: "d".repeat(32) },
+      ],
+    });
+    expect(findServableRoute(res, "p", "hook", "http")?.signer).toBe("vellum");
+  });
+
+  it("still matches on kind and path exactly", () => {
+    const res = resolution({
+      pending: [
+        { plugin: "p", routes: [http("vellum")], digest: "d".repeat(32) },
+      ],
+    });
+    // The exemption is about approval, not about widening reach.
+    expect(findServableRoute(res, "p", "hook", "websocket")).toBeUndefined();
+    expect(findServableRoute(res, "p", "other", "http")).toBeUndefined();
+    expect(findServableRoute(res, "other", "hook", "http")).toBeUndefined();
+  });
+
+  it("serves nothing for a declaration that failed validation", () => {
+    // A malformed manifest lands in `problems`, never in either list, so a
+    // vellum signer cannot smuggle an invalid route through.
+    const res = resolution({});
+    expect(findServableRoute(res, "p", "hook", "http")).toBeUndefined();
   });
 });
