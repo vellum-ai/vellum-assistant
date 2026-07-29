@@ -14,7 +14,7 @@
  * to, so a failure is logged and the socket is left alone.
  *
  * A frame travels as the request's raw body, so the plugin receives exactly
- * the bytes the caller sent — text or binary, well-formed JSON or not.
+ * the bytes the caller sent: text or binary, well-formed JSON or not.
  */
 
 import {
@@ -116,7 +116,7 @@ export interface PluginWebhookWsDeps {
 /**
  * Upgrade handler for `/webhooks/plugins/:plugin/:path`.
  *
- * Applies the same gate as the HTTP half — see `findServableRoute` — and only
+ * Applies the same gate as the HTTP half (see `findServableRoute`) and only
  * for the `websocket` kind, then authenticates the handshake before
  * upgrading. An upgrade cannot be un-done once accepted, so everything is
  * checked first.
@@ -212,7 +212,7 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
  * Hand one frame to the plugin's route over IPC.
  *
  * The frame travels as the request's raw body, so the plugin receives the
- * bytes the caller sent — text or binary, well-formed JSON or not. Deciding
+ * bytes the caller sent: text or binary, well-formed JSON or not. Deciding
  * what a frame means is the plugin's job, not the transport's.
  */
 async function deliverFrame(
