@@ -57,7 +57,7 @@ export function ChannelTrustFloorSection({
         // (e.g. `no_one`) policy and let the user overwrite it.
         <Typography
           as="span"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className="text-[color:var(--content-tertiary)]"
         >
           Loading…
@@ -65,7 +65,7 @@ export function ChannelTrustFloorSection({
       ) : error ? (
         <Typography
           as="span"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className="text-[color:var(--content-negative)]"
         >
           Couldn’t load this setting. Try reopening this page.
@@ -83,7 +83,7 @@ export function ChannelTrustFloorSection({
           </div>
           <Typography
             as="span"
-            variant="body-small-default"
+            variant="body-small-lighter"
             className="text-[color:var(--content-tertiary)]"
           >
             {descriptions[value]}
