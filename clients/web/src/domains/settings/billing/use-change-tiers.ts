@@ -77,6 +77,13 @@ export interface UseChangeTiersResult {
    * "not representable" — a false negative would misroute an eligible sub.
    */
   currentReady: boolean;
+  /**
+   * The assistant the server provisions against, from the same onboarding
+   * payload `current` reads. Null while that payload is absent, or when the org
+   * names no primary; callers fall back to the active assistant, which is how
+   * the provisioning takeover resolves its own target.
+   */
+  primaryAssistantId: string | null;
 }
 
 /**
@@ -307,5 +314,12 @@ export function useChangeTiers({
     return { needsResize, creditChanged: creditSucceeded };
   };
 
-  return { changeTiers, isPending, current, eligible, currentReady };
+  return {
+    changeTiers,
+    isPending,
+    current,
+    eligible,
+    currentReady,
+    primaryAssistantId: onboardingQuery.data?.primary_assistant_id ?? null,
+  };
 }

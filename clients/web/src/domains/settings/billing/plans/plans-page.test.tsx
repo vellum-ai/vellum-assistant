@@ -55,6 +55,8 @@ import {
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import type {
+  Assistant,
+  MachineSizeEnum,
   OnboardingStateResponse,
   PackageChangeResponse,
   PlanListResponse,
@@ -99,6 +101,12 @@ let changePackageError: unknown = null;
 let subscriptionFixture: SubscriptionResponse | null = null;
 let plansFixture: PlanListResponse | null = null;
 let onboardingFixture: OnboardingStateResponse | null = null;
+// The assistant the machine from-side is read off, plus a log of how it was
+// asked for, so the primary-then-active resolution can be asserted.
+let assistantFixture: Assistant | null = null;
+let activeAssistantFixture: Assistant | null = null;
+const assistantByIdCalls: (string | null)[] = [];
+let activeAssistantCalls = 0;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -153,6 +161,17 @@ mock.module("@/generated/api/sdk.gen", () => ({
     Promise.resolve({ data: plansFixture, response: { ok: true } }),
   organizationsBillingSubscriptionOnboardingRetrieve: () =>
     Promise.resolve({ data: onboardingFixture, response: { ok: true } }),
+  assistantsRetrieve: (opts: { path?: { id?: string } }) => {
+    assistantByIdCalls.push(opts.path?.id ?? null);
+    return Promise.resolve({ data: assistantFixture, response: { ok: true } });
+  },
+  assistantsActiveRetrieve: () => {
+    activeAssistantCalls += 1;
+    return Promise.resolve({
+      data: activeAssistantFixture,
+      response: { ok: true },
+    });
+  },
 }));
 
 mock.module("@/runtime/browser", () => ({
@@ -183,23 +202,27 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 // The full loading → "You're all set!" flow is owned by
 // billing-onboarding-modal.test.tsx's resize-mode suite.
 //
-// Captures the credit tier the page threads in so the credit-change confirmation
-// (and the switch path's deliberate omission of it) can be asserted directly.
-let takeoverResizeCredits: string | null | undefined;
+// Captures the context the page threads in, so the pre-change from-sides (and
+// the switch path's omission of an unchanged bundle) can be asserted directly.
+type CapturedResizeContext = {
+  fromSnapshot: { machineSize: string | null; storageGib: number | null };
+  credits: { fromTier: string | null; toTier: string | null } | null;
+};
+let takeoverResizeContext: CapturedResizeContext | undefined;
 mock.module(
   "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
   () => ({
     BillingOnboardingModal: ({
       open,
       mode,
-      resizeCredits,
+      resizeContext,
     }: {
       open: boolean;
       mode?: string;
-      resizeCredits?: string | null;
+      resizeContext?: CapturedResizeContext;
     }) => {
       if (open) {
-        takeoverResizeCredits = resizeCredits;
+        takeoverResizeContext = resizeContext;
       }
       return open ? (
         <div data-testid="resize-takeover" data-mode={mode ?? "checkout"} />
@@ -475,6 +498,17 @@ function LocationProbe() {
   return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
+/** An assistant whose pod sits at `machineSize`, the machine chip's from-side. */
+function makeAssistant(id: string, machineSize: MachineSizeEnum): Assistant {
+  return {
+    id,
+    name: "Casey",
+    handle: "casey",
+    machine_size: machineSize,
+    provisioned_storage_gib: 10,
+  } as Assistant;
+}
+
 /** Onboarding state carrying a Pro sub's current machine/storage tiers. */
 function onboarding(
   overrides: Partial<OnboardingStateResponse> = {},
@@ -556,8 +590,12 @@ beforeEach(() => {
   subscriptionFixture = null;
   plansFixture = null;
   onboardingFixture = null;
+  assistantFixture = makeAssistant("assistant-primary", "medium");
+  activeAssistantFixture = makeAssistant("assistant-active", "large");
+  assistantByIdCalls.length = 0;
+  activeAssistantCalls = 0;
   toastSuccessCalls.length = 0;
-  takeoverResizeCredits = undefined;
+  takeoverResizeContext = undefined;
   // The stash and the assistants store are module-level globals, so reset both.
   clearTakeoverAvatarStash();
   useResolvedAssistantsStore.setState({
@@ -612,10 +650,111 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
-    // The switch path sources no bundle, so it threads none — a stale value
-    // from a prior custom change must never surface on this takeover.
-    expect(takeoverResizeCredits).toBeUndefined();
+    // The sub holds no bundle and Ultra pins one, so the tier move is threaded.
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: null,
+      toTier: "credits_115",
+    });
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+  });
+
+  test("a switch that leaves the bundle alone threads no credits chip", async () => {
+    // Super pins credits_45 and the sub already holds it, so there is no move to
+    // state and the chip is dropped.
+    const { findByRole, findByTestId } = renderInteractive({
+      ...proMightySubscription(),
+      selected_credit_tier: "credits_45",
+    });
+
+    fireEvent.click(await findByRole("button", { name: "Go Super" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.credits).toBeNull();
+  });
+
+  test("a package switch hands the takeover the pre-change machine, storage and bundle", async () => {
+    // The server caps the machine before change-package answers, and the hook
+    // then invalidates the subscription and onboarding reads, so every "current"
+    // value the page can read once the await resolves is already post-change.
+    // Model that by flipping each fixture to its post-change value before the
+    // switch is confirmed: only a capture taken ahead of the await survives it.
+    const { findByRole, findByTestId } = renderInteractive(
+      { ...proSuperSubscription(), selected_credit_tier: "credits_45" },
+      {
+        onboardingData: onboarding({
+          primary_assistant_id: "assistant-primary",
+          selected_storage_gib: 30,
+        }),
+      },
+    );
+    // Let the by-id assistant read land before the pod grows.
+    await waitFor(() => expect(assistantByIdCalls.length).toBeGreaterThan(0));
+
+    changePackageData = {
+      status: "ok",
+      package: { key: "ultra", name: "Ultra", version: 1, customized: false },
+    };
+    subscriptionFixture = {
+      ...proSuperSubscription(),
+      selected_credit_tier: "credits_115",
+    };
+    onboardingFixture = onboarding({
+      primary_assistant_id: "assistant-primary",
+      max_machine_tier: "large",
+      selected_storage_gib: 60,
+    });
+    assistantFixture = makeAssistant("assistant-primary", "large");
+
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: "medium",
+      storageGib: 30,
+    });
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: "credits_45",
+      toTier: "credits_115",
+    });
+  });
+
+  test("the machine from-side reads the onboarding payload's primary assistant", async () => {
+    // The takeover watches the primary-then-active assistant, so the chip's
+    // from-side has to describe that same pod. In a multi-assistant org the
+    // active one is a different machine.
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      {
+        onboardingData: onboarding({
+          primary_assistant_id: "assistant-primary",
+        }),
+      },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(assistantByIdCalls).toContain("assistant-primary");
+    expect(activeAssistantCalls).toBe(0);
+    // "medium" is the primary's size; the active assistant reads "large".
+    expect(takeoverResizeContext?.fromSnapshot.machineSize).toBe("medium");
+  });
+
+  test("with no primary named the from-side falls back to the active assistant", async () => {
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      { onboardingData: onboarding({ primary_assistant_id: null }) },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(assistantByIdCalls).toEqual([]);
+    expect(takeoverResizeContext?.fromSnapshot.machineSize).toBe("large");
   });
 
   test("Pro → Free downgrade confirms first, then opens the Stripe billing portal", async () => {
@@ -1153,8 +1292,17 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     // (which no-ops for active Pro) is never touched.
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
-    // The bundle changed alongside the machine, so it's threaded through too.
-    expect(takeoverResizeCredits).toBe("credits_50");
+    // The bundle changed alongside the machine, so the tier move is threaded
+    // through too, from the pre-change tier the sub held.
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: null,
+      toTier: "credits_50",
+    });
+    // The pod's own size is the machine from-side, not the billing ceiling.
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: "large",
+      storageGib: 10,
+    });
     expect(upgradeCall).toBeNull();
   });
 
@@ -1181,10 +1329,30 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     // a readable confirmation moment.
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
-    // The applied bundle is threaded through so the takeover can confirm it —
-    // the credit-only path never reaches the WAITING credits chip.
-    expect(takeoverResizeCredits).toBe("credits_50");
+    // The tier move is threaded through so the takeover can state it; a
+    // credit-only change resolves straight to the terminal phase.
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: null,
+      toTier: "credits_50",
+    });
     expect(upgradeCall).toBeNull();
+  });
+
+  test("a machine-only Continue threads no credits chip", async () => {
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    await findByTestId("resize-takeover");
+    expect(creditTierCall).toBeNull();
+    expect(takeoverResizeContext?.credits).toBeNull();
   });
 
   // Configure always opens the in-place custom modal for a Pro sub, whatever the
