@@ -180,10 +180,13 @@ export function useChangeTiers({
   // that first load settles (success or error) — an error leaves the tiers null,
   // which the caller safely reads as "not representable" and routes to manage.
   const currentReady = !onPro || !onboardingQuery.isPending;
-  // Settling covers a read that FAILED, which leaves every dimension null. The
-  // payload actually being in hand is the only thing that separates "this
-  // package names no machine" from "we could not read the machine at all".
-  const currentKnown = !onPro || onboardingQuery.data != null;
+  // Two ways the tiers can lie, and both have to be excluded. A read that
+  // FAILED leaves every dimension null, which is indistinguishable from a
+  // package that names no machine. And a refetch that fails keeps the previous
+  // payload, so the tiers can be real but stale, which ranks just as wrongly.
+  // So the read must have both succeeded and produced something.
+  const currentKnown =
+    !onPro || (onboardingQuery.isSuccess && onboardingQuery.data != null);
 
   const isPending =
     changeMachineTierMutation.isPending ||

@@ -222,7 +222,7 @@ function setup({
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
   const { result } = renderHook(() => useChangeTiers({ enabled }), { wrapper });
-  return { result, invalidatedKeys, events };
+  return { result, invalidatedKeys, events, client };
 }
 
 describe("useChangeTiers", () => {
@@ -324,6 +324,23 @@ describe("useChangeTiers", () => {
   test("currentKnown is true once the onboarding payload is in hand", () => {
     const { result } = setup();
     expect(result.current.currentKnown).toBe(true);
+  });
+
+  test("currentKnown is false when a refetch fails over cached tiers", async () => {
+    // React Query keeps the previous payload when a refetch fails, so the tiers
+    // stay readable while no longer describing the sub. Ranking them is as
+    // wrong as ranking nulls, just harder to see.
+    const { result, client } = setup();
+    expect(result.current.currentKnown).toBe(true);
+
+    onboardingFails = true;
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ONBOARDING_KEY });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    // The stale tiers are still readable, which is what makes this dangerous.
+    expect(result.current.current.machineTier).not.toBeNull();
   });
 
   test("currentKnown is true for a base sub (no onboarding to read)", () => {
