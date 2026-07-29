@@ -187,13 +187,13 @@ Use the bundled parsers to pull candidates out of the source artifacts. Both emi
 - **ChatGPT** non-conversation material (saved memories, custom instructions):
 
   ```sh
-  bun run scripts/parse-chatgpt-memory.ts --file /path/to/chatgpt-export.zip
+  bun run {baseDir}/scripts/parse-chatgpt-memory.ts --file /path/to/chatgpt-export.zip
   ```
 
 - **Hermes / OpenClaw** `memory.db` snapshots (always a `.backup` snapshot, never a live DB; see the provider references):
 
   ```sh
-  bun run scripts/parse-agent-memory-db.ts --file /path/to/memory.db.snapshot --source hermes
+  bun run {baseDir}/scripts/parse-agent-memory-db.ts --file /path/to/memory.db.snapshot --source hermes
   ```
 
   (or `--source openclaw`)
@@ -214,7 +214,7 @@ Write the approved items as concept pages in a staging directory (for example `.
 - Detail lives in `## ` sections with names that work as navigation.
 - Flat kebab-case slug; the staged filename minus `.md` becomes the slug.
 - `links:` entries annotated with why-notes: each entry names a target slug plus one line on why the link exists, in the exact format the principles doc shows.
-- Provenance frontmatter on every imported page: `source: import:<provider>` (e.g. `import:chatgpt`) plus `origin_date:` (ISO 8601) carrying the content's original chronology. `origin_date` drives the page's effective recency, so imported pages rank by when their content originally dates from, not by import time.
+- Provenance frontmatter on every imported page: `source: import:<provider>` (e.g. `import:chatgpt`). Add `origin_date:` (ISO 8601) when the source material carries a date (a parser-emitted `origin_date`, or a date the creator confirms); it drives the page's effective recency, so imported pages rank by when their content originally dates from, not by import time. When the original date is unknown, omit the field rather than inventing one; the page then ranks by its write time like any other new page.
 
 ### 4. Ingest
 
@@ -228,7 +228,7 @@ Review the per-page dry-run results (written / skipped / invalid) with the creat
 
 - Check the summary counts: written, skipped, invalid.
 - Spot-check retrieval on two or three imported facts.
-- Optionally run `assistant memory v3 eval` as a smoke test after a large import.
+- For a large import, `assistant memory v3 eval` can gate the change, but it is a two-corpus comparison requiring `--staging`, `--snapshot`, and `--out`; use it only when a pre-import snapshot of `memory/concepts/` exists to compare against. Otherwise the retrieval spot-check above is the verification.
 
 ### Small volumes
 
