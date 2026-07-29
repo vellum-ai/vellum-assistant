@@ -38,22 +38,30 @@ export const recheckAdaptiveThinkingModelImpliedAnthropicMigration: WorkspaceMig
       "Re-enable adaptive thinking on managed profiles that imply Anthropic via a known Claude model",
     run(workspaceDir: string): void {
       const configPath = join(workspaceDir, "config.json");
-      if (!existsSync(configPath)) return;
+      if (!existsSync(configPath)) {
+        return;
+      }
 
       let config: Record<string, unknown>;
       try {
         const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          return;
+        }
         config = raw as Record<string, unknown>;
       } catch {
         return;
       }
 
       const llm = readObject(config.llm);
-      if (llm === null) return;
+      if (llm === null) {
+        return;
+      }
 
       const profiles = readObject(llm.profiles);
-      if (profiles === null) return;
+      if (profiles === null) {
+        return;
+      }
 
       // Profiles without an explicit provider and without a model-implied
       // provider inherit llm.default.provider at resolution time; an absent
@@ -68,13 +76,17 @@ export const recheckAdaptiveThinkingModelImpliedAnthropicMigration: WorkspaceMig
 
       for (const name of TARGET_PROFILES) {
         const profile = readObject(profiles[name]);
-        if (profile === null) continue;
+        if (profile === null) {
+          continue;
+        }
 
         // Only patch managed Anthropic profiles. Explicit `source: "user"`
         // profiles and non-managed, non-absent sources are skipped. Effective
         // provider is the explicit `provider`, else the provider implied by a
         // known Claude `model`, else the inherited llm.default.provider.
-        if (profile.source === "user") continue;
+        if (profile.source === "user") {
+          continue;
+        }
         if (profile.source !== undefined && profile.source !== "managed") {
           continue;
         }
@@ -82,11 +94,15 @@ export const recheckAdaptiveThinkingModelImpliedAnthropicMigration: WorkspaceMig
           profile,
           defaultProvider,
         );
-        if (effectiveProvider !== "anthropic") continue;
+        if (effectiveProvider !== "anthropic") {
+          continue;
+        }
 
         // Skip if thinking is already enabled.
         const thinking = readObject(profile.thinking);
-        if (thinking !== null && thinking.enabled === true) continue;
+        if (thinking !== null && thinking.enabled === true) {
+          continue;
+        }
 
         profile.thinking = { ...ADAPTIVE_THINKING };
         profiles[name] = profile;
@@ -114,7 +130,9 @@ function resolveEffectiveProvider(
   profile: Record<string, unknown>,
   defaultProvider: string,
 ): string {
-  if (typeof profile.provider === "string") return profile.provider;
+  if (typeof profile.provider === "string") {
+    return profile.provider;
+  }
   if (
     typeof profile.model === "string" &&
     profile.model.startsWith("claude-") &&

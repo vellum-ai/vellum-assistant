@@ -133,7 +133,9 @@ describe("niceMax", () => {
   });
 
   it("guarantees every tick label matches its gridline position", () => {
-    const testRawValues = [0.001, 0.008, 0.011, 0.07, 0.15, 0.5, 0.73, 0.9, 1.5, 7.3, 11, 73, 350];
+    const testRawValues = [
+      0.001, 0.008, 0.011, 0.07, 0.15, 0.5, 0.73, 0.9, 1.5, 7.3, 11, 73, 350,
+    ];
     for (const raw of testRawValues) {
       const yMax = niceMax([raw]);
       const step = yMax / 5;
@@ -142,7 +144,9 @@ describe("niceMax", () => {
       // Step should be a nice number (1, 2, 2.5, or 5 × 10^n)
       const magnitude = 10 ** Math.floor(Math.log10(step));
       const normalized = step / magnitude;
-      const isNice = [1, 2, 2.5, 5, 10].some((n) => Math.abs(normalized - n) < 1e-9);
+      const isNice = [1, 2, 2.5, 5, 10].some(
+        (n) => Math.abs(normalized - n) < 1e-9,
+      );
       expect(isNice).toBe(true);
 
       // Use the same formatter as the component: niceStepDigits + min 2 for sub-dollar
@@ -159,7 +163,9 @@ describe("niceMax", () => {
 
       // Parsed labels match tick values exactly
       for (let i = 1; i < ticks.length; i++) {
-        const parsed = parseFloat(labels[i]!.replace("$", "").replace(/,/g, ""));
+        const parsed = parseFloat(
+          labels[i]!.replace("$", "").replace(/,/g, ""),
+        );
         expect(Math.abs(parsed - ticks[i]!)).toBeLessThan(1e-9);
       }
     }

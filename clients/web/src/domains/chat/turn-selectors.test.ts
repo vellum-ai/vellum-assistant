@@ -26,7 +26,11 @@ describe("shouldShowThinkingIndicator — authoritative processing close-gate", 
     // `thinking`; the reseeded snapshot reports `processing: false` and an
     // assistant reply already rendered (no pending response).
     expect(
-      shouldShowThinkingIndicator("thinking", 0, ctx({ snapshotProcessing: false })),
+      shouldShowThinkingIndicator(
+        "thinking",
+        0,
+        ctx({ snapshotProcessing: false }),
+      ),
     ).toBe(false);
   });
 
@@ -44,13 +48,21 @@ describe("shouldShowThinkingIndicator — authoritative processing close-gate", 
 
   test("undefined processing (pre-0.8.8) leaves phase-only behavior intact", () => {
     expect(
-      shouldShowThinkingIndicator("thinking", 0, ctx({ snapshotProcessing: undefined })),
+      shouldShowThinkingIndicator(
+        "thinking",
+        0,
+        ctx({ snapshotProcessing: undefined }),
+      ),
     ).toBe(true);
   });
 
   test("processing:true does not suppress the indicator", () => {
     expect(
-      shouldShowThinkingIndicator("thinking", 0, ctx({ snapshotProcessing: true })),
+      shouldShowThinkingIndicator(
+        "thinking",
+        0,
+        ctx({ snapshotProcessing: true }),
+      ),
     ).toBe(true);
   });
 });
@@ -72,9 +84,9 @@ describe("isAssistantBusy — authoritative processing close-gate", () => {
   });
 
   test("undefined processing leaves phase-driven stop behavior intact", () => {
-    expect(isAssistantBusy("streaming", ctx({ snapshotProcessing: undefined }))).toBe(
-      true,
-    );
+    expect(
+      isAssistantBusy("streaming", ctx({ snapshotProcessing: undefined })),
+    ).toBe(true);
   });
 });
 

@@ -2,6 +2,7 @@ import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
 import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   CardSurfaceDataSchema,
   ChoiceSurfaceDataSchema,
@@ -17,11 +18,10 @@ import {
   SurfaceTypeSchema,
 } from "../api/surfaces.js";
 import {
-  addAppConversationId,
   getApp,
   getAppDirPath,
   getAppPreview,
-  listAppsByConversation,
+  linkAppToConversationLineage,
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
@@ -52,6 +52,7 @@ import {
   activationStepNameForMomentParam,
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
+import { resolveAppId } from "../tools/apps/resolve-app-id.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -70,7 +71,6 @@ import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   AnySurfaceData,
-  AssistantEvent,
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
@@ -2303,20 +2303,15 @@ export async function handleSurfaceAction(
     });
   }
   if (result.queued) {
-    const position = ctx.getQueueDepth();
     if (!retainPending) {
       ctx.pendingSurfaceActions.delete(surfaceId);
     }
+    // `enqueueMessage` already acked the queued row on `onEvent` with its
+    // `message_queued` event; nothing more to broadcast here.
     log.info(
       { surfaceId, actionId, requestId },
       "Surface action queued (conversation busy)",
     );
-    onEvent({
-      type: "message_queued",
-      conversationId: ctx.conversationId,
-      requestId,
-      position,
-    });
     return;
   }
 
@@ -3387,13 +3382,7 @@ export async function surfaceProxyResolver(
       };
     }
 
-    // Weaker models routinely omit app_id even though the active app is in
-    // context. Fall back to the conversation's most-recently-updated app
-    // rather than failing with "Invalid ID: undefined".
-    let appId = typeof input.app_id === "string" ? input.app_id : "";
-    if (appId.trim().length === 0) {
-      appId = listAppsByConversation(ctx.conversationId)[0]?.id ?? "";
-    }
+    const appId = resolveAppId(input, ctx.conversationId) ?? "";
     const preview = isPlainObject(input.preview)
       ? DynamicPagePreviewSchema.parse(input.preview)
       : undefined;
@@ -3411,7 +3400,7 @@ export async function surfaceProxyResolver(
 
     // Track conversation association (best-effort — failures must not break open flow).
     try {
-      addAppConversationId(appId, ctx.conversationId);
+      linkAppToConversationLineage(appId, ctx.conversationId);
     } catch (err) {
       log.warn({ err, appId }, "Failed to track conversation ID on app_open");
     }

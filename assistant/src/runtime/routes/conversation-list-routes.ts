@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 
+import { CHANNEL_IDS } from "../../channels/types.js";
 import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
@@ -57,16 +58,7 @@ const log = getLogger("conversation-list-routes");
 // Response schemas
 // ---------------------------------------------------------------------------
 
-const channelIdSchema = z.enum([
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-]);
+const channelIdSchema = z.enum(CHANNEL_IDS);
 
 const assistantAttentionSchema = z.object({
   hasUnseenLatestAssistantMessage: z.boolean(),
@@ -155,7 +147,9 @@ const conversationDetailResponseSchema = z.object({
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  if (!id) {
+    throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  }
   return id;
 }
 
@@ -453,15 +447,7 @@ export const ROUTES: RouteDefinition[] = [
           "Filter by origin channel. When provided, only conversations with this exact origin_channel value are returned. Omit to include all channels.",
         schema: {
           type: "string",
-          enum: [
-            "slack",
-            "telegram",
-            "whatsapp",
-            "email",
-            "a2a",
-            "vellum",
-            "phone",
-          ],
+          enum: [...CHANNEL_IDS],
         },
       },
     ],

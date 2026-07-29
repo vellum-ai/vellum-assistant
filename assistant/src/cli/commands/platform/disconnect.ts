@@ -12,11 +12,12 @@ export function registerPlatformDisconnectCommand(platform: Command): void {
         disconnected: boolean;
         previousBaseUrl: string | null;
       }>("platform_disconnect", {});
-      if (!r.ok)
+      if (!r.ok) {
         return exitFromIpcResult(
           { ok: false, error: r.error, statusCode: r.statusCode },
           cmd,
         );
+      }
 
       writeOutput(cmd, { ok: true, ...r.result });
 

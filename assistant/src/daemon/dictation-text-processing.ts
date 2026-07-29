@@ -49,10 +49,14 @@ export function expandSnippets(
   text: string,
   snippets: DictationSnippet[] | undefined,
 ): string {
-  if (!snippets || snippets.length === 0 || !text) return text;
+  if (!snippets || snippets.length === 0 || !text) {
+    return text;
+  }
 
   const enabled = snippets.filter((s) => s.enabled !== false);
-  if (enabled.length === 0) return text;
+  if (enabled.length === 0) {
+    return text;
+  }
 
   // Sort by trigger length descending so longest match wins
   const sorted = [...enabled].sort(
@@ -91,7 +95,9 @@ export function applyDictionary(
   text: string,
   dictionary: DictationDictionaryEntry[] | undefined,
 ): string {
-  if (!dictionary || dictionary.length === 0 || !text) return text;
+  if (!dictionary || dictionary.length === 0 || !text) {
+    return text;
+  }
 
   // Sort by spoken length descending
   const sorted = [...dictionary].sort(

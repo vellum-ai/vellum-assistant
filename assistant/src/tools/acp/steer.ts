@@ -1,17 +1,38 @@
+import { z } from "zod";
+
 import { getAcpSessionManager } from "../../acp/index.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { getSendToClient } from "./context.js";
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeAcpSteer}.
+ * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
+ * tools. The bespoke required checks keep their (test-asserted) messages for
+ * the missing/null/empty cases.
+ */
+export const acpSteerInputSchema = z.looseObject({
+  acp_session_id: nullAsOmitted(z.string()),
+  instruction: nullAsOmitted(z.string()),
+});
 
 export async function executeAcpSteer(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const acpSessionId = input.acp_session_id as string;
+  const parsedInput = acpSteerInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("acp_steer", parsedInput.error);
+  }
+  const acpSessionId = parsedInput.data.acp_session_id;
   if (!acpSessionId) {
     return { content: '"acp_session_id" is required.', isError: true };
   }
 
-  const instruction = input.instruction as string;
+  const instruction = parsedInput.data.instruction;
   if (!instruction) {
     return { content: '"instruction" is required.', isError: true };
   }

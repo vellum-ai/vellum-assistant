@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   createEventHandlerState,
   type EventHandlerDeps,
   handleMaxTokensReached,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 
 describe("max tokens reached handler", () => {
   test("emits and stores an inline continuation card", () => {
@@ -40,7 +40,9 @@ describe("max tokens reached handler", () => {
 
     const show = sent.find((msg) => msg.type === "ui_surface_show");
     expect(show).toBeDefined();
-    if (!show || show.type !== "ui_surface_show") {return;}
+    if (!show || show.type !== "ui_surface_show") {
+      return;
+    }
 
     expect(show.surfaceType).toBe("card");
     expect((show.data as { title?: unknown }).title).toBe(

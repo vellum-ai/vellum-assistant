@@ -42,7 +42,8 @@ const SETUP_PAGES = [
   {
     id: "app-token",
     title: "Generate App Token",
-    description: "Generate an app-level token with the `connections:write` scope.",
+    description:
+      "Generate an app-level token with the `connections:write` scope.",
     fields: [
       {
         id: "appToken",

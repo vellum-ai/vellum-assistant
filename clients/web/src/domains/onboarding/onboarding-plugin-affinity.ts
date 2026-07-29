@@ -141,7 +141,10 @@ const PLUGIN_AFFINITIES: readonly PluginAffinity[] = [
  * match inside "developer".
  */
 function normalizeRole(role: string): string {
-  return ` ${role.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  return ` ${role
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()} `;
 }
 
 /** Whether a keyword (single token or token phrase) appears whole in the role. */
@@ -190,7 +193,9 @@ export function resolveDeterministicPlugins(
   const seen = new Set<string>();
   const result: string[] = [];
   for (const name of ordered) {
-    if (!validNames.has(name) || seen.has(name)) continue;
+    if (!validNames.has(name) || seen.has(name)) {
+      continue;
+    }
     seen.add(name);
     result.push(name);
   }

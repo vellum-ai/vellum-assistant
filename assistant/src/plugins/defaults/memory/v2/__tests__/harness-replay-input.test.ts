@@ -10,7 +10,7 @@ import {
   conversations,
   messages,
 } from "../../../../../persistence/schema/index.js";
-import type { MemoryV2ConceptRowRecord } from "../../memory-v2-activation-log-store.js";
+import type { MemoryV2ConceptRowRecord } from "../activation-log-store.js";
 import type { OracleTurn } from "../harness/oracle.js";
 import { reconstructInput } from "../harness/replay-input.js";
 

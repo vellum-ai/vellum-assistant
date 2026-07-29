@@ -23,6 +23,8 @@ import { isElectron } from "@/runtime/is-electron";
  * Safe to call from any host — no-op off Electron.
  */
 export function setDockBadge(count: number): void {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   window.vellum?.dock.setBadge(count);
 }

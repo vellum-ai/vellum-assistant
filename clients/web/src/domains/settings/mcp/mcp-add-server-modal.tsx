@@ -106,7 +106,11 @@ export function McpAddServerModal({
 
       if (authType === "bearer" && bearerToken.trim()) {
         config.headers = { Authorization: `Bearer ${bearerToken.trim()}` };
-      } else if (authType === "api-key" && apiKeyHeader.trim() && apiKeyValue.trim()) {
+      } else if (
+        authType === "api-key" &&
+        apiKeyHeader.trim() &&
+        apiKeyValue.trim()
+      ) {
         config.headers = { [apiKeyHeader.trim()]: apiKeyValue.trim() };
       } else if (authType === "oauth") {
         config.autoAuth = true;
@@ -114,25 +118,47 @@ export function McpAddServerModal({
     }
 
     onAdd(config);
-  }, [name, transportType, url, command, args, authType, bearerToken, apiKeyHeader, apiKeyValue, onAdd]);
+  }, [
+    name,
+    transportType,
+    url,
+    command,
+    args,
+    authType,
+    bearerToken,
+    apiKeyHeader,
+    apiKeyValue,
+    onAdd,
+  ]);
 
   const isStdio = transportType === "stdio";
   const canSubmit = name.trim() && (isStdio ? command.trim() : url.trim());
 
   return (
-    <Modal.Root open={open} onOpenChange={(next) => { if (!next) { handleClose(); } }}>
+    <Modal.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          handleClose();
+        }
+      }}
+    >
       <Modal.Content size="md">
         <Modal.Header>
           <Modal.Title icon={Cable}>Add MCP Server</Modal.Title>
           <Modal.Description>
-            Connect to a Model Context Protocol server to extend available tools.
+            Connect to a Model Context Protocol server to extend available
+            tools.
           </Modal.Description>
         </Modal.Header>
 
         <Modal.Body>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-name">
+              <label
+                className="text-body-small-default text-[var(--content-secondary)]"
+                htmlFor="mcp-name"
+              >
                 Server name
               </label>
               <Input
@@ -147,13 +173,18 @@ export function McpAddServerModal({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-transport">
+              <label
+                className="text-body-small-default text-[var(--content-secondary)]"
+                htmlFor="mcp-transport"
+              >
                 Transport
               </label>
               <select
                 id="mcp-transport"
                 value={transportType}
-                onChange={(e) => setTransportType(e.target.value as TransportType)}
+                onChange={(e) =>
+                  setTransportType(e.target.value as TransportType)
+                }
                 className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
               >
                 {TRANSPORT_OPTIONS.map((opt) => (
@@ -167,7 +198,10 @@ export function McpAddServerModal({
             {isStdio ? (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-command">
+                  <label
+                    className="text-body-small-default text-[var(--content-secondary)]"
+                    htmlFor="mcp-command"
+                  >
                     Command
                   </label>
                   <Input
@@ -180,7 +214,10 @@ export function McpAddServerModal({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-args">
+                  <label
+                    className="text-body-small-default text-[var(--content-secondary)]"
+                    htmlFor="mcp-args"
+                  >
                     Arguments (space-separated)
                   </label>
                   <Input
@@ -196,7 +233,10 @@ export function McpAddServerModal({
             ) : (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-url">
+                  <label
+                    className="text-body-small-default text-[var(--content-secondary)]"
+                    htmlFor="mcp-url"
+                  >
                     Server URL
                   </label>
                   <Input
@@ -210,7 +250,10 @@ export function McpAddServerModal({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-auth">
+                  <label
+                    className="text-body-small-default text-[var(--content-secondary)]"
+                    htmlFor="mcp-auth"
+                  >
                     Authentication
                   </label>
                   <select
@@ -229,13 +272,17 @@ export function McpAddServerModal({
 
                 {authType === "oauth" ? (
                   <p className="rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2 text-body-small-default text-[var(--content-tertiary)]">
-                    OAuth credentials will be configured through a browser-based authorization flow after the server is added.
+                    OAuth credentials will be configured through a browser-based
+                    authorization flow after the server is added.
                   </p>
                 ) : null}
 
                 {authType === "bearer" ? (
                   <div className="space-y-1.5">
-                    <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-bearer">
+                    <label
+                      className="text-body-small-default text-[var(--content-secondary)]"
+                      htmlFor="mcp-bearer"
+                    >
                       Bearer token
                     </label>
                     <Input
@@ -252,7 +299,10 @@ export function McpAddServerModal({
                 {authType === "api-key" ? (
                   <div className="flex gap-3">
                     <div className="flex-1 space-y-1.5">
-                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-apikey-header">
+                      <label
+                        className="text-body-small-default text-[var(--content-secondary)]"
+                        htmlFor="mcp-apikey-header"
+                      >
                         Header name
                       </label>
                       <Input
@@ -265,7 +315,10 @@ export function McpAddServerModal({
                       />
                     </div>
                     <div className="flex-1 space-y-1.5">
-                      <label className="text-body-small-default text-[var(--content-secondary)]" htmlFor="mcp-apikey-value">
+                      <label
+                        className="text-body-small-default text-[var(--content-secondary)]"
+                        htmlFor="mcp-apikey-value"
+                      >
                         API key
                       </label>
                       <Input

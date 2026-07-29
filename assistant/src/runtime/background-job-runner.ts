@@ -228,11 +228,17 @@ export interface RunBackgroundJobResult {
 }
 
 function classifyError(err: unknown): BackgroundJobErrorKind {
-  if (err instanceof BackgroundJobTimeoutError) return "timeout";
+  if (err instanceof BackgroundJobTimeoutError) {
+    return "timeout";
+  }
   // A non-throwing turn failure is dominated by LLM-call failures (invalid
   // provider, auth, rate limit); bucket it with other provider failures.
-  if (err instanceof BackgroundJobTurnFailureError) return "model_provider";
-  if (!(err instanceof Error)) return "exception";
+  if (err instanceof BackgroundJobTurnFailureError) {
+    return "model_provider";
+  }
+  if (!(err instanceof Error)) {
+    return "exception";
+  }
 
   const ctorName = err.constructor?.name ?? "";
   const { message } = err;
@@ -463,6 +469,8 @@ export async function runBackgroundJob(
       ...(failureCode !== undefined ? { failureCode } : {}),
     };
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }

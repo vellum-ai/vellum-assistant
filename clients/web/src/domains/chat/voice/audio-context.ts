@@ -21,8 +21,12 @@ export type AudioContextWindow = typeof globalThis & {
  * feature-detection sites can branch without constructing a context.
  */
 export function getAudioContextCtor(): typeof AudioContext | undefined {
-  if (typeof window === "undefined") return undefined;
-  return window.AudioContext ?? (window as AudioContextWindow).webkitAudioContext;
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  return (
+    window.AudioContext ?? (window as AudioContextWindow).webkitAudioContext
+  );
 }
 
 /**
@@ -31,7 +35,9 @@ export function getAudioContextCtor(): typeof AudioContext | undefined {
  * that may run before user gesture / on unsupported platforms should feature
  * detect first).
  */
-export function createAudioContext(options?: AudioContextOptions): AudioContext {
+export function createAudioContext(
+  options?: AudioContextOptions,
+): AudioContext {
   const Ctor = getAudioContextCtor();
   if (!Ctor) {
     throw new Error("Web Audio API is not available in this environment");

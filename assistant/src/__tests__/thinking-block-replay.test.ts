@@ -39,8 +39,7 @@ describe.skipIf(!apiKey)(
       expect(thinkingBlock!.signature).toBeTruthy();
 
       // Step 2: Tamper with the signature to simulate a stale/cross-provider block
-      const tamperedSignature =
-        thinkingBlock!.signature.slice(0, -4) + "XXXX";
+      const tamperedSignature = thinkingBlock!.signature.slice(0, -4) + "XXXX";
 
       // Step 3: Replay the tampered block as historical context
       const historicalAssistantContent: Anthropic.ContentBlockParam[] = [

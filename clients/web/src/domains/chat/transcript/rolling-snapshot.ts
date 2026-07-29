@@ -44,7 +44,10 @@ import {
 /** Parse the envelope's ISO `emittedAt` to epoch ms, the deterministic stamp
  *  for any row an event opens. Falls back to `seq` so a malformed/absent time
  *  still yields a stable, monotonic value. */
-function emittedAtMs(emittedAt: string, seq: number | null | undefined): number {
+function emittedAtMs(
+  emittedAt: string,
+  seq: number | null | undefined,
+): number {
   const parsed = Date.parse(emittedAt);
   return Number.isFinite(parsed) ? parsed : typeof seq === "number" ? seq : 0;
 }
@@ -62,7 +65,13 @@ export function appendEventToMessages(
 ): DisplayMessage[] {
   switch (event.type) {
     case "assistant_text_delta":
-      return appendTextDelta(messages, event.text, event.messageId, undefined, at);
+      return appendTextDelta(
+        messages,
+        event.text,
+        event.messageId,
+        undefined,
+        at,
+      );
     case "assistant_thinking_delta":
       return appendThinkingDelta(
         messages,
@@ -266,10 +275,20 @@ export function applyEvent(
   }
 
   const at = emittedAtMs(envelope.emittedAt, seq);
-  const messages = appendEventToMessages(history.messages, envelope.message, at);
+  const messages = appendEventToMessages(
+    history.messages,
+    envelope.message,
+    at,
+  );
   const nextSeq =
-    typeof seq === "number" ? Math.max(history.seq ?? -1, seq) : history.seq ?? null;
-  const processing = nextProcessingState(history.processing, envelope.message, seq);
+    typeof seq === "number"
+      ? Math.max(history.seq ?? -1, seq)
+      : (history.seq ?? null);
+  const processing = nextProcessingState(
+    history.processing,
+    envelope.message,
+    seq,
+  );
 
   return { ...history, messages, seq: nextSeq, processing };
 }

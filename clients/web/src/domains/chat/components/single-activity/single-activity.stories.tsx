@@ -191,15 +191,13 @@ const WEB_STEP: Extract<ToolCallCardStep, { kind: "web_search" }> = {
   results: WEB_RESULTS,
 };
 
-const WEB_ERROR_STEP: Extract<
-  ToolCallCardStep,
-  { kind: "web_search_error" }
-> = {
-  kind: "web_search_error",
-  title: "Web search failed",
-  durationLabel: "1s",
-  errorMessage: "Search provider unavailable",
-};
+const WEB_ERROR_STEP: Extract<ToolCallCardStep, { kind: "web_search_error" }> =
+  {
+    kind: "web_search_error",
+    title: "Web search failed",
+    durationLabel: "1s",
+    errorMessage: "Search provider unavailable",
+  };
 
 /**
  * Collapsed — an inline "Web Search | <rotating chips>" link. The rotating

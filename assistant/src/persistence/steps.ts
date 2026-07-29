@@ -9,7 +9,7 @@
 
 import { backfillAppConversationIds } from "../apps/app-store.js";
 // Forward migration + down function imports
-import { migrateToolCreatedItems } from "../plugins/defaults/memory/graph/bootstrap.js";
+import { migrateToolCreatedItems } from "../plugins/defaults/memory/v1/graph/bootstrap.js";
 import { migrateCoreTables } from "./migrations/000-core-tables.js";
 import {
   downJobDeferrals,
@@ -458,6 +458,15 @@ import { migrateDeleteStrayGreetingConversation } from "./migrations/347-delete-
 import { migrateMemorySummariesScopeUpdatedIndex } from "./migrations/348-memory-summaries-scope-updated-index.js";
 import { migrateMoveMemoryGraphTablesToMemoryDb } from "./migrations/349-move-memory-graph-tables-to-memory-db.js";
 import { migrateConversationsTotalInputTokensNullable } from "./migrations/350-conversations-total-input-tokens-nullable.js";
+import { migrateScheduleSkillScriptHandoff } from "./migrations/351-schedule-skill-script-handoff.js";
+import { migrateDropScheduleSkillScriptHandoff } from "./migrations/352-drop-schedule-skill-script-handoff.js";
+import { migrateAddLlmUsageConversationType } from "./migrations/353-add-llm-usage-conversation-type.js";
+import { migrateBackfillAppConversationLineage } from "./migrations/354-backfill-app-conversation-lineage.js";
+import { migrateAddScheduleGroupId } from "./migrations/355-add-schedule-group-id.js";
+import { migrateAddSubagentParentToolUseId } from "./migrations/356-add-subagent-parent-tool-use-id.js";
+import { migrateMoveMemorySegmentsToMemoryDb } from "./migrations/357-move-memory-segments-to-memory-db.js";
+import { migrateMoveMemoryEmbeddingsToMemoryDb } from "./migrations/358-move-memory-embeddings-to-memory-db.js";
+import { migrateMoveMemorySummariesToMemoryDb } from "./migrations/359-move-memory-summaries-to-memory-db.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1473,4 +1482,63 @@ export const migrationSteps: MigrationStep[] = [
     ],
   },
   migrateConversationsTotalInputTokensNullable,
+  migrateScheduleSkillScriptHandoff,
+  migrateDropScheduleSkillScriptHandoff,
+  migrateAddLlmUsageConversationType,
+  migrateBackfillAppConversationLineage,
+  migrateAddScheduleGroupId,
+  migrateAddSubagentParentToolUseId,
+  {
+    name: "migrateMoveMemorySegmentsToMemoryDb",
+    run: migrateMoveMemorySegmentsToMemoryDb,
+    // Gate on every migration that creates, alters, indexes, or reads
+    // memory_segments on main: the FTS triggers, FTS backfill, and index
+    // creation each fail against the dropped table if they run after the move.
+    // migrateDeletePrivateConversations relies on the message-delete cascade to
+    // clear private segments, so it must land before the move; the runtime
+    // conversation-delete path is handled separately by adding memory_segments
+    // to CONVERSATION_KEYED_MEMORY_TABLES.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateMemoryFtsBackfill",
+      "migrateMemorySegmentsIndexes",
+      "createWatchersAndLogsTables",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDeletePrivateConversations",
+    ],
+  },
+  {
+    name: "migrateMoveMemoryEmbeddingsToMemoryDb",
+    run: migrateMoveMemoryEmbeddingsToMemoryDb,
+    // Gate on every migration that creates, alters, or writes rows in
+    // memory_embeddings on main so the move never drains a table another
+    // migration still expects there.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateEmbeddingVectorBlob",
+      "migrateEmbeddingsNullableVectorJson",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDropSimplifiedMemory",
+      "migrateDeletePrivateConversations",
+      "migrateSweepOrphanedGraphNodeVectors",
+    ],
+  },
+  {
+    name: "migrateMoveMemorySummariesToMemoryDb",
+    run: migrateMoveMemorySummariesToMemoryDb,
+    // Gate on every migration that creates, alters, indexes, or clears
+    // memory_summaries on main. migrateDeletePrivateConversations deletes
+    // private-scoped summaries by scope_id directly (a real column, though the
+    // Drizzle schema does not map it), so it must land before the move.
+    dependsOn: [
+      "migrateCoreTables",
+      "migrateRemainingTableIndexes",
+      "addCoreColumns",
+      "createCoreIndexes",
+      "migrateDeletePrivateConversations",
+      "migrateMemorySummariesScopeUpdatedIndex",
+    ],
+  },
 ];

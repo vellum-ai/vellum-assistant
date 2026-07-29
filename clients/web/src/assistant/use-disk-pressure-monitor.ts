@@ -1,5 +1,11 @@
-
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
@@ -195,12 +201,7 @@ export function useDiskPressureMonitor({
       generationRef.current = generation;
       setIsAcknowledging(false);
       setAcknowledgeError(null);
-      applyStatusForAssistant(
-        assistantId,
-        payload,
-        true,
-        generation,
-      );
+      applyStatusForAssistant(assistantId, payload, true, generation);
     },
     [assistantId, applyStatusForAssistant, clearStatus, enabled],
   );
@@ -211,7 +212,9 @@ export function useDiskPressureMonitor({
   // the next poll tick.
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
-    if (event.type !== "disk_pressure_status_changed") return;
+    if (event.type !== "disk_pressure_status_changed") {
+      return;
+    }
     applyStatusEvent(event.status);
   });
 
@@ -229,9 +232,8 @@ export function useDiskPressureMonitor({
     setAcknowledgeError(null);
 
     try {
-      const result = await acknowledgeAssistantDiskPressure(
-        requestedAssistantId,
-      );
+      const result =
+        await acknowledgeAssistantDiskPressure(requestedAssistantId);
       if (!result.ok) {
         throw new Error("Failed to acknowledge assistant disk pressure.");
       }
@@ -275,9 +277,9 @@ export function useDiskPressureMonitor({
     enabled && snapshot.assistantId === assistantId ? snapshot.status : null;
   const hasResolvedStatus = Boolean(
     enabled &&
-      assistantId &&
-      snapshot.assistantId === assistantId &&
-      snapshot.hasResolvedStatus,
+    assistantId &&
+    snapshot.assistantId === assistantId &&
+    snapshot.hasResolvedStatus,
   );
   const mode = useMemo(() => getDiskPressureMonitorMode(status), [status]);
 

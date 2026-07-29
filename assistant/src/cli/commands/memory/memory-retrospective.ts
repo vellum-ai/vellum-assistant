@@ -135,6 +135,11 @@ function renderOutcome(outcome: MemoryRetrospectiveOutcome): void {
     case "no_new_messages":
       log.info("No new messages to review since the last retrospective.");
       break;
+    case "source_dormant":
+      log.info(
+        "Source conversation is dormant beyond the sweep lookback; skipping.",
+      );
+      break;
     case "source_processing":
       log.info(
         "Source conversation is mid-turn; skipping (will retry next trigger).",

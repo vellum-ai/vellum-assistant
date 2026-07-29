@@ -1,23 +1,46 @@
 import type { TrustRuleRisk } from "@/types/trust-rules";
 
-const VALID_RISK_LEVELS: ReadonlySet<string> = new Set(["low", "medium", "high"]);
+const VALID_RISK_LEVELS: ReadonlySet<string> = new Set([
+  "low",
+  "medium",
+  "high",
+]);
 
 /** Narrows an untrusted wire string to a valid TrustRuleRisk, defaulting to "medium". */
 export function toRiskLevel(value: string | undefined): TrustRuleRisk {
   const normalized = value?.toLowerCase();
-  if (normalized && VALID_RISK_LEVELS.has(normalized)) return normalized as TrustRuleRisk;
+  if (normalized && VALID_RISK_LEVELS.has(normalized)) {
+    return normalized as TrustRuleRisk;
+  }
   return "medium";
 }
 
-export function getRiskBadgeStyle(riskLevel?: string): { bg: string; text: string; label: string; border?: string } {
+export function getRiskBadgeStyle(riskLevel?: string): {
+  bg: string;
+  text: string;
+  label: string;
+  border?: string;
+} {
   switch (riskLevel?.toLowerCase()) {
     case "low":
-      return { bg: "bg-[var(--system-positive-strong)]", text: "text-white", label: "Low" };
+      return {
+        bg: "bg-[var(--system-positive-strong)]",
+        text: "text-white",
+        label: "Low",
+      };
     case "medium":
       // Amber background is light — use dark text for contrast (matches macOS RiskBadgeView).
-      return { bg: "bg-[var(--system-mid-strong)]", text: "text-black", label: "Medium" };
+      return {
+        bg: "bg-[var(--system-mid-strong)]",
+        text: "text-black",
+        label: "Medium",
+      };
     case "high":
-      return { bg: "bg-[var(--system-negative-strong)]", text: "text-white", label: "High" };
+      return {
+        bg: "bg-[var(--system-negative-strong)]",
+        text: "text-white",
+        label: "High",
+      };
     case "workspace":
       return {
         bg: "bg-[var(--surface-lift)]",
@@ -26,7 +49,11 @@ export function getRiskBadgeStyle(riskLevel?: string): { bg: string; text: strin
         label: "Workspace",
       };
     default:
-      return { bg: "bg-[var(--content-secondary)]", text: "text-white", label: riskLevel ?? "Unknown" };
+      return {
+        bg: "bg-[var(--content-secondary)]",
+        text: "text-white",
+        label: riskLevel ?? "Unknown",
+      };
   }
 }
 
@@ -55,29 +82,61 @@ export function getRiskToleranceHint(riskLevel?: string): string | undefined {
  * used by the inline pill + drawer header — distinct from the filled
  * `getRiskBadgeStyle` that the confirmation chip depends on.
  */
-export function getRiskBadgeWeakStyle(riskLevel?: string): { bg: string; text: string; label: string } {
+export function getRiskBadgeWeakStyle(riskLevel?: string): {
+  bg: string;
+  text: string;
+  label: string;
+} {
   switch (riskLevel?.toLowerCase()) {
     case "low":
-      return { bg: "bg-[var(--system-positive-weak)]", text: "text-[var(--system-positive-strong)]", label: "Low" };
+      return {
+        bg: "bg-[var(--system-positive-weak)]",
+        text: "text-[var(--system-positive-strong)]",
+        label: "Low",
+      };
     case "medium":
-      return { bg: "bg-[var(--system-mid-weak)]", text: "text-[var(--system-mid-strong)]", label: "Medium" };
+      return {
+        bg: "bg-[var(--system-mid-weak)]",
+        text: "text-[var(--system-mid-strong)]",
+        label: "Medium",
+      };
     case "high":
-      return { bg: "bg-[var(--system-negative-weak)]", text: "text-[var(--system-negative-strong)]", label: "High" };
+      return {
+        bg: "bg-[var(--system-negative-weak)]",
+        text: "text-[var(--system-negative-strong)]",
+        label: "High",
+      };
     case "workspace":
-      return { bg: "bg-[var(--surface-lift)]", text: "text-[var(--content-secondary)]", label: "Workspace" };
+      return {
+        bg: "bg-[var(--surface-lift)]",
+        text: "text-[var(--content-secondary)]",
+        label: "Workspace",
+      };
     default:
       return {
         bg: "bg-[var(--surface-lift)]",
         text: "text-[var(--content-secondary)]",
-        label: riskLevel ? riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1) : "Unknown",
+        label: riskLevel
+          ? riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)
+          : "Unknown",
       };
   }
 }
 
 // "unknown" maps to 2 (treated as high risk), matching server/Swift semantics.
 // Unrecognized values fall through to the ?? -1 default (treated as no-risk / missing).
-const RISK_ORDINAL: Record<string, number> = { unknown: 2, low: 0, medium: 1, high: 2 };
-const THRESHOLD_ORDINAL: Record<string, number> = { none: -1, low: 0, medium: 1, high: 2 };
+const RISK_ORDINAL: Record<string, number> = {
+  unknown: 2,
+  low: 0,
+  medium: 1,
+  high: 2,
+};
+const THRESHOLD_ORDINAL: Record<string, number> = {
+  none: -1,
+  low: 0,
+  medium: 1,
+  high: 2,
+};
 
 /**
  * Returns false when an auto-approved tool call exceeded the configured threshold —
@@ -90,21 +149,34 @@ export function wasExpected(
   riskLevel: string | undefined,
   riskThreshold: string | undefined,
 ): boolean {
-  if (approvalMode?.toLowerCase() !== "auto") return true;
-  if (!riskThreshold) return true;
-  return (RISK_ORDINAL[(riskLevel ?? "").toLowerCase()] ?? -1) <= (THRESHOLD_ORDINAL[riskThreshold.toLowerCase()] ?? -1);
+  if (approvalMode?.toLowerCase() !== "auto") {
+    return true;
+  }
+  if (!riskThreshold) {
+    return true;
+  }
+  return (
+    (RISK_ORDINAL[(riskLevel ?? "").toLowerCase()] ?? -1) <=
+    (THRESHOLD_ORDINAL[riskThreshold.toLowerCase()] ?? -1)
+  );
 }
 
 /**
  * Maps an approvalReason enum value to the inline provenance suffix shown on the risk badge.
  * Returns null for reasons that don't warrant provenance display (expected outcomes).
  */
-export function getProvenanceText(approvalReason: string | undefined): string | null {
+export function getProvenanceText(
+  approvalReason: string | undefined,
+): string | null {
   switch (approvalReason) {
-    case "trust_rule_allowed":    return "· Auto-approved · Trust rule matched";
-    case "sandbox_auto_approve":  return null;
-    case "platform_auto_approve": return "· Auto-approved · Platform session";
-    default:                      return null;
+    case "trust_rule_allowed":
+      return "· Auto-approved · Trust rule matched";
+    case "sandbox_auto_approve":
+      return null;
+    case "platform_auto_approve":
+      return "· Auto-approved · Platform session";
+    default:
+      return null;
   }
 }
 

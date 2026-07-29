@@ -19,29 +19,31 @@
  *
  * The room is a full-app takeover on every platform — `fixed inset-0`, modal,
  * covering the header and sidebar, with safe-area padding for notched iOS
- * shells. A voice session IS the room: there is no minimize and no way to
- * leave it while the session runs — ending the session (the ✕ control) is the
- * only way out.
+ * shells. It is not exit-only: minimizing (the − control or Escape) dismisses
+ * the room while the session keeps running — the composer's voice bar / the
+ * title-bar pill become the session surfaces — and ending the session (the ✕
+ * control) tears the whole call down.
  *
  * Visibility is a pure function of {@link useIsVoiceRoomVisible} — active
- * session, owned by the on-screen composer, main window. Any session end
- * (user exit, `failed`, conversation timeout, stop from elsewhere) flips that
- * predicate false and unmounts the room; a `failed` session surfaces through
- * the existing composer Notice / pill failure chip, never a dead room.
+ * session, owned by the on-screen composer, main window, not minimized. Any
+ * session end (user exit, `failed`, conversation timeout, stop from
+ * elsewhere) flips that predicate false and unmounts the room; a `failed`
+ * session surfaces through the existing composer Notice / pill failure chip,
+ * never a dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
  * push-to-talk control. Bottom-center carries the session controls in the
  * call-app idiom: a mic mute toggle (always) and, while the assistant speaks
  * hands-free, a turn-scoped ■ stop. Exit is first-class: the persistent
- * ✕ control (always rendered, even while the avatar/assistant data is loading
- * or failed) and Escape both end the session — the room is modal with no
- * lesser dismissal, so the platform "leave" key maps to the only exit there
- * is. The key handler attaches only while the room is mounted.
+ * ✕ control ends the session, always rendered even while the avatar/assistant
+ * data is loading or failed. Escape maps to the lesser dismissal — it
+ * minimizes the room, same as the − control, leaving the call live. The key
+ * handler attaches only while the room is mounted.
  */
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Mic, MicOff, Square, X } from "lucide-react";
+import { Mic, MicOff, Minus, Square, X } from "lucide-react";
 
 import { Tooltip, cn } from "@vellumai/design-library";
 
@@ -50,6 +52,7 @@ import {
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
   liveVoiceStateLabel,
+  minimizeVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   useLiveVoiceStore,
@@ -175,7 +178,7 @@ function VoiceRoomOverlay() {
     useAssistantAvatar(assistantId);
   const look = resolveVoiceRoomLook(components, traits, customImageUrl);
   const tone = look ? toneForBg(look.bgHex) : null;
-  const accentHex = resolveWaveAccentHex(components, traits);
+  const accentHex = resolveWaveAccentHex(components, traits, customImageUrl);
 
   // Control-chrome colors for the active look, consumed by the shared control
   // classes. The fallbacks are the void look's white-on-dark values.
@@ -188,16 +191,17 @@ function VoiceRoomOverlay() {
     "--room-bubble-fg": tone?.bubbleFg ?? "#FFFFFF",
   } as CSSProperties;
 
-  // Global Escape, live only while the room is mounted: ends the session,
-  // same as the ✕ — the room is modal with no lesser dismissal, so the
-  // platform "leave" key maps to the only exit there is. It fires even when
-  // the composer textarea (or any other focused element) still holds focus as
-  // the room opens, so it is intentionally not guarded by the event target.
+  // Global Escape, live only while the room is mounted: minimizes the room,
+  // same as the − control — the platform "leave the overlay" key dismisses
+  // the surface without hanging up the call (✕ is the end-session control).
+  // It fires even when the composer textarea (or any other focused element)
+  // still holds focus as the room opens, so it is intentionally not guarded
+  // by the event target.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        endLiveVoiceSession();
+        minimizeVoiceRoom();
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -279,7 +283,9 @@ function VoiceRoomOverlay() {
           {/* Same state caption + gating as the color look (stands down while
               the assistant transcript is on), in the same shared lower zone —
               both looks name the beat from one baseline. */}
-          {!showAssistantTranscript ? <VoiceStateCaption visual={visual} /> : null}
+          {!showAssistantTranscript ? (
+            <VoiceStateCaption visual={visual} />
+          ) : null}
         </>
       )}
 
@@ -317,9 +323,9 @@ function VoiceRoomOverlay() {
         ) : null}
       </AnimatePresence>
 
-      {/* Room controls — captions toggle and the persistent exit. Rendered
-          above all room chrome; ✕ is never gated behind avatar readiness, so
-          ending works even mid-load / on failure. */}
+      {/* Room controls — captions toggle, minimize, and the persistent exit.
+          Rendered above all room chrome; ✕ is never gated behind avatar
+          readiness, so ending works even mid-load / on failure. */}
       <div
         // Absolute position is relative to the padding box, so the overlay's
         // safe-area padding does not shift this — inset it from the notch /
@@ -334,7 +340,17 @@ function VoiceRoomOverlay() {
           triggerClassName={ROOM_CONTROL_CLASS}
           assistantId={assistantId}
         />
-        <Tooltip content="End voice session (Esc)">
+        <Tooltip content="Minimize — session keeps going">
+          <button
+            type="button"
+            onClick={minimizeVoiceRoom}
+            aria-label="Minimize voice room"
+            className={ROOM_CONTROL_CLASS}
+          >
+            <Minus className="size-5" />
+          </button>
+        </Tooltip>
+        <Tooltip content="End voice session">
           <button
             type="button"
             onClick={endLiveVoiceSession}

@@ -1,16 +1,19 @@
 /**
- * `default-memory` plugin injectors — the personal-memory per-turn injections.
+ * `default-memory` plugin injectors — the personal-memory per-turn injections,
+ * and the plugin's single injector entry point: {@link memoryInjectors} is the
+ * complete set `defaultMemoryPlugin` contributes, so the host registers memory
+ * injectors without reaching into a tier directory for one.
  *
  * Contributes the PKB `<knowledge_base>` block, the PKB `<system_reminder>`
- * (with hybrid-search hints), and the memory-v2 static `<info>` block. Each
- * reads its inputs directly off the {@link TurnContext} (and the workspace
- * memory/PKB files), runs its own gating (injection mode, the personal-memory
- * trust gate, the v2 cutover guard, null-input short-circuits), and returns an
+ * (with hybrid-search hints), the memory-v2 static `<info>` block, and the two
+ * memory-v3 injectors defined in `v3/injector.ts`. Each reads its inputs
+ * directly off the {@link TurnContext} (and the workspace memory/PKB files),
+ * runs its own gating (injection mode, the personal-memory trust gate, the
+ * memory-tier gate, null-input short-circuits), and returns an
  * {@link InjectionBlock} with the placement that yields the canonical
  * positional semantics.
  *
- * `defaultMemoryPlugin` contributes these (alongside the memory-v3 injectors in
- * `v3/injector.ts`) to the global injector registry
+ * `defaultMemoryPlugin` contributes the array to the global injector registry
  * (`plugins/injector-registry.ts`), which unions every plugin's injectors and
  * sorts by `order` into the single sequence `applyRuntimeInjections` walks each
  * turn. The shared ordering contract lives in {@link DEFAULT_INJECTOR_ORDER}.
@@ -20,7 +23,7 @@ import { resolve } from "node:path";
 
 import type { Message } from "@vellumai/plugin-api";
 
-import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
+import { isMemoryV1Active } from "../../../config/memory-v3-gate.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
@@ -37,11 +40,16 @@ import { getMemoryConfig } from "./config.js";
 import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
 import { getLogger } from "./logging.js";
 import { getSandboxWorkingDir } from "./paths.js";
-import { getPkbAutoInjectList } from "./pkb/autoinject.js";
-import { readPkbContext } from "./pkb/context.js";
-import { searchPkbFiles } from "./pkb/pkb-search.js";
-import { getPkbRoot } from "./pkb/types.js";
-import { readMemoryV2StaticContent } from "./v3/substrate/static-context.js";
+// SUBSTRATE (v2+v3) — feeds `memoryV2StaticInjector`.
+import { readMemoryV2StaticContent } from "./substrate/static-context.js";
+// V1 — delete with v1. Feeds the PKB injector pair.
+import { getPkbAutoInjectList } from "./v1/pkb/autoinject.js";
+import { readPkbContext } from "./v1/pkb/context.js";
+import { searchPkbFiles } from "./v1/pkb/pkb-search.js";
+import { getPkbRoot } from "./v1/pkb/types.js";
+// V3 — delete with v3. Re-exported through `memoryInjectors` below so the
+// host registers them without importing `v3/` itself.
+import { memoryV3Injector, memoryV3SpotlightInjector } from "./v3/injector.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -56,18 +64,18 @@ const PKB_HINT_THRESHOLD = 0.5;
 const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
- * Read-side cutover guard. Under concept-page memory both `pkb-context` and
- * `pkb-reminder` silence themselves entirely — the `<knowledge_base>` content
- * and the generic recall/remember nudge are both supplanted by the static
- * memory block. They are also silenced when memory is disabled outright:
- * these injectors have no other `memory.enabled` gate, and a workspace with
- * leftover `pkb/*` files must not keep surfacing long-term memory after the
- * user turns memory off. NOW.md is workspace state independent of PKB and
- * fires unchanged.
+ * Read-side tier gate. The PKB injectors (`pkb-context`, `pkb-reminder`) are
+ * the v1 injection surface, active only when v1 is the live memory tier
+ * ({@link isMemoryV1Active}). Under concept-page memory both silence
+ * themselves entirely — the `<knowledge_base>` content and the generic
+ * recall/remember nudge are both supplanted by the static memory block. They
+ * are also silenced when memory is disabled outright: these injectors have no
+ * other `memory.enabled` gate, and a workspace with leftover `pkb/*` files
+ * must not keep surfacing long-term memory after the user turns memory off.
+ * NOW.md is workspace state independent of PKB and fires unchanged.
  */
 function isPkbInjectionSilenced(): boolean {
-  const memory = getMemoryConfig();
-  return memory.enabled === false || usesConceptPageMemory(memory);
+  return !isMemoryV1Active({ memory: getMemoryConfig() });
 }
 
 /**
@@ -103,12 +111,19 @@ const pkbContextInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
-    if (isPkbInjectionSilenced()) return null;
-    const content = readGatedPkbContext(ctx.trust);
-    if (!content) return null;
-    if (hasInjectedUserTextBlock(runMessages, KNOWLEDGE_BASE_BLOCK_PREFIXES))
+    if (mode !== "full") {
       return null;
+    }
+    if (isPkbInjectionSilenced()) {
+      return null;
+    }
+    const content = readGatedPkbContext(ctx.trust);
+    if (!content) {
+      return null;
+    }
+    if (hasInjectedUserTextBlock(runMessages, KNOWLEDGE_BASE_BLOCK_PREFIXES)) {
+      return null;
+    }
     return {
       id: "pkb-context",
       text: buildPkbContextBlock(content),
@@ -138,9 +153,15 @@ const pkbReminderInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
-    if (!isPkbActive(ctx.trust)) return null;
-    if (isPkbInjectionSilenced()) return null;
+    if (mode !== "full") {
+      return null;
+    }
+    if (!isPkbActive(ctx.trust)) {
+      return null;
+    }
+    if (isPkbInjectionSilenced()) {
+      return null;
+    }
     const reminder = await buildPkbReminderWithHints(ctx, runMessages);
     return {
       id: "pkb-reminder",
@@ -277,7 +298,9 @@ async function buildPkbReminderWithHints(
       hints = results
         .filter((r) => {
           const abs = resolve(pkbRoot, r.path);
-          if (inContext.has(abs)) return false;
+          if (inContext.has(abs)) {
+            return false;
+          }
           const threshold = r.path.replace(/\\/g, "/").startsWith("archive/")
             ? PKB_HINT_ARCHIVE_THRESHOLD
             : PKB_HINT_THRESHOLD;
@@ -286,8 +309,12 @@ async function buildPkbReminderWithHints(
         .sort((a, b) => {
           const aHasHybrid = a.hybridScore !== undefined;
           const bHasHybrid = b.hybridScore !== undefined;
-          if (aHasHybrid && !bHasHybrid) return -1;
-          if (!aHasHybrid && bHasHybrid) return 1;
+          if (aHasHybrid && !bHasHybrid) {
+            return -1;
+          }
+          if (!aHasHybrid && bHasHybrid) {
+            return 1;
+          }
           if (aHasHybrid && bHasHybrid) {
             return b.hybridScore! - a.hybridScore!;
           }
@@ -344,16 +371,23 @@ const memoryV2StaticInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
+    if (mode !== "full") {
+      return null;
+    }
     // The consolidation agent reads and rewrites memory/buffer.md through
     // file tools; injecting the buffer section here would duplicate the
     // entire backlog into its context (and go stale as it edits the file).
     const content = readGatedMemoryV2Static(ctx.trust, {
       excludeBuffer: ctx.callSite === "memoryV2Consolidation",
     });
-    if (!content) return null;
-    if (hasInjectedUserTextBlock(runMessages, MEMORY_V2_STATIC_BLOCK_MATCHERS))
+    if (!content) {
       return null;
+    }
+    if (
+      hasInjectedUserTextBlock(runMessages, MEMORY_V2_STATIC_BLOCK_MATCHERS)
+    ) {
+      return null;
+    }
     return {
       id: "memory-v2-static",
       text: buildMemoryV2StaticBlock(content),
@@ -377,14 +411,25 @@ function buildMemoryV2StaticBlock(content: string): string {
 }
 
 /**
- * The `default-memory` plugin's personal-memory injectors, in ascending
- * `order`. `defaultMemoryPlugin` contributes these alongside the memory-v3
- * injectors; the registry sorts the union by `order` (see
- * {@link DEFAULT_INJECTOR_ORDER}), so this array's literal order is only a
- * readability convenience.
+ * Every injector the `default-memory` plugin contributes, in ascending
+ * `order`. This is the plugin's whole injector surface — `defaultMemoryPlugin`
+ * passes the array straight through, and the registry sorts the cross-plugin
+ * union by `order` (see {@link DEFAULT_INJECTOR_ORDER}), so this array's
+ * literal order is only a readability convenience.
  */
 export const memoryInjectors: Injector[] = [
+  // V1 — delete with v1. The PKB pair is the legacy engine's entire injection
+  // surface; both self-silence through `isPkbInjectionSilenced` whenever v1 is
+  // not the live tier.
   pkbContextInjector,
   pkbReminderInjector,
+  // SUBSTRATE (v2+v3). Emits the static `<info>` block read off the concept
+  // pages, so it serves the v2 injection engine and v3 alike. Its block id
+  // `memory-v2-static` is FROZEN: `daemon/conversation-runtime-assembly.ts`
+  // switches on it to capture the block into persisted message metadata.
   memoryV2StaticInjector,
+  // V3 — delete with v3. The frozen net-new card block and its ephemeral
+  // spotlight companion; both self-gate on `memory.v3.live`.
+  memoryV3Injector,
+  memoryV3SpotlightInjector,
 ];

@@ -71,14 +71,20 @@ export const ICON_MAP: Record<IconName, LucideIcon> = {
  *     still produce a sensible section heading.
  */
 export function phaseFromStep(step: ToolCallCardStep): string {
-  if (step.kind === "thinking") return "Thinking";
+  if (step.kind === "thinking") {
+    return "Thinking";
+  }
   if (step.kind === "web_search" || step.kind === "web_search_error") {
     return "Searching the web";
   }
-  if (step.kind === "tool_error") return "Error";
+  if (step.kind === "tool_error") {
+    return "Error";
+  }
   // step.kind === "tool"
   const title = step.title;
-  if (title.startsWith("Working")) return title;
+  if (title.startsWith("Working")) {
+    return title;
+  }
   if (
     title === "Reading" ||
     title === "Editing" ||
@@ -86,8 +92,12 @@ export function phaseFromStep(step: ToolCallCardStep): string {
   ) {
     return "Working";
   }
-  if (title === "Using a skill") return "Using a skill";
-  if (title.startsWith("Using ")) return title;
+  if (title === "Using a skill") {
+    return "Using a skill";
+  }
+  if (title.startsWith("Using ")) {
+    return title;
+  }
   return title;
 }
 
@@ -99,9 +109,13 @@ export function phaseFromStep(step: ToolCallCardStep): string {
  * single readable label, so the per-unit rounding here is acceptable.
  */
 function parseDurationLabel(label: string): number {
-  if (!label || label === "<1s") return 0;
+  if (!label || label === "<1s") {
+    return 0;
+  }
   const match = /^(\d+)(s|m|h)$/.exec(label);
-  if (!match) return 0;
+  if (!match) {
+    return 0;
+  }
   const value = Number(match[1]);
   switch (match[2]) {
     case "h":
@@ -161,7 +175,9 @@ function PhaseDurationLabel({
       {durationLabel}
     </Typography>
   );
-  if (startedAt == null) return label;
+  if (startedAt == null) {
+    return label;
+  }
   return (
     <Tooltip
       content={`Started at ${formatStartTime(startedAt)}`}
@@ -178,11 +194,15 @@ export function sumDurationLabels(labels: string[]): string {
   let total = 0;
   let anyPresent = false;
   for (const label of labels) {
-    if (!label) continue;
+    if (!label) {
+      continue;
+    }
     anyPresent = true;
     total += parseDurationLabel(label);
   }
-  if (!anyPresent) return "";
+  if (!anyPresent) {
+    return "";
+  }
   return formatMs(total);
 }
 
@@ -204,16 +224,22 @@ type PhaseHeaderStatus = "completed" | "running";
 export function phaseHeaderStatus(
   steps: ToolCallCardStep[],
 ): PhaseHeaderStatus {
-  if (steps.length === 0) return "running";
+  if (steps.length === 0) {
+    return "running";
+  }
   for (const step of steps) {
     if (step.kind === "tool") {
-      if (step.status === "running") return "running";
+      if (step.status === "running") {
+        return "running";
+      }
       continue;
     }
     if (step.kind === "web_search") {
       // Title is the canonical in-flight signal — see `webSearchStepTitle`
       // in `use-tool-call-card-data.ts`.
-      if (step.title === "Searching the web") return "running";
+      if (step.title === "Searching the web") {
+        return "running";
+      }
     }
   }
   return "completed";
@@ -265,7 +291,9 @@ export function PhaseGroupedStepList({
   renderStep,
   timeline = false,
 }: PhaseGroupedStepListProps) {
-  if (steps.length === 0) return null;
+  if (steps.length === 0) {
+    return null;
+  }
   const sections = groupStepsByPhase(steps);
 
   // Pre-compute the global-index offset for each section so we don't
@@ -509,7 +537,9 @@ function TimelineNodeIcon({
  * tool step onto the same `""` key. Shared with the subagent phase timeline.
  */
 export function stepKey(step: ToolCallCardStep, idx: number): string {
-  if (step.kind === "tool" && step.toolCallId) return step.toolCallId;
+  if (step.kind === "tool" && step.toolCallId) {
+    return step.toolCallId;
+  }
   return `${step.kind}-${idx}`;
 }
 
@@ -616,7 +646,9 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
     // pill entirely rather than duplicating the phase header's title — e.g.
     // a skill call with no skill name shouldn't render a literal "Using a
     // skill" pill underneath a "Using a skill" phase header.
-    if (!stepRendersPill(step)) return null;
+    if (!stepRendersPill(step)) {
+      return null;
+    }
     return (
       <StepPill>
         <Glyph

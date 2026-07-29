@@ -109,7 +109,6 @@ export function RootLayout() {
   useEffect(() => {
     void setMenuPlatformSession(hasPlatformSession);
   }, [hasPlatformSession]);
-  useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,
     hasPlatformSession,
@@ -127,6 +126,7 @@ export function RootLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+  useClientFeatureFlagSync(!isSessionInitializing, isAssistantActive);
   // Hydrate the assistant identity store (name + version) at the app root so
   // the name is ready on every authenticated route — chat, settings, logs —
   // and the Electron window title / tray / About panel (published below by
@@ -264,7 +264,9 @@ export function RootLayout() {
   });
 
   const handleConfirmRetire = async () => {
-    if (!retireId) return;
+    if (!retireId) {
+      return;
+    }
     setRetirePending(true);
     const outcome = await retireAssistant(retireId);
     if (outcome.ok) {
@@ -306,8 +308,7 @@ export function RootLayout() {
   // popouts, and onboarding manage their own top inset, so the shell defers to
   // them. This keeps a single owner of the top inset per context and avoids
   // the banner and a route header both reserving it (a doubled gap).
-  const appShellOwnsTopInset =
-    !electron && !isPopout && !suppressStatusBanner;
+  const appShellOwnsTopInset = !electron && !isPopout && !suppressStatusBanner;
   // The notch inset and the keyboard scroll compensation are independent top
   // offsets: the status bar is always present regardless of the keyboard, so
   // when the shell owns the inset it must be reserved in both states and

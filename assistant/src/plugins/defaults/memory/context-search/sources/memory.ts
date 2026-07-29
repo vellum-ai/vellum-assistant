@@ -1,10 +1,10 @@
 import { usesConceptPageMemory } from "../../../../../config/memory-v3-gate.js";
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
 import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
-import { searchGraphNodes } from "../../graph/graph-search.js";
 import { getNodesByIds } from "../../graph/store.js";
 import type { MemoryNode, MemoryType } from "../../graph/types.js";
 import { getLogger } from "../../logging.js";
+import { searchGraphNodes } from "../../v1/graph/graph-search.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
@@ -24,6 +24,10 @@ export async function searchMemorySource(
     return { evidence: [] };
   }
 
+  // Tier dispatch: under the concept-page substrate (v2/v3) recall reads
+  // concept pages; on v1 it falls through to the legacy graph-node search
+  // below. V1 — delete with v1: everything after this early return is the v1
+  // arm, so the source collapses to the `usesConceptPageMemory` delegation.
   if (usesConceptPageMemory(context.config.memory)) {
     return searchMemoryV2Source(query, context, normalizedLimit);
   }
@@ -35,7 +39,9 @@ export async function searchMemorySource(
     });
     queryVector = result.vectors[0] ?? null;
   } catch (err) {
-    if (context.signal?.aborted || isAbortError(err)) throw err;
+    if (context.signal?.aborted || isAbortError(err)) {
+      throw err;
+    }
     log.warn({ err }, "Failed to embed memory recall query");
     return { evidence: [] };
   }
@@ -69,14 +75,18 @@ export async function searchMemorySource(
 
     return { evidence };
   } catch (err) {
-    if (context.signal?.aborted || isAbortError(err)) throw err;
+    if (context.signal?.aborted || isAbortError(err)) {
+      throw err;
+    }
     log.warn({ err }, "Failed to search memory graph for recall");
     return { evidence: [] };
   }
 }
 
 function isAbortError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+  if (!(err instanceof Error)) {
+    return false;
+  }
   return err.name === "AbortError" || err.name === "APIUserAbortError";
 }
 

@@ -17,10 +17,16 @@ import { type ReactNode } from "react";
 
 import { type LucideIcon } from "lucide-react";
 
-import { SideMenu } from "@vellumai/design-library";
+import { ContextMenu, SideMenu } from "@vellumai/design-library";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
+import {
+  hasAnyGroupMenuAction,
+  renderGroupMenuItems,
+  renderGroupMenuItemsAsPanelItems,
+  type GroupMenuItemsProps,
+} from "@/domains/chat/components/group-actions-menu";
 import type { PaginatedSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -83,7 +89,13 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   label: string;
   icon?: LucideIcon;
   trailing?: ReactNode;
-  contextMenuContent?: ReactNode;
+  /**
+   * Bulk/group actions for this section's header. Rendered as a right-click
+   * context menu on desktop and a long-press bottom sheet on touch — both
+   * from this one prop, so the two surfaces can't drift. Omit (or pass a
+   * props object with no callbacks) for a section with no header actions.
+   */
+  groupMenu?: GroupMenuItemsProps;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: ReactNode;
 }
@@ -93,17 +105,29 @@ export function ConversationNavSection({
   label,
   icon,
   trailing,
-  contextMenuContent,
+  groupMenu,
   collapsedIndicator,
   ...listProps
 }: ConversationNavSectionProps) {
+  const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
+
   return (
     <CollapsibleNavSection.Section
       value={value}
       icon={icon}
       label={label}
       trailing={trailing}
-      contextMenuContent={contextMenuContent}
+      contextMenuContent={
+        hasMenu
+          ? renderGroupMenuItems({ Primitive: ContextMenu, ...groupMenu })
+          : undefined
+      }
+      touchMenuContent={
+        hasMenu
+          ? (close) =>
+              renderGroupMenuItemsAsPanelItems({ ...groupMenu, onClose: close })
+          : undefined
+      }
       collapsedIndicator={collapsedIndicator}
     >
       <ConversationRowList {...listProps} />

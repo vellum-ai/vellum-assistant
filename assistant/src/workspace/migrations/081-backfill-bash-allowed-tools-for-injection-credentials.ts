@@ -99,13 +99,19 @@ export const backfillBashAllowedToolsForInjectionCredentialsMigration: Workspace
       let modified = false;
 
       for (const cred of credentials) {
-        if (!isPlainObject(cred)) continue;
+        if (!isPlainObject(cred)) {
+          continue;
+        }
 
         // Only target credentials with non-empty injectionTemplates.
-        if (!hasNonEmptyInjectionTemplates(cred)) continue;
+        if (!hasNonEmptyInjectionTemplates(cred)) {
+          continue;
+        }
 
         // Only target credentials with empty or missing allowedTools.
-        if (hasPopulatedAllowedTools(cred)) continue;
+        if (hasPopulatedAllowedTools(cred)) {
+          continue;
+        }
 
         // Backfill "bash" into allowedTools.
         cred.allowedTools = ["bash"];

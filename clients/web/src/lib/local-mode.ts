@@ -118,13 +118,17 @@ const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
 export function isLocalMode(): boolean {
   const raw = import.meta.env.VITE_PLATFORM_MODE;
-  if (!raw) return true;
+  if (!raw) {
+    return true;
+  }
   return !PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
 }
 
 export function isPlatformDisabled(): boolean {
   const config = getInjectedConfig();
-  if (config?.disablePlatform != null) return !!config.disablePlatform;
+  if (config?.disablePlatform != null) {
+    return !!config.disablePlatform;
+  }
 
   const raw = import.meta.env.VITE_VELLUM_DISABLE_PLATFORM;
   if (raw) {
@@ -162,7 +166,9 @@ export function getLockfile(): Lockfile {
   }
 
   const cached = getCachedLockfile();
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const stored = getLocalSetting(LOCKFILE_STORAGE_KEY, "");
   if (stored) {
@@ -213,6 +219,30 @@ export async function saveLockfileAssistant(assistant: {
 }
 
 /**
+ * Record a managed (platform) assistant in the lockfile. The desktop build's
+ * assistant list and switcher are lockfile-driven, so every managed hatch —
+ * foreground hatching screen or headless background hatch — registers its
+ * assistant here, stamped with the org whose session hatched it.
+ *
+ * The org id is a parameter because the organization store imports back through
+ * the auth store into this module; reading it here would cycle.
+ */
+export async function saveManagedLockfileAssistant(
+  assistantId: string,
+  name: string | undefined,
+  organizationId: string | undefined,
+): Promise<void> {
+  await saveLockfileAssistant({
+    assistantId,
+    name,
+    cloud: "vellum",
+    runtimeUrl: getPlatformRuntimeUrl(),
+    hatchedAt: new Date().toISOString(),
+    organizationId,
+  });
+}
+
+/**
  * Update an existing assistant entry without changing the lockfile's active
  * assistant pointer.
  */
@@ -235,12 +265,16 @@ export async function updateLockfileAssistant(
 export async function setActiveLockfileAssistant(
   assistantId: string,
 ): Promise<void> {
-  if (isRemoteGatewayMode()) return;
+  if (isRemoteGatewayMode()) {
+    return;
+  }
 
   const entry = getLockfile().assistants.find(
     (a) => a.assistantId === assistantId,
   );
-  if (!entry) return;
+  if (!entry) {
+    return;
+  }
   const result = await saveLockfileAssistantHost({ ...entry }, assistantId);
   if (result.ok) {
     commitLockfile(result.lockfile);
@@ -268,10 +302,14 @@ export async function syncPlatformAssistantsToLockfile(
 ): Promise<void> {
   // Without a resolved org we can't scope the replace; a full wipe here would
   // drop other orgs' platform entries. Skip — a later sync re-runs with the org.
-  if (organizationId == null) return;
+  if (organizationId == null) {
+    return;
+  }
   // `shouldApply` lets a superseded caller (e.g. an out-of-date session probe)
   // back out before the host replace, and again before committing the result.
-  if (!shouldApply()) return;
+  if (!shouldApply()) {
+    return;
+  }
 
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
@@ -405,8 +443,12 @@ export function getActiveAssistant(): LockfileAssistant | undefined {
   const active = lf.assistants.find(
     (a) => a.assistantId === lf.activeAssistant,
   );
-  if (active) return active;
-  if (lf.assistants.length === 1) return lf.assistants[0];
+  if (active) {
+    return active;
+  }
+  if (lf.assistants.length === 1) {
+    return lf.assistants[0];
+  }
   return undefined;
 }
 
@@ -416,7 +458,9 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
     const found = getLockfile().assistants.find(
       (a) => a.assistantId === selectedId,
     );
-    if (found) return found;
+    if (found) {
+      return found;
+    }
   }
   return getActiveAssistant();
 }
@@ -437,11 +481,15 @@ export function getLockfileAssistant(
  */
 export function reconcileSelectedAssistant(): void {
   const selectedId = readSelectedAssistantId();
-  if (!selectedId) return;
+  if (!selectedId) {
+    return;
+  }
   const present = getLockfile().assistants.some(
     (a) => a.assistantId === selectedId,
   );
-  if (!present) clearSelectedAssistantId();
+  if (!present) {
+    clearSelectedAssistantId();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -506,9 +554,13 @@ function getRecordedGatewayPort(
 export function getLocalGatewayUrl(
   assistant: LockfileAssistant | undefined = getSelectedAssistant(),
 ): string | undefined {
-  if (!expectsLocalGateway(assistant)) return undefined;
+  if (!expectsLocalGateway(assistant)) {
+    return undefined;
+  }
   const gatewayPort = getRecordedGatewayPort(assistant);
-  if (gatewayPort == null) return undefined;
+  if (gatewayPort == null) {
+    return undefined;
+  }
   return gatewayProxyUrl(gatewayPort);
 }
 
@@ -585,7 +637,9 @@ export async function primeLocalGatewayConnection(
     : undefined;
   await ensureGatewayToken(tokenUrl, guardianToken);
   const localGateway = getLocalGatewayUrl(assistant);
-  if (!localGateway) return;
+  if (!localGateway) {
+    return;
+  }
   setSelfHostedConnection({
     url: `${window.location.origin}${localGateway}`,
     token: getGatewayToken(),
@@ -600,7 +654,9 @@ export async function primeLocalGatewayConnection(
  * re-seeding the token and restarting the daemon + gateway.
  */
 function isRepairableConnectError(error: unknown): boolean {
-  if (error instanceof GuardianTokenError) return error.status !== 403;
+  if (error instanceof GuardianTokenError) {
+    return error.status !== 403;
+  }
   return true;
 }
 
@@ -623,11 +679,17 @@ export async function primeLocalGatewayConnectionWithRepair(
     await primeLocalGatewayConnection(target);
     return;
   } catch (error) {
-    if (!isRepairableConnectError(error)) throw error;
+    if (!isRepairableConnectError(error)) {
+      throw error;
+    }
     const assistantId = (target ?? getSelectedAssistant())?.assistantId;
-    if (!assistantId) throw error;
+    if (!assistantId) {
+      throw error;
+    }
     const repair = await wakeLocalAssistantHost(assistantId);
-    if (!repair.ok) throw error;
+    if (!repair.ok) {
+      throw error;
+    }
     // Wake may have established resources the renderer hadn't recorded (a legacy
     // entry's gateway port) — reload so the retry resolves the fresh gateway.
     const lockfile = await loadLockfile();

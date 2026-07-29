@@ -1,13 +1,13 @@
 /**
  * Tests for the memory-v2 skill seed gate and the v2 concept-page schema
  * rebuild gate, both invoked from the daemon startup path
- * (`assistant/src/plugins/defaults/memory/v2/memory-v2-startup.ts`).
+ * (`assistant/src/plugins/defaults/memory/substrate/boot-maintenance.ts`).
  *
  * The gates are exercised in isolation rather than mounting the full
  * lifecycle import graph. Coverage matrix:
- *   - Skill seed (`maybeSeedMemoryV2Skills`): config gating, rejection
+ *   - Skill seed (`maybeSeedCapabilitySkills`): config gating, rejection
  *     swallowing.
- *   - Schema rebuild (`maybeRebuildMemoryV2Concepts`): config gating,
+ *   - Schema rebuild (`maybeRebuildConceptCollection`): config gating,
  *     drift-triggered reembed enqueue, empty-after-create reembed enqueue,
  *     no enqueue when collection is healthy, error swallowing.
  *
@@ -27,7 +27,7 @@ interface TestState {
   seedShouldReject: Error | null;
   warnCalls: Array<{ obj: unknown; msg: unknown }>;
   infoCalls: Array<{ obj: unknown; msg: unknown }>;
-  // Rebuild-gate mocks (drive maybeRebuildMemoryV2Concepts).
+  // Rebuild-gate mocks (drive maybeRebuildConceptCollection).
   ensureCollectionCallCount: number;
   ensureCollectionResult: { migrated: boolean };
   ensureCollectionThrows: Error | null;
@@ -61,13 +61,15 @@ const state: TestState = {
 // Mocks — installed before the module under test is loaded.
 // ---------------------------------------------------------------------------
 
-mock.module("../plugins/defaults/memory/v3/substrate/skill-store.js", () => ({
+mock.module("../plugins/defaults/memory/substrate/skill-store.js", () => ({
   seedV2SkillEntries: async (opts?: {
     throwOnError?: boolean;
   }): Promise<void> => {
     state.seedCallCount += 1;
     state.seedCallOpts.push(opts);
-    if (state.seedShouldReject) throw state.seedShouldReject;
+    if (state.seedShouldReject) {
+      throw state.seedShouldReject;
+    }
   },
 }));
 
@@ -75,16 +77,18 @@ mock.module("../plugins/defaults/memory/v3/substrate/skill-store.js", () => ({
 // (which runs both reseeds in parallel) does not invoke the real Qdrant-backed
 // implementation and emit warnings that break the no-warnings assertions below.
 mock.module(
-  "../plugins/defaults/memory/v3/substrate/cli-command-store.js",
+  "../plugins/defaults/memory/substrate/cli-command-store.js",
   () => ({
     seedV2CliCommandEntries: async (): Promise<void> => {},
   }),
 );
 
-mock.module("../plugins/defaults/memory/v3/substrate/qdrant.js", () => ({
+mock.module("../plugins/defaults/memory/substrate/qdrant.js", () => ({
   ensureConceptPageCollection: async (): Promise<{ migrated: boolean }> => {
     state.ensureCollectionCallCount += 1;
-    if (state.ensureCollectionThrows) throw state.ensureCollectionThrows;
+    if (state.ensureCollectionThrows) {
+      throw state.ensureCollectionThrows;
+    }
     return state.ensureCollectionResult;
   },
   countConceptPagePoints: async (): Promise<number> => state.countResult,
@@ -96,15 +100,17 @@ mock.module("../plugins/defaults/memory/v3/substrate/qdrant.js", () => ({
   dropLegacySkillsCollection: async (): Promise<void> => {},
 }));
 
-mock.module("../plugins/defaults/memory/v3/substrate/page-store.js", () => ({
+mock.module("../plugins/defaults/memory/substrate/page-store.js", () => ({
   hasConceptPages: async (): Promise<boolean> =>
     state.listPagesResult.length > 0,
 }));
 
-mock.module("../plugins/defaults/memory/v3/substrate/sparse-bm25.js", () => ({
+mock.module("../plugins/defaults/memory/substrate/sparse-bm25.js", () => ({
   rebuildConceptPageCorpusStats: async (): Promise<void> => {
     state.corpusStatsBuildCount += 1;
-    if (state.corpusStatsThrows) throw state.corpusStatsThrows;
+    if (state.corpusStatsThrows) {
+      throw state.corpusStatsThrows;
+    }
   },
 }));
 
@@ -142,11 +148,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const {
-  maybeSeedMemoryV2Skills,
-  maybeRebuildMemoryV2Concepts,
+  maybeSeedCapabilitySkills,
+  maybeRebuildConceptCollection,
   rebuildBm25CorpusStatsAndReseedSkills,
-} =
-  await import("../plugins/defaults/memory/v3/substrate/memory-v2-startup.js");
+} = await import("../plugins/defaults/memory/substrate/boot-maintenance.js");
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -163,7 +168,7 @@ function makeConfig(v2Enabled: boolean): AssistantConfig {
 
 /**
  * Drain all pending async work so any `void`-prefixed promise inside
- * `maybeSeedMemoryV2Skills` settles before the test asserts. The fire-and-
+ * `maybeSeedCapabilitySkills` settles before the test asserts. The fire-and-
  * forget chain involves: dynamic-import settle → `.then` callback →
  * inner `seedV2SkillEntries` resolution → `.catch` settle. Dynamic-import
  * settlement can take a macrotask (not just microtasks), so yield through
@@ -200,18 +205,18 @@ function resetState(): void {
   state.corpusStatsThrows = null;
 }
 
-describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
+describe("maybeSeedCapabilitySkills (daemon startup gate)", () => {
   beforeEach(resetState);
 
   test("invokes seedV2SkillEntries when memory.v2.enabled is true", async () => {
-    maybeSeedMemoryV2Skills(makeConfig(true));
+    maybeSeedCapabilitySkills(makeConfig(true));
     await flushMicrotasks();
     expect(state.seedCallCount).toBe(1);
     expect(state.warnCalls).toHaveLength(0);
   });
 
   test("does not invoke seedV2SkillEntries when memory.v2.enabled is false", async () => {
-    maybeSeedMemoryV2Skills(makeConfig(false));
+    maybeSeedCapabilitySkills(makeConfig(false));
     await flushMicrotasks();
     expect(state.seedCallCount).toBe(0);
     expect(state.warnCalls).toHaveLength(0);
@@ -221,7 +226,7 @@ describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
     state.seedShouldReject = new Error("seed failed");
 
     // The gate must not throw — startup must not block on this.
-    expect(() => maybeSeedMemoryV2Skills(makeConfig(true))).not.toThrow();
+    expect(() => maybeSeedCapabilitySkills(makeConfig(true))).not.toThrow();
 
     await flushMicrotasks();
 
@@ -233,11 +238,11 @@ describe("maybeSeedMemoryV2Skills (daemon startup gate)", () => {
   });
 });
 
-describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
+describe("maybeRebuildConceptCollection (daemon startup gate)", () => {
   beforeEach(resetState);
 
   test("does nothing when memory.v2.enabled is false", async () => {
-    await maybeRebuildMemoryV2Concepts(makeConfig(false));
+    await maybeRebuildConceptCollection(makeConfig(false));
 
     expect(state.ensureCollectionCallCount).toBe(0);
     expect(state.enqueueCalls).toEqual([]);
@@ -246,7 +251,7 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
   test("enqueues memory_v2_reembed when the collection was migrated", async () => {
     state.ensureCollectionResult = { migrated: true };
 
-    await maybeRebuildMemoryV2Concepts(makeConfig(true));
+    await maybeRebuildConceptCollection(makeConfig(true));
 
     expect(state.ensureCollectionCallCount).toBe(1);
     expect(state.enqueueCalls).toEqual([
@@ -266,7 +271,7 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
     state.countResult = 0;
     state.listPagesResult = ["people/alice", "topics/zsh"];
 
-    await maybeRebuildMemoryV2Concepts(makeConfig(true));
+    await maybeRebuildConceptCollection(makeConfig(true));
 
     expect(state.enqueueCalls).toEqual([
       { type: "memory_v2_reembed", payload: {} },
@@ -278,7 +283,7 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
     state.countResult = 1185;
     state.listPagesResult = ["people/alice"];
 
-    await maybeRebuildMemoryV2Concepts(makeConfig(true));
+    await maybeRebuildConceptCollection(makeConfig(true));
 
     expect(state.enqueueCalls).toEqual([]);
   });
@@ -288,7 +293,7 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
     state.countResult = 0;
     state.listPagesResult = [];
 
-    await maybeRebuildMemoryV2Concepts(makeConfig(true));
+    await maybeRebuildConceptCollection(makeConfig(true));
 
     expect(state.enqueueCalls).toEqual([]);
   });
@@ -299,7 +304,7 @@ describe("maybeRebuildMemoryV2Concepts (daemon startup gate)", () => {
     // Must not throw — startup never blocks on this gate.
     let thrown: unknown = null;
     try {
-      await maybeRebuildMemoryV2Concepts(makeConfig(true));
+      await maybeRebuildConceptCollection(makeConfig(true));
     } catch (err) {
       thrown = err;
     }

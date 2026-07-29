@@ -27,6 +27,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
+import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -45,6 +46,7 @@ import {
 } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { markCurrentProcessAsMainDaemon } from "../runtime/process-role.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
@@ -103,6 +105,11 @@ function loadDotEnv(): void {
 
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
+  // Identify this process as the daemon before anything can publish: it owns
+  // the event hub real clients subscribe to, so plugin-facing publishes made
+  // here fan out locally rather than routing to a daemon over IPC.
+  markCurrentProcessAsMainDaemon();
+
   const startupStartedAt = Date.now();
   // dotenv loads before the first log call so the lazy root logger
   // initializes against the final VELLUM_WORKSPACE_DIR / log path, not
@@ -242,6 +249,12 @@ export async function runDaemon(): Promise<void> {
   try {
     const { migrationsOk } = await initializeDb();
     dbReady = true;
+    // A quiesce lease can survive a stop that happened mid-drain; clear it so
+    // a fresh boot never starts with background work paused. Placed
+    // synchronously after DB init — before any await yields to the
+    // already-listening HTTP server — so it cannot delete a lease a client
+    // arms against THIS boot.
+    clearLifecycleQuiesce();
     // Floor the stream seq counter above every persisted conversation
     // anchor before turns can stamp events. Anchors are getCurrentSeq()
     // snapshots already served to clients, and a crashed process can have

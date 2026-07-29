@@ -36,13 +36,15 @@ mock.module("@/domains/chat/subagent-store", () => ({
 mock.module("@/domains/chat/workflow-store", () => ({
   useWorkflowStore: { getState: () => ({ reset: workflowReset }) },
 }));
+let activeConversationId: string | null = null;
 mock.module("@/stores/conversation-store", () => ({
-  useConversationStore: { getState: () => ({ setActiveConversationId }) },
+  useConversationStore: {
+    getState: () => ({ activeConversationId, setActiveConversationId }),
+  },
 }));
 
-const { navigateToConversation } = await import(
-  "@/utils/conversation-navigation"
-);
+const { navigateToConversation } =
+  await import("@/utils/conversation-navigation");
 
 beforeEach(() => {
   hapticLight.mockClear();
@@ -50,6 +52,7 @@ beforeEach(() => {
   subagentReset.mockClear();
   workflowReset.mockClear();
   setActiveConversationId.mockClear();
+  activeConversationId = null;
 });
 
 describe("navigateToConversation", () => {
@@ -89,5 +92,27 @@ describe("navigateToConversation", () => {
     expect(navigate).toHaveBeenCalledWith(
       routes.conversationAtMessage("conv-3", "msg-9"),
     );
+  });
+
+  test("same-conversation navigation keeps subagent/workflow state (LUM-2875)", () => {
+    activeConversationId = "conv-1";
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-1");
+
+    // Still returns to the chat view and navigates, but must NOT wipe the
+    // process stores — running subagents only repopulate from live SSE.
+    expect(setMainView).toHaveBeenCalledWith("chat");
+    expect(subagentReset).not.toHaveBeenCalled();
+    expect(workflowReset).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-1"));
+  });
+
+  test("genuine switch still resets subagent/workflow state", () => {
+    activeConversationId = "conv-1";
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-2");
+
+    expect(subagentReset).toHaveBeenCalledTimes(1);
+    expect(workflowReset).toHaveBeenCalledTimes(1);
   });
 });

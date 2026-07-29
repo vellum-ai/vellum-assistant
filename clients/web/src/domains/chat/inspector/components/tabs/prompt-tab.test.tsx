@@ -14,8 +14,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { PromptTab } from "./prompt-tab";
 import type {
-    LLMContextSection,
-    LLMRequestLogEntry,
+  LLMContextSection,
+  LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
 
 function makeEntry(sections: LLMContextSection[]): LLMRequestLogEntry {

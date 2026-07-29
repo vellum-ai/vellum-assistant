@@ -149,11 +149,21 @@ export async function listMessages(
     : "/v1.0/me/messages";
 
   const query: Record<string, string> = {};
-  if (options?.top !== undefined) query["$top"] = String(options.top);
-  if (options?.skip !== undefined) query["$skip"] = String(options.skip);
-  if (options?.filter) query["$filter"] = options.filter;
-  if (options?.orderby) query["$orderby"] = options.orderby;
-  if (options?.select) query["$select"] = options.select;
+  if (options?.top !== undefined) {
+    query["$top"] = String(options.top);
+  }
+  if (options?.skip !== undefined) {
+    query["$skip"] = String(options.skip);
+  }
+  if (options?.filter) {
+    query["$filter"] = options.filter;
+  }
+  if (options?.orderby) {
+    query["$orderby"] = options.orderby;
+  }
+  if (options?.select) {
+    query["$select"] = options.select;
+  }
 
   return request<OutlookMessageListResponse>(
     connection,
@@ -176,8 +186,12 @@ export async function searchMessages(
     $search: `"${searchQuery.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
     $count: "true",
   };
-  if (options?.top !== undefined) query["$top"] = String(options.top);
-  if (options?.skip !== undefined) query["$skip"] = String(options.skip);
+  if (options?.top !== undefined) {
+    query["$top"] = String(options.top);
+  }
+  if (options?.skip !== undefined) {
+    query["$skip"] = String(options.skip);
+  }
 
   return request<OutlookMessageListResponse>(
     connection,
@@ -240,7 +254,9 @@ export async function listMailFolders(
       undefined,
       nextQuery,
     );
-    if (resp.value) allFolders.push(...resp.value);
+    if (resp.value) {
+      allFolders.push(...resp.value);
+    }
     if (resp["@odata.nextLink"]) {
       const nextUrl = new URL(resp["@odata.nextLink"]);
       nextQuery = {};
@@ -335,8 +351,12 @@ export async function createForwardDraft(
   comment?: string,
 ): Promise<OutlookMessage> {
   const body: Record<string, unknown> = {};
-  if (toRecipients !== undefined) body.toRecipients = toRecipients;
-  if (comment !== undefined) body.comment = comment;
+  if (toRecipients !== undefined) {
+    body.toRecipients = toRecipients;
+  }
+  if (comment !== undefined) {
+    body.comment = comment;
+  }
 
   return request<OutlookMessage>(
     connection,

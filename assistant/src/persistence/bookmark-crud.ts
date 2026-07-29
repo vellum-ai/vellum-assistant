@@ -164,7 +164,9 @@ export function createBookmark(
       .from(messageBookmarks)
       .where(eq(messageBookmarks.messageId, messageId))
       .get();
-    if (!winner) throw err;
+    if (!winner) {
+      throw err;
+    }
     return {
       inserted: false,
       bookmark: readBookmarkSummaryOrThrow(db, winner.id),
@@ -202,7 +204,9 @@ export function deleteBookmarkByMessageId(
     .from(messageBookmarks)
     .where(eq(messageBookmarks.messageId, messageId))
     .get();
-  if (!existed) return false;
+  if (!existed) {
+    return false;
+  }
   db.delete(messageBookmarks)
     .where(eq(messageBookmarks.messageId, messageId))
     .run();

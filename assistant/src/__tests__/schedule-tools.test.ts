@@ -2,8 +2,14 @@ import type { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { RiskLevel } from "../permissions/types.js";
+import { ensureGroupMigration } from "../persistence/conversation-group-migration.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { createGroup, deleteGroup } from "../persistence/group-crud.js";
+import {
+  getSchedule,
+  resolveScheduleConversationGroupId,
+} from "../schedule/schedule-store.js";
 import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
@@ -1879,5 +1885,281 @@ describe("schedule_delete tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Schedule not found");
+  });
+});
+
+// ── model-input schema validation (LUM-2853) ────────────────────────
+
+describe("schedule tools — model-input schema validation", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+  });
+
+  test("schedule_create rejects a mistyped field instead of persisting it", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad timezone",
+        expression: "0 9 * * *",
+        message: "hi",
+        timezone: 42,
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "schedule_create"',
+    );
+    expect(result.content).toContain("timezone");
+    const count = getRawDb()
+      .query("SELECT COUNT(*) as n FROM cron_jobs")
+      .get() as { n: number };
+    expect(count.n).toBe(0);
+  });
+
+  test("schedule_create rejects a non-integer retry policy", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad retries",
+        expression: "0 9 * * *",
+        message: "hi",
+        max_retries: "five",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("max_retries");
+  });
+
+  test("schedule_create rejects an unknown syntax value instead of persisting it", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad syntax",
+        expression: "0 9 * * *",
+        syntax: "daily",
+        message: "hi",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("syntax");
+  });
+
+  test("schedule_create treats explicit null as an omitted optional", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Null tolerance",
+        expression: "0 9 * * *",
+        message: "hi",
+        timezone: null,
+        enabled: null,
+        quiet: null,
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("Enabled: true");
+  });
+
+  test("schedule_create keeps the bespoke error for a non-string mode", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Bad mode",
+        expression: "0 9 * * *",
+        message: "hi",
+        mode: 42,
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("mode must be one of");
+  });
+
+  test("schedule_create passes unknown keys through (loose schema)", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Loose keys",
+        expression: "0 9 * * *",
+        message: "hi",
+        activity: "creating a schedule",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+  });
+
+  test("schedule_update rejects a mistyped field", async () => {
+    const create = await executeScheduleCreate(
+      { name: "To update", expression: "0 9 * * *", message: "hi" },
+      ctx,
+    );
+    expect(create.isError).toBeFalsy();
+    const jobId = (
+      getRawDb().query("SELECT id FROM cron_jobs").get() as { id: string }
+    ).id;
+
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, max_retries: 2.5 },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "schedule_update"',
+    );
+    expect(result.content).toContain("max_retries");
+  });
+
+  test("schedule_update still clears timezone with an explicit null", async () => {
+    const create = await executeScheduleCreate(
+      {
+        name: "Tz clear",
+        expression: "0 9 * * *",
+        message: "hi",
+        timezone: "America/Los_Angeles",
+      },
+      ctx,
+    );
+    expect(create.isError).toBeFalsy();
+    const jobId = (
+      getRawDb().query("SELECT id FROM cron_jobs").get() as { id: string }
+    ).id;
+
+    const result = await executeScheduleUpdate(
+      { job_id: jobId, timezone: null },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const row = getRawDb()
+      .query("SELECT timezone FROM cron_jobs WHERE id = ?")
+      .get(jobId) as { timezone: string | null };
+    expect(row.timezone).toBeNull();
+  });
+
+  test("schedule_list rejects a mistyped enabled_only and tolerates null", async () => {
+    const bad = await executeScheduleList({ enabled_only: "yes" }, ctx);
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('Invalid input for tool "schedule_list"');
+
+    const ok = await executeScheduleList(
+      { enabled_only: null, job_id: null },
+      ctx,
+    );
+    expect(ok.isError).toBeFalsy();
+  });
+
+  test("schedule_delete rejects a mistyped job_id", async () => {
+    const result = await executeScheduleDelete({ job_id: 42 }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "schedule_delete"',
+    );
+  });
+});
+
+// ── schedule_create / schedule_update group ─────────────────────────
+
+describe("schedule_create / schedule_update group", () => {
+  beforeEach(() => {
+    ensureGroupMigration();
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    getRawDb().run("DELETE FROM conversation_groups WHERE is_system_group = 0");
+  });
+
+  function extractJobId(content: string): string {
+    const match = content.match(/ID: (\S+)/);
+    expect(match).not.toBeNull();
+    return match![1];
+  }
+
+  test("creates a schedule filed into a custom group by name", async () => {
+    const group = createGroup("Briefs");
+
+    const result = await executeScheduleCreate(
+      {
+        name: "Morning brief",
+        expression: "0 8 * * *",
+        message: "Compile the morning brief.",
+        group: "briefs",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("Conversation group: Briefs");
+    const job = getSchedule(extractJobId(result.content));
+    expect(job?.groupId).toBe(group.id);
+    expect(resolveScheduleConversationGroupId(job!)).toBe(group.id);
+  });
+
+  test("rejects an unknown group with the available list", async () => {
+    const result = await executeScheduleCreate(
+      {
+        name: "Orphan",
+        expression: "0 8 * * *",
+        message: "msg",
+        group: "Nonexistent",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('No group named "Nonexistent"');
+  });
+
+  test("update sets and clears the group", async () => {
+    const group = createGroup("Reports");
+    const created = await executeScheduleCreate(
+      { name: "Weekly report", expression: "0 9 * * 1", message: "msg" },
+      ctx,
+    );
+    const jobId = extractJobId(created.content);
+    expect(getSchedule(jobId)?.groupId).toBeNull();
+
+    const updated = await executeScheduleUpdate(
+      { job_id: jobId, group: "Reports" },
+      ctx,
+    );
+    expect(updated.isError).toBeFalsy();
+    expect(getSchedule(jobId)?.groupId).toBe(group.id);
+
+    const cleared = await executeScheduleUpdate(
+      { job_id: jobId, group: null },
+      ctx,
+    );
+    expect(cleared.isError).toBeFalsy();
+    expect(getSchedule(jobId)?.groupId).toBeNull();
+  });
+
+  test("run conversations fall back to system:scheduled when the group is deleted", async () => {
+    const group = createGroup("Ephemeral");
+    const created = await executeScheduleCreate(
+      {
+        name: "Doomed group",
+        expression: "0 9 * * *",
+        message: "msg",
+        group: group.id,
+      },
+      ctx,
+    );
+    const job = getSchedule(extractJobId(created.content));
+    expect(job?.groupId).toBe(group.id);
+
+    deleteGroup(group.id);
+    expect(resolveScheduleConversationGroupId(job!)).toBe("system:scheduled");
+  });
+
+  test("resolveScheduleConversationGroupId defaults to system:scheduled", () => {
+    expect(resolveScheduleConversationGroupId({ groupId: null })).toBe(
+      "system:scheduled",
+    );
   });
 });

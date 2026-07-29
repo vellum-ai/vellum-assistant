@@ -27,9 +27,11 @@ export function useAssistantIdentityDetails(assistantId: string) {
     queryFn: async () => {
       const [identity, assistantResult] = await Promise.all([
         fetchAssistantIdentity(assistantId),
-        getAssistant(assistantId).catch(
-          () => ({ ok: false as const, status: 0, error: {} }),
-        ),
+        getAssistant(assistantId).catch(() => ({
+          ok: false as const,
+          status: 0,
+          error: {},
+        })),
       ]);
       return {
         identity,

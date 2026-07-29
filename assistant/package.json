@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.10.12",
+  "version": "0.11.0",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -42,7 +42,7 @@
     "@modelcontextprotocol/sdk": "1.27.1",
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
-    "@slack/types": "2.21.1",
+    "@slack/types": "2.22.0",
     "@vellumai/ces-client": "workspace:*",
     "@vellumai/credential-storage": "workspace:*",
     "@vellumai/egress-proxy": "workspace:*",

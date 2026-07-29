@@ -17,6 +17,7 @@ const r = <const T extends string>(path: T): T => path;
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
 const SETTINGS_USAGE_PATH = r("/assistant/settings/usage");
+const PLANS_PATH = r("/assistant/plans");
 
 /**
  * Search param the chat transcript reads on load to scroll to and highlight a
@@ -24,6 +25,15 @@ const SETTINGS_USAGE_PATH = r("/assistant/settings/usage");
  * link producer (settings) and the consumer (chat).
  */
 export const SCROLL_TO_MESSAGE_PARAM = "message";
+
+/**
+ * Search param naming a Pro package. Carried by the checkout deep link
+ * (`/assistant/checkout?package=<slug>`) that the marketing pricing CTAs
+ * target, and by the plans takeover's one-shot switch deep link
+ * ({@link routes.plansForPackage}). Shared by every producer and reader so the
+ * spelling can't drift.
+ */
+export const PACKAGE_PARAM = "package";
 
 export const routes = {
   assistant: r("/assistant"),
@@ -74,7 +84,9 @@ export const routes = {
     relayToken?: string,
   ) => {
     const base = `${dyn(r("/assistant/conversations"), conversationId)}?prompt=${encodeURIComponent(prompt)}`;
-    return relayToken ? `${base}&relay=${encodeURIComponent(relayToken)}` : base;
+    return relayToken
+      ? `${base}&relay=${encodeURIComponent(relayToken)}`
+      : base;
   },
   /**
    * LLM-context inspector for a single conversation. The conversation id
@@ -129,8 +141,7 @@ export const routes = {
    */
   schedules: {
     root: r("/assistant/schedules"),
-    detail: (scheduleId: string) =>
-      dyn(r("/assistant/schedules"), scheduleId),
+    detail: (scheduleId: string) => dyn(r("/assistant/schedules"), scheduleId),
   },
   identity: r("/assistant/identity"),
   /**
@@ -183,7 +194,23 @@ export const routes = {
 
   /** Full-screen pricing takeover ("View Plans") — renders outside ChatLayout
    *  chrome, a sibling of the settings/logs full-screen shells. */
-  plans: r("/assistant/plans"),
+  plans: PLANS_PATH,
+  /**
+   * Plans takeover URL that opens the in-place package-switch flow for `key`
+   * on load. A one-shot deep link: the page consumes the param, strips it, and
+   * routes the key through the same guards a card click gets.
+   */
+  plansForPackage: (key: string) =>
+    `${PLANS_PATH}?${PACKAGE_PARAM}=${encodeURIComponent(key)}`,
+
+  /**
+   * Deep-link checkout entrypoint. The marketing pricing CTAs route here (via
+   * auth `returnTo`) with `?package=<slug>` to start Stripe checkout for a
+   * chosen Pro package. Sits behind auth but OUTSIDE `ActiveAssistantGate` so a
+   * brand-new user with no assistant can reach it; the resolver exempts it from
+   * the no-assistant funnel redirect.
+   */
+  checkout: r("/assistant/checkout"),
 
   settings: {
     root: r("/assistant/settings"),

@@ -46,7 +46,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 
 export function GeneralPage() {
@@ -128,12 +127,6 @@ export function GeneralPage() {
   // Mirrors DeleteAccountSection's internal platformHostedOnly gate — it
   // returns null when gated, so the card must not render an empty shell.
   const showDeleteAccount = infraGate !== "gated";
-  // The Preferences modal only has content on Electron (shortcuts, Launch at
-  // Login) or with a fine pointer (the composer send toggle), so its Customize
-  // button and modal are hidden on touch/non-Electron surfaces where the modal
-  // would be empty. The card itself always renders — it hosts the theme picker,
-  // which applies on every platform.
-  const showPreferences = isElectron() || !isPointerCoarse();
 
   return (
     <div className="space-y-4">
@@ -148,9 +141,7 @@ export function GeneralPage() {
             void navigate(`${routes.workspace}?sort=size`)
           }
           onUpgradeStorage={
-            infraGate === "full"
-              ? () => void navigate(routes.plans)
-              : null
+            infraGate === "full" ? () => void navigate(routes.plans) : null
           }
         />
       )}
@@ -281,14 +272,9 @@ export function GeneralPage() {
         title="Preferences"
         subtitle="Customize how Vellum looks and behaves on this device."
         accessory={
-          showPreferences ? (
-            <Button
-              variant="outlined"
-              onClick={() => setPreferencesOpen(true)}
-            >
-              Customize
-            </Button>
-          ) : undefined
+          <Button variant="outlined" onClick={() => setPreferencesOpen(true)}>
+            Customize
+          </Button>
         }
       >
         <div className="flex flex-col gap-5">
@@ -297,12 +283,10 @@ export function GeneralPage() {
         </div>
       </DetailCard>
 
-      {showPreferences && (
-        <PreferencesModal
-          open={preferencesOpen}
-          onClose={() => setPreferencesOpen(false)}
-        />
-      )}
+      <PreferencesModal
+        open={preferencesOpen}
+        onClose={() => setPreferencesOpen(false)}
+      />
 
       {teleportEnabled && isElectron() && <TeleportCard />}
 

@@ -50,7 +50,9 @@ export const TASK_DISPLAY_LABELS: Record<string, string> = {
  * Capitalize the first letter of a string (fallback for unknown IDs).
  */
 function capitalizeFirst(s: string): string {
-  if (!s) return s;
+  if (!s) {
+    return s;
+  }
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -108,12 +110,16 @@ const SCOPE_SERVICE_MAP: Record<string, string> = {
 };
 
 export function deriveGoogleServices(scopes?: string[]): string[] {
-  if (!scopes?.length) return ["Gmail", "Calendar", "Drive"];
+  if (!scopes?.length) {
+    return ["Gmail", "Calendar", "Drive"];
+  }
   const services = new Set<string>();
   for (const scope of scopes) {
     const suffix = scope.replace("https://www.googleapis.com/auth/", "");
     const service = SCOPE_SERVICE_MAP[suffix];
-    if (service) services.add(service);
+    if (service) {
+      services.add(service);
+    }
   }
   return services.size > 0 ? [...services] : ["Gmail", "Calendar", "Drive"];
 }

@@ -68,7 +68,9 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   return { useAssistantFeatureFlagStore: store };
 });
 
-const billingRef = { data: undefined as { effective_balance: string } | undefined };
+const billingRef = {
+  data: undefined as { effective_balance: string } | undefined,
+};
 
 mock.module("@tanstack/react-query", () => ({
   useQuery: () => ({ data: billingRef.data, isLoading: false, isError: false }),
@@ -92,7 +94,8 @@ mock.module("@/components/share-feedback-modal", () => ({
 }));
 
 mock.module("@/domains/chat/components/credits-card", () => ({
-  CreditsCard: () => createElement("div", { "data-testid": "credits-card" }, "Credits"),
+  CreditsCard: () =>
+    createElement("div", { "data-testid": "credits-card" }, "Credits"),
 }));
 
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
@@ -100,7 +103,15 @@ import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 beforeEach(() => {
   isMobileRef.value = false;
   authRef.isAuthenticated = true;
-  authRef.user = { kind: "platform", id: "u1", email: "user@example.com", isStaff: false, username: null, firstName: "", lastName: "" };
+  authRef.user = {
+    kind: "platform",
+    id: "u1",
+    email: "user@example.com",
+    isStaff: false,
+    username: null,
+    firstName: "",
+    lastName: "",
+  };
   billingRef.data = undefined;
 });
 
@@ -136,9 +147,9 @@ describe("PreferencesMenu", () => {
       firstName: "",
       lastName: "",
     };
-    expect(
-      renderToStaticMarkup(createElement(PreferencesMenu)),
-    ).toContain("jdoe");
+    expect(renderToStaticMarkup(createElement(PreferencesMenu))).toContain(
+      "jdoe",
+    );
 
     // email fallback (no name, no username)
     authRef.user = {
@@ -150,9 +161,9 @@ describe("PreferencesMenu", () => {
       firstName: "",
       lastName: "",
     };
-    expect(
-      renderToStaticMarkup(createElement(PreferencesMenu)),
-    ).toContain("user@example.com");
+    expect(renderToStaticMarkup(createElement(PreferencesMenu))).toContain(
+      "user@example.com",
+    );
 
     // generic label (nothing identifying)
     authRef.user = {
@@ -164,9 +175,9 @@ describe("PreferencesMenu", () => {
       firstName: "",
       lastName: "",
     };
-    expect(
-      renderToStaticMarkup(createElement(PreferencesMenu)),
-    ).toContain("Preferences");
+    expect(renderToStaticMarkup(createElement(PreferencesMenu))).toContain(
+      "Preferences",
+    );
   });
 
   test("shows the generic label for the synthetic local gateway user", () => {

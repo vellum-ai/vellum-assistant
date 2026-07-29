@@ -54,7 +54,9 @@ export function AboutPage() {
           // `shell.openExternal` in main; suppressing the default
           // there keeps the About BrowserWindow from navigating away
           // from its own route.
-          if (!isElectron()) return;
+          if (!isElectron()) {
+            return;
+          }
           event.preventDefault();
           void openAppWebsite();
         }}

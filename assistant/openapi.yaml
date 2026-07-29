@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.12
+  version: 0.11.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -3999,6 +3999,7 @@ paths:
                             - email
                             - platform
                             - a2a
+                            - discord
                         label:
                           type: string
                         subtitle:
@@ -4146,6 +4147,34 @@ paths:
                       type: string
                     actorTeamId:
                       type: string
+                    appContext:
+                      type: object
+                      properties:
+                        entities:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                              value:
+                                anyOf:
+                                  - type: string
+                                  - type: object
+                                    properties:
+                                      messageTs:
+                                        type: string
+                                      channelId:
+                                        type: string
+                              teamId:
+                                type: string
+                              enterpriseId:
+                                type: string
+                            required:
+                              - type
+                              - value
+                      required:
+                        - entities
                     admissionPolicy:
                       type: string
                       enum:
@@ -4282,6 +4311,7 @@ paths:
                             - email
                             - platform
                             - a2a
+                            - discord
                         ready:
                           type: boolean
                         setupStatus:
@@ -4371,6 +4401,7 @@ paths:
                     - email
                     - platform
                     - a2a
+                    - discord
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -4400,6 +4431,7 @@ paths:
                             - email
                             - platform
                             - a2a
+                            - discord
                         ready:
                           type: boolean
                         setupStatus:
@@ -6447,13 +6479,15 @@ paths:
           schema:
             type: string
             enum:
-              - slack
               - telegram
-              - whatsapp
-              - email
-              - a2a
-              - vellum
               - phone
+              - vellum
+              - whatsapp
+              - slack
+              - email
+              - platform
+              - a2a
+              - discord
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -6579,6 +6613,7 @@ paths:
                                 - email
                                 - platform
                                 - a2a
+                                - discord
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -6932,6 +6967,7 @@ paths:
                               - email
                               - platform
                               - a2a
+                              - discord
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -8141,6 +8177,7 @@ paths:
                               - email
                               - platform
                               - a2a
+                              - discord
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -11838,6 +11875,11 @@ paths:
                           type: string
                         name:
                           type: string
+                        icon:
+                          description: Client-chosen icon name; null when the group has none
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         sortPosition:
                           type: number
                         isSystemGroup:
@@ -11867,6 +11909,11 @@ paths:
                 name:
                   type: string
                   description: Group name
+                icon:
+                  description: Client-chosen icon name
+                  anyOf:
+                    - type: string
+                    - type: "null"
               required:
                 - name
       responses:
@@ -11881,6 +11928,11 @@ paths:
                     type: string
                   name:
                     type: string
+                  icon:
+                    description: Client-chosen icon name; null when the group has none
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   sortPosition:
                     type: number
                   isSystemGroup:
@@ -11916,7 +11968,7 @@ paths:
     patch:
       operationId: groups_by_groupId_patch
       summary: Update group
-      description: Update a conversation group's name or sort position.
+      description: Update a conversation group's name, icon, or sort position.
       tags:
         - groups
       parameters:
@@ -11934,6 +11986,11 @@ paths:
               properties:
                 name:
                   type: string
+                icon:
+                  description: Client-chosen icon name; null clears it
+                  anyOf:
+                    - type: string
+                    - type: "null"
                 sortPosition:
                   type: number
       responses:
@@ -11948,6 +12005,11 @@ paths:
                     type: string
                   name:
                     type: string
+                  icon:
+                    description: Client-chosen icon name; null when the group has none
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   sortPosition:
                     type: number
                   isSystemGroup:
@@ -13584,6 +13646,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending app-control request ID
                 state:
                   type: string
@@ -14300,7 +14363,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside"
       responses:
         "200":
           description: Successful response
@@ -14531,7 +14594,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, vellum"
+            vercel-ai-gateway, litellm, openai-compatible, minimax, atlascloud, baseten, poolside, vellum"
       responses:
         "200":
           description: Successful response
@@ -16357,6 +16420,192 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/lifecycle/drain-status:
+    get:
+      operationId: lifecycle_drainstatus_get
+      summary: In-flight background work
+      description:
+        "Reports conversation turns, memory jobs, schedule runs, workflow runs, and heartbeat runs currently in
+        flight, plus the active quiesce lease. `idle: true` means it is safe to stop the assistant without interrupting
+        work."
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quiescedUntil:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  idle:
+                    type: boolean
+                    description: True when no conversation turn, memory job, schedule run, workflow run, or heartbeat run is in flight.
+                  activeConversations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        conversationId:
+                          type: string
+                        title:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        originChannel:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        originInterface:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        processingStartedAt:
+                          type: number
+                      required:
+                        - conversationId
+                        - title
+                        - originChannel
+                        - originInterface
+                        - processingStartedAt
+                      additionalProperties: false
+                  memoryJobs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - id
+                        - type
+                        - startedAt
+                      additionalProperties: false
+                  scheduleRuns:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        runId:
+                          type: string
+                        scheduleName:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        startedAt:
+                          type: number
+                      required:
+                        - runId
+                        - scheduleName
+                        - startedAt
+                      additionalProperties: false
+                  workflowRuns:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        runId:
+                          type: string
+                        name:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                      required:
+                        - runId
+                        - name
+                        - startedAt
+                      additionalProperties: false
+                  heartbeatRuns:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        runId:
+                          type: string
+                        startedAt:
+                          type: number
+                      required:
+                        - runId
+                        - startedAt
+                      additionalProperties: false
+                required:
+                  - quiescedUntil
+                  - idle
+                  - activeConversations
+                  - memoryJobs
+                  - scheduleRuns
+                  - workflowRuns
+                  - heartbeatRuns
+                additionalProperties: false
+  /v1/lifecycle/quiesce:
+    delete:
+      operationId: lifecycle_quiesce_delete
+      summary: Release the drain quiesce lease
+      description:
+        Resumes background work immediately instead of waiting for the lease TTL to expire (e.g. when a drain is
+        cancelled).
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  released:
+                    type: boolean
+                required:
+                  - released
+                additionalProperties: false
+    post:
+      operationId: lifecycle_quiesce_post
+      summary: Arm or refresh the drain quiesce lease
+      description:
+        Pauses the starting of new background work (heartbeat, schedules, watchers, sequences, memory jobs) for the
+        lease TTL. Refresh by calling again; the lease self-expires so an abandoned drain never leaves background work
+        paused.
+      tags:
+        - system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttlMs:
+                  description: Lease TTL in ms (clamped to a sane range).
+                  type: number
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quiescedUntil:
+                    type: number
+                    description: Epoch ms when the quiesce lease expires.
+                required:
+                  - quiescedUntil
+                additionalProperties: false
   /v1/live-voice/preflight:
     post:
       operationId: livevoice_preflight_post
@@ -17524,7 +17773,9 @@ paths:
         "Return a cheap count of concept pages from the cached memory page index, for glanceable surfaces like the
         identity Memory card. Counts concept pages only and never builds the memory-concept graph. Also reports
         graph_supported: whether the memory-concept graph is available for this assistant (memory enabled and v3 live),
-        so callers can gate the graph entry point without building the graph."
+        so callers can gate the graph entry point without building the graph, plus tier: the coarse memory tier
+        explaining why the graph is unavailable (off = the user's Memory opt-out, v1/v2 = a legacy engine that has not
+        migrated to v3)."
       tags:
         - memory
       responses:
@@ -17541,9 +17792,18 @@ paths:
                   graph_supported:
                     type: boolean
                     description: Whether the memory-concept graph is available (memory enabled and v3 live)
+                  tier:
+                    type: string
+                    enum:
+                      - off
+                      - v1
+                      - v2
+                      - v3
+                    description: Coarse memory tier for this assistant; graph_supported is exactly tier === 'v3'
                 required:
                   - concepts
                   - graph_supported
+                  - tier
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:
@@ -18339,6 +18599,7 @@ paths:
                                           - brave
                                           - perplexity
                                           - tavily
+                                          - keenable
                                           - firecrawl
                                       resultCount:
                                         type: number
@@ -18777,6 +19038,7 @@ paths:
                                                   - brave
                                                   - perplexity
                                                   - tavily
+                                                  - keenable
                                                   - firecrawl
                                               resultCount:
                                                 type: number
@@ -21182,6 +21444,7 @@ paths:
                     - email
                     - platform
                     - a2a
+                    - discord
                     - scheduler
                     - watcher
                 sourceContextId:
@@ -22377,6 +22640,33 @@ paths:
                   - disconnected
                   - previousBaseUrl
                 additionalProperties: false
+  /v1/platform/plans:
+    get:
+      operationId: platform_plans_get
+      summary: Get the plan catalog with pricing
+      description:
+        "Fetches the platform plan catalog: base and pro plans with pricing (in cents), machine/storage/credit
+        tiers, and packages."
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                required:
+                  - plans
+                additionalProperties: false
   /v1/platform/status:
     get:
       operationId: platform_status_get
@@ -22428,6 +22718,91 @@ paths:
                   - available
                   - organizationId
                   - userId
+                additionalProperties: false
+  /v1/platform/subscription:
+    get:
+      operationId: platform_subscription_get
+      summary: Get the organization's current plan and subscription state
+      description:
+        Fetches the org's plan (base or pro), subscription status, renewal/period-end dates, cancellation state,
+        selected credit tier, package, and plan-gated entitlements from the platform.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  planId:
+                    type: string
+                    enum:
+                      - base
+                      - pro
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  renewalDate:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  currentPeriodEnd:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  cancelAtPeriodEnd:
+                    type: boolean
+                  cancelAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  selectedCreditTier:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  package:
+                    anyOf:
+                      - type: object
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          version:
+                            type: number
+                          customized:
+                            type: boolean
+                        required:
+                          - key
+                          - name
+                          - version
+                          - customized
+                        additionalProperties: false
+                      - type: "null"
+                  entitlements:
+                    type: object
+                    properties:
+                      managedEmail:
+                        type: boolean
+                      phoneNumber:
+                        type: boolean
+                    required:
+                      - managedEmail
+                      - phoneNumber
+                    additionalProperties: false
+                required:
+                  - planId
+                  - status
+                  - renewalDate
+                  - currentPeriodEnd
+                  - cancelAtPeriodEnd
+                  - cancelAt
+                  - selectedCreditTier
+                  - package
+                  - entitlements
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:
@@ -24523,6 +24898,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -24588,6 +24967,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -24730,6 +25110,10 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
                       createdFromConversationId:
                         anyOf:
                           - type: string
@@ -24795,6 +25179,7 @@ paths:
                       - retryBackoffMs
                       - timeoutMs
                       - inferenceProfile
+                      - groupId
                       - createdFromConversationId
                       - createdFromConversationExists
                       - createdFromConversationArchivedAt
@@ -24891,6 +25276,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -24956,6 +25345,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -25049,6 +25439,10 @@ paths:
                         anyOf:
                           - type: string
                           - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
                       createdFromConversationId:
                         anyOf:
                           - type: string
@@ -25114,6 +25508,7 @@ paths:
                       - retryBackoffMs
                       - timeoutMs
                       - inferenceProfile
+                      - groupId
                       - createdFromConversationId
                       - createdFromConversationExists
                       - createdFromConversationArchivedAt
@@ -25266,6 +25661,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25331,6 +25730,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -25427,6 +25827,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25492,6 +25896,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -25588,6 +25993,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25653,6 +26062,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -25886,6 +26296,10 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -25951,6 +26365,7 @@ paths:
                         - retryBackoffMs
                         - timeoutMs
                         - inferenceProfile
+                        - groupId
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -29110,7 +29525,9 @@ paths:
           required: false
           schema:
             type: string
-          description: Parent conversation ID (required)
+          description:
+            "The subagent's own conversation ID. Fallback only: when the assistant knows the subagent (live,
+            rehydrated, or in its durable records), it resolves the conversation itself and this parameter is ignored."
       responses:
         "200":
           description: Successful response
@@ -29173,6 +29590,12 @@ paths:
                         - type
                         - content
                       additionalProperties: false
+                  label:
+                    type: string
+                  parentToolUseId:
+                    type: string
+                  conversationId:
+                    type: string
                 required:
                   - subagentId
                   - events
@@ -29265,8 +29688,14 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation.
-        Subagents not in the response are orphaned.
+        "Returns the subagents the assistant knows for a given parent conversation (live, rehydrated, and durably
+        recorded), including recently finished runs whose in-memory metadata the retention sweep has already evicted.
+        Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal
+        state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child
+        conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from
+        scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports,
+        so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be
+        present; every other field is optional."
       tags:
         - subagents
       parameters:
@@ -29292,6 +29721,32 @@ paths:
                       type: object
                       properties:
                         status:
+                          type: string
+                        conversationId:
+                          type: string
+                        label:
+                          type: string
+                        objective:
+                          type: string
+                        isFork:
+                          type: boolean
+                        parentToolUseId:
+                          type: string
+                        usage:
+                          type: object
+                          properties:
+                            inputTokens:
+                              type: number
+                            outputTokens:
+                              type: number
+                            estimatedCost:
+                              type: number
+                          required:
+                            - inputTokens
+                            - outputTokens
+                            - estimatedCost
+                          additionalProperties: false
+                        error:
                           type: string
                       required:
                         - status
@@ -31312,7 +31767,8 @@ paths:
       summary: Register a webhook callback URL
       description:
         Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with
-        the platform gateway. On self-hosted assistants, uses the configured ingress.publicBaseUrl.
+        the platform gateway. Otherwise uses the configured ingress.publicBaseUrl, falling back to the platform gateway
+        when no ingress is configured and the assistant is connected to the platform.
       tags:
         - webhooks
       requestBody:
@@ -32491,6 +32947,7 @@ components:
         - together
         - litellm
         - baseten
+        - poolside
         - vellum
         - chatgpt
     ProfilePatchEntry:
@@ -32871,6 +33328,7 @@ components:
         - minimax
         - atlascloud
         - baseten
+        - poolside
         - vellum
     Auth:
       oneOf:

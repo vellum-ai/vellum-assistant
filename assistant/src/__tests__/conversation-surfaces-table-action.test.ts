@@ -1,14 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   createSurfaceMutex,
   handleSurfaceAction,
   type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
-import type {
-  AssistantEvent,
-  SurfaceType,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType } from "../daemon/message-protocol.js";
 
 /**
  * Build a minimal SurfaceConversationContext for testing table surface actions.

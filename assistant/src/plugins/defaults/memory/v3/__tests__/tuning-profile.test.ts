@@ -47,6 +47,7 @@ describe("resolveV3Tuning", () => {
       needleK: v3.needleK,
       denseK: v3.denseK,
       replyQueryK: v3.replyQueryK,
+      spanQueryK: v3.spanQueryK,
       selectorEnabled: v3.selectorEnabled,
       learnedEdgesCap: v3.learnedEdges.cap,
       edgeSeedCount: v3.edge.seedCount,

@@ -55,8 +55,12 @@ export function buildMultipartMime(options: MimeMessageOptions): string {
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
   ];
-  if (sanitizedCc) headers.push(`Cc: ${sanitizedCc}`);
-  if (sanitizedBcc) headers.push(`Bcc: ${sanitizedBcc}`);
+  if (sanitizedCc) {
+    headers.push(`Cc: ${sanitizedCc}`);
+  }
+  if (sanitizedBcc) {
+    headers.push(`Bcc: ${sanitizedBcc}`);
+  }
   if (sanitizedInReplyTo) {
     headers.push(`In-Reply-To: ${sanitizedInReplyTo}`);
     headers.push(`References: ${sanitizedInReplyTo}`);

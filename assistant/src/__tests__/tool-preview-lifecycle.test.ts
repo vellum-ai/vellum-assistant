@@ -48,9 +48,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => ({}),
   reserveMessage: reserveMessageMock,
   recordConversationPersistedSeq: (id: string, seq: number) => {
-    if (!Number.isFinite(seq) || seq <= 0) {return;}
+    if (!Number.isFinite(seq) || seq <= 0) {
+      return;
+    }
     const prev = persistedSeqByConversation.get(id);
-    if (prev == null || prev < seq) {persistedSeqByConversation.set(id, seq);}
+    if (prev == null || prev < seq) {
+      persistedSeqByConversation.set(id, seq);
+    }
   },
   getConversationPersistedSeq: (id: string) =>
     persistedSeqByConversation.get(id) ?? null,
@@ -69,15 +73,13 @@ mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module(
-  "../plugins/defaults/memory/memory-v2-activation-log-store.js",
-  () => ({
-    backfillMemoryV2ActivationMessageId: () => {},
-  }),
-);
+mock.module("../plugins/defaults/memory/v2/activation-log-store.js", () => ({
+  backfillMemoryV2ActivationMessageId: () => {},
+}));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -91,9 +93,7 @@ import {
   handleToolUse,
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,

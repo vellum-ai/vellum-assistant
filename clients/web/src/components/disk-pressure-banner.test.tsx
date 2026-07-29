@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
-const { DiskPressureBanner } = await import("@/components/disk-pressure-banner");
+const { DiskPressureBanner } =
+  await import("@/components/disk-pressure-banner");
 
 afterEach(() => {
   cleanup();

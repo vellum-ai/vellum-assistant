@@ -64,7 +64,9 @@ mock.module("@google/genai", () => ({
     models = {
       generateContentStream: async (params: Record<string, unknown>) => {
         lastStreamParams = params;
-        if (shouldThrow) throw shouldThrow;
+        if (shouldThrow) {
+          throw shouldThrow;
+        }
 
         return {
           [Symbol.asyncIterator]: async function* () {

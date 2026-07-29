@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -5,11 +7,33 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below — mirrors
+ * `filesystem/write.ts`. `target_client_id` catches to `undefined` so a
+ * non-string (or empty) value means "untargeted".
+ */
+export const hostFileWriteInputSchema = z.looseObject({
+  path: z.string().min(1).describe("Absolute host path to the file to write"),
+  content: z.string().describe("The content to write to the file"),
+  target_client_id: z
+    .string()
+    .describe(
+      "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+    )
+    .optional()
+    .catch(undefined),
+});
 
 export const hostFileWriteTool = {
   name: "host_file_write",
@@ -19,50 +43,21 @@ export const hostFileWriteTool = {
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description: "Absolute host path to the file to write",
-      },
-      content: {
-        type: "string",
-        description: "The content to write to the file",
-      },
-      target_client_id: {
-        type: "string",
-        description:
-          "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
-      },
-    },
-    required: ["path", "content"],
-  },
+  input_schema: toToolInputSchema(hostFileWriteInputSchema),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== "string") {
-      return {
-        content: "Error: path is required and must be a string",
-        isError: true,
-      };
+    const parsed = hostFileWriteInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("host_file_write", parsed.error);
     }
-
-    const fileContent = input.content;
-    if (typeof fileContent !== "string") {
-      return {
-        content: "Error: content is required and must be a string",
-        isError: true,
-      };
-    }
+    const { path: rawPath, content: fileContent } = parsed.data;
 
     const targetClientId =
-      typeof input.target_client_id === "string" &&
-      input.target_client_id !== ""
-        ? input.target_client_id
+      parsed.data.target_client_id !== ""
+        ? parsed.data.target_client_id
         : undefined;
 
     const transportInterface = context.transportInterface;

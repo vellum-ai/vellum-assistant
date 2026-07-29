@@ -1,4 +1,3 @@
-
 import { CheckCircle, Loader2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
@@ -34,7 +33,9 @@ export function ContactPromptCard({
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      return;
+    }
     onSubmit(address.trim(), channelType);
   }
 
@@ -42,11 +43,17 @@ export function ContactPromptCard({
     <Card className="flex flex-col gap-4 p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1">
-          <Typography variant="label-small-default" className="text-[var(--content-primary)]">
+          <Typography
+            variant="label-small-default"
+            className="text-[var(--content-primary)]"
+          >
             {contactRequest.label ?? "Add a contact"}
           </Typography>
           {contactRequest.description && (
-            <Typography variant="body-small-default" className="text-[var(--content-secondary)]">
+            <Typography
+              variant="body-small-default"
+              className="text-[var(--content-secondary)]"
+            >
               {contactRequest.description}
             </Typography>
           )}
@@ -66,7 +73,7 @@ export function ContactPromptCard({
 
       {accepted ? (
         // typography: off-scale — inline status badge, not prose
-         
+
         <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
           <CheckCircle size={16} />
           Contact saved
@@ -77,7 +84,9 @@ export function ContactPromptCard({
             type="text"
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder={contactRequest.placeholder ?? `Enter ${channelType} address`}
+            placeholder={
+              contactRequest.placeholder ?? `Enter ${channelType} address`
+            }
             disabled={isSubmitting}
             autoFocus
           />
@@ -87,7 +96,7 @@ export function ContactPromptCard({
               onClick={onCancel}
               disabled={isSubmitting}
               // typography: off-scale — inline form button, not prose
-               
+
               className="rounded px-3 py-1.5 text-sm text-[var(--content-secondary)] hover:bg-[var(--surface-secondary)]"
             >
               Cancel
@@ -96,7 +105,7 @@ export function ContactPromptCard({
               type="submit"
               disabled={!canSubmit}
               // typography: off-scale — inline form button, not prose
-               
+
               className="flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
             >
               {isSubmitting ? (

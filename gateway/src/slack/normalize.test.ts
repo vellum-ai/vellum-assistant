@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import {
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
@@ -28,8 +29,6 @@ import type { GatewayConfig } from "../config.js";
 function makeConfig(overrides?: Partial<GatewayConfig>): GatewayConfig {
   return {
     routingEntries: [],
-    unmappedPolicy: "default",
-    defaultAssistantId: "ast-1",
     ...overrides,
   } as GatewayConfig;
 }
@@ -210,28 +209,12 @@ describe("normalizeSlackBlockActions", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null when routing rejects", () => {
-    const config = makeConfig({
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
-    });
-    const payload = makeBlockActionsPayload();
-    const result = normalizeSlackBlockActions(payload, "env-6", config);
-
-    expect(result).toBeNull();
-  });
-
   // LUM-2414: a guardian's Block Kit button click (Approve/Reject on an
   // access-request card) arrives on their DM channel (D...). When that channel
-  // isn't in the routing table the normalizer must fall back to the default
-  // assistant rather than silently dropping the click — mirroring the fallback
-  // in normalizeSlackDirectMessage, normalizeSlackReaction, and the message
-  // edit/delete normalizers.
-  it("falls back to the default assistant for an unrouted DM channel", () => {
-    const config = makeConfig({
-      defaultAssistantId: "default-ast",
-      unmappedPolicy: "reject",
-    });
+  // isn't in the routing table the click must still reach the assistant rather
+  // than being silently dropped.
+  it("resolves an unrouted DM channel to the local assistant", () => {
+    const config = makeConfig();
     const payload = makeBlockActionsPayload({ channelId: "D999" });
     const result = normalizeSlackBlockActions(
       payload,
@@ -241,7 +224,7 @@ describe("normalizeSlackBlockActions", () => {
 
     expect(result).not.toBeNull();
     expect(result!.channel).toBe("D999");
-    expect(result!.routing.assistantId).toBe("default-ast");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     expect(result!.routing.routeSource).toBe("default");
   });
 
@@ -249,8 +232,6 @@ describe("normalizeSlackBlockActions", () => {
     // The DM fallback only fires when routing rejects; an explicit
     // conversation_id route for the DM channel must still win.
     const config = makeConfig({
-      defaultAssistantId: "default-ast",
-      unmappedPolicy: "reject",
       routingEntries: [
         { type: "conversation_id", key: "D789", assistantId: "explicit-ast" },
       ],
@@ -267,15 +248,10 @@ describe("normalizeSlackBlockActions", () => {
     expect(result!.routing.routeSource).toBe("conversation_id");
   });
 
-  it("returns null for an unrouted non-DM channel even when a default assistant exists", () => {
-    // Non-DM channels keep strict routing: the DM-only fallback must not leak
-    // into public channels, so a rejected route stays dropped even though
-    // defaultAssistantId is set. (The "returns null when routing rejects" case
-    // above uses defaultAssistantId: undefined and so can't pin this guard.)
-    const config = makeConfig({
-      defaultAssistantId: "default-ast",
-      unmappedPolicy: "reject",
-    });
+  it("resolves an unrouted non-DM channel to the local assistant", () => {
+    // Public channels used to keep strict routing and drop unrouted clicks.
+    // They now normalize like DMs; the admission floor decides admittance.
+    const config = makeConfig();
     const payload = makeBlockActionsPayload({ channelId: "C456" });
     const result = normalizeSlackBlockActions(
       payload,
@@ -283,7 +259,8 @@ describe("normalizeSlackBlockActions", () => {
       config,
     );
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 });
 
@@ -441,15 +418,13 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null when routing rejects", () => {
-    const config = makeConfig({
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
-    });
+  it("resolves an unrouted reaction to the local assistant", () => {
+    const config = makeConfig();
     const event = makeReactionAddedEvent();
     const result = normalizeSlackReactionAdded(event, "evt-5", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   it("uses the reaction name in callbackData", () => {
@@ -470,8 +445,6 @@ describe("normalizeSlackReactionAdded", () => {
     // Verify the normalizer happily produces a valid event for an arbitrary
     // public-channel message ts when routing matches the channel.
     const config = makeConfig({
-      defaultAssistantId: undefined,
-      unmappedPolicy: "reject",
       routingEntries: [
         { type: "conversation_id", key: "C500", assistantId: "ast-1" },
       ],
@@ -563,22 +536,17 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(result!.event.actor.actorExternalId).toBe("UBOT");
   });
 
-  it("returns null when routing rejects on a public channel", () => {
-    const config = makeConfig({
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
-    });
+  it("resolves an unrouted public-channel reaction removal to the local assistant", () => {
+    const config = makeConfig();
     const event = makeReactionRemovedEvent();
     const result = normalizeSlackReactionRemoved(event, "evt-r-7", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
-  it("falls back to default assistant for unrouted DM channels", () => {
-    const config = makeConfig({
-      defaultAssistantId: "default-ast",
-      unmappedPolicy: "reject",
-    });
+  it("resolves unrouted DM channels to the local assistant", () => {
+    const config = makeConfig();
     const event = makeReactionRemovedEvent({
       channelId: "D999",
       messageTs: "111.222",
@@ -615,8 +583,6 @@ describe("normalizeSlackReactionRemoved", () => {
     // not just tracked bot-thread messages. Verify the removed normalizer
     // produces a valid event for an arbitrary public-channel message ts.
     const config = makeConfig({
-      defaultAssistantId: undefined,
-      unmappedPolicy: "reject",
       routingEntries: [
         { type: "conversation_id", key: "C500", assistantId: "ast-1" },
       ],
@@ -1406,8 +1372,6 @@ describe("normalizeSlackMessageEdit", () => {
       routingEntries: [
         { type: "conversation_id", key: "C456", assistantId: "ast-2" },
       ],
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
     });
     const event = makeMessageChangedEvent({
       channel: "C456",
@@ -1444,8 +1408,6 @@ describe("normalizeSlackMessageEdit", () => {
       routingEntries: [
         { type: "conversation_id", key: "C456", assistantId: "ast-2" },
       ],
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
     });
     const event = makeMessageChangedEvent({
       channel: "C456",
@@ -1466,8 +1428,6 @@ describe("normalizeSlackMessageEdit", () => {
       routingEntries: [
         { type: "conversation_id", key: "C456", assistantId: "ast-2" },
       ],
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
     });
     const event = makeMessageChangedEvent({
       channel: "C456",
@@ -1482,13 +1442,11 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result!.event.source.messageId).toBe("1700000000.000150");
   });
 
-  it("returns null when channel has no routing entry and not a DM", () => {
-    // Without a route and without DM fallback, an edit in an unknown channel
-    // is unroutable — normalize must return null so the gateway drops it.
+  it("resolves an edit in an unrouted non-DM channel to the local assistant", () => {
+    // Previously dropped as unroutable; the gateway now normalizes it and
+    // leaves the admittance decision to the admission floor.
     const config = makeConfig({
       routingEntries: [],
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
     });
     const event = makeMessageChangedEvent({
       channel: "C999",
@@ -1496,7 +1454,8 @@ describe("normalizeSlackMessageEdit", () => {
     });
     const result = normalizeSlackMessageEdit(event, "Ev3", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   // Self-authored edits are now filtered upstream in processEventPayload.
@@ -1514,7 +1473,7 @@ describe("normalizeSlackMessageEdit", () => {
   });
 
   it("infers DM from channel ID prefix when channel_type is absent", () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
+    const config = makeConfig();
     // Build the event directly so `channel_type` is truly absent — the
     // makeMessageChangedEvent helper coalesces undefined back to "channel".
     const event: SlackMessageChangedEvent = {
@@ -1537,9 +1496,10 @@ describe("normalizeSlackMessageEdit", () => {
     };
     const result = normalizeSlackMessageEdit(event, "Ev5", config);
 
-    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    // Previously this needed the DM-prefix fallback to survive the unmapped
+    // reject policy; it now resolves locally like any other identified event.
     expect(result).not.toBeNull();
-    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     // DMs should not be tagged as channel chat even when inferred.
     expect(result!.event.source.chatType).toBeUndefined();
     // DM without thread_ts — threadTs should be omitted so replies go inline.
@@ -1660,11 +1620,10 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result!.event.actor.actorExternalId).toBe("slack-system");
   });
 
-  it("returns null when channel routing rejects without a default", () => {
-    const config = makeConfig({
-      unmappedPolicy: "reject",
-      defaultAssistantId: undefined,
-    });
+  it("resolves an unrouted channel delete to the local assistant", () => {
+    // Previously dropped by the unmapped reject policy. Admission, not
+    // routing, now decides whether an unrouted channel is allowed through.
+    const config = makeConfig();
     const event = makeMessageDeletedEvent();
     const result = normalizeSlackMessageDelete(
       event,
@@ -1672,11 +1631,12 @@ describe("normalizeSlackMessageDelete", () => {
       config,
     );
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
-  it("falls back to default assistant for DM deletes when channel is unrouted", () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
+  it("resolves DM deletes to the local assistant when the channel is unrouted", () => {
+    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
       channel_type: "im",
@@ -1688,11 +1648,11 @@ describe("normalizeSlackMessageDelete", () => {
     );
 
     expect(result).not.toBeNull();
-    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   it("infers DM from channel ID prefix when channel_type is absent", () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
+    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
       channel_type: undefined,
@@ -1703,9 +1663,10 @@ describe("normalizeSlackMessageDelete", () => {
       config,
     );
 
-    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    // Previously this needed the DM-prefix fallback to survive the unmapped
+    // reject policy; it now resolves locally like any other identified event.
     expect(result).not.toBeNull();
-    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     // DMs should not be tagged as channel chat even when inferred.
     expect(result!.event.source.chatType).toBeUndefined();
   });
@@ -2214,6 +2175,172 @@ describe("enrichNormalizedActor", () => {
       botId: "B0AGENT",
       botName: "Peer Assistant",
       appId: "A0EXAMPLE",
+    });
+  });
+});
+
+/**
+ * Slack attaches `app_context` to `message.im` once the app subscribes to
+ * `app_context_changed` (which requires `agent_view`). It names what the sender
+ * had open — the channel, thread, or canvas a DM like "summarise this" refers
+ * to. It cannot live on the cross-checked message schema, so these cover the
+ * separate raw-payload parse.
+ */
+describe("DM app_context", () => {
+  const CHANNEL_ENTITY = {
+    type: "slack#/types/channel_id",
+    value: "C0INCIDENTS",
+    team_id: "T0TEAM",
+  };
+
+  it("carries the entities the sender had open", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({ app_context: { entities: [CHANNEL_ENTITY] } });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.appContext).toEqual({
+      entities: [
+        {
+          type: "slack#/types/channel_id",
+          value: "C0INCIDENTS",
+          teamId: "T0TEAM",
+        },
+      ],
+    });
+  });
+
+  it("preserves entity order, which Slack sends by relevance", () => {
+    const config = makeConfig();
+    const second = { type: "slack#/types/channel_id", value: "C0SECOND" };
+    const event = makeDmEvent({
+      app_context: { entities: [CHANNEL_ENTITY, second] },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-2", config);
+
+    expect(
+      result!.event.source.appContext?.entities.map((e) => e.value),
+    ).toEqual(["C0INCIDENTS", "C0SECOND"]);
+  });
+
+  it("omits appContext when the sender had nothing open", () => {
+    const config = makeConfig();
+    // Slack sends an empty context object rather than dropping the field.
+    const event = makeDmEvent({ app_context: {} });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-3", config);
+
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("omits appContext when Slack sends no context at all", () => {
+    const config = makeConfig();
+    const result = normalizeSlackDirectMessage(
+      makeDmEvent(),
+      "evt-ctx-4",
+      config,
+    );
+
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("drops a malformed context rather than failing the message", () => {
+    const config = makeConfig();
+    // A DM whose context is garbage must still deliver — the message is the
+    // payload, the context is an enrichment.
+    const event = makeDmEvent({
+      app_context: { entities: "not-an-array" },
+    } as unknown as Partial<SlackDirectMessageEvent>);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-5", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.content).toBeTruthy();
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("drops only the malformed entity, keeping its valid siblings", () => {
+    const config = makeConfig();
+    // One bad entity must not take the usable ones with it: the message would
+    // still deliver, but "summarize this" would go unresolved with the answer
+    // sitting right there in the payload.
+    const event = makeDmEvent({
+      app_context: {
+        entities: [
+          { type: "slack#/types/channel_id" },
+          CHANNEL_ENTITY,
+          { type: "slack#/types/canvas_id", value: 42 },
+        ],
+      },
+    } as unknown as Partial<SlackDirectMessageEvent>);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-9", config);
+
+    expect(result!.event.source.appContext?.entities).toEqual([
+      {
+        type: CHANNEL_ENTITY.type,
+        value: CHANNEL_ENTITY.value,
+        teamId: CHANNEL_ENTITY.team_id,
+      },
+    ]);
+  });
+
+  it("omits the context when every entity is malformed", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({
+      app_context: { entities: [{ type: "slack#/types/channel_id" }] },
+    } as unknown as Partial<SlackDirectMessageEvent>);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-10", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.source.appContext).toBeUndefined();
+  });
+
+  it("carries a message_context entity, whose value is an object not an id", () => {
+    const config = makeConfig();
+    // The thread/message case — the one that resolves "summarise this". Its
+    // `value` is an object, so a string-only schema silently drops it.
+    const event = makeDmEvent({
+      app_context: {
+        entities: [
+          {
+            type: "slack#/types/message_context",
+            value: {
+              message_ts: "1700000000.000100",
+              channel_id: "C0INCIDENTS",
+            },
+            team_id: "T0TEAM",
+          },
+        ],
+      },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-7", config);
+
+    expect(result!.event.source.appContext?.entities[0]).toEqual({
+      type: "slack#/types/message_context",
+      value: { messageTs: "1700000000.000100", channelId: "C0INCIDENTS" },
+      teamId: "T0TEAM",
+    });
+  });
+
+  it("carries enterprise_id when Slack sends one", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({
+      app_context: {
+        entities: [{ ...CHANNEL_ENTITY, enterprise_id: "E0GRID" }],
+      },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-8", config);
+
+    expect(result!.event.source.appContext?.entities[0]).toMatchObject({
+      enterpriseId: "E0GRID",
+    });
+  });
+
+  it("keeps the raw context verbatim on the event", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({ app_context: { entities: [CHANNEL_ENTITY] } });
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-6", config);
+
+    expect((result!.event.raw as Record<string, unknown>).app_context).toEqual({
+      entities: [CHANNEL_ENTITY],
     });
   });
 });

@@ -5,10 +5,13 @@ import { useState } from "react";
 import { hatchAssistant, listAssistants } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
-import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import {
-    assistantsListOptions,
-    assistantsRetrieveOptions,
+  isLocalMode,
+  syncPlatformAssistantsToLockfile,
+} from "@/lib/local-mode";
+import {
+  assistantsListOptions,
+  assistantsRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -61,7 +64,8 @@ export function AssistantLifecyclePanel() {
             if (list.ok) {
               await syncPlatformAssistantsToLockfile(
                 list.data,
-                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                useOrganizationStore.getState().currentOrganizationId ??
+                  undefined,
               );
             }
           } catch {
@@ -255,9 +259,7 @@ function AssistantListCard({
                   <span className="truncate text-body-medium-default text-[var(--content-default)]">
                     {a.name || "Unnamed"}
                   </span>
-                  <Tag
-                    tone={a.status === "active" ? "positive" : "neutral"}
-                  >
+                  <Tag tone={a.status === "active" ? "positive" : "neutral"}>
                     {a.status}
                   </Tag>
                   {isActive && <Tag tone="warning">Current</Tag>}

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setConfig } from "../__tests__/helpers/set-config.js";
 import type { QuestionRequestEvent } from "../api/events/question-request.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   QuestionBatchSubmission,
   QuestionPromptResult,
@@ -48,7 +48,9 @@ mock.module("../runtime/pending-interactions.js", () => ({
   register: (id: string, entry: MockInteraction) => _piStore.set(id, entry),
   resolve: (id: string) => {
     const e = _piStore.get(id);
-    if (e?.timer != null) {clearTimeout(e.timer);}
+    if (e?.timer != null) {
+      clearTimeout(e.timer);
+    }
     _piStore.delete(id);
     return e;
   },
@@ -106,7 +108,9 @@ function resolveBatch(
     submissions,
   );
   const result: QuestionPromptResult = { entries, overall: "completed" };
-  if (interaction.timer != null) {clearTimeout(interaction.timer);}
+  if (interaction.timer != null) {
+    clearTimeout(interaction.timer);
+  }
   _piStore.delete(requestId);
   interaction.rpcResolve?.(result);
   return result;
@@ -128,7 +132,9 @@ function closeBatch(requestId: string): QuestionPromptResult {
     })),
     overall: "closed",
   };
-  if (interaction.timer != null) {clearTimeout(interaction.timer);}
+  if (interaction.timer != null) {
+    clearTimeout(interaction.timer);
+  }
   _piStore.delete(requestId);
   interaction.rpcResolve?.(result);
   return result;
@@ -412,7 +418,9 @@ describe("QuestionPrompter", () => {
     // Simulate `removeByConversation` clearing the registry entry before
     // the abort signal fires.
     const interaction = _piStore.get(req.requestId);
-    if (interaction?.timer != null) {clearTimeout(interaction.timer);}
+    if (interaction?.timer != null) {
+      clearTimeout(interaction.timer);
+    }
     _piStore.delete(req.requestId);
 
     ac.abort();

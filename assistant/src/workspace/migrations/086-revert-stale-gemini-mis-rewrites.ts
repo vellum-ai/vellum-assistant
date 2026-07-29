@@ -30,19 +30,25 @@ export const revertStaleGeminiMisRewritesMigration: WorkspaceMigration = {
     "Revert 057 mis-rewrites of gemini-3-flash in non-Gemini fragment contexts",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const defaultBlock = readObject(llm.default);
     const defaultProvider = inferLayerProvider(defaultBlock);
@@ -60,8 +66,12 @@ export const revertStaleGeminiMisRewritesMigration: WorkspaceMigration = {
     if (profiles !== null) {
       for (const rawProfile of Object.values(profiles)) {
         const profile = readObject(rawProfile);
-        if (profile === null) continue;
-        if (!isRevertCandidate(profile)) continue;
+        if (profile === null) {
+          continue;
+        }
+        if (!isRevertCandidate(profile)) {
+          continue;
+        }
         if (isExplicitlyNonGemini(defaultProvider)) {
           profile.model = STALE_MODEL;
           changed = true;
@@ -83,8 +93,12 @@ export const revertStaleGeminiMisRewritesMigration: WorkspaceMigration = {
     if (callSites !== null) {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         const callSiteConfig = readObject(rawConfig);
-        if (callSiteConfig === null) continue;
-        if (!isRevertCandidate(callSiteConfig)) continue;
+        if (callSiteConfig === null) {
+          continue;
+        }
+        if (!isRevertCandidate(callSiteConfig)) {
+          continue;
+        }
         const siteProfileName =
           typeof callSiteConfig.profile === "string"
             ? callSiteConfig.profile
@@ -108,7 +122,9 @@ export const revertStaleGeminiMisRewritesMigration: WorkspaceMigration = {
       }
     }
 
-    if (!changed) return;
+    if (!changed) {
+      return;
+    }
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
@@ -147,15 +163,21 @@ const GEMINI_CATALOG_MODELS = new Set<string>([
 ]);
 
 function isRevertCandidate(block: Record<string, unknown>): boolean {
-  if (typeof block.provider === "string") return false;
+  if (typeof block.provider === "string") {
+    return false;
+  }
   return typeof block.model === "string" && REPLACEMENT_MODELS.has(block.model);
 }
 
 function inferLayerProvider(
   block: Record<string, unknown> | null,
 ): string | undefined {
-  if (block === null) return undefined;
-  if (typeof block.provider === "string") return block.provider;
+  if (block === null) {
+    return undefined;
+  }
+  if (typeof block.provider === "string") {
+    return block.provider;
+  }
   if (
     typeof block.model === "string" &&
     GEMINI_CATALOG_MODELS.has(block.model)

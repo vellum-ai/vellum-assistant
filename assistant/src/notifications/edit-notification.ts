@@ -63,7 +63,9 @@ export interface EditNotificationResult {
  */
 export function normalizeFeedItemId(id: string): string {
   const trimmed = id.trim();
-  if (trimmed.startsWith(FEED_ITEM_ID_PREFIX)) return trimmed;
+  if (trimmed.startsWith(FEED_ITEM_ID_PREFIX)) {
+    return trimmed;
+  }
   return `${FEED_ITEM_ID_PREFIX}${trimmed}`;
 }
 

@@ -22,7 +22,9 @@ export function migrateOAuthAppsClientSecretPath(database: DrizzleDb): void {
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'oauth_apps'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   // Guard: check if column already exists with NOT NULL
   const colInfo = raw
@@ -30,7 +32,9 @@ export function migrateOAuthAppsClientSecretPath(database: DrizzleDb): void {
       `SELECT "notnull" FROM pragma_table_info('oauth_apps') WHERE name = 'client_secret_credential_path'`,
     )
     .get() as { notnull: number } | null;
-  if (colInfo && colInfo.notnull === 1) return;
+  if (colInfo && colInfo.notnull === 1) {
+    return;
+  }
 
   // Step 1: Add the column (nullable) — wrapped in try/catch for idempotency
   if (!colInfo) {
@@ -108,7 +112,9 @@ export function migrateOAuthAppsClientSecretPathDown(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'oauth_apps'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   // Guard: if the column doesn't exist, nothing to do
   const colInfo = raw
@@ -116,7 +122,9 @@ export function migrateOAuthAppsClientSecretPathDown(
       `SELECT 1 FROM pragma_table_info('oauth_apps') WHERE name = 'client_secret_credential_path'`,
     )
     .get();
-  if (!colInfo) return;
+  if (!colInfo) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

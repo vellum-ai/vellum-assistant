@@ -48,7 +48,10 @@ export type ChatEntry =
   | (ChatEntryBase & { kind: "user" })
   | (ChatEntryBase & { kind: "assistant" })
   | (ChatEntryBase & { kind: "feedback_prompt"; meta?: FeedbackPromptMeta })
-  | (ChatEntryBase & { kind: "user_outcome_prompt"; meta?: UserOutcomePromptMeta })
+  | (ChatEntryBase & {
+      kind: "user_outcome_prompt";
+      meta?: UserOutcomePromptMeta;
+    })
   | (ChatEntryBase & { kind: "tool_call"; meta: ToolCallMeta })
   | (ChatEntryBase & { kind: "approval"; meta: ApprovalMeta })
   | (ChatEntryBase & { kind: "backup_prompt"; meta: BackupPromptMeta })
@@ -60,14 +63,19 @@ export type NewChatEntry =
   | { kind: "user"; content: string }
   | { kind: "assistant"; content: string }
   | { kind: "feedback_prompt"; content: string; meta?: FeedbackPromptMeta }
-  | { kind: "user_outcome_prompt"; content: string; meta?: UserOutcomePromptMeta }
+  | {
+      kind: "user_outcome_prompt";
+      content: string;
+      meta?: UserOutcomePromptMeta;
+    }
   | { kind: "tool_call"; content: string; meta: ToolCallMeta }
   | { kind: "approval"; content: string; meta: ApprovalMeta }
   | { kind: "backup_prompt"; content: string; meta: BackupPromptMeta }
   | { kind: "error"; content: string }
   | { kind: "status"; content: string };
 
-export const USER_OUTCOME_PROMPT_QUESTION = "Did the Doctor solve your problem?";
+export const USER_OUTCOME_PROMPT_QUESTION =
+  "Did the Doctor solve your problem?";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -99,7 +107,9 @@ export function hasDoctorFeedbackPromptSinceLastUser(
 
 const REPLAYABLE_DOCTOR_SOURCE_EVENT_ID = /^\d+-\d+$/;
 
-function feedbackReasonFromMetadata(meta: Record<string, unknown>): FeedbackReason | undefined {
+function feedbackReasonFromMetadata(
+  meta: Record<string, unknown>,
+): FeedbackReason | undefined {
   const rawReason = meta.reason ?? meta.classification;
   return rawReason === "bug_report" ||
     rawReason === "feature_request" ||
@@ -185,9 +195,7 @@ export function mapPersistedMessagesToEntries(
         const toolCallId = meta.toolCallId;
         const isError = meta.isError === true;
         const idx = entries.findIndex(
-          (e) =>
-            e.kind === "tool_call" &&
-            e.meta.toolCallId === toolCallId,
+          (e) => e.kind === "tool_call" && e.meta.toolCallId === toolCallId,
         );
         if (idx === -1) {
           break;
@@ -219,7 +227,8 @@ export function mapPersistedMessagesToEntries(
             toolName,
             input: (meta.input as Record<string, unknown>) ?? {},
             toolCallId: typeof meta.id === "string" ? meta.id : message.id,
-            description: typeof meta.description === "string" ? meta.description : "",
+            description:
+              typeof meta.description === "string" ? meta.description : "",
           },
         });
         break;

@@ -26,7 +26,9 @@ export const preserveHeartbeatEnabledForExistingWorkspacesMigration: WorkspaceMi
       // (older callers), treat the workspace as existing — writing
       // enabled=true reproduces the legacy default and never disables
       // heartbeats for anyone.
-      if (ctx?.isNewWorkspace) return;
+      if (ctx?.isNewWorkspace) {
+        return;
+      }
 
       const configPath = join(workspaceDir, "config.json");
 
@@ -37,7 +39,9 @@ export const preserveHeartbeatEnabledForExistingWorkspacesMigration: WorkspaceMi
       if (existsSync(configPath)) {
         try {
           const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-          if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+            return;
+          }
           config = raw as Record<string, unknown>;
         } catch {
           return;
@@ -57,7 +61,9 @@ export const preserveHeartbeatEnabledForExistingWorkspacesMigration: WorkspaceMi
       }
 
       const heartbeatConfig = heartbeat as Record<string, unknown>;
-      if ("enabled" in heartbeatConfig) return;
+      if ("enabled" in heartbeatConfig) {
+        return;
+      }
 
       heartbeatConfig.enabled = true;
       writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");

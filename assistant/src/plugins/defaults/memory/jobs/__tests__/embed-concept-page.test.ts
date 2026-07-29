@@ -91,7 +91,7 @@ const upsertCalls: Array<{
 
 const deleteCalls: string[] = [];
 
-mock.module("../../v3/substrate/qdrant.js", () => ({
+mock.module("../../substrate/qdrant.js", () => ({
   upsertConceptPageEmbedding: async (params: {
     slug: string;
     dense: number[];
@@ -138,7 +138,7 @@ afterAll(() => {
 // Imports are deferred to after the env var is set so any internal use of
 // `getWorkspaceDir()` resolves to the tmpdir.
 const { DEFAULT_CONFIG } = await import("../../../../../config/defaults.js");
-const { getDb, getMemoryDb } =
+const { getMemoryDb } =
   await import("../../../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../../../__tests__/db-test-helpers.js");
@@ -151,7 +151,7 @@ type MemoryJobMod = typeof import("../../../../../persistence/jobs-store.js");
 type MemoryJob = ReturnType<MemoryJobMod["claimMemoryJobs"]>[number];
 const { embedConceptPageJob, enqueueEmbedConceptPageJob } =
   await import("../embed-concept-page.js");
-const { writePage } = await import("../../v3/substrate/page-store.js");
+const { writePage } = await import("../../substrate/page-store.js");
 const { _resetQdrantBreaker, isQdrantBreakerOpen, withQdrantBreaker } =
   await import("../../../../../persistence/embeddings/qdrant-circuit-breaker.js");
 
@@ -248,7 +248,7 @@ describe("embedConceptPageJob — happy path", () => {
 
     await embedConceptPageJob(makeJob({ slug: "bob-uses-zsh" }), TEST_CONFIG);
 
-    const row = getDb()
+    const row = getMemoryDb()!
       .select()
       .from(memoryEmbeddings)
       .all()

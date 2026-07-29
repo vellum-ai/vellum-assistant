@@ -141,7 +141,11 @@ export function createIncrementalStepProjection(
         // re-deriving from the grown content reproduces the full rebuild exactly.
         const tail = stepsClone[stepsClone.length - 1];
         let poppedStep: ToolCallCardStep | undefined;
-        if (tail && tail.kind === "thinking" && tail.detailKey === events[len - 1]!.id) {
+        if (
+          tail &&
+          tail.kind === "thinking" &&
+          tail.detailKey === events[len - 1]!.id
+        ) {
           poppedStep = tail;
           stepsClone.pop();
           toolMetaClone.pop();
@@ -202,7 +206,11 @@ export function useSubagentSteps(
   // Stabilize the wrapper object's identity when both arrays are unchanged so
   // callers comparing the `{ steps, toolMeta }` object (not just the arrays)
   // also bail.
-  if (last != null && last.steps === next.steps && last.toolMeta === next.toolMeta) {
+  if (
+    last != null &&
+    last.steps === next.steps &&
+    last.toolMeta === next.toolMeta
+  ) {
     return last;
   }
   lastRef.current = next;

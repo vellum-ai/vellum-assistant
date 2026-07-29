@@ -5,9 +5,13 @@ import {
   initTrustRuleCache,
   resetTrustRuleCache,
 } from "../risk/trust-rule-cache.js";
-import { classifySegment } from "../risk/bash-risk-classifier.js";
+import {
+  BashRiskClassifier,
+  classifySegment,
+} from "../risk/bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import type { CommandSegment } from "../risk/shell-parser.js";
+import type { UserRule } from "../risk/risk-types.js";
 import "./test-preload.js";
 
 // ---------------------------------------------------------------------------
@@ -272,6 +276,155 @@ describe("risk rule cache integration", () => {
     );
 
     expect(result.risk).toBe("high");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  // ── Step 1 user-defined short-circuit ──────────────────────────────────────
+
+  test("user-defined rule short-circuits arg-rule escalation", () => {
+    // Use action: prefix so the new row doesn't conflict with the seeded "rm" row.
+    // "rm" is untouched by other tests in this file, so isUserRule(literal) stays
+    // false and findBaseRisk returns the action:rm user_defined rule instead.
+    // Without the short-circuit, rm -rf /tmp would escalate to "high" via arg rules.
+    store.create({
+      tool: "bash",
+      pattern: "action:rm",
+      risk: "low",
+      description: "rm is always safe in this environment",
+    });
+
+    initTrustRuleCache(store);
+
+    const result = classifySegment(
+      segment("rm -rf /tmp/test"),
+      [],
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    // Step 1b short-circuits: user_defined rule bypasses the -rf arg escalation.
+    expect(result.risk).toBe("low");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("user-defined rule specificity: exact action match wins over prefix", () => {
+    // "action:rm /tmp" (exact match at step 1 of findBaseRisk) beats "action:rm"
+    // (prefix walk step 3). Specificity is inherent in the lookup order: exact
+    // before prefix, and longer prefixes before shorter ones in the prefix walk.
+    store.create({
+      tool: "bash",
+      pattern: "action:rm",
+      risk: "high",
+      description: "rm is dangerous",
+    });
+    store.create({
+      tool: "bash",
+      pattern: "action:rm /tmp",
+      risk: "low",
+      description: "rm in /tmp is safe",
+    });
+
+    initTrustRuleCache(store);
+
+    // "rm /tmp" hits the exact action: lookup ("action:rm /tmp") at step 1,
+    // never falling through to the broader prefix "action:rm".
+    const result = classifySegment(
+      segment("rm /tmp"),
+      [],
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    expect(result.risk).toBe("low");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("user-modified default rule does not short-circuit arg-rule escalation", () => {
+    // userModified=true but origin="default": step 4b handles this, not step 1.
+    // Arg rules still apply and can escalate above the user-set base risk.
+    store.update("default:bash:git-push", { risk: "low" });
+
+    initTrustRuleCache(store);
+
+    const result = classifySegment(
+      segment("git push --force"),
+      [],
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    // --force arg rule still escalates through step 4b
+    expect(result.risk).toBe("high");
+  });
+
+  test("exact compound-command rule short-circuits at classify() level", async () => {
+    // The "This exact command" allowlist option stores the full raw command
+    // string as the trust-rule pattern (e.g. "rm -rf /tmp && echo done").
+    // classifySegment never sees that full string — it receives each segment
+    // ("rm -rf /tmp" and "echo done") separately. The pre-parse check in
+    // classify() is the only place the exact compound pattern can match.
+    const compound = "rm -rf /tmp && echo done";
+    store.create({
+      tool: "bash",
+      pattern: compound,
+      risk: "low",
+      description: "Approved: clean /tmp then echo done",
+    });
+
+    initTrustRuleCache(store);
+
+    const classifier = new BashRiskClassifier();
+    const result = await classifier.classify({
+      command: compound,
+      toolName: "bash",
+    });
+
+    // Without the classify()-level check, rm -rf would escalate to "high"
+    // via arg rules. The exact user_defined rule must short-circuit first.
+    expect(result.riskLevel).toBe("low");
+    expect(result.matchType).toBe("user_rule");
+  });
+});
+
+// ── userRules param specificity ordering ──────────────────────────────────────
+
+describe("userRules param specificity ordering", () => {
+  beforeEach(() => {
+    resetGatewayDb();
+    resetTrustRuleCache();
+  });
+
+  afterEach(() => {
+    resetTrustRuleCache();
+    resetGatewayDb();
+  });
+
+  test("longer regex pattern wins over shorter when both match", () => {
+    const rules: UserRule[] = [
+      {
+        id: "r1",
+        pattern: "^git",
+        risk: "high",
+        label: "all git high",
+        createdAt: "",
+        source: "manual",
+      },
+      {
+        id: "r2",
+        pattern: "^git push",
+        risk: "low",
+        label: "git push low",
+        createdAt: "",
+        source: "manual",
+      },
+    ];
+
+    // Cache not initialized — only userRules[] param is active in step 1a.
+    const result = classifySegment(
+      segment("git push origin"),
+      rules,
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    // "^git push" (length 9) beats "^git" (length 4)
+    expect(result.risk).toBe("low");
     expect(result.matchType).toBe("user_rule");
   });
 });

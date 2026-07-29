@@ -1,4 +1,3 @@
-
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 import type { CreditPaywallCtaMode } from "@/domains/chat/utils/credit-paywall-cta";
 

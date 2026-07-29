@@ -11,8 +11,7 @@ export interface A2AInviteParams {
  * can redeem the invite via the platform broker.
  */
 export function buildA2AInviteLink(params: A2AInviteParams): string {
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "";
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
   const search = new URLSearchParams({
     senderAssistantId: params.senderAssistantId,
     token: params.token,

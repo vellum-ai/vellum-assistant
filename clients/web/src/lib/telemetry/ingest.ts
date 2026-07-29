@@ -36,7 +36,9 @@ export function postTelemetryEvents(events: readonly object[]): void {
     keepalive: true,
   })
     .then(({ data, response }) => {
-      if (!import.meta.env.DEV) return;
+      if (!import.meta.env.DEV) {
+        return;
+      }
       if (!response?.ok) {
         console.warn("telemetry event rejected", response?.status);
       } else if (data && data.persisted < data.accepted) {

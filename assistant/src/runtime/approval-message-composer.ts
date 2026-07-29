@@ -50,7 +50,9 @@ export function includesRequiredKeywords(
   text: string,
   requiredKeywords: string[] | undefined,
 ): boolean {
-  if (!requiredKeywords || requiredKeywords.length === 0) return true;
+  if (!requiredKeywords || requiredKeywords.length === 0) {
+    return true;
+  }
   return requiredKeywords.every((keyword) => {
     const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
     return re.test(text);
@@ -116,7 +118,9 @@ export async function composeApprovalMessageGenerative(
   if (generator) {
     try {
       const generated = await generator(context, options);
-      if (generated) return generated;
+      if (generated) {
+        return generated;
+      }
     } catch (err) {
       log.warn(
         { err, scenario: context.scenario },

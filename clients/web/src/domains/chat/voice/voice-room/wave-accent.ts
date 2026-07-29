@@ -12,12 +12,18 @@ import { resolveAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
  * default-avatar assistant gets indigo waves that don't match its green avatar.
  *
  * Null for custom-image / no-character avatars (no color to match) — the waves
- * then keep their aurora fallback.
+ * then keep their aurora fallback. `customImageUrl` gates that explicitly: an
+ * uploaded avatar can carry lingering character components, but the image is
+ * what renders, so no character color must leak into the waves.
  */
 export function resolveWaveAccentHex(
   components: CharacterComponents | null,
   traits: CharacterTraits | null,
+  customImageUrl: string | null,
 ): string | null {
+  if (customImageUrl) {
+    return null;
+  }
   return (
     resolveAvatarAccentHex(components, traits) ??
     components?.colors?.[0]?.hex ??

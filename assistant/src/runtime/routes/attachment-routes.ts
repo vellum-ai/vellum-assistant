@@ -633,7 +633,9 @@ function assertWithinWorkspace(filePath: string): string {
       }
       return resolved;
     } catch (err) {
-      if (err instanceof BadRequestError) throw err;
+      if (err instanceof BadRequestError) {
+        throw err;
+      }
       trailing.unshift(join(current).split(sep).pop()!);
       current = join(current, "..");
     }
@@ -670,7 +672,9 @@ function handleAttachmentRegister({ body = {} }: RouteHandlerArgs) {
     }
     sizeBytes = stat.size;
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {
+      throw err;
+    }
     throw new NotFoundError(`File not found: ${path}`);
   }
 

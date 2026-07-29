@@ -8,9 +8,8 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-const { CommandPalette } = await import(
-  "@/components/command-palette/command-palette"
-);
+const { CommandPalette } =
+  await import("@/components/command-palette/command-palette");
 
 afterEach(() => {
   cleanup();

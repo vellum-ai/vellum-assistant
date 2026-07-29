@@ -21,6 +21,7 @@ import { getIsPlatform } from "../config/env-registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { PublicIngressDisabledError } from "./public-ingress-urls.js";
 
 const log = getLogger("platform-callback-registration");
 
@@ -151,18 +152,35 @@ export async function registerCallbackRoute(
 }
 
 /**
- * Resolve a callback URL, registering with the platform when platform-managed.
+ * Resolve a callback URL, registering with the platform when appropriate.
  *
- * When platform callbacks are enabled, registers the route and returns the
- * platform's stable callback URL (optionally with query parameters appended).
- * Otherwise evaluates the lazy direct URL supplier and returns that value.
+ * Resolution order, matching `handleWebhooksRegister` in
+ * `runtime/routes/webhook-routes.ts` and `hasWebhookRoutingConfigured` in
+ * `config/webhook-routing.ts`:
+ *
+ *   1. **Platform pods** (`IS_PLATFORM`) always register with the platform
+ *      gateway: they have no ingress of their own to advertise.
+ *   2. **A configured public ingress wins** for everyone else, so the direct
+ *      supplier is tried first and its value returned when it resolves.
+ *   3. **Platform-connected assistants with no ingress** register with the
+ *      platform gateway rather than surfacing the direct builder's error.
+ *      Connectivity is decided by credentials (platform base URL + assistant
+ *      ID + assistant API key), not by `IS_PLATFORM`, which is only ever true
+ *      on a platform pod.
+ *
+ * An explicit `ingress.enabled: false` is a decision not to accept inbound
+ * webhooks at all, so `PublicIngressDisabledError` propagates instead of being
+ * routed around. Ingress precedes the platform fallback because any logged-in
+ * local assistant holds platform credentials for the LLM proxy: treating
+ * credential presence as "managed" would silently reroute an explicitly
+ * configured self-hosted callback through the platform.
  *
  * The `directUrl` parameter is a **lazy supplier** (a function returning a
  * string) rather than an eagerly-evaluated string. This is critical because
  * the direct URL builders (e.g. `getTwilioVoiceWebhookUrl`) call
  * `getPublicBaseUrl()` which throws when no public ingress URL is configured.
- * In platform-managed environments that rely solely on platform callbacks, the
- * direct URL is never needed — deferring evaluation avoids the throw.
+ * On a platform pod the direct URL is never needed, and deferring evaluation
+ * avoids the throw.
  *
  * @param directUrl - Lazy supplier for the direct callback URL.
  * @param callbackPath - The path to register (e.g. "webhooks/twilio/voice").
@@ -179,7 +197,22 @@ export async function resolveCallbackUrl(
   sourceIdentifier?: string,
 ): Promise<string> {
   if (!getIsPlatform()) {
-    return directUrl();
+    let ingressError: unknown;
+    try {
+      return directUrl();
+    } catch (err) {
+      if (err instanceof PublicIngressDisabledError) {
+        throw err;
+      }
+      ingressError = err;
+    }
+
+    // No ingress configured. Fall back to the platform gateway when this
+    // assistant is connected to the platform.
+    const context = await resolvePlatformCallbackRegistrationContext();
+    if (!context.enabled) {
+      throw ingressError;
+    }
   }
 
   try {
@@ -191,9 +224,10 @@ export async function resolveCallbackUrl(
     }
     return url;
   } catch (err) {
-    // In platform-managed mode there is no local-ingress fallback and
-    // ngrok is not applicable. Surface a clear error so callers (and the
-    // user) understand this is a platform-side issue, not a tunnel problem.
+    // Registration is only attempted once the local ingress has been ruled
+    // out, so there is nothing left to fall back to. Surface a clear error so
+    // callers (and the user) understand this is a platform-side issue, not a
+    // tunnel problem.
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
       `Managed callback route registration failed: ${detail}. ` +

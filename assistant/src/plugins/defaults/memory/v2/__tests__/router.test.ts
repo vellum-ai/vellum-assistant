@@ -53,7 +53,9 @@ const warnLogs: Array<{ args: unknown[] }> = [];
 function makeRecordingLogger(): unknown {
   return new Proxy({} as Record<string, unknown>, {
     get: (_target, prop) => {
-      if (prop === "child") return makeRecordingLogger;
+      if (prop === "child") {
+        return makeRecordingLogger;
+      }
       if (prop === "warn") {
         return (...args: unknown[]) => {
           warnLogs.push({ args });
@@ -68,7 +70,7 @@ mock.module("../../../../../util/logger.js", () => ({
   getLogger: () => makeRecordingLogger(),
 }));
 
-mock.module("../../v3/substrate/skill-store.js", () => ({
+mock.module("../../substrate/skill-store.js", () => ({
   SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => skillState.entries,
 }));
@@ -86,7 +88,9 @@ mock.module("../injection-events.js", () => ({
     const out = new Map<string, number>();
     for (const slug of slugs) {
       const score = scoresStub.get(slug);
-      if (score !== undefined && score > 0) out.set(slug, score);
+      if (score !== undefined && score > 0) {
+        out.set(slug, score);
+      }
     }
     return out;
   },
@@ -119,8 +123,8 @@ mock.module("@vellumai/plugin-api", () => ({
 
 const { runRouter, applyHistoricalCharBudget } = await import("../router.js");
 const { getPageIndex, invalidatePageIndex } =
-  await import("../../v3/substrate/page-index.js");
-const { writePage } = await import("../../v3/substrate/page-store.js");
+  await import("../../substrate/page-index.js");
+const { writePage } = await import("../../substrate/page-store.js");
 
 // ---------------------------------------------------------------------------
 // Per-test workspace + reset hooks.
@@ -767,7 +771,9 @@ describe("runRouter — batched (batch_size set)", () => {
           systemPrompt: options?.systemPrompt,
           options,
         });
-        if (callCount === 1) throw new Error("batch 1 boom");
+        if (callCount === 1) {
+          throw new Error("batch 1 boom");
+        }
         return toolUseResponse([1]);
       },
     };

@@ -7,36 +7,36 @@
  */
 
 import {
-    lazy,
-    useCallback,
-    useEffect,
-    useImperativeHandle,
-    useRef,
-    useState,
-    type Ref,
+  lazy,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
 } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { Button, Typography } from "@vellumai/design-library";
 import {
-    Check,
-    Download,
-    FileText,
-    Loader2,
-    MessageSquareText,
-    X,
+  Check,
+  Download,
+  FileText,
+  Loader2,
+  MessageSquareText,
+  X,
 } from "lucide-react";
 
 import {
-    createComment,
-    fetchComments,
+  createComment,
+  fetchComments,
 } from "@/domains/chat/api/document-comments";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import { documentsPost } from "@/generated/daemon/sdk.gen";
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
-    DocumentCommentPanel,
-    type DocumentCommentPanelHandle,
+  DocumentCommentPanel,
+  type DocumentCommentPanelHandle,
 } from "./document-comment-panel";
 
 // Tiptap + ProseMirror pull in ~600 kB of editor code that's only needed
@@ -125,8 +125,12 @@ export function DocumentViewerContainer({
 
   const handleContentChange = useCallback(
     (markdown: string) => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      if (savedFadeRef.current) clearTimeout(savedFadeRef.current);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+      if (savedFadeRef.current) {
+        clearTimeout(savedFadeRef.current);
+      }
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
         const wordCount = markdown
@@ -237,7 +241,9 @@ export function DocumentViewerContainer({
 
   const handleCommentSubmit = useCallback(
     async (commentText: string) => {
-      if (!textSelection) return;
+      if (!textSelection) {
+        return;
+      }
       setAddingInlineComment(true);
       try {
         await createComment(assistantId, surfaceId, {
@@ -273,7 +279,9 @@ export function DocumentViewerContainer({
   // seed the anchor highlights. Acceptable tradeoff vs adding an
   // onCommentsLoaded callback to the panel component.
   useEffect(() => {
-    if (!commentsPanelOpen) return;
+    if (!commentsPanelOpen) {
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {

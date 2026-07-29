@@ -123,7 +123,9 @@ function resolveUserId(user: RawSessionUser | null): string | null {
 }
 
 function toAuthUser(raw: RawSessionUser | null): AuthUser | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   return {
     kind: "platform",
     id: resolveUserId(raw),
@@ -250,9 +252,13 @@ const isInconclusiveProbe = (
  * through the normal path.
  */
 async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
-  if (!getElectronSessionToken()) return false;
+  if (!getElectronSessionToken()) {
+    return false;
+  }
   const cached = readUserSnapshot();
-  if (!cached) return false;
+  if (!cached) {
+    return false;
+  }
   // Consent/org sync falls back to device-cached keys when the server
   // fetch fails (it will, offline) — same continuity as an online boot.
   await syncUserScopedState(cached.id);
@@ -425,6 +431,12 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let privacy = resolved.privacy;
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
+      // "Has this user ever consented", independent of version currency —
+      // consent surfaces need it to tell a never-consented user from one whose
+      // acceptances merely went stale (both legal flags read false in EITHER
+      // case once both required versions are bumped). Device acks below can
+      // upgrade it, mirroring how they upgrade `tos`/`privacy`.
+      let hasConsentRecord = resolved.hasServerRecord;
       // Genuine "confirmed under the current version" attestation, distinct
       // from the `*Current` flags, which also read never-asked (a null server
       // value) as "nothing to re-review". Only a genuine ack may be
@@ -448,6 +460,9 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         if (deviceConsent.tos && deviceConsent.privacy) {
           tos = true;
           privacy = true;
+          // Device acks are consent evidence: this user consented before, so
+          // they are not a first-consent user even with an empty server row.
+          hasConsentRecord = true;
           // Backfill the server from the device evidence: stamp the
           // diagnostics version when its device ack is current, and send any
           // explicit device share choice so the next fetch can't overwrite a
@@ -505,6 +520,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       store.setPrivacyConsent(privacy);
       store.setAnalyticsConsentCurrent(analyticsCurrent);
       store.setDiagnosticsConsentCurrent(diagnosticsCurrent);
+      store.setHasConsentRecord(hasConsentRecord);
       persistConsentForUser(nextUserId, tos, privacy);
       // A false toggle ack is never written: absent ≡ false for every
       // reader, and writing false would erase a genuine device attestation
@@ -542,6 +558,11 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   // re-bounces on the next successful sync.
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
+  // Device acks are the only evidence available here. Both present means this
+  // user consented before, so consent surfaces must not use first-time
+  // framing; absent evidence is indistinguishable from never-consented, and
+  // the next successful sync corrects it either way.
+  store.setHasConsentRecord(consent.tos && consent.privacy);
   syncOrganizationState(nextUserId);
   store.setConsentHydrated(true);
 }
@@ -595,14 +616,18 @@ function probePlatformSession(
   const isStale = (): boolean => probeId !== latestPlatformProbe;
   platformProbeSettled = getSession()
     .then(async (result) => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       if (result.ok && result.data.user) {
         const probedUser = toAuthUser(result.data.user);
         const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
         // Adopting the probed user confirms a platform session outside the
         // `authenticatedPlatformUser` transition — persist here too so the
         // local-mode path feeds the offline restore (LUM-2412).
-        if (options.setUserOnSuccess) persistUserSnapshot(probedUser);
+        if (options.setUserOnSuccess) {
+          persistUserSnapshot(probedUser);
+        }
         // Sync platform assistants to the lockfile BEFORE setting
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
@@ -643,7 +668,9 @@ function probePlatformSession(
             // Sync failed or timed out — continue with cached lockfile data
           }
         }
-        if (isStale()) return;
+        if (isStale()) {
+          return;
+        }
         set({
           platformSession: "present",
           platformSessionRestoredOffline: false,
@@ -655,13 +682,17 @@ function probePlatformSession(
       }
     })
     .catch(() => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       if (options.clearOnFailure) {
         set({ platformSession: "absent" });
       }
     })
     .finally(() => {
-      if (isStale()) return;
+      if (isStale()) {
+        return;
+      }
       set((state) =>
         state.platformSession === "unknown"
           ? { platformSession: "absent" }
@@ -721,7 +752,9 @@ function probePlatformSessionIfReachable(
 
 async function hasRemoteGatewaySessionAfterRefresh(): Promise<boolean> {
   try {
-    if (await refreshRemoteGatewaySession()) return true;
+    if (await refreshRemoteGatewaySession()) {
+      return true;
+    }
   } catch {
     // A network failure says nothing about an already-valid in-memory token.
   }
@@ -792,7 +825,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // to the login screen (LUM-2412); only a settled "no session"
         // answer ends the session (and invalidates the snapshot).
         if (isInconclusiveProbe(result)) {
-          if (await restoreOfflineSession(set)) return;
+          if (await restoreOfflineSession(set)) {
+            return;
+          }
         } else {
           clearUserSnapshot();
         }
@@ -862,7 +897,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // revoked session must not be resurrected by a later offline boot.
     // Transport failures keep it (web builds land here too; without a
     // readable credential they stay on the login-screen behavior).
-    if (!isInconclusiveProbe(result)) clearUserSnapshot();
+    if (!isInconclusiveProbe(result)) {
+      clearUserSnapshot();
+    }
     set(sessionEnded());
   },
 
@@ -1045,7 +1082,9 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       await allauthLogout();
     } finally {
       // Clean up session token in the main process.
-      if (isElectron()) await window.vellum?.auth?.signOut?.();
+      if (isElectron()) {
+        await window.vellum?.auth?.signOut?.();
+      }
       // Web loopback: drop the token the local server's proxy authenticates with.
       if (isLocalMode() && !isElectron()) {
         await clearLocalPlatformSession();
@@ -1125,7 +1164,9 @@ export function setupAuthListeners(): () => void {
 
   const unsubResume = subscribe("app.resume", () => {
     // Mid-OAuth refocus — an unauthenticated probe would tear down state.
-    if (isOAuthFlowInFlight()) return;
+    if (isOAuthFlowInFlight()) {
+      return;
+    }
     void safeRefresh();
   });
   cleanups.push(unsubResume);

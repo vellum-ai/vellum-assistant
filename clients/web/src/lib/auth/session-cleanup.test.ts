@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import {
+  readTakeoverAvatarStash,
+  saveTakeoverAvatarStash,
+} from "@/lib/billing/takeover-avatar-stash";
+import type { CharacterTraits } from "@/types/avatar";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+
 import { clearUserScopedStorage } from "./session-cleanup";
+
+const STASH_TRAITS: CharacterTraits = {
+  bodyShape: "blob",
+  eyeStyle: "curious",
+  color: "purple",
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -20,6 +33,41 @@ describe("clearUserScopedStorage", () => {
     clearUserScopedStorage();
 
     expect(sessionStorage.length).toBe(0);
+  });
+
+  test("clears a takeover avatar stash whose write never reached storage", () => {
+    // That stash lives only in the module's in-memory mirror, so
+    // `sessionStorage.clear()` cannot reach it and logout has to clear the
+    // module outright.
+    const original = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "sessionStorage",
+    )!;
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get: () => ({
+        clear: () => {},
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("quota exceeded");
+        },
+        removeItem: () => {},
+      }),
+    });
+    try {
+      saveTakeoverAvatarStash({
+        assistantId: "a1",
+        components: BUNDLED_COMPONENTS,
+        traits: STASH_TRAITS,
+      });
+      expect(readTakeoverAvatarStash()).not.toBeNull();
+
+      clearUserScopedStorage();
+
+      expect(readTakeoverAvatarStash()).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis, "sessionStorage", original);
+    }
   });
 
   test("removes all vellum: prefixed keys from localStorage", () => {
@@ -78,7 +126,9 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("device:llm_log_retention")).toBe("dontRetain");
     expect(localStorage.getItem("device:timezone")).toBe("America/New_York");
     expect(localStorage.getItem("device:media_embeds_enabled")).toBe("false");
-    expect(localStorage.getItem("device:media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("device:media_embed_domains")).toBe(
+      '["youtube.com"]',
+    );
     expect(localStorage.getItem("device:last_user_id")).toBe("user-123");
   });
 
@@ -157,7 +207,10 @@ describe("clearUserScopedStorage", () => {
     localStorage.setItem("ff:client:darkMode", "true");
     localStorage.setItem("local:lockfile", "{}");
     localStorage.setItem("integrations.bannerDismissed", "true");
-    localStorage.setItem("vellumDebug.flags.impersonateAssistantVersion", "0.8.6");
+    localStorage.setItem(
+      "vellumDebug.flags.impersonateAssistantVersion",
+      "0.8.6",
+    );
     localStorage.setItem("vellum_image_gen_mode", "enabled");
 
     clearUserScopedStorage();
@@ -169,7 +222,9 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("ff:client:darkMode")).toBeNull();
     expect(localStorage.getItem("local:lockfile")).toBeNull();
     expect(localStorage.getItem("integrations.bannerDismissed")).toBeNull();
-    expect(localStorage.getItem("vellumDebug.flags.impersonateAssistantVersion")).toBeNull();
+    expect(
+      localStorage.getItem("vellumDebug.flags.impersonateAssistantVersion"),
+    ).toBeNull();
     expect(localStorage.getItem("vellum_image_gen_mode")).toBeNull();
   });
 
@@ -193,7 +248,9 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("vellum_llm_log_retention")).toBe("dontRetain");
     expect(localStorage.getItem("vellum_timezone")).toBe("America/New_York");
     expect(localStorage.getItem("vellum_media_embeds_enabled")).toBe("false");
-    expect(localStorage.getItem("vellum_media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("vellum_media_embed_domains")).toBe(
+      '["youtube.com"]',
+    );
     expect(localStorage.getItem("onboarding.lastUserId")).toBe("user-123");
   });
 });

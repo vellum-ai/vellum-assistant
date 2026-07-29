@@ -115,7 +115,9 @@ import { getConfiguredProvider } from "../provider-send-message.js";
 
 function registerConnections(connections: Connection[]): void {
   fakeConnectionList = connections;
-  for (const c of connections) fakeConnectionsByName.set(c.name, c);
+  for (const c of connections) {
+    fakeConnectionsByName.set(c.name, c);
+  }
 }
 
 function reset(): void {

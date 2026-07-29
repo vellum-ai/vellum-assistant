@@ -336,11 +336,8 @@ subgraph "Text Q&A Session"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
-            DB_SEG["memory_segments"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
-            DB_SUM["memory_summaries"]
-            DB_EMB["memory_embeddings"]
             DB_JOBS["memory_jobs"]
             DB_ATTACH["attachments"]
             DB_CHAN["channel_inbound_events"]
@@ -351,6 +348,12 @@ subgraph "Text Q&A Session"
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
+        end
+
+        subgraph "SQLite Database ($VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db)"
+            DB_SEG["memory_segments"]
+            DB_SUM["memory_summaries"]
+            DB_EMB["memory_embeddings"]
         end
 
         subgraph "Skill Tool System"
@@ -589,7 +592,7 @@ All feature flags (assistant-scoped and client-scoped) are declared in the unifi
 
 **Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Declared flags use their `defaultEnabled` value when no override is present. Flags not declared in the registry default to disabled (fail closed).
 
-**Canonical key format:** Simple kebab-case (e.g., `browser`, `voice-mode`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
+**Canonical key format:** Simple kebab-case (e.g., `browser`, `contacts`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
 
 **Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
 

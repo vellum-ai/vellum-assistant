@@ -11,7 +11,9 @@ export function migrateDropActiveSearchIndex(database: DrizzleDb): void {
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   try {
     raw.exec("BEGIN");

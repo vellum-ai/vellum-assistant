@@ -177,6 +177,8 @@ export function getMcpServerManager(): McpServerManager {
  * the live singleton, so it also stops servers added at runtime via MCP reload.
  */
 export async function stopMcpServerManager(): Promise<void> {
-  if (!instance) return;
+  if (!instance) {
+    return;
+  }
   await instance.stop();
 }

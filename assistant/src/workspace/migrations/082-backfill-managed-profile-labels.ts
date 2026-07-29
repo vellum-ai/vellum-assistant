@@ -103,10 +103,14 @@ export const backfillManagedProfileLabelsMigration: WorkspaceMigration = {
     }
 
     const llm = readObject(parsed.llm);
-    if (!llm) return;
+    if (!llm) {
+      return;
+    }
 
     const profiles = readObject(llm.profiles);
-    if (!profiles) return;
+    if (!profiles) {
+      return;
+    }
 
     let modified = false;
 
@@ -114,15 +118,21 @@ export const backfillManagedProfileLabelsMigration: WorkspaceMigration = {
       CANONICAL_MANAGED_PROFILE_LABELS,
     )) {
       const profile = readObject(profiles[name]);
-      if (!profile) continue;
+      if (!profile) {
+        continue;
+      }
       // Only backfill when the key is absent. Explicit `null` (user cleared
       // the label) and any user-set string both signal intent and survive.
-      if ("label" in profile) continue;
+      if ("label" in profile) {
+        continue;
+      }
       profile.label = label;
       modified = true;
     }
 
-    if (!modified) return;
+    if (!modified) {
+      return;
+    }
 
     try {
       writeFileSync(

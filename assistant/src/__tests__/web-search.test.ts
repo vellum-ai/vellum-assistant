@@ -798,8 +798,12 @@ async function executeBraveSearchHelper(
           const r = results[i];
           lines.push(`${i + 1}. ${r.title}`);
           lines.push(`   URL: ${r.url}`);
-          if (r.description) lines.push(`   ${r.description}`);
-          if (r.age) lines.push(`   Age: ${r.age}`);
+          if (r.description) {
+            lines.push(`   ${r.description}`);
+          }
+          if (r.age) {
+            lines.push(`   Age: ${r.age}`);
+          }
           if (r.extra_snippets && r.extra_snippets.length > 0) {
             for (const snippet of r.extra_snippets) {
               lines.push(`   > ${snippet}`);
@@ -978,7 +982,9 @@ async function executeTavilySearchHelper(
     search_depth: "advanced",
     max_results: count,
   };
-  if (timeRange) body.time_range = timeRange;
+  if (timeRange) {
+    body.time_range = timeRange;
+  }
 
   const MAX_RETRIES = 3;
   const BASE_DELAY_MS = 1;
@@ -1012,8 +1018,12 @@ async function executeTavilySearchHelper(
           const r = results[i];
           const title = r.title?.trim() || r.url?.trim() || "Untitled result";
           lines.push(`${i + 1}. ${title}`);
-          if (r.url) lines.push(`   URL: ${r.url}`);
-          if (r.content) lines.push(`   ${r.content}`);
+          if (r.url) {
+            lines.push(`   URL: ${r.url}`);
+          }
+          if (r.content) {
+            lines.push(`   ${r.content}`);
+          }
           if (typeof r.score === "number") {
             lines.push(`   Score: ${r.score.toFixed(3)}`);
           }

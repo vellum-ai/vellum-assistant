@@ -30,6 +30,11 @@ import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import { cn } from "@vellumai/design-library";
 
+import {
+  SIDEBAR_CHIP_GAP,
+  SIDEBAR_CHIP_SIZE as CHIP_SIZE,
+  SIDEBAR_ROW_PADDING_X as ROW_PADDING_X,
+} from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
@@ -45,13 +50,6 @@ const MOBILE_ROW_HEIGHT = 44;
 const NEW_CHAT_ROW_HEIGHT = 38;
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
 const COLLAPSED_ASSISTANT_ROW_HEIGHT = 32;
-const ROW_PADDING_X = 6;
-/**
- * Width of the New Chat row's leading plus slot; the assistant row's
- * leading eye slot is the same width so the eyes center on the plus's axis
- * and both labels start at the same x.
- */
-const CHIP_SIZE = 20;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
 const SIDE_SCALE = 2.1;
 const SIDE_RIGHT_MARGIN = 14;
@@ -234,7 +232,7 @@ export function AssistantNavItem({
       title="New Chat"
       data-tour-id="new-chat"
       className={cn(
-        "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden rounded-[8px] select-none",
+        "group relative flex w-full cursor-pointer items-center overflow-hidden rounded-[8px] select-none",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-colors duration-150 active:scale-[0.98]",
         hex && !navTourActive
@@ -245,6 +243,7 @@ export function AssistantNavItem({
       style={
         {
           height: isMobile ? MOBILE_ROW_HEIGHT : NEW_CHAT_ROW_HEIGHT,
+          gap: SIDEBAR_CHIP_GAP,
           paddingLeft: collapsed ? 0 : ROW_PADDING_X,
           paddingRight: collapsed ? 0 : ROW_PADDING_X,
           ...(hex ? { "--assistant-tint": hex } : null),
@@ -256,6 +255,9 @@ export function AssistantNavItem({
         className="flex shrink-0 items-center justify-center"
         style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
       >
+        {/* 14px, not the section headers' 12px — the plus glyph carries
+            less ink than the pin/chat icons, so it needs the extra 2px to
+            read as the same size. */}
         <Plus
           className="h-3.5 w-3.5"
           style={{ color: "var(--content-secondary)" }}
@@ -288,7 +290,7 @@ export function AssistantNavItem({
           data-tour-id="assistant-page"
           aria-current={active ? "page" : undefined}
           className={cn(
-            "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden select-none",
+            "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
             collapsed ? "rounded-[8px]" : "rounded-[6px]",
             "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
             "transition-colors duration-150 active:scale-[0.98]",
@@ -299,6 +301,7 @@ export function AssistantNavItem({
           )}
           style={{
             height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
+            gap: SIDEBAR_CHIP_GAP,
             paddingLeft: collapsed ? 0 : ROW_PADDING_X,
             paddingRight: collapsed ? 0 : ROW_PADDING_X,
           }}
@@ -324,7 +327,9 @@ export function AssistantNavItem({
                 active
                   ? "text-[color:var(--content-emphasised)]"
                   : "text-[color:var(--content-secondary)]",
-                isMobile ? "text-body-large-default" : "text-body-medium-lighter",
+                isMobile
+                  ? "text-body-large-default"
+                  : "text-body-medium-lighter",
               )}
             >
               {label}
@@ -370,7 +375,7 @@ export function AssistantNavItem({
       data-tour-id="assistant-page"
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full cursor-pointer items-center gap-[6px] overflow-hidden select-none",
+        "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
         collapsed ? "rounded-[8px]" : "rounded-[6px]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-[filter,transform,background-color,color] duration-300 active:scale-[0.98]",
@@ -381,6 +386,7 @@ export function AssistantNavItem({
       )}
       style={{
         height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
+        gap: SIDEBAR_CHIP_GAP,
         // While the tour owns the nav, the color leaves this row — it
         // drains to a plain nav item so the tour's flood is the only color
         // treatment on screen.

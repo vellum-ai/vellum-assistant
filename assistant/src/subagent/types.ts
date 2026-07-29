@@ -7,6 +7,7 @@
  */
 
 import type { UsageStats } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { Message } from "../providers/types.js";
 
 // ── Status ──────────────────────────────────────────────────────────────
@@ -26,6 +27,43 @@ export type SubagentStatus =
 /** Terminal states — once entered, a subagent cannot transition out. */
 export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
   new Set<SubagentStatus>(["completed", "failed", "aborted", "interrupted"]);
+
+/**
+ * The status to report for a subagent with no live instance.
+ *
+ * Invariant: a subagent runs from an in-memory entry, so a durable row without
+ * one can only describe a run that is no longer executing. Whatever the row
+ * says, nothing is driving it, so a stale `pending`/`running`/`awaiting_input`
+ * reads as `interrupted`. A terminal status is the run's real outcome and
+ * passes through untouched.
+ *
+ * For the routes this closes a startup window rather than a steady state:
+ * `setDbReady(true)` precedes `rehydrateFromDb()` in `daemon/lifecycle.ts`, so
+ * a request can pass the DB gate while the manager is still empty and read rows
+ * the rehydration has not yet normalized. Without the coercion a client
+ * reconciling on its SSE reopen adopts `running`, and the later rehydration
+ * flips the row to `interrupted` with no status event to say so, leaving the UI
+ * stuck.
+ *
+ * Only ever applied to record-derived statuses. Live state is authoritative and
+ * never coerced.
+ */
+export function settleUnsupervisedStatus(
+  status: SubagentStatus,
+): SubagentStatus {
+  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
+}
+
+// ── Label lookup ────────────────────────────────────────────────────────
+
+/**
+ * The comparable form of a subagent label. Labels are addressed by the model,
+ * so lookups are case- and whitespace-insensitive; every label comparison, in
+ * memory or against the durable table, goes through this.
+ */
+export function normalizeSubagentLabel(label: string): string {
+  return label.toLowerCase().trim();
+}
 
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 
@@ -52,11 +90,20 @@ export interface SubagentConfig {
    * When true, side-effecting tools (send/write/delete/purchase, host commands)
    * are refused for this subagent regardless of trust class — the executor
    * rejects any such dispatch and the tool is kept off the model's tool surface.
-   * Used for the read-only live-voice background continuation, which must never
-   * take an unapproved action while the user isn't watching; it surfaces the
-   * intended action for the user to approve on their next turn instead.
+   * For unattended passes that must never take an unapproved action while the
+   * user isn't watching; the subagent surfaces the intended action for the
+   * user to approve instead.
    */
   denySideEffectTools?: boolean;
+  /**
+   * Explicit trust context for the subagent. When set, it wins over the
+   * default inheritance from the parent conversation's live `trustContext`.
+   * For spawners whose parent stamps trust per-turn and clears it at teardown
+   * (the live-voice bridge), inheritance reads the cleared window and the
+   * child would run fail-closed as `unknown`; the caller resolves trust
+   * itself and passes it here instead.
+   */
+  trustContext?: TrustContext;
   /**
    * When true, the sub-agent inherits the parent's full context instead of
    * receiving only the objective + context fields.
@@ -113,6 +160,36 @@ export interface SubagentState {
   completedAt?: number;
   /** Cumulative token usage. */
   usage: UsageStats;
+}
+
+// ── Bounded listing ─────────────────────────────────────────────────────
+
+/** Recency key matching the durable query's `COALESCE(completed_at, created_at)`. */
+function settledAt(child: SubagentState): number {
+  return child.completedAt ?? child.createdAt;
+}
+
+/**
+ * Every non-terminal child, plus the `maxTerminal` most recently settled
+ * terminal ones. `rehydrateFromDb` seeds memory with a much larger cap, so a
+ * caller listing children has to re-bound what it actually ships.
+ */
+export function boundRecentTerminal(
+  children: SubagentState[],
+  maxTerminal: number,
+): SubagentState[] {
+  const bounded: SubagentState[] = [];
+  const terminal: SubagentState[] = [];
+  for (const child of children) {
+    if (TERMINAL_STATUSES.has(child.status)) {
+      terminal.push(child);
+    } else {
+      bounded.push(child);
+    }
+  }
+  terminal.sort((a, b) => settledAt(b) - settledAt(a));
+  bounded.push(...terminal.slice(0, maxTerminal));
+  return bounded;
 }
 
 // ── Limits ───────────────────────────────────────────────────────────────

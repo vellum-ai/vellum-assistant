@@ -35,16 +35,29 @@ import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as platformGateMod from "@/hooks/use-platform-gate";
 import * as toastMod from "@vellumai/design-library/components/toast";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+} from "@/lib/billing/takeover-avatar-stash";
 import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { ProPackage } from "@/domains/settings/billing/package-types";
+import { SWITCH_CAPTION } from "@/domains/settings/billing/plans/package-switch-copy";
+import {
+  makeProPackage,
+  makeSuperPackage,
+  makeUltraPackage,
+} from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import type {
   OnboardingStateResponse,
   PackageChangeResponse,
   PlanListResponse,
-  ProPackage,
   ProPlan,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
@@ -210,46 +223,12 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const { PlansPage } = await import("./plans-page");
 const { getPlanTierCopy } = await import("./plans-copy");
 
-/** A fully-typed Pro package with Mighty defaults; override per tier. */
-function makePackage(overrides: Partial<ProPackage>): ProPackage {
-  return {
-    key: "mighty",
-    name: "Mighty",
-    description: "",
-    version: 1,
-    machine_tier: null,
-    storage_tier: "xs",
-    credit_tier: "credits_25",
-    machine_size: null,
-    storage_gib: 10,
-    credits_usd: 25,
-    include_platform_fee: false,
-    base_price_cents: 0,
-    machine_price_cents: 0,
-    storage_price_cents: 0,
-    credit_price_cents: 0,
-    total_price_cents: 3000,
-    ...overrides,
-  };
-}
-
-const MIGHTY = makePackage({});
-const SUPER = makePackage({
-  key: "super",
-  name: "Super",
-  machine_size: "medium",
-  storage_gib: 25,
-  credits_usd: 50,
-  total_price_cents: 10000,
-});
-const ULTRA = makePackage({
-  key: "ultra",
-  name: "Ultra",
-  machine_size: "large",
-  storage_gib: 50,
-  credits_usd: 100,
-  total_price_cents: 20000,
-});
+// This page's assertions key off the storage/credit/price rows, so the three
+// tiers come straight from the catalog fixtures rather than being re-specced
+// here.
+const MIGHTY = makeProPackage();
+const SUPER = makeSuperPackage();
+const ULTRA = makeUltraPackage();
 
 function plansWith(packages: ProPackage[]): PlanListResponse {
   return {
@@ -352,15 +331,18 @@ describe("PlansPage — full catalog render", () => {
   test("renders the headline and all four tier names", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     expect(html).toContain("Give your assistant more power");
-    expect(html).toContain("Free");
+    expect(html).toContain("Base");
     expect(html).toContain("Mighty");
     expect(html).toContain("Super");
     expect(html).toContain("Ultra");
   });
 
-  test("formats prices from the catalog totals (and $0 for free)", () => {
+  test("formats prices from the catalog totals (and 'Free' for the base tier)", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
-    expect(html).toContain("$0/month");
+    // Anchored on the price element: "Free" also appears in CTA copy, so a bare
+    // substring match would pass without the price label rendering at all.
+    expect(html).toContain(">Free</span>");
+    expect(html).not.toContain("$0/month");
     expect(html).toContain("$30/month");
     expect(html).toContain("$100/month");
     expect(html).toContain("$200/month");
@@ -378,8 +360,8 @@ describe("PlansPage — full catalog render", () => {
     const html = renderStatic(freeSubscription(), fullCatalog());
     // Storage rows.
     expect(html).toContain("10 GB Storage");
-    expect(html).toContain("25 GB Storage");
-    expect(html).toContain("50 GB Storage");
+    expect(html).toContain("30 GB Storage");
+    expect(html).toContain("60 GB Storage");
     // Free plan's baseline storage (FREE_STORAGE_GIB).
     expect(html).toContain("4 GB Storage");
     // Credits row, formatted from credits_usd.
@@ -430,7 +412,7 @@ describe("PlansPage — current-plan state", () => {
     // Only the Mighty column is the current plan.
     expect(count(html, /Current Plan/g)).toBe(1);
     // Free sits below Mighty, so its CTA becomes a downgrade.
-    expect(html).toContain("Downgrade to Free");
+    expect(html).toContain("Downgrade to Base");
     expect(html).not.toContain("Start Free");
     // Super and Ultra sit above Mighty, so they keep their upgrade CTAs.
     expect(html).toContain("Go Super");
@@ -541,14 +523,18 @@ function renderInteractive(
     organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
     onboardingData,
   );
-  return render(
-    <MemoryRouter initialEntries={["/assistant/plans"]}>
-      <QueryClientProvider client={client}>
-        <PlansPage />
-      </QueryClientProvider>
-      <LocationProbe />
-    </MemoryRouter>,
-  );
+  return {
+    // Exposed so the checkout test can seed the avatar cache the stash reads.
+    client,
+    ...render(
+      <MemoryRouter initialEntries={["/assistant/plans"]}>
+        <QueryClientProvider client={client}>
+          <PlansPage />
+        </QueryClientProvider>
+        <LocationProbe />
+      </MemoryRouter>,
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -572,6 +558,13 @@ beforeEach(() => {
   onboardingFixture = null;
   toastSuccessCalls.length = 0;
   takeoverResizeCredits = undefined;
+  // The stash and the assistants store are module-level globals, so reset both.
+  clearTakeoverAvatarStash();
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -629,10 +622,10 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const { findByRole, findByText, findByTestId, getByTestId } =
       renderInteractive(proSuperSubscription());
 
-    // Below Super, Free reads "Downgrade to Free". Clicking it opens the confirm
+    // Below Super, Base reads "Downgrade to Base". Clicking it opens the confirm
     // dialog — not an immediate portal redirect.
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
-    await findByText("Downgrade to Free?");
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByText("Downgrade to Base?");
     expect(openedUrl).toBeNull();
     expect(portalSessionCall).toBeNull();
 
@@ -653,12 +646,12 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const { findByRole, findByText, getByRole, queryByText } =
       renderInteractive(proSuperSubscription());
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
-    await findByText("Downgrade to Free?");
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByText("Downgrade to Base?");
 
     // The confirm dialog's Cancel closes it without creating a portal session.
     fireEvent.click(getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(queryByText("Downgrade to Free?")).toBeNull());
+    await waitFor(() => expect(queryByText("Downgrade to Base?")).toBeNull());
     expect(portalSessionCall).toBeNull();
     expect(openedUrl).toBeNull();
   });
@@ -673,8 +666,8 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       { plans },
     );
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
-    await findByText("Downgrade to Free?");
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByText("Downgrade to Base?");
     await findByText("Managed email");
     await findByText("Custom domain");
   });
@@ -687,7 +680,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
       proMightySubscription(),
     );
 
-    fireEvent.click(await findByRole("button", { name: "Downgrade to Free" }));
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
     fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
 
     // The portal request is in flight and never settles: every other plan
@@ -711,7 +704,18 @@ describe("PlansPage — Pro package switch (change-package)", () => {
   });
 
   test("base user CTA starts Stripe checkout, not change-package", async () => {
-    const { findByRole } = renderInteractive(freeSubscription());
+    const { client, findByRole } = renderInteractive(freeSubscription());
+    // Capture only stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistantsHydrated: true,
+    });
+    client.setQueryData([...avatarQueryKey("a1"), true], {
+      components: BUNDLED_COMPONENTS,
+      traits: null,
+      customImageUrl: null,
+    });
 
     fireEvent.click(await findByRole("button", { name: "Go Super" }));
 
@@ -723,6 +727,8 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     });
     await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
     expect(changePackageCall).toBeNull();
+    // The redirect snapshots the avatar so the takeover can draw it on return.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("the confirm CTA is disabled while a switch is pending", async () => {
@@ -852,10 +858,8 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     fireEvent.click(await findByRole("button", { name: "Power Up" }));
 
     // The direction-neutral switch confirm appears (not upgrade/downgrade copy).
-    await findByText("Switch to Mighty?");
-    await findByText(
-      "Your plan changes now. Any prorated difference is charged now or credited to your next invoice.",
-    );
+    await findByText("Switch to Mighty");
+    await findByText(SWITCH_CAPTION);
 
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
 
@@ -874,7 +878,7 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     // The customized sub's own Mighty card is not "current" — its CTA is live.
     fireEvent.click(await findByRole("button", { name: "Power Up" }));
 
-    await findByText("Switch to Mighty?");
+    await findByText("Switch to Mighty");
     fireEvent.click(await findByTestId("confirm-package-switch-button"));
 
     await waitFor(() => expect(changePackageCall).not.toBeNull());
@@ -884,7 +888,7 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
   test("a Custom sub's Free card is a downgrade and no named card is current", () => {
     const html = renderStatic(proCustomizedMightySubscription(), fullCatalog());
     // Pro → Free is always a downgrade.
-    expect(html).toContain("Downgrade to Free");
+    expect(html).toContain("Downgrade to Base");
     expect(html).not.toContain("Start Free");
     // A Custom sub has no catalog rank, so no named column card is its current
     // plan. The Custom row's own current-plan tag is gated on the onboarding

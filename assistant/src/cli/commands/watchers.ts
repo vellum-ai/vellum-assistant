@@ -56,8 +56,12 @@ export function registerWatchersCommand(program: Command): void {
           json?: boolean;
         }) => {
           const params: Record<string, unknown> = {};
-          if (opts.id) params.watcher_id = opts.id;
-          if (opts.enabledOnly) params.enabled_only = true;
+          if (opts.id) {
+            params.watcher_id = opts.id;
+          }
+          if (opts.enabledOnly) {
+            params.enabled_only = true;
+          }
 
           const result = await cliIpcCall<
             WatcherRecord[] | { watcher: WatcherRecord; events: WatcherEvent[] }
@@ -209,13 +213,21 @@ export function registerWatchersCommand(program: Command): void {
             watcher_id: watcherId,
           };
 
-          if (opts.name !== undefined) params.name = opts.name;
-          if (opts.actionPrompt !== undefined)
+          if (opts.name !== undefined) {
+            params.name = opts.name;
+          }
+          if (opts.actionPrompt !== undefined) {
             params.action_prompt = opts.actionPrompt;
-          if (opts.pollInterval !== undefined)
+          }
+          if (opts.pollInterval !== undefined) {
             params.poll_interval_ms = parseInt(opts.pollInterval);
-          if (opts.enabled) params.enabled = true;
-          if (opts.disabled) params.enabled = false;
+          }
+          if (opts.enabled) {
+            params.enabled = true;
+          }
+          if (opts.disabled) {
+            params.enabled = false;
+          }
           if (opts.config !== undefined) {
             try {
               params.config = JSON.parse(opts.config);
@@ -301,9 +313,15 @@ export function registerWatchersCommand(program: Command): void {
           json?: boolean;
         }) => {
           const params: Record<string, unknown> = {};
-          if (opts.id) params.watcher_id = opts.id;
-          if (opts.hours !== undefined) params.hours = parseInt(opts.hours);
-          if (opts.limit !== undefined) params.limit = parseInt(opts.limit);
+          if (opts.id) {
+            params.watcher_id = opts.id;
+          }
+          if (opts.hours !== undefined) {
+            params.hours = parseInt(opts.hours);
+          }
+          if (opts.limit !== undefined) {
+            params.limit = parseInt(opts.limit);
+          }
 
           const result = await cliIpcCall<{
             events: WatcherEvent[];
@@ -338,7 +356,9 @@ export function registerWatchersCommand(program: Command): void {
           // Group events by watcher
           const grouped: Record<string, WatcherEvent[]> = {};
           for (const e of events) {
-            if (!grouped[e.watcherId]) grouped[e.watcherId] = [];
+            if (!grouped[e.watcherId]) {
+              grouped[e.watcherId] = [];
+            }
             grouped[e.watcherId].push(e);
           }
 

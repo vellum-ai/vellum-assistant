@@ -69,7 +69,9 @@ function findHandler(operationId: string) {
   const route = ROUTES.find(
     (candidate) => candidate.operationId === operationId,
   );
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -117,7 +119,9 @@ function acceptedResponse(
 function lastCompletionPayload(): MockCompletionPayload {
   const calls = mockCompleteBackgroundWakeLease.mock.calls;
   const call = calls[calls.length - 1] as unknown[] | undefined;
-  if (!call) throw new Error("completeBackgroundWakeLease was not called");
+  if (!call) {
+    throw new Error("completeBackgroundWakeLease was not called");
+  }
   return call[0] as MockCompletionPayload;
 }
 
@@ -710,7 +714,9 @@ describe("background wake runtime routes", () => {
       });
       expect(schedulerRunDue).toHaveBeenCalledTimes(1);
     } finally {
-      for (const resolve of schedulerResolvers) resolve();
+      for (const resolve of schedulerResolvers) {
+        resolve();
+      }
     }
 
     await flushBackgroundWakeDrainsForTest();

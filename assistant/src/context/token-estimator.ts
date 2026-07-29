@@ -3,6 +3,11 @@ import {
   normalizeGeminiAudioMime,
 } from "../providers/gemini/inline-media.js";
 import { mediaSourceByteLength } from "../providers/media-resolve.js";
+import { modelSupportsAudioInput } from "../providers/model-catalog.js";
+import {
+  estimateOpenAICompatAudioTokens,
+  isOpenAICompatInlineAudio,
+} from "../providers/openai/input-audio.js";
 import type {
   ContentBlock,
   Message,
@@ -90,12 +95,20 @@ const TOOL_DEFINITION_OVERHEAD_TOKENS = 28;
 
 export interface TokenEstimatorOptions {
   providerName?: string;
+  /**
+   * Model id the estimated request dispatches to, for model-keyed rules
+   * (e.g. audio-capable OpenAI-compatible models). Callers pass the
+   * provider's `defaultModel` when available.
+   */
+  model?: string;
   /** Pre-computed tool token budget. When provided, added to the prompt total. */
   toolTokenBudget?: number;
 }
 
 export function estimateTextTokens(text: string | undefined): number {
-  if (!text) return 0;
+  if (!text) {
+    return 0;
+  }
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
@@ -140,6 +153,16 @@ function estimateFileDataTokens(
     GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type)
   ) {
     return Math.ceil((Math.ceil(byteLength / 3) * 4) / CHARS_PER_TOKEN);
+  }
+
+  // Audio-native OpenAI-compatible models (catalog `supportsAudioInput`)
+  // receive eligible audio inline as `input_audio` parts, billed by duration.
+  if (
+    options?.model !== undefined &&
+    modelSupportsAudioInput(options.model) &&
+    isOpenAICompatInlineAudio(block.source.media_type, byteLength)
+  ) {
+    return estimateOpenAICompatAudioTokens(byteLength);
   }
 
   return 0;

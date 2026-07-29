@@ -222,7 +222,9 @@ export function subscribeEvents(
   };
 
   const connect = async (isReconnect = false) => {
-    if (cancelled) return;
+    if (cancelled) {
+      return;
+    }
     const abortController = new AbortController();
     activeAbortController = abortController;
     const sseDebugClientId = registerSseClient(abortController.signal);
@@ -317,7 +319,9 @@ export function subscribeEvents(
           watchdog.arm(abortController, reconnectCount);
 
           const data = normalizeSSEPayload(payload);
-          if (!data) continue;
+          if (!data) {
+            continue;
+          }
 
           // Stream proved healthy — reset the reconnect counter so transient
           // drops after a long-lived connection get a fresh budget.
@@ -369,7 +373,9 @@ export function subscribeEvents(
         onError(new Error("Stream ended unexpectedly"));
       }
     } catch (err) {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       const reconnected = await reconnect();
       if (!reconnected) {
         onError(toError(err, "Stream connection failed"));

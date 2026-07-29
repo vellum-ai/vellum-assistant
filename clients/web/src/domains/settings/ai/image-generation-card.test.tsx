@@ -68,6 +68,17 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
+mock.module("@/domains/settings/ai/use-stored-credential-presence", () => ({
+  useStoredCredentialPresence: () => ({
+    hasStoredCredential: false,
+    isLoading: false,
+  }),
+  credentialPresenceQueryKey: (...parts: unknown[]) => [
+    "credential-presence-test",
+    ...parts,
+  ],
+}));
+
 const provisionedKeys: Array<{ provider: string; key: string }> = [];
 mock.module("@/domains/settings/ai/use-daemon-config", () => ({
   useProvisionProviderKey: () => (provider: string, key: string) => {
@@ -82,7 +93,7 @@ let daemonSupportsVellumProvider = true;
 mock.module(
   "@/lib/backwards-compat/use-supports-image-gen-vellum-provider",
   () => ({
-    MIN_VERSION: "0.10.13",
+    MIN_VERSION: "0.11.0",
     supportsImageGenVellumProvider: () => daemonSupportsVellumProvider,
   }),
 );

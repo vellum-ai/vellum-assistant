@@ -32,6 +32,7 @@ import {
 } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
+import { isMemoryEnabled } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import {
   recordLatencySubSpan,
@@ -41,6 +42,8 @@ import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
+import { getPageIndex, invalidatePageIndex } from "../substrate/page-index.js";
+import { readPage, renderPageContent } from "../substrate/page-store.js";
 import {
   capabilityOrDiskBody,
   renderCapabilityContent,
@@ -53,7 +56,6 @@ import type { EntityIndex } from "./entity-lane.js";
 import { buildEntityIndex } from "./entity-lane.js";
 import { getActiveSlugs } from "./ever-injected-store.js";
 import { computeFreshSet } from "./fresh-set.js";
-import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
 import { bumpLanesVersion, readLanesVersion } from "./lanes-version-store.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
@@ -67,8 +69,6 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
-import { getPageIndex, invalidatePageIndex } from "./substrate/page-index.js";
-import { readPage, renderPageContent } from "./substrate/page-store.js";
 import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
@@ -690,7 +690,7 @@ export async function observeTurn(
     }
 
     const cfg = getConfig();
-    if (cfg.memory.enabled === false) {
+    if (!isMemoryEnabled(cfg)) {
       return null;
     }
     // Lane init is module-memoized: the first turn after daemon start pays
@@ -702,10 +702,6 @@ export async function observeTurn(
       () => getLanes(cfg),
     );
     const v3 = cfg.memory.v3;
-    // Resolve the effective gate enable once for the turn: the feature flag
-    // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
-    // `memory.v3.gate`.
-    const gateEnabled = isMemoryV3InjectionGateEnabled(cfg);
     // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
     // (with the lane-build corpus-size signal) so a live config.json edit to a
     // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
@@ -733,6 +729,7 @@ export async function observeTurn(
       activeSlugs: getActiveSlugs(conversationId),
       entityCap: v3.entity.cap,
       replyQueryK: tuning.replyQueryK,
+      spanQueryK: tuning.spanQueryK,
       edgeSeeds: tuning.edgeSeedCount,
       edgePerSeed: tuning.edgePerSeed,
       edgeCap: tuning.edgeCap,
@@ -744,11 +741,10 @@ export async function observeTurn(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
-      // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
-      // config `enabled` overwritten by the effective enable (flag AND config).
-      // The spread is the compile-time drift guard — if the gate schema and
-      // `V3GateConfig` diverge, this stops typechecking.
-      gateConfig: { ...v3.gate, enabled: gateEnabled },
+      // Per-turn injection gate: the `memory.v3.gate` tuning, `enabled`
+      // kill-switch included. Read-only downstream, so the config object is
+      // passed as-is.
+      gateConfig: v3.gate,
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be

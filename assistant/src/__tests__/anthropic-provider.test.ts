@@ -1915,6 +1915,46 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }
   });
 
+  test("a card-only assistant turn placeholders, and no card payload reaches the wire", async () => {
+    // `ui_surface` is a rendering instruction, never model context: the card's
+    // opaque payload must not reach the API, and the turn falls back to the
+    // sentinel to preserve role alternation. Conveying the card's meaning is
+    // the producer's job, via the `_surfaceFallback` text sibling — not
+    // something the provider reconstructs at request time.
+    const callSummaryBlock = {
+      type: "ui_surface",
+      surfaceId: "call-1",
+      surfaceType: "call_summary",
+      completed: true,
+      data: {
+        summaryText: "**Call completed** (42s). 3 event(s) recorded.",
+        status: "completed",
+        duration: 42,
+        events: [],
+      },
+    } as unknown as ContentBlock;
+    const messages: Message[] = [
+      userMsg("Start"),
+      { role: "assistant", content: [callSummaryBlock] },
+      userMsg("Continue"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(3);
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toEqual([
+      { type: "text", text: PLACEHOLDER_BLOCKS_OMITTED },
+    ]);
+    // The opaque card payload itself never reaches the wire.
+    expect(JSON.stringify(sent)).not.toContain("call_summary");
+    expect(JSON.stringify(sent)).not.toContain("summaryText");
+  });
+
   test("assistant message with mix of known and unknown blocks keeps known blocks", async () => {
     const messages: Message[] = [
       userMsg("Start"),

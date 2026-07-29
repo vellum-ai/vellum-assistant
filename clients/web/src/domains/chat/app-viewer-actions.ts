@@ -40,7 +40,9 @@ function relayPrompt(
   data?: Record<string, unknown>,
 ): void {
   const prompt = typeof data?.prompt === "string" ? data.prompt : "";
-  if (!prompt) return;
+  if (!prompt) {
+    return;
+  }
 
   let conversationId: string | null;
   if (data?.conversation === "new") {
@@ -49,7 +51,9 @@ function relayPrompt(
   } else {
     conversationId = useConversationStore.getState().activeConversationId;
   }
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
 
   ctx.navigate(
     routes.conversationWithPrompt(conversationId, prompt, crypto.randomUUID()),
@@ -62,7 +66,9 @@ function openConversation(
 ): void {
   const conversationId =
     typeof data?.conversationId === "string" ? data.conversationId : "";
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
   useConversationStore.getState().setActiveConversationId(conversationId);
   ctx.navigate(routes.conversation(conversationId));
 }
@@ -77,13 +83,19 @@ function setView(
       viewer.closeApp();
       return;
     case "full":
-      if (viewer.mainView === "app-editing") viewer.exitAppEditing();
+      if (viewer.mainView === "app-editing") {
+        viewer.exitAppEditing();
+      }
       return;
     case "split": {
-      if (ctx.isMobile) return;
+      if (ctx.isMobile) {
+        return;
+      }
       const conversationId =
         useConversationStore.getState().activeConversationId;
-      if (!conversationId) return;
+      if (!conversationId) {
+        return;
+      }
       useConversationStore.getState().setEditingConversationId(conversationId);
       viewer.enterAppEditing();
       return;

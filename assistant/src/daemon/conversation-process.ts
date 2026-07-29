@@ -11,6 +11,7 @@ import {
   createAssistantMessage,
   createUserMessage,
 } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import { listPendingRequestsByScopeOrEmpty } from "../channels/gateway-guardian-requests.js";
 import {
   parseChannelId,
@@ -56,10 +57,7 @@ import {
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
-import type {
-  AssistantEvent,
-  UserMessageAttachment,
-} from "./message-protocol.js";
+import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
@@ -438,13 +436,15 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
 
 /**
  * Restore drained messages to the front of the queue, in their original
- * order, when another turn (e.g. a barged-in voice turn woken by the idle
- * transition) owns the processing lock. The lock holder's own finally block
- * re-drains the queue. A steered drain also re-arms `pendingSteerRepair` so
- * the re-drain promotes the steered head on its own instead of batching it
- * with tails; the tool-use repair it re-triggers is idempotent.
+ * order, when the drain cannot run them: another turn (e.g. a barged-in
+ * voice turn woken by the idle transition) owns the processing lock, or the
+ * dispatch threw before the turn took over. The next drain trigger (the lock
+ * holder's own finally block, or `kickQueueDrain`'s retry) picks them back
+ * up. A steered drain also re-arms `pendingSteerRepair` so the re-drain
+ * promotes the steered head on its own instead of batching it with tails;
+ * the tool-use repair it re-triggers is idempotent.
  */
-function requeueOnLockContention(
+function requeueDrainedMessages(
   conversation: Conversation,
   messages: QueuedMessage[],
   steered: boolean,
@@ -493,7 +493,9 @@ export async function drainQueue(
     if (!next) {
       return;
     }
-    return drainSingleMessage(conversation, next, reason, true);
+    return dispatchDrainWithRestore(conversation, [next], true, () =>
+      drainSingleMessage(conversation, next, reason, true),
+    );
   }
 
   const batch = await buildPassthroughBatch(conversation);
@@ -505,12 +507,122 @@ export async function drainQueue(
     if (!next) {
       return;
     }
-    return drainSingleMessage(conversation, next, reason);
+    return dispatchDrainWithRestore(conversation, [next], false, () =>
+      drainSingleMessage(conversation, next, reason),
+    );
   }
   if (batch.length === 1) {
-    return drainSingleMessage(conversation, batch[0], reason);
+    return dispatchDrainWithRestore(conversation, batch, false, () =>
+      drainSingleMessage(conversation, batch[0], reason),
+    );
   }
-  return drainBatch(conversation, batch, reason);
+  return dispatchDrainWithRestore(conversation, batch, false, () =>
+    drainBatch(conversation, batch, reason),
+  );
+}
+
+/**
+ * Errors that already triggered a queue restore on their way up. Drains
+ * recurse (a dropped message's error path re-drains the remaining queue), so
+ * without the marker an inner dispatch failure would also restore the outer
+ * dispatch's messages — resurrecting a message whose sender was already told
+ * it failed.
+ */
+const restoredDrainErrors = new WeakSet<object>();
+
+/**
+ * Run a drain dispatch whose messages are already removed from the queue,
+ * restoring them to the front if the dispatch throws. `drainQueue` pops
+ * messages before the throw-prone turn-start steps (slash resolution,
+ * per-turn context application), so without the restore a retry would skip
+ * the failed message entirely: it drains the NEXT item, succeeds, and the
+ * removed message is silently lost with no `queue_drain_failed` event.
+ */
+async function dispatchDrainWithRestore(
+  conversation: Conversation,
+  messages: QueuedMessage[],
+  steered: boolean,
+  dispatch: () => Promise<void>,
+): Promise<void> {
+  try {
+    return await dispatch();
+  } catch (err) {
+    const alreadyRestored =
+      typeof err === "object" && err !== null && restoredDrainErrors.has(err);
+    if (!alreadyRestored) {
+      if (typeof err === "object" && err !== null) {
+        restoredDrainErrors.add(err);
+      }
+      requeueDrainedMessages(
+        conversation,
+        messages,
+        steered,
+        "Requeueing drained messages: drain dispatch threw",
+      );
+    }
+    throw err;
+  }
+}
+
+/**
+ * Fire-and-forget entry point for drain triggers that sit outside the drain
+ * promise chain (the agent loop's `finally`, route handlers releasing the
+ * processing lock). `drainQueue` is async — batch building awaits slash
+ * resolution and can throw — and nothing re-triggers a drain whose promise
+ * rejects: the queued messages would sit stranded until an unrelated later
+ * turn completes. This wrapper never rejects. A failed drain is retried
+ * once — `dispatchDrainWithRestore` has already returned any popped
+ * messages to the queue head, so the retry retries the same messages. If
+ * the retry also fails, every queued sender is notified so the stall is
+ * visible to the user instead of silent, and the messages remain queued
+ * for the next drain trigger.
+ *
+ * `origin` names the triggering site for log correlation.
+ */
+export async function kickQueueDrain(
+  conversation: Conversation,
+  reason: QueueDrainReason = "loop_complete",
+  origin?: string,
+): Promise<void> {
+  try {
+    await drainQueue(conversation, reason);
+    return;
+  } catch (err) {
+    log.error(
+      {
+        err,
+        conversationId: conversation.conversationId,
+        reason,
+        origin,
+        queueDepth: conversation.queue.length,
+      },
+      "drainQueue rejected; retrying once",
+    );
+  }
+  try {
+    await drainQueue(conversation, reason);
+  } catch (err) {
+    log.error(
+      {
+        err,
+        conversationId: conversation.conversationId,
+        reason,
+        origin,
+        queueDepth: conversation.queue.length,
+      },
+      "drainQueue retry rejected; queued messages remain stranded until the next drain trigger",
+    );
+    for (const queued of conversation.queue.snapshot()) {
+      queued.onEvent({
+        type: "error",
+        conversationId: conversation.conversationId,
+        requestId: queued.requestId,
+        message:
+          "The assistant couldn't start your queued message due to an internal error. The message is still queued and will be retried after the next reply; you can also cancel and resend it.",
+        category: "queue_drain_failed",
+      });
+    }
+  }
 }
 
 async function drainSingleMessage(
@@ -526,7 +638,7 @@ async function drainSingleMessage(
   // requeue below stays as the TOCTOU backstop for a lock taken after
   // this check.
   if (conversation.isProcessing()) {
-    requeueOnLockContention(
+    requeueDrainedMessages(
       conversation,
       [next],
       steered,
@@ -552,6 +664,7 @@ async function drainSingleMessage(
     type: "message_dequeued",
     conversationId: conversation.conversationId,
     requestId: next.requestId,
+    ...(next.clientMessageId ? { clientMessageId: next.clientMessageId } : {}),
   });
   conversation.emitActivityState("thinking", "message_dequeued", {
     requestId: next.requestId,
@@ -952,7 +1065,7 @@ async function drainSingleMessage(
       // Another turn took the lock between this drain's dequeue and its
       // persist. The message is still valid — requeue it at the front and
       // stop; the lock holder's own finally re-drains the queue.
-      requeueOnLockContention(
+      requeueDrainedMessages(
         conversation,
         [next],
         steered,
@@ -1110,7 +1223,7 @@ async function drainBatch(
   // The head persist-busy requeue below stays as the TOCTOU backstop.
   // Steered drains never batch, so there is no steer promotion to restore.
   if (conversation.isProcessing()) {
-    requeueOnLockContention(
+    requeueDrainedMessages(
       conversation,
       batch,
       false,
@@ -1225,6 +1338,7 @@ async function drainBatch(
       type: "message_dequeued",
       conversationId: conversation.conversationId,
       requestId: qm.requestId,
+      ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
     });
 
     const qmSlash = await resolveSlash(
@@ -1329,7 +1443,7 @@ async function drainBatch(
         // whole batch is still valid — requeue it at the front in order
         // and stop; the lock holder's finally re-drains the queue.
         conversation.preactivatedSkillIds = undefined;
-        requeueOnLockContention(
+        requeueDrainedMessages(
           conversation,
           batch,
           false,

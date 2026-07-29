@@ -1,6 +1,6 @@
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -34,6 +34,7 @@ import {
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
@@ -69,7 +70,7 @@ import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
-import { routes } from "@/utils/routes";
+import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -81,6 +82,10 @@ const PAGE_BACKGROUND = "#0A0A0B";
 // External pricing docs — the closest existing docs link in the web client
 // (also used by the AI settings pricing banner).
 const DOCS_URL = "https://www.vellum.ai/docs/pricing";
+
+// How long the `?package=` deep link waits for its forced re-read of the
+// billing data before deciding on whatever the cache already holds.
+const DEEP_LINK_REFRESH_TIMEOUT_MS = 8_000;
 
 // The screen is a wall of creature avatars; warm the bundled component chunk at
 // module load so they resolve before first paint instead of popping in.
@@ -150,6 +155,7 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
  */
 export function PlansPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const electron = isElectron();
 
@@ -198,6 +204,16 @@ export function PlansPage() {
   const [resizeCreditTier, setResizeCreditTier] = useState<
     CreditTierEnum | null | undefined
   >(undefined);
+  // `?package=<key>` is a one-shot deep link (from marketing / the checkout
+  // no-op bail); once acted on it must never re-fire.
+  const packageParamConsumedRef = useRef(false);
+  // Whether the billing reads the deep link decides from have been re-read
+  // from the server, or the bounded wait for that re-read has run out.
+  const [billingReadsRefreshed, setBillingReadsRefreshed] = useState(false);
+  const billingRefreshStartedRef = useRef(false);
+  // The requested package, held from the moment the param is stripped until
+  // the stripped URL commits. See the deep-link effects below.
+  const [pendingPackage, setPendingPackage] = useState<string | null>(null);
 
   const subscription = subscriptionQuery.data;
   const proPlan = plansQuery.data?.plans.find(
@@ -206,6 +222,18 @@ export function PlansPage() {
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
   const isProUser = subscription?.plan_id === "pro";
+
+  // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
+  // it has no current tier: every named card is offered as a switch target —
+  // including a customized sub's own pinned key, which is a real
+  // revert-to-stock operation.
+  const currentTierKey = !subscription
+    ? null
+    : subscription.plan_id === "base"
+      ? "free"
+      : isCleanPin(subscription.package)
+        ? subscription.package.key
+        : null;
 
   // Pro → Free is a cancellation: after a confirm step it opens the Stripe
   // billing portal (the same destination as the adjust-plan modal's "Downgrade
@@ -217,7 +245,8 @@ export function PlansPage() {
 
   // Pro features lost by downgrading to Free — the confirm dialog lists these.
   const baseFeatureSet = new Set(
-    plansQuery.data?.plans.find((p) => p.id === "base")?.included_features ?? [],
+    plansQuery.data?.plans.find((p) => p.id === "base")?.included_features ??
+      [],
   );
   const freeDowngradeLostFeatures = (proPlan?.included_features ?? []).filter(
     (f) => !baseFeatureSet.has(f),
@@ -246,14 +275,26 @@ export function PlansPage() {
     };
   }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
 
+  // `?package=<key>` is the one-shot deep link; it is live until the effects
+  // below strip it.
+  const packageParam = searchParams.get(PACKAGE_PARAM);
+
   // The takeover only makes sense against a platform-hosted assistant with a
   // live package catalog. Anything else — self-hosted or no platform session,
   // an empty catalog (the `pro-packages` flag off), or a subscription we can't
   // read — has nothing to show, so fall back to the billing page.
   const notPlatformHosted = !platformReady && !platformResolving;
   const catalogEmpty = platformReady && !plansQuery.isLoading && !hasPackages;
+  // An unconsumed deep link has asked for both billing reads again, so the two
+  // read-derived bails are answers to a question already being re-asked: a
+  // catalog that reads empty (flag flipped on since) or a subscription that
+  // reads failed can both come back resolvable. Hold them until that re-read
+  // settles. Hosting is not something a refetch can change, so it still bails
+  // on sight.
+  const deepLinkAwaitingReads = packageParam != null && !billingReadsRefreshed;
   const cannotResolve =
-    notPlatformHosted || subscriptionQuery.isError || catalogEmpty;
+    notPlatformHosted ||
+    (!deepLinkAwaitingReads && (subscriptionQuery.isError || catalogEmpty));
   useEffect(() => {
     if (cannotResolve) {
       // Platform-hosted but catalog-empty (pro-packages off) or a failed
@@ -294,6 +335,7 @@ export function PlansPage() {
                 creditTier: body.credit_tier ?? null,
               },
         );
+        captureTakeoverAvatarStash(queryClient);
         openUrl(result.checkout_url);
       } else {
         await queryClient.invalidateQueries({
@@ -315,19 +357,167 @@ export function PlansPage() {
     }
   };
 
+  // `replaceOnBail` replaces the current history entry when routing to the
+  // billing manage surface instead of pushing. The deep link sets it so the
+  // consumed `?package=` URL leaves no live entry behind for Back to land on.
+  const selectTier = (
+    tierKey: string,
+    options?: { replaceOnBail?: boolean },
+  ) => {
+    if (!subscription) {
+      return;
+    }
+    // A billing action is already in flight (checkout / package switch /
+    // portal opening) — ignore the click. The CTAs are also disabled; this
+    // guards against a race between the click and the disabled re-render.
+    if (billingActionPending) {
+      return;
+    }
+    if (isProUser) {
+      if (tierKey === "free") {
+        // Pro → Free is a subscription cancellation, not a package switch.
+        // Confirm first (which Pro features are lost), then open the Stripe
+        // billing portal — the same destination as the adjust-plan modal's
+        // "Downgrade to Base" — where the user actually cancels. The
+        // package-only change-package endpoint 400s on non-package keys.
+        setFreeDowngradeOpen(true);
+        return;
+      }
+      // Active Pro orgs switch packages in place via the change-package
+      // endpoint (up or down). Only the named Pro packages route here.
+      const pkg = packages.find((p) => p.key === tierKey);
+      if (!pkg) {
+        return;
+      }
+      if (tierRelation(currentTierKey, pkg.key) === "current") {
+        return;
+      }
+      // Any active Pro sub — pinned, unpinned, or customized — switches in
+      // place via change-package. Only a cancelling or non-entitlement-status
+      // sub can't; route it to the billing manage/cancel surface instead of
+      // posting a change-package that can only fail (the same fallback the
+      // Pro → Free case uses).
+      if (!isPackageSwitchEligible(subscription)) {
+        navigate(`${routes.settings.usageBilling}&adjust_plan`, {
+          replace: options?.replaceOnBail === true,
+        });
+        return;
+      }
+      setSwitchTarget(pkg);
+      return;
+    }
+    if (tierKey === "free") {
+      return;
+    }
+    // A package checkout resolves its own line items server-side; only the
+    // package key is sent (mirrors the plan-card upgrade path).
+    void startCheckout({
+      target_plan_id: "pro",
+      package: tierKey,
+      confirm: true,
+    });
+  };
+
+  // The deep-link effects below act at most once, so they read the handler
+  // through a ref rather than depending on an identity that changes every
+  // render.
+  const selectTierRef = useRef(selectTier);
+  useEffect(() => {
+    selectTierRef.current = selectTier;
+  });
+
+  // `?package=<key>` opens the switch flow for the requested package exactly
+  // once, reusing `selectTier` so the deep link inherits every guard a click
+  // gets. Non-Pro users get no checkout from a URL, and `free` names a
+  // cancellation rather than a package — but the param is dropped either way so
+  // it can't fire later once they are Pro.
+  //
+  // Both reads answer off the cache the moment the page mounts, and
+  // `staleTime` can keep them from refetching at all — so the one-shot link
+  // would be spent on whatever was true the last time anything asked. The
+  // checkout `no_op` bail is the case that makes this load-bearing: it routes
+  // here *because* the account is already Pro, and a subscription cached from
+  // before that reads Base, which drops the package instead of opening the
+  // switch. Re-read both, and let the effect below decide on the answer.
+  useEffect(() => {
+    if (packageParam == null || packageParamConsumedRef.current) {
+      return;
+    }
+    if (cannotResolve || !platformReady || billingRefreshStartedRef.current) {
+      return;
+    }
+    billingRefreshStartedRef.current = true;
+    // A read that never answers decides on the cache instead of holding the
+    // link open forever. The bound owns no effect cleanup: the body runs once
+    // for the page's life, so a cleanup — including StrictMode's simulated one
+    // — would drop the bound and leave nothing to fall back on.
+    const bound = setTimeout(() => {
+      setBillingReadsRefreshed(true);
+    }, DEEP_LINK_REFRESH_TIMEOUT_MS);
+    const settle = () => {
+      clearTimeout(bound);
+      setBillingReadsRefreshed(true);
+    };
+    void Promise.all([
+      queryClient.refetchQueries({
+        queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
+      }),
+      queryClient.refetchQueries({
+        queryKey: organizationsBillingPlansRetrieveQueryKey(),
+      }),
+    ]).then(settle, settle);
+  }, [cannotResolve, packageParam, platformReady, queryClient]);
+
+  useEffect(() => {
+    if (packageParam == null || packageParamConsumedRef.current) {
+      return;
+    }
+    // The redirect effect above is already navigating away this tick. Stripping
+    // now would abort it, and its deps never change again, so it would never
+    // re-fire — stranding the user on the spinner.
+    //
+    // Refreshed means the re-read finished or its bound elapsed, not that it
+    // succeeded: a failed refetch leaves the cache it was meant to replace
+    // sitting right there, and deciding from that is what keeps the link from
+    // going inert — no modal, no redirect, param never dropped.
+    if (cannotResolve || !platformReady || !billingReadsRefreshed) {
+      return;
+    }
+    packageParamConsumedRef.current = true;
+    if (isProUser && packageParam !== "free") {
+      setPendingPackage(packageParam);
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(PACKAGE_PARAM);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [
+    billingReadsRefreshed,
+    cannotResolve,
+    packageParam,
+    platformReady,
+    isProUser,
+    setSearchParams,
+  ]);
+
+  // The strip above is a router navigation, and `selectTier` may start another
+  // one. Two navigations in the same tick abort each other — with middleware on
+  // the route tree the strip always loses — so wait for the stripped URL to
+  // commit before acting on the held key.
+  useEffect(() => {
+    if (pendingPackage == null || packageParam != null) {
+      return;
+    }
+    setPendingPackage(null);
+    selectTierRef.current(pendingPackage, { replaceOnBail: true });
+  }, [packageParam, pendingPackage]);
+
   let body: ReactNode;
   if (subscription && proPlan && hasPackages) {
-    // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
-    // it has no current tier: every named card is offered as a switch target —
-    // including a customized sub's own pinned key, which is a real
-    // revert-to-stock operation.
-    const currentTierKey =
-      subscription.plan_id === "base"
-        ? "free"
-        : isCleanPin(subscription.package)
-          ? subscription.package.key
-          : null;
-
     // A Pro sub with no clean pin (unpinned, customized, or legacy) — exactly
     // the subs `currentTierKey` leaves null — is represented by the Custom row,
     // not any named card. Mark that row as their current plan and summarize its
@@ -342,56 +532,6 @@ export function PlansPage() {
     const currentSummary = showCurrentPlan
       ? customCurrentSummary(current, proPlan)
       : undefined;
-
-    const selectTier = (tierKey: string) => {
-      // A billing action is already in flight (checkout / package switch /
-      // portal opening) — ignore the click. The CTAs are also disabled; this
-      // guards against a race between the click and the disabled re-render.
-      if (billingActionPending) {
-        return;
-      }
-      if (isProUser) {
-        if (tierKey === "free") {
-          // Pro → Free is a subscription cancellation, not a package switch.
-          // Confirm first (which Pro features are lost), then open the Stripe
-          // billing portal — the same destination as the adjust-plan modal's
-          // "Downgrade to Base" — where the user actually cancels. The
-          // package-only change-package endpoint 400s on non-package keys.
-          setFreeDowngradeOpen(true);
-          return;
-        }
-        // Active Pro orgs switch packages in place via the change-package
-        // endpoint (up or down). Only the named Pro packages route here.
-        const pkg = packages.find((p) => p.key === tierKey);
-        if (!pkg) {
-          return;
-        }
-        if (tierRelation(currentTierKey, pkg.key) === "current") {
-          return;
-        }
-        // Any active Pro sub — pinned, unpinned, or customized — switches in
-        // place via change-package. Only a cancelling or non-entitlement-status
-        // sub can't; route it to the billing manage/cancel surface instead of
-        // posting a change-package that can only fail (the same fallback the
-        // Pro → Free case uses).
-        if (!isPackageSwitchEligible(subscription)) {
-          navigate(`${routes.settings.usage}?tab=billing&adjust_plan`);
-          return;
-        }
-        setSwitchTarget(pkg);
-        return;
-      }
-      if (tierKey === "free") {
-        return;
-      }
-      // A package checkout resolves its own line items server-side; only the
-      // package key is sent (mirrors the plan-card upgrade path).
-      void startCheckout({
-        target_plan_id: "pro",
-        package: tierKey,
-        confirm: true,
-      });
-    };
 
     // Confirmed Pro → Free cancellation: close the confirm and hand off to the
     // Stripe billing portal, where the actual cancellation happens.
@@ -528,13 +668,13 @@ export function PlansPage() {
         <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 items-start gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
-            name="Free"
+            name="Base"
             tagline={freeCopy?.tagline ?? ""}
-            priceLabel="$0/month"
+            priceLabel="Free"
             priceCaption={freeCopy?.priceCaption ?? "Forever"}
             ctaLabel={
               freeRelation === "downgrade"
-                ? downgradeLabel("Free")
+                ? downgradeLabel("Base")
                 : (freeCopy?.cta ?? "Start Free")
             }
             features={FREE_FEATURES}
@@ -575,7 +715,9 @@ export function PlansPage() {
         <CustomPlanRow
           className="mt-6 sm:mt-10"
           onConfigure={handleConfigure}
-          configureDisabled={(isProUser && !currentReady) || billingActionPending}
+          configureDisabled={
+            (isProUser && !currentReady) || billingActionPending
+          }
           isCurrent={showCurrentPlan}
           currentSummary={currentSummary}
         />
@@ -600,6 +742,7 @@ export function PlansPage() {
           open={switchTarget !== null}
           relation={switchRelation}
           packageName={switchTarget?.name ?? ""}
+          targetPackage={switchTarget}
           pending={changePackagePending}
           onCancel={() => setSwitchTarget(null)}
           onConfirm={() => void confirmSwitch()}

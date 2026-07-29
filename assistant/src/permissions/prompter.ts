@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import type { ExecutionTarget } from "../tools/tool-types.js";

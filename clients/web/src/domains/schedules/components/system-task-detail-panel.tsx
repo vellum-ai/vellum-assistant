@@ -13,6 +13,8 @@ import {
   flattenRunPages,
   formatTimestamp,
   heartbeatSubtitle,
+  isBookkeepingRun,
+  isExecutedRun,
   RETROSPECTIVE_SUBTITLE,
 } from "@/domains/settings/utils/schedule-formatters";
 import { toScheduleRun } from "@/domains/settings/utils/system-task-run-transforms";
@@ -163,9 +165,23 @@ export function SystemTaskDetailPanel({
     });
   const runs = flattenRunPages(
     data?.pages.map((page) => ({
-      runs: page.runs.map((run) => toScheduleRun(run, kind)),
+      runs: page.runs
+        .filter((run) => !isBookkeepingRun(run))
+        .map((run) => toScheduleRun(run, kind)),
     })),
   );
+
+  // The config endpoint reports lastRunAt from daemon-process state, which
+  // can lag the run history (e.g. right after a restart on older daemons).
+  // Fall back to the newest completed run so completed runs never show "—".
+  const newestCompletedRun = runs?.find(
+    (run) => isExecutedRun(run) && run.status !== "running",
+  );
+  const lastRunAtDisplay =
+    lastRunAt ??
+    newestCompletedRun?.finishedAt ??
+    newestCompletedRun?.startedAt ??
+    null;
 
   return (
     <div
@@ -241,7 +257,7 @@ export function SystemTaskDetailPanel({
             <div className="flex items-center justify-between gap-4">
               <span className="text-[var(--content-secondary)]">Last run</span>
               <span className="text-[var(--content-default)]">
-                {formatTimestamp(lastRunAt)}
+                {formatTimestamp(lastRunAtDisplay)}
               </span>
             </div>
           </div>
@@ -254,7 +270,9 @@ export function SystemTaskDetailPanel({
                   <Button
                     variant="outlined"
                     size="compact"
-                    onClick={() => navigate(`${routes.settings.developer}?tab=memory`)}
+                    onClick={() =>
+                      navigate(`${routes.settings.developer}?tab=memory`)
+                    }
                   >
                     Turn on Memory
                   </Button>
@@ -282,7 +300,9 @@ export function SystemTaskDetailPanel({
             <Button
               variant="outlined"
               leftIcon={<Settings className="h-3.5 w-3.5" />}
-              onClick={() => navigate(`${routes.settings.developer}?tab=memory`)}
+              onClick={() =>
+                navigate(`${routes.settings.developer}?tab=memory`)
+              }
             >
               Memory settings
             </Button>

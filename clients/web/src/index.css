@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
-@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
@@ -132,7 +131,7 @@ body {
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is
- * defense-in-depth matching .avatar-streaming-ring below. */
+ * defense-in-depth for callers that don't. */
 @keyframes voice-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
@@ -217,33 +216,6 @@ body {
   }
 }
 
-/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
-   edge and spins continuously while the assistant is streaming/loading. Used
-   only for custom uploaded-image avatars; character avatars convey streaming
-   through their own morph animation instead. Two adjacent borders are colored
-   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
-   so two adjacent borders make a 180° semicircle); the rest stay transparent,
-   and the whole ring rotates. Border thickness/inset are set inline so the
-   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
-@keyframes avatar-ring-spin {
-  to { transform: rotate(360deg); }
-}
-
-.avatar-streaming-ring {
-  border-style: solid;
-  border-radius: 50%;
-  border-color: transparent;
-  border-top-color: var(--border-active);
-  border-right-color: var(--border-active);
-  animation: avatar-ring-spin 0.85s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .avatar-streaming-ring {
-    animation: none;
-  }
-}
-
 /* Onboarding hatching avatar pulse: scales between 0.9 and 1.0 on
  * ease-in-out, 1.2s cycle, infinite alternate. Opacity dimmed to 0.6 so the
  * creature reads as "asleep" during hatching. When the assistant becomes
@@ -293,6 +265,45 @@ body {
   width: 100%;
   /* Reserving the grown height up front keeps the copy below from reflowing. */
   height: calc(var(--provision-avatar-size) * var(--provision-avatar-growth));
+}
+
+/* While the avatar is withheld, an identity-neutral glow breathes on the
+ * creature's resting footprint so the reserved stage doesn't read as a hole.
+ * Centering is `margin-inline`, not a translate: the breathe owns `transform`. */
+.provision-avatar-placeholder {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--provision-avatar-size);
+  width: calc(var(--provision-avatar-size) * 0.8);
+  margin-inline: auto;
+  /* Fallback first for engines without color-mix(), see the skeleton-shimmer
+   * note above. The takeover is always dark-themed, so a translucent white
+   * stands in for the emphasised mix. */
+  background: radial-gradient(
+    closest-side,
+    rgba(255, 255, 255, 0.12),
+    transparent 72%
+  );
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--content-emphasised) 12%, transparent),
+    transparent 72%
+  );
+  transform-origin: bottom center;
+  transition: opacity var(--provision-reveal) ease-out;
+  animation: provision-placeholder-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes provision-placeholder-breathe {
+  0%, 100% { transform: scale(0.94); opacity: 0.65; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+/* Fades out on the same beat the creature reveals on, then costs nothing. */
+.provision-avatar-placeholder.is-resolved {
+  opacity: 0;
+  animation: none;
 }
 
 .provision-avatar-layer {
@@ -348,9 +359,10 @@ body {
   animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
 }
 
-/* The avatar is withheld until its query settles, so it arrives rather than
- * swapping in over a placeholder. The stage has already reserved its height,
- * so this fades in place with nothing moving around it. */
+/* The creature fades in over the placeholder as soon as something is drawable:
+ * the live query settling, or the stash captured at the Stripe hand-off. The
+ * stage has already reserved its height, so this fades in place with nothing
+ * moving around it. */
 @keyframes provision-avatar-reveal {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -376,6 +388,15 @@ body {
   }
 
   .provision-surface-settle {
+    transition: none;
+  }
+
+  /* A static glow still marks where the creature lands. */
+  .provision-avatar-placeholder {
+    animation: none;
+  }
+
+  .provision-avatar-placeholder.is-resolved {
     transition: none;
   }
 }
@@ -925,7 +946,8 @@ body {
   transform: translateY(-50%) scaleY(calc(0.5 + var(--voice-amp) * 0.7));
   opacity: calc(0.3 + var(--voice-amp) * 0.7);
 }
-.voice-listening-waves--center .voice-listening-waves__half {
+.voice-listening-waves--center .voice-listening-waves__half,
+.voice-listening-waves--inline .voice-listening-waves__half {
   position: absolute;
   left: 0;
   right: 0;
@@ -934,13 +956,28 @@ body {
 }
 /* Top half sits above the midline; its wave fill hugs the half's bottom edge
  * (= the center line), rippling upward. */
-.voice-listening-waves--center .voice-listening-waves__half--top {
+.voice-listening-waves--center .voice-listening-waves__half--top,
+.voice-listening-waves--inline .voice-listening-waves__half--top {
   top: 0;
 }
 /* Bottom half is the vertical mirror below the midline. */
-.voice-listening-waves--center .voice-listening-waves__half--bottom {
+.voice-listening-waves--center .voice-listening-waves__half--bottom,
+.voice-listening-waves--inline .voice-listening-waves__half--bottom {
   bottom: 0;
   transform: scaleY(-1);
+}
+
+/* Placement: inline = the band fills a small positioned container (the
+ * composer's voice-session bar strip) instead of anchoring to a screen edge.
+ * Same mirrored-halves structure as center — the wave fills meet at the
+ * strip's midline — with the amplitude swell expressed as a vertical scale
+ * around it. */
+.voice-listening-waves--inline {
+  inset: 0;
+  height: auto;
+  transform-origin: center;
+  transform: scaleY(calc(0.55 + var(--voice-amp) * 0.45));
+  opacity: calc(0.35 + var(--voice-amp) * 0.65);
 }
 
 /* Placement: top = the band sweeps in from the ceiling edge (both room looks —
@@ -973,6 +1010,11 @@ body {
   /* Keep the top band pinned to the ceiling (flipped), just steady. */
   .voice-listening-waves--top {
     transform: scaleY(-1);
+    opacity: 0.4;
+  }
+  /* The inline strip is inset-anchored; it just holds steady. */
+  .voice-listening-waves--inline {
+    transform: none;
     opacity: 0.4;
   }
 }

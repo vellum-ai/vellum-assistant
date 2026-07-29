@@ -100,6 +100,86 @@ describe("computeSubagentCardData — state derivation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Loading state: terminal card whose detail hasn't been fetched yet
+// ---------------------------------------------------------------------------
+
+describe("computeSubagentCardData: unfetched-timeline loading state", () => {
+  test("terminal addressable entry with 0 events and !detailSettled → loading, no step count", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        conversationId: "conv-child",
+        events: [],
+        detailSettled: false,
+      }),
+    );
+    expect(data.state).toBe("loading");
+    expect(data.stepCount).toBe("");
+    expect(data.currentStepTitle).toBe("Loading");
+    expect(data.currentStepInfo).toBe("Research Agent");
+    expect(data.steps).toEqual([]);
+  });
+
+  test("once detailSettled with 0 events → resting empty state, not loading", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        conversationId: "conv-child",
+        events: [],
+        detailSettled: true,
+      }),
+    );
+    expect(data.state).toBe("complete");
+    expect(data.currentStepTitle).toBe("Finished");
+    expect(data.stepCount).toBe("0 steps");
+  });
+
+  test("terminal entry with events shows its steps, not loading", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        conversationId: "conv-child",
+        // No detailSettled flag: events alone prove the timeline is loaded.
+        events: [makeEvent({ type: "text", content: "hello" })],
+      }),
+    );
+    expect(data.state).toBe("complete");
+    expect(data.steps).toHaveLength(1);
+    expect(data.stepCount).toBe("1 step");
+  });
+
+  test("active entry with 0 events is NOT forced to loading (keeps Working)", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        conversationId: "conv-child",
+        events: [],
+      }),
+    );
+    // Running still maps to a `loading` visual state, but it must go through
+    // the normal streaming path, not the unfetched-timeline branch.
+    expect(data.state).toBe("loading");
+    expect(data.currentStepTitle).toBe("Working");
+  });
+
+  test("non-addressable terminal entry (old daemon, no conversation id) is NOT stuck loading", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        // No conversationId and no parentConversationId → unaddressable.
+        conversationId: undefined,
+        parentConversationId: undefined,
+        events: [],
+        detailSettled: false,
+      }),
+    );
+    expect(data.state).toBe("complete");
+    expect(data.currentStepTitle).toBe("Finished");
+    expect(data.stepCount).toBe("0 steps");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Step mapping
 // ---------------------------------------------------------------------------
 
@@ -317,7 +397,9 @@ describe("computeSubagentCardData — step mapping", () => {
     expect(data.steps).toHaveLength(2);
     const tool = data.steps[0]!;
     const err = data.steps[1]!;
-    if (tool.kind === "tool") expect(tool.status).toBe("error");
+    if (tool.kind === "tool") {
+      expect(tool.status).toBe("error");
+    }
     expect(err.kind).toBe("tool_error");
     if (err.kind === "tool_error") {
       expect(err.message).toBe("Out of context window");
@@ -348,8 +430,12 @@ describe("computeSubagentCardData — step mapping", () => {
     expect(data.steps).toHaveLength(2);
     const bash = data.steps[0]!;
     const fileRead = data.steps[1]!;
-    if (bash.kind === "tool") expect(bash.status).toBe("completed");
-    if (fileRead.kind === "tool") expect(fileRead.status).toBe("completed");
+    if (bash.kind === "tool") {
+      expect(bash.status).toBe("completed");
+    }
+    if (fileRead.kind === "tool") {
+      expect(fileRead.status).toBe("completed");
+    }
   });
 
   test("parallel calls to the same tool are disambiguated by toolUseId", () => {
@@ -1743,7 +1829,9 @@ describe("computeSubagentSteps / applyTimelineEvent reproduce computeSubagentCar
     test(`${name}: applyTimelineEvent folded by hand matches computeSubagentSteps`, () => {
       const steps: ToolCallCardStep[] = [];
       const toolMeta: Array<ToolMeta | undefined> = [];
-      for (const event of events) applyTimelineEvent(steps, toolMeta, event);
+      for (const event of events) {
+        applyTimelineEvent(steps, toolMeta, event);
+      }
       expect(steps).toEqual(computeSubagentSteps(events).steps);
     });
   }
@@ -1792,7 +1880,12 @@ describe("heavy projections are memoizable on entry.events", () => {
       1,
     ),
     makeEvent(
-      { type: "tool_result", toolName: "bash", toolUseId: "tu-1", result: "ok" },
+      {
+        type: "tool_result",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        result: "ok",
+      },
       2,
     ),
   ];

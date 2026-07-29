@@ -2,6 +2,7 @@
  * Periodic retry sweep for failed channel inbound events.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import {
   type ChannelId,
   isChannelId,
@@ -12,7 +13,6 @@ import { isConversationBusyError } from "../daemon/conversation-messaging.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
@@ -156,12 +156,22 @@ function parseStoredSlackInbound(
 }
 
 /**
- * Fallback for payloads stored before {@link parseStoredSlackInbound}'s capture
- * existed: reconstruct the minimal `{ channelId, channelTs }` from fields the
- * payload has always carried, so those in-flight events still dedup on replay.
- * `channelTs` mirrors the live `sourceMessageId ?? externalMessageId` derivation.
- * slackMeta is partial here (only the key-bearing fields), which is acceptable
- * for the short drain window of pre-upgrade retries.
+ * Fallback when the payload carries no captured `slackInbound`: reconstruct
+ * what we can from the fields the payload has always carried, so the event
+ * still dedups on replay. `channelTs` mirrors the live
+ * `sourceMessageId ?? externalMessageId` derivation.
+ *
+ * Two kinds of event land here, not just one. Payloads stored before the
+ * capture existed are the obvious case and drain quickly. The durable case is
+ * a crash between `storePayload` (which runs at the top of the handler) and
+ * `storeInboundSlackMetadata` (which runs on dispatch, after the awaited Slack
+ * backfills) — `recoverOrphanedChannelEvents` promotes that orphan onto the
+ * sweep and it arrives here with a full `sourceMetadata` but no `slackInbound`.
+ *
+ * So anything the live path reads off `sourceMetadata` and renders into the
+ * turn has to be recovered here too, or crash recovery replays an impoverished
+ * turn. slackMeta is still partial (the rest is presentation, reconstructible
+ * from the row), but the turn-shaping fields are not optional.
  */
 function buildReplaySlackInbound(params: {
   sourceChannel: ChannelId;
@@ -179,7 +189,14 @@ function buildReplaySlackInbound(params: {
   if (!channelTs) {
     return undefined;
   }
-  return { channelId: params.externalChatId, channelTs };
+  const appContext = params.sourceMetadata?.appContext;
+  return {
+    channelId: params.externalChatId,
+    channelTs,
+    ...(Array.isArray(appContext?.entities) && appContext.entities.length > 0
+      ? { appContext }
+      : {}),
+  };
 }
 
 /**
@@ -401,12 +418,6 @@ export async function sweepFailedEvents(
     // `slackInbound` when present (identical idempotency key + full slackMeta),
     // else the reconstructed fallback — so a replay of an already-persisted turn
     // dedups instead of running a second agent loop.
-    const prepared = prepareChannelInboundContent({
-      trimmedContent: content,
-      trustClass: trustContext.trustClass,
-      sourceChannel,
-      requesterIdentifier: trustContext.requesterIdentifier,
-    });
     const replaySlackInbound =
       parseStoredSlackInbound(payload.slackInbound) ??
       buildReplaySlackInbound({
@@ -415,6 +426,18 @@ export async function sweepFailedEvents(
         sourceMetadata,
         externalMessageId,
       });
+    // The captured `slackInbound` carries the sender's Slack `app_context`, so
+    // the replayed turn is prepared with the same context block the live turn
+    // rendered. Payloads predating the capture simply have none.
+    const prepared = prepareChannelInboundContent({
+      trimmedContent: content,
+      trustClass: trustContext.trustClass,
+      sourceChannel,
+      requesterIdentifier: trustContext.requesterIdentifier,
+      ...(replaySlackInbound?.appContext
+        ? { slackAppContext: replaySlackInbound.appContext }
+        : {}),
+    });
 
     // Shared replay options. The idempotency-bearing `slackInbound` is added
     // only on the first attempt; the incomplete-turn re-run below omits it so it

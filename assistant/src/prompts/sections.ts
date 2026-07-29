@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
+import {
+  getWorkspacePromptPath,
+  getWorkspaceSystemPromptDir,
+} from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   BUNDLED_SYSTEM_SECTIONS,
@@ -24,21 +27,6 @@ const log = getLogger("system-prompt-sections");
  * interpolation.
  */
 export type SectionRenderContext = Record<string, unknown>;
-
-/**
- * Workspace override location for user-authored system prompt sections.
- * Layout: `<workspace>/prompts/system/<NN-name>.md`.
- *
- * The bundled section registry (`templates/system-sections.ts`) is the
- * source of default truth; this directory is an optional override layer.
- * Drop a file with the same id as a bundled section to replace its body,
- * or drop a file with a brand-new `<NN-name>` to add a workspace-only
- * section.  Either path is opt-in — the directory may not exist on a
- * fresh install, and the renderer will simply use bundled defaults.
- */
-export function getWorkspaceSystemPromptDir(): string {
-  return join(getWorkspaceDir(), "prompts", "system");
-}
 
 /**
  * Render static sections in id-sort order, then dynamic sections in id-sort
@@ -89,9 +77,13 @@ export function renderWorkspaceSections(ctx: SectionRenderContext): string[][] {
   let breakpointPlaced = false;
   for (const id of ids) {
     const section = resolveSection(id, ctx, workspaceDir);
-    if (section === null) continue;
+    if (section === null) {
+      continue;
+    }
     const rendered = renderResolvedSection(section, ctx);
-    if (rendered) blocks[blocks.length - 1].push(rendered);
+    if (rendered) {
+      blocks[blocks.length - 1].push(rendered);
+    }
     if (section.cacheBreakpoint) {
       if (breakpointPlaced) {
         log.warn(
@@ -109,11 +101,15 @@ export function renderWorkspaceSections(ctx: SectionRenderContext): string[][] {
 
 function collectSectionIds(workspaceDir: string): string[] {
   const ids = new Set<string>();
-  for (const section of BUNDLED_SYSTEM_SECTIONS) ids.add(section.id);
+  for (const section of BUNDLED_SYSTEM_SECTIONS) {
+    ids.add(section.id);
+  }
   if (existsSync(workspaceDir)) {
     try {
       for (const name of readdirSync(workspaceDir)) {
-        if (name.endsWith(".md")) ids.add(name.slice(0, -".md".length));
+        if (name.endsWith(".md")) {
+          ids.add(name.slice(0, -".md".length));
+        }
       }
     } catch (err) {
       log.warn(
@@ -128,7 +124,9 @@ function collectSectionIds(workspaceDir: string): string[] {
 function compareSectionIds(a: string, b: string): number {
   const aDynamic = isDynamicSectionId(a);
   const bDynamic = isDynamicSectionId(b);
-  if (aDynamic !== bDynamic) return aDynamic ? 1 : -1;
+  if (aDynamic !== bDynamic) {
+    return aDynamic ? 1 : -1;
+  }
   return a.localeCompare(b);
 }
 
@@ -180,7 +178,9 @@ function resolveSection(
     };
   }
   const bundled = BUNDLED_SYSTEM_SECTIONS.find((s) => s.id === id);
-  if (!bundled) return null;
+  if (!bundled) {
+    return null;
+  }
 
   // A bundled section may delegate its body to a workspace file outside
   // the section override directory (e.g. `SOUL.md` at the workspace
@@ -199,7 +199,9 @@ function resolveSection(
     for (const pathTemplate of paths) {
       const interpolated = interpolateWorkspacePath(pathTemplate, ctx);
       const filePath = getWorkspacePromptPath(interpolated);
-      if (!existsSync(filePath)) continue;
+      if (!existsSync(filePath)) {
+        continue;
+      }
       try {
         const content = readFileSync(filePath, "utf-8");
         if (content.trim().length > 0) {
@@ -239,7 +241,9 @@ function interpolateWorkspacePath(
 ): string {
   return template.replace(VARIABLE, (match, key: string) => {
     const value = ctx[key];
-    if (value === undefined || value === null) return match;
+    if (value === undefined || value === null) {
+      return match;
+    }
     return String(value);
   });
 }
@@ -248,17 +252,23 @@ function renderResolvedSection(
   section: ResolvedSection,
   ctx: SectionRenderContext,
 ): string | null {
-  if (!isEnabled(section.enabled, ctx)) return null;
+  if (!isEnabled(section.enabled, ctx)) {
+    return null;
+  }
 
   let body = section.body;
   if (section.transform) {
     const transformed = section.transform(body, ctx);
-    if (transformed === null) return null;
+    if (transformed === null) {
+      return null;
+    }
     body = transformed;
   }
 
   const stripped = stripCommentLines(body).trim();
-  if (stripped.length === 0) return null;
+  if (stripped.length === 0) {
+    return null;
+  }
   return interpolateVariables(stripped, ctx);
 }
 
@@ -362,8 +372,12 @@ const VARIABLE = new RegExp(`\\{\\{(${IDENT_PATTERN})\\}\\}`, "g");
  * pre-computed boolean through the context map and reference that.
  */
 function isEnabled(value: unknown, ctx: SectionRenderContext): boolean {
-  if (value === undefined) return true;
-  if (typeof value === "boolean") return value;
+  if (value === undefined) {
+    return true;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
   if (typeof value !== "string") {
     log.warn(
       { value },
@@ -373,7 +387,9 @@ function isEnabled(value: unknown, ctx: SectionRenderContext): boolean {
   }
 
   let trimmed = value.trim();
-  if (trimmed.length === 0) return true;
+  if (trimmed.length === 0) {
+    return true;
+  }
 
   let negate = false;
   if (trimmed.startsWith("!")) {

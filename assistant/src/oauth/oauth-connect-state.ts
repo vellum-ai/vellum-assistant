@@ -6,7 +6,13 @@
  */
 type OAuthConnectState =
   | { status: "pending"; service: string; expiresAt: number }
-  | { status: "complete"; service: string; accountInfo?: string; grantedScopes?: string[]; completedAt: number }
+  | {
+      status: "complete";
+      service: string;
+      accountInfo?: string;
+      grantedScopes?: string[];
+      completedAt: number;
+    }
   | { status: "error"; service: string; error: string; failedAt: number };
 
 const activeOAuthConnectFlows = new Map<string, OAuthConnectState>();
@@ -63,9 +69,15 @@ export function clearExpiredOAuthConnectStates(): void {
   for (const [key, state] of activeOAuthConnectFlows) {
     if (state.status === "pending" && now > state.expiresAt) {
       activeOAuthConnectFlows.delete(key);
-    } else if (state.status === "complete" && now > state.completedAt + COMPLETION_GRACE_MS) {
+    } else if (
+      state.status === "complete" &&
+      now > state.completedAt + COMPLETION_GRACE_MS
+    ) {
       activeOAuthConnectFlows.delete(key);
-    } else if (state.status === "error" && now > state.failedAt + COMPLETION_GRACE_MS) {
+    } else if (
+      state.status === "error" &&
+      now > state.failedAt + COMPLETION_GRACE_MS
+    ) {
       activeOAuthConnectFlows.delete(key);
     }
   }

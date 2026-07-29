@@ -12,7 +12,9 @@ import { seedContactChannel } from "./seed-contact-channel.js";
 function parseDisplayNameFromMetadata(
   metadataJson: string | null | undefined,
 ): string | null {
-  if (!metadataJson) return null;
+  if (!metadataJson) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(metadataJson);
     if (

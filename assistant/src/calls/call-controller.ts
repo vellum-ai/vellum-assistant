@@ -8,6 +8,7 @@
  * barge-in, state machine, guardian verification).
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import {
   expireGuardianRequest,
@@ -16,7 +17,6 @@ import {
   getRequestByPendingQuestionOrNull,
   listGuardianRequestDeliveriesOrEmpty,
 } from "../channels/gateway-guardian-requests.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -260,8 +260,12 @@ export class CallController {
    * Kick off the first outbound call utterance from the assistant.
    */
   async startInitialGreeting(): Promise<void> {
-    if (this.initialGreetingStarted) {return;}
-    if (this.state !== "idle") {return;}
+    if (this.initialGreetingStarted) {
+      return;
+    }
+    if (this.state !== "idle") {
+      return;
+    }
 
     this.initialGreetingStarted = true;
     this.resetSilenceTimer();
@@ -275,8 +279,12 @@ export class CallController {
    * greet naturally with context that verification just happened.
    */
   async startPostVerificationGreeting(): Promise<void> {
-    if (this.initialGreetingStarted) {return;}
-    if (this.state !== "idle") {return;}
+    if (this.initialGreetingStarted) {
+      return;
+    }
+    if (this.state !== "idle") {
+      return;
+    }
 
     this.initialGreetingStarted = true;
     this.resetSilenceTimer();
@@ -473,10 +481,16 @@ export class CallController {
    */
   destroy(): void {
     this.destroyed = true;
-    if (this.silenceTimer) {clearTimeout(this.silenceTimer);}
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+    }
     this.cancelPendingEndCall();
-    if (this.durationTimer) {clearTimeout(this.durationTimer);}
-    if (this.durationWarningTimer) {clearTimeout(this.durationWarningTimer);}
+    if (this.durationTimer) {
+      clearTimeout(this.durationTimer);
+    }
+    if (this.durationWarningTimer) {
+      clearTimeout(this.durationWarningTimer);
+    }
     if (this.pendingGuardianInput) {
       clearTimeout(this.pendingGuardianInput.timer);
       this.pendingGuardianInput = null;
@@ -559,7 +573,9 @@ export class CallController {
     transcript: string,
     speaker?: PromptSpeakerContext,
   ): string {
-    if (!speaker) {return transcript;}
+    if (!speaker) {
+      return transcript;
+    }
     const safeId = speaker.speakerId.replaceAll('"', "'");
     const safeLabel = speaker.speakerLabel.replaceAll('"', "'");
     const confidencePart =
@@ -580,7 +596,9 @@ export class CallController {
   }
 
   private async runTurnInner(content: string): Promise<void> {
-    if (this.destroyed) {return;}
+    if (this.destroyed) {
+      return;
+    }
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
@@ -603,7 +621,9 @@ export class CallController {
         runVersion,
         runSignal,
       );
-      if (!this.isCurrentRun(runVersion)) {return;}
+      if (!this.isCurrentRun(runVersion)) {
+        return;
+      }
 
       await this.handleTurnCompletion(fullResponseText);
     } catch (err: unknown) {
@@ -838,15 +858,21 @@ export class CallController {
         enqueueSynthesisSegments(synthProvider, segments);
       } else {
         const cleaned = sanitizeForTts(safeText);
-        if (cleaned.length === 0) {return;}
+        if (cleaned.length === 0) {
+          return;
+        }
         this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
       }
     };
 
     const flushSafeText = (): void => {
-      if (!this.isCurrentRun(runVersion)) {return;}
-      if (ttsBuffer.length === 0) {return;}
+      if (!this.isCurrentRun(runVersion)) {
+        return;
+      }
+      if (ttsBuffer.length === 0) {
+        return;
+      }
       const bracketIdx = ttsBuffer.indexOf("[");
       if (bracketIdx === -1) {
         // No bracket at all — safe to flush everything
@@ -883,7 +909,9 @@ export class CallController {
     // Use a promise to track completion of the voice turn
     const turnComplete = new Promise<void>((resolve, reject) => {
       const onTextDelta = (text: string): void => {
-        if (!this.isCurrentRun(runVersion)) {return;}
+        if (!this.isCurrentRun(runVersion)) {
+          return;
+        }
         fullResponseText += text;
         ttsBuffer += text;
         ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
@@ -989,7 +1017,9 @@ export class CallController {
     // latency; re-check the run wasn't superseded meanwhile so a stale turn
     // doesn't inject its end-of-turn marker (or fallback text) into the next
     // turn's output stream.
-    if (!this.isCurrentRun(runVersion)) {return fullResponseText;}
+    if (!this.isCurrentRun(runVersion)) {
+      return fullResponseText;
+    }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells the transport to start listening — it does NOT trigger TTS
@@ -1447,7 +1477,9 @@ export class CallController {
   }
 
   private clearPendingGuardianInputForCallEnd(): boolean {
-    if (!this.pendingGuardianInput) {return false;}
+    if (!this.pendingGuardianInput) {
+      return false;
+    }
 
     clearTimeout(this.pendingGuardianInput.timer);
 
@@ -1476,7 +1508,9 @@ export class CallController {
     // The teardown has run to completion; drop the token so a later utterance
     // can't read it as a still-pending end-call.
     this.pendingEndCall = null;
-    if (this.destroyed) {return;}
+    if (this.destroyed) {
+      return;
+    }
 
     const currentSession = getCallSession(this.callSessionId);
     if (currentSession && isTerminalState(currentSession.status)) {
@@ -1518,7 +1552,9 @@ export class CallController {
   }
 
   private isExpectedAbortError(err: unknown): boolean {
-    if (!(err instanceof Error)) {return false;}
+    if (!(err instanceof Error)) {
+      return false;
+    }
     return err.name === "AbortError" || err.name === "APIUserAbortError";
   }
 
@@ -1541,7 +1577,9 @@ export class CallController {
    * waiting for the processing lock or generating with no audio yet.
    */
   private beginSpeaking(runVersion: number): void {
-    if (!this.isCurrentRun(runVersion)) {return;}
+    if (!this.isCurrentRun(runVersion)) {
+      return;
+    }
     if (this.state === "processing") {
       this.state = "speaking";
     }
@@ -1649,8 +1687,9 @@ export class CallController {
       if (
         !this.pendingGuardianInput ||
         this.pendingGuardianInput.questionId !== pendingQuestion.id
-      )
-        {return;}
+      ) {
+        return;
+      }
 
       log.info(
         { callSessionId: this.callSessionId },
@@ -1727,8 +1766,12 @@ export class CallController {
    * Drain any instructions that were queued while the LLM was active.
    */
   private flushPendingInstructions(): void {
-    if (this.destroyed) {return;}
-    if (this.pendingInstructions.length === 0) {return;}
+    if (this.destroyed) {
+      return;
+    }
+    if (this.pendingInstructions.length === 0) {
+      return;
+    }
 
     const parts = this.pendingInstructions.map((instr) =>
       instr.startsWith("[") ? instr : `[USER_INSTRUCTION: ${instr}]`,
@@ -1814,8 +1857,12 @@ export class CallController {
   }
 
   private resetSilenceTimer(): void {
-    if (this.silenceTimer) {clearTimeout(this.silenceTimer);}
-    if (this.destroyed) {return;}
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+    }
+    if (this.destroyed) {
+      return;
+    }
     this.silenceTimer = setTimeout(() => {
       // During an in-call guardian consultation, suppress the generic
       // "Are you still there?" — it is confusing when the caller is

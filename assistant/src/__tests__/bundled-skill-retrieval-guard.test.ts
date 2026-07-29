@@ -18,7 +18,9 @@ function collectSkillFiles(rootDir: string): string[] {
 
   while (pending.length > 0) {
     const current = pending.pop();
-    if (!current) continue;
+    if (!current) {
+      continue;
+    }
     const entries = readdirSync(current, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = join(current, entry.name);
@@ -167,7 +169,9 @@ describe("bundled skill retrieval guard", () => {
 
     for (const skillFile of ALL_SKILL_FILES) {
       const rel = relative(REPO_ROOT, skillFile).replaceAll("\\", "/");
-      if (CREDENTIAL_LOOKUP_ALLOWLIST.has(rel)) continue;
+      if (CREDENTIAL_LOOKUP_ALLOWLIST.has(rel)) {
+        continue;
+      }
       const content = readFileSync(skillFile, "utf-8");
       for (const pattern of CREDENTIAL_LOOKUP_PATTERNS) {
         if (content.includes(pattern)) {
@@ -196,14 +200,20 @@ describe("bundled skill retrieval guard", () => {
 
     for (const skillFile of ALL_SKILL_FILES) {
       const rel = relative(REPO_ROOT, skillFile).replaceAll("\\", "/");
-      if (HOST_BASH_RETRIEVAL_ALLOWLIST.has(rel)) continue;
+      if (HOST_BASH_RETRIEVAL_ALLOWLIST.has(rel)) {
+        continue;
+      }
       const content = readFileSync(skillFile, "utf-8");
       const hasHostBash = content.includes("host_bash");
-      if (!hasHostBash) continue;
+      if (!hasHostBash) {
+        continue;
+      }
       const hasRetrievalMarker = RETRIEVAL_MARKERS.some((marker) =>
         content.includes(marker),
       );
-      if (!hasRetrievalMarker) continue;
+      if (!hasRetrievalMarker) {
+        continue;
+      }
       violations.push(
         `${rel}: contains host_bash with Vellum CLI retrieval markers (${RETRIEVAL_MARKERS.join(", ")})`,
       );

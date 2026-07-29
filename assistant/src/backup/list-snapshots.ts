@@ -50,14 +50,18 @@ export async function listSnapshotsInDir(
   try {
     names = await readdir(dir);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
     throw err;
   }
 
   const entries: SnapshotEntry[] = [];
   for (const name of names) {
     const createdAt = parseBackupTimestamp(name);
-    if (createdAt == null) continue;
+    if (createdAt == null) {
+      continue;
+    }
     const fullPath = join(dir, name);
     let stats;
     try {
@@ -65,10 +69,14 @@ export async function listSnapshotsInDir(
     } catch (err) {
       // Race: a file we just listed may have been removed (e.g. by a
       // concurrent prune). Skip it rather than failing the whole listing.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
       throw err;
     }
-    if (!stats.isFile()) continue;
+    if (!stats.isFile()) {
+      continue;
+    }
     entries.push({
       path: fullPath,
       filename: name,
@@ -139,7 +147,9 @@ export async function pruneDir(
       // Tolerate races with concurrent prunes / external deletions: a file
       // we just stat'd may have been removed before we could unlink.
       // Anything else (EACCES, EBUSY, ...) should still propagate.
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw err;
+      }
     }
   }
 

@@ -12,10 +12,10 @@
  *
  * State is held on `globalThis.vellumAssistant.featureFlagCache` so test
  * helpers in `__tests__/` can read/write it WITHOUT importing this
- * module — they declare the same slot shape locally and access the
- * globalThis namespace directly. See
- * `__tests__/feature-flag-test-helpers.ts` for the test-side mirror;
- * the slot shape MUST stay in sync between the two.
+ * module. Both sides reference the shared ambient `VellumFeatureFlagCache`
+ * type (declared in `src/vellum-assistant-namespace.d.ts`), which types the
+ * slot without adding a runtime import between them. See
+ * `__tests__/feature-flag-test-helpers.ts` for the test-side writer.
  *
  * Both `overrides` and `fromGateway` were previously module-level `let`
  * bindings inside `assistant-feature-flags.ts`. The semantics are
@@ -28,18 +28,8 @@
  *   - `__tests__/feature-flag-test-helpers.ts` (seeds for tests, via globalThis)
  */
 
-type FlagSlot = {
-  overrides: Record<string, boolean | string> | null;
-  fromGateway: boolean;
-};
-
-type VellumAssistantNamespace = {
-  featureFlagCache?: FlagSlot;
-};
-
-function slot(): FlagSlot {
-  const g = globalThis as { vellumAssistant?: VellumAssistantNamespace };
-  const ns = (g.vellumAssistant ??= {});
+function slot(): VellumFeatureFlagCache {
+  const ns = (globalThis.vellumAssistant ??= {});
   return (ns.featureFlagCache ??= { overrides: null, fromGateway: false });
 }
 

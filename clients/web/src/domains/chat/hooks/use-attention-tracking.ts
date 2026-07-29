@@ -56,7 +56,8 @@ export function useAttentionTracking({
     assistantStateKind === "active",
   );
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
+  const processingConversationIds =
+    useConversationStore.use.processingConversationIds();
 
   // Resolve from either list cache (fetching the single row on demand) so a
   // background/scheduled thread opened before its sidebar section is revealed
@@ -86,43 +87,70 @@ export function useAttentionTracking({
   // N per-conversation requests in a serial `for await` loop.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (processingConversationIds.size === 0) return;
+    if (processingConversationIds.size === 0) {
+      return;
+    }
     const snapshots = useConversationStore.getState().processingSnapshots;
     const graduatingKeys: string[] = [];
     for (const key of processingConversationIds) {
-      if (key === activeConversationId) continue;
+      if (key === activeConversationId) {
+        continue;
+      }
       const conv = conversations.find((c) => c.conversationId === key);
-      if (!conv) continue;
+      if (!conv) {
+        continue;
+      }
       const snapshot = snapshots.get(key);
-      if (conv.latestAssistantMessageAt && conv.latestAssistantMessageAt !== snapshot) {
+      if (
+        conv.latestAssistantMessageAt &&
+        conv.latestAssistantMessageAt !== snapshot
+      ) {
         graduatingKeys.push(key);
       }
     }
-    if (graduatingKeys.length === 0) return;
+    if (graduatingKeys.length === 0) {
+      return;
+    }
 
     let cancelled = false;
     (async () => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
       let pendingKeys: Set<string>;
       try {
-        pendingKeys = await listConversationIdsWithPendingInteractions(assistantId);
+        pendingKeys =
+          await listConversationIdsWithPendingInteractions(assistantId);
       } catch {
         // See `decideGraduationDispatches` — null signals "do nothing".
         return;
       }
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       const actions = decideGraduationDispatches(graduatingKeys, pendingKeys);
       for (const action of actions) {
         if (action.type === "ADD_ATTENTION_KEY") {
-          useConversationStore.getState().addAttentionConversationId(action.key);
+          useConversationStore
+            .getState()
+            .addAttentionConversationId(action.key);
         } else {
-          useConversationStore.getState().removeProcessingConversationId(action.key);
+          useConversationStore
+            .getState()
+            .removeProcessingConversationId(action.key);
         }
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [conversations, processingConversationIds, activeConversationId, assistantId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    conversations,
+    processingConversationIds,
+    activeConversationId,
+    assistantId,
+  ]);
 
   // -------------------------------------------------------------------------
   // Push-based attention reconciliation.
@@ -148,14 +176,24 @@ export function useAttentionTracking({
   // processing state.
   // -------------------------------------------------------------------------
   useBusSubscription("sse.event", (envelope) => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     const event = envelope.message;
-    if (event.type !== "interaction_resolved") return;
-    if (!USER_FACING_INTERACTION_KINDS.has(event.kind)) return;
+    if (event.type !== "interaction_resolved") {
+      return;
+    }
+    if (!USER_FACING_INTERACTION_KINDS.has(event.kind)) {
+      return;
+    }
     const key = event.conversationId;
-    if (!key) return;
+    if (!key) {
+      return;
+    }
     const state = useConversationStore.getState();
-    if (key === state.activeConversationId) return;
+    if (key === state.activeConversationId) {
+      return;
+    }
     if (state.attentionConversationIds.has(key)) {
       state.removeAttentionConversationId(key);
     }
@@ -179,7 +217,9 @@ export function useAttentionTracking({
   // "fresh") because the initial-sweep effect below handles that.
   // -------------------------------------------------------------------------
   useBusSubscription("sse.opened", ({ cause }) => {
-    if (!assistantId || cause === "fresh") return;
+    if (!assistantId || cause === "fresh") {
+      return;
+    }
     void reconcileAttentionKeys(assistantId, queryClient, {
       pruneStale: true,
     });
@@ -192,7 +232,13 @@ export function useAttentionTracking({
   // sidebar actually knows about.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!assistantId || conversations.length === 0 || initialAttentionSweepDoneRef.current) return;
+    if (
+      !assistantId ||
+      conversations.length === 0 ||
+      initialAttentionSweepDoneRef.current
+    ) {
+      return;
+    }
     initialAttentionSweepDoneRef.current = true;
 
     void reconcileAttentionKeys(assistantId, queryClient);

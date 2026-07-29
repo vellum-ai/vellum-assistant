@@ -31,7 +31,9 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 function findProxyByTransferId(transferId: string) {
   const proxy = HostTransferProxy.instance;
   const requestId = proxy.getRequestIdForTransfer(transferId);
-  if (!requestId) return null;
+  if (!requestId) {
+    return null;
+  }
   return { proxy, requestId };
 }
 
@@ -58,14 +60,16 @@ async function handleTransferContentGet({
     const headerMap = headers as Record<string, string | undefined>;
     const submittingClientId =
       headerMap["x-vellum-client-id"]?.trim() || undefined;
-    if (!submittingClientId)
+    if (!submittingClientId) {
       throw new BadRequestError(
         "x-vellum-client-id header required for targeted transfer",
       );
-    if (submittingClientId !== targetClientId)
+    }
+    if (submittingClientId !== targetClientId) {
       throw new ForbiddenError(
         `Client "${submittingClientId}" is not the owner of this transfer`,
       );
+    }
 
     // Defense-in-depth: the submitting actor's principal must match the
     // actor that opened the target client's SSE stream. Compare against
@@ -104,11 +108,15 @@ function resolveTransferContentGetHeaders({
   pathParams?: Record<string, string>;
 }): Record<string, string> {
   const transferId = pathParams?.transferId;
-  if (!transferId) return { "Content-Type": "application/octet-stream" };
+  if (!transferId) {
+    return { "Content-Type": "application/octet-stream" };
+  }
 
   const meta =
     HostTransferProxy.instance.takeJustConsumedTransferMetadata(transferId);
-  if (!meta) return { "Content-Type": "application/octet-stream" };
+  if (!meta) {
+    return { "Content-Type": "application/octet-stream" };
+  }
 
   return {
     "Content-Type": "application/octet-stream",
@@ -141,14 +149,16 @@ async function handleTransferContentPut({
     const headerMap = headers as Record<string, string | undefined>;
     const submittingClientId =
       headerMap["x-vellum-client-id"]?.trim() || undefined;
-    if (!submittingClientId)
+    if (!submittingClientId) {
       throw new BadRequestError(
         "x-vellum-client-id header required for targeted transfer",
       );
-    if (submittingClientId !== targetClientId)
+    }
+    if (submittingClientId !== targetClientId) {
       throw new ForbiddenError(
         `Client "${submittingClientId}" is not the owner of this transfer`,
       );
+    }
 
     enforceSameActorOrThrow({
       sourceActorPrincipalId: await resolveActorPrincipalIdForLocalGuardian(
@@ -212,14 +222,16 @@ async function handleTransferResult({ body, headers }: RouteHandlerArgs) {
     const headerMap = (headers as Record<string, string | undefined>) ?? {};
     const rawClientId = headerMap["x-vellum-client-id"];
     const submittingClientId = rawClientId?.trim() || undefined;
-    if (!submittingClientId)
+    if (!submittingClientId) {
       throw new BadRequestError(
         "x-vellum-client-id header is missing for a targeted host transfer request.",
       );
-    if (submittingClientId !== peeked.targetClientId)
+    }
+    if (submittingClientId !== peeked.targetClientId) {
       throw new ForbiddenError(
         `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}").`,
       );
+    }
 
     enforceSameActorOrThrow({
       sourceActorPrincipalId: await resolveActorPrincipalIdForLocalGuardian(

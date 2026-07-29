@@ -64,7 +64,14 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+import { getDb } from "../persistence/db-connection.js";
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
+import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
+import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
+import {
+  type SubagentRecord,
+  upsertSubagentRecord,
+} from "../persistence/subagent-store.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
@@ -73,6 +80,12 @@ import { executeSubagentMessage } from "../tools/subagent/message.js";
 import { executeSubagentRead } from "../tools/subagent/read.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
 import { executeSubagentStatus } from "../tools/subagent/status.js";
+
+// The tools fall back to the durable table for a subagent the manager does not
+// hold, so every executor here reaches it. Idempotent; the table may already
+// exist from a prior run.
+migrateCreateSubagentsTable();
+migrateAddSubagentParentToolUseId(getDb());
 
 // Load tool definitions from the bundled skill TOOLS.json
 const toolsJson = JSON.parse(
@@ -1984,5 +1997,360 @@ describe("Advisor role is tool-less", () => {
       (ctx as unknown as { allowedToolNames?: Set<string> }).allowedToolNames
         ?.size ?? 0,
     ).toBe(0);
+  });
+});
+
+// ── model-input schema validation (LUM-2855) ────────────────────────
+
+describe("subagent tools — model-input schema validation", () => {
+  test("spawn rejects a non-string label instead of spawning with it", async () => {
+    const result = await executeSubagentSpawn(
+      { label: 42, objective: "do something" },
+      makeContext("sess-schema", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_spawn"');
+    expect(result.content).toContain("label");
+  });
+
+  test("spawn treats explicit null label as missing (bespoke required error)", async () => {
+    const result = await executeSubagentSpawn(
+      { label: null, objective: "do something" },
+      makeContext("sess-schema", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("required");
+  });
+
+  test("status rejects a non-string subagent_id", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "subagent_status"',
+    );
+  });
+
+  test("message rejects a non-string content", async () => {
+    const result = await executeSubagentMessage(
+      { subagent_id: "some-id", content: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "subagent_message"',
+    );
+    expect(result.content).toContain("content");
+  });
+
+  test("read rejects a non-string label but passes malformed last_n through", async () => {
+    const bad = await executeSubagentRead(
+      { label: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('Invalid input for tool "subagent_read"');
+
+    // last_n is loose passthrough — a malformed value is ignored, so the call
+    // reaches the bespoke "required" check instead of failing validation.
+    const passthrough = await executeSubagentRead(
+      { last_n: "five" },
+      makeContext("sess-schema"),
+    );
+    expect(passthrough.isError).toBe(true);
+    expect(passthrough.content).toContain("required");
+  });
+});
+
+// ── Durable fallback past the rehydration bound ─────────────────────
+
+/** Mirrors `MAX_REHYDRATED_TERMINAL_RECORDS` in `subagent/manager.ts`. */
+const REHYDRATION_CAP = 200;
+
+const beyondCapParent = "beyond-cap-parent";
+const beyondCapOtherParent = "beyond-cap-other-parent";
+const reusedLabel = "Reused beyond cap";
+
+function terminalRecord(over: Partial<SubagentRecord>): SubagentRecord {
+  return {
+    id: "seed",
+    parentConversationId: beyondCapParent,
+    conversationId: "conv-seed",
+    label: "seed",
+    objective: "seeded objective",
+    role: "general",
+    isFork: false,
+    sendResultToUser: true,
+    parentToolUseId: null,
+    status: "completed",
+    error: null,
+    createdAt: 1,
+    startedAt: 2,
+    completedAt: 3,
+    inputTokens: 11,
+    outputTokens: 22,
+    estimatedCost: 0.33,
+    ...over,
+  };
+}
+
+describe("Subagent tools past the startup rehydration bound", () => {
+  // Two runs reused one label, both older than a full cap's worth of finished
+  // subagents, so the rehydration leaves them out of memory entirely.
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "reused-cap-old",
+      conversationId: "conv-reused-cap-old",
+      label: reusedLabel,
+      createdAt: 1_000,
+      completedAt: 2_000,
+    }),
+  );
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "reused-cap-new",
+      conversationId: "conv-reused-cap-new",
+      label: reusedLabel,
+      createdAt: 3_000,
+      completedAt: 4_000,
+    }),
+  );
+  for (let i = 0; i < REHYDRATION_CAP; i++) {
+    upsertSubagentRecord(
+      terminalRecord({
+        id: `cap-filler-${i}`,
+        conversationId: `conv-cap-filler-${i}`,
+        label: `cap filler ${i}`,
+        createdAt: 10_000 + i,
+        completedAt: 20_000 + i,
+      }),
+    );
+  }
+
+  const manager = getSubagentManager();
+  manager.rehydrateFromDb();
+
+  test("the rehydration really left the older runs out of memory", () => {
+    expect(manager.getState("reused-cap-new")).toBeUndefined();
+    expect(manager.getState("reused-cap-old")).toBeUndefined();
+    expect(manager.getByLabel(reusedLabel, beyondCapParent)).toBeUndefined();
+  });
+
+  test("status answers for a subagent the bound left in the table", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: "reused-cap-new" },
+      makeContext(beyondCapParent),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe("reused-cap-new");
+    expect(parsed.label).toBe(reusedLabel);
+    expect(parsed.status).toBe("completed");
+    expect(parsed.usage).toEqual({
+      inputTokens: 11,
+      outputTokens: 22,
+      estimatedCost: 0.33,
+    });
+  });
+
+  test("status still rejects another conversation asking for it", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: "reused-cap-new" },
+      makeContext(beyondCapOtherParent),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No subagent found");
+  });
+
+  test("read returns the transcript for a subagent past the bound", async () => {
+    mockGetMessages = (convId: string) => {
+      if (convId !== "conv-reused-cap-new") {
+        return null;
+      }
+      return [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Output from beyond the bound" }],
+        },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: "reused-cap-new" },
+        makeContext(beyondCapParent),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Output from beyond the bound");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read still rejects another conversation asking for it", async () => {
+    mockGetMessages = () => [
+      { role: "assistant", content: [{ type: "text", text: "leaked" }] },
+    ];
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: "reused-cap-new" },
+        makeContext(beyondCapOtherParent),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("No subagent found");
+      expect(result.content).not.toContain("leaked");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a label past the bound resolves durably to the newest run", async () => {
+    const result = await executeSubagentStatus(
+      { label: reusedLabel },
+      makeContext(beyondCapParent),
+    );
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).subagentId).toBe("reused-cap-new");
+  });
+
+  test("a label past the bound matches case- and space-insensitively", async () => {
+    const result = await executeSubagentStatus(
+      { label: `  ${reusedLabel.toUpperCase()}  ` },
+      makeContext(beyondCapParent),
+    );
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).subagentId).toBe("reused-cap-new");
+  });
+
+  test("a label past the bound stays scoped to the parent that spawned it", async () => {
+    const result = await executeSubagentStatus(
+      { label: reusedLabel },
+      makeContext(beyondCapOtherParent),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No subagent found");
+  });
+});
+
+// ── List-all merges live children with durable rows ─────────────────
+
+describe("subagent_status list-all past the in-memory window", () => {
+  const mergeParent = "list-merge-parent";
+
+  // A run the retention sweep evicted from memory while keeping its row, plus
+  // a stale row for a subagent the manager still holds live.
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "list-merge-swept",
+      parentConversationId: mergeParent,
+      conversationId: "conv-list-merge-swept",
+      label: "Swept worker",
+      createdAt: 1_000,
+      completedAt: 2_000,
+    }),
+  );
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "list-merge-live",
+      parentConversationId: mergeParent,
+      conversationId: "conv-list-merge-live",
+      label: "Live worker",
+      createdAt: 3_000,
+      completedAt: 4_000,
+    }),
+  );
+
+  const listMergeManager = getSubagentManager();
+  injectSubagent(listMergeManager, "list-merge-live", mergeParent, "running");
+
+  function listedSubagents(content: string) {
+    return JSON.parse(content) as Array<{ subagentId: string; status: string }>;
+  }
+
+  test("lists a swept subagent alongside the live one", async () => {
+    const result = await executeSubagentStatus({}, makeContext(mergeParent));
+    expect(result.isError).toBe(false);
+    expect(
+      listedSubagents(result.content)
+        .map((s) => s.subagentId)
+        .sort(),
+    ).toEqual(["list-merge-live", "list-merge-swept"]);
+  });
+
+  test("prefers live state over the row, and settles a row-only entry", async () => {
+    const result = await executeSubagentStatus({}, makeContext(mergeParent));
+    const listed = listedSubagents(result.content);
+
+    // The row says `completed`; the manager is still running it.
+    expect(listed.find((s) => s.subagentId === "list-merge-live")?.status).toBe(
+      "running",
+    );
+    expect(
+      listed.find((s) => s.subagentId === "list-merge-swept")?.status,
+    ).toBe("completed");
+  });
+});
+
+// ── List-all bounds the merged set ──────────────────────────────────
+
+/** Mirrors `MAX_LISTED_TERMINAL_RECORDS` in `tools/subagent/status.ts`. */
+const LISTED_TERMINAL_CAP = 20;
+
+describe("subagent_status list-all bounds the terminal entries", () => {
+  const boundParent = "list-bound-parent";
+
+  // A restart rehydrates far more terminal children than this path reports, so
+  // the bound has to hold over the merged set, not just the durable query.
+  for (let i = 0; i < 25; i++) {
+    injectSubagent(
+      getSubagentManager(),
+      `list-bound-done-${String(i).padStart(2, "0")}`,
+      boundParent,
+      "completed",
+      { createdAt: 1_000 + i, completedAt: 10_000 + i },
+    );
+  }
+  // The oldest child of the parent, which the recency cap must not reach.
+  injectSubagent(
+    getSubagentManager(),
+    "list-bound-active",
+    boundParent,
+    "running",
+    {
+      createdAt: 1,
+    },
+  );
+
+  function listedIds(content: string): string[] {
+    return (JSON.parse(content) as Array<{ subagentId: string }>).map(
+      (s) => s.subagentId,
+    );
+  }
+
+  test("reports only the most recently settled terminal children", async () => {
+    const result = await executeSubagentStatus({}, makeContext(boundParent));
+    expect(result.isError).toBe(false);
+
+    expect(
+      listedIds(result.content)
+        .filter((id) => id !== "list-bound-active")
+        .sort(),
+    ).toEqual(
+      Array.from(
+        { length: LISTED_TERMINAL_CAP },
+        (_, i) => `list-bound-done-${String(i + 5).padStart(2, "0")}`,
+      ).sort(),
+    );
+  });
+
+  test("never caps out an active child, however old", async () => {
+    const result = await executeSubagentStatus({}, makeContext(boundParent));
+    const ids = listedIds(result.content);
+
+    expect(ids).toContain("list-bound-active");
+    expect(ids).toHaveLength(LISTED_TERMINAL_CAP + 1);
   });
 });

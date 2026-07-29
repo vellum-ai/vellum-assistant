@@ -8,6 +8,7 @@ import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
+import { ExponentialBackoff } from "../util/exponential-backoff.js";
 import {
   VELAY_ALLOWED_PATHS_HEADER,
   VELAY_ALLOWED_PATHS_HEADER_VALUE,
@@ -76,17 +77,13 @@ export class VelayTunnelClient {
   private readonly webSocketConstructor: WebSocketConstructorWithOptions;
   private readonly httpBridge: typeof bridgeVelayHttpRequest;
   private readonly webSocketBridge: VelayWebSocketBridge;
-  private readonly baseReconnectDelayMs: number;
-  private readonly maxReconnectDelayMs: number;
-  private readonly reconnectJitterRatio: number;
-  private readonly random: () => number;
+  private readonly backoff: ExponentialBackoff;
   private readonly heartbeatIntervalMs: number;
   private readonly heartbeatReadTimeoutMs: number;
   private readonly timerApi: TimerApi;
   private ws: WebSocket | null = null;
   private running = false;
   private connecting = false;
-  private reconnectAttempt = 0;
   private reconnectTimer: unknown = null;
   private heartbeatTimer: unknown = null;
   private readTimeoutTimer: unknown = null;
@@ -106,13 +103,15 @@ export class VelayTunnelClient {
     this.webSocketBridge = (
       options.webSocketBridgeFactory ?? defaultWebSocketBridgeFactory
     )(options.gatewayLoopbackBaseUrl, (frame) => this.sendFrame(frame));
-    this.baseReconnectDelayMs =
-      options.reconnect?.baseDelayMs ?? BASE_RECONNECT_DELAY_MS;
-    this.maxReconnectDelayMs =
-      options.reconnect?.maxDelayMs ?? MAX_RECONNECT_DELAY_MS;
-    this.reconnectJitterRatio =
-      options.reconnect?.jitterRatio ?? RECONNECT_JITTER_RATIO;
-    this.random = options.reconnect?.random ?? Math.random;
+    this.backoff = new ExponentialBackoff({
+      baseDelayMs: options.reconnect?.baseDelayMs ?? BASE_RECONNECT_DELAY_MS,
+      maxDelayMs: options.reconnect?.maxDelayMs ?? MAX_RECONNECT_DELAY_MS,
+      jitter: {
+        mode: "additive",
+        ratio: options.reconnect?.jitterRatio ?? RECONNECT_JITTER_RATIO,
+      },
+      random: options.reconnect?.random,
+    });
     this.heartbeatIntervalMs =
       options.heartbeat?.intervalMs ?? HEARTBEAT_INTERVAL_MS;
     this.heartbeatReadTimeoutMs =
@@ -134,7 +133,7 @@ export class VelayTunnelClient {
   refreshCredentials(reason = "credentials changed"): void {
     if (!this.running) return;
 
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     if (this.reconnectTimer) {
       this.timerApi.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -435,7 +434,7 @@ export class VelayTunnelClient {
 
     await writeManagedPublicBaseUrl(publicUrl, this.options.configFile);
     this.publishedPublicBaseUrl = publicUrl;
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     log.info({ publicUrl }, "Velay tunnel registered");
   }
 
@@ -571,13 +570,7 @@ export class VelayTunnelClient {
   private scheduleReconnect(): void {
     if (!this.running || this.reconnectTimer) return;
 
-    const backoff = Math.min(
-      this.baseReconnectDelayMs * Math.pow(2, this.reconnectAttempt),
-      this.maxReconnectDelayMs,
-    );
-    const jitter = backoff * this.reconnectJitterRatio * this.random();
-    const delay = Math.round(backoff + jitter);
-    this.reconnectAttempt++;
+    const delay = this.backoff.nextDelayMs();
 
     this.reconnectTimer = this.timerApi.setTimeout(() => {
       this.reconnectTimer = null;
@@ -610,7 +603,7 @@ export class VelayTunnelClient {
     // backoff — otherwise a link minted right after enabling ingress (which
     // also starts the tunnel) stays unreachable for up to the max backoff.
     if (wasDisabled && this.running && !ws && !this.connecting) {
-      this.reconnectAttempt = 0;
+      this.backoff.reset();
       if (this.reconnectTimer) {
         this.timerApi.clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;

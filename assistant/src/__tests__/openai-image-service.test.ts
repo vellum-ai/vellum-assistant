@@ -48,13 +48,17 @@ mock.module("openai", () => {
         generate: async (params: Record<string, unknown>) => {
           lastGenerateParams = params;
           generateCallCount++;
-          if (shouldThrow) throw shouldThrow;
+          if (shouldThrow) {
+            throw shouldThrow;
+          }
           return fakeResponse;
         },
         edit: async (params: Record<string, unknown>) => {
           lastEditParams = params;
           editCallCount++;
-          if (shouldThrow) throw shouldThrow;
+          if (shouldThrow) {
+            throw shouldThrow;
+          }
           return fakeResponse;
         },
       };

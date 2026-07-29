@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
@@ -18,6 +20,11 @@ import {
   CapabilityManifestSchema,
   resolveCapabilities as resolveWorkflowCapabilities,
 } from "../../workflows/capabilities.js";
+import { resolveGroupReference } from "../conversation-groups/group_shared.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
@@ -26,6 +33,49 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "multi_channel",
   "all_channels",
 ];
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeScheduleCreate}.
+ * Skill-owned tools are skipped by the central `TOOL_INPUT_SCHEMAS` gate, so
+ * validation lives in the executor (`ask_question` pre-registry precedent);
+ * the advertised `input_schema` stays hand-written in the schedule skill's
+ * `TOOLS.json`, and `schedule-tool-input-schemas.test.ts` guards the two
+ * against structural drift.
+ *
+ * Tolerance matches the executor's own reads — this schema only rejects
+ * values the executor would otherwise pass into the store unchecked:
+ *
+ * - `nullAsOmitted` on optionals read via `?? fallback`, where null and
+ *   absent are equivalent.
+ * - `.catch(undefined)` on `workflow_name`, which the executor
+ *   silently coerces to null when malformed.
+ * - `mode`, `routing_intent`, `capabilities`, and `workflow_args` are
+ *   deliberately UNDECLARED (loose passthrough): the first two keep their
+ *   bespoke `VALID_*` error messages, `capabilities` must reach
+ *   `CapabilityManifestSchema` (and the `requireFreshApproval` promotion in
+ *   `executor.ts`) unaltered, and `workflow_args` accepts any JSON value the
+ *   workflow runtime accepts.
+ */
+export const scheduleCreateInputSchema = z.looseObject({
+  name: nullAsOmitted(z.string()),
+  description: nullAsOmitted(z.string()),
+  syntax: nullAsOmitted(z.enum(["cron", "rrule"])),
+  expression: nullAsOmitted(z.string()),
+  fire_at: nullAsOmitted(z.string()),
+  timezone: nullAsOmitted(z.string()),
+  message: nullAsOmitted(z.string()),
+  script: nullAsOmitted(z.string()),
+  enabled: nullAsOmitted(z.boolean()),
+  workflow_name: z.string().optional().catch(undefined),
+  routing_hints: nullAsOmitted(z.looseObject({})),
+  quiet: nullAsOmitted(z.boolean()),
+  reuse_conversation: nullAsOmitted(z.boolean()),
+  max_retries: nullAsOmitted(z.int()),
+  retry_backoff_ms: nullAsOmitted(z.int()),
+  timeout_ms: z.int().optional(),
+  inference_profile: z.string().optional(),
+  group: nullAsOmitted(z.string()),
+});
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -38,27 +88,32 @@ export async function executeScheduleCreate(
       isError: true,
     };
   }
-  const name = input.name as string;
-  const description = input.description as string | undefined;
-  const timezone = (input.timezone as string) ?? null;
-  const message = (input.message as string) ?? "";
-  const script = (input.script as string) ?? null;
-  const enabled = (input.enabled as boolean) ?? true;
-  const fireAt = input.fire_at as string | undefined;
+  const parsedInput = scheduleCreateInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("schedule_create", parsedInput.error);
+  }
+  const parsed = parsedInput.data;
+
+  const name = parsed.name;
+  const description = parsed.description;
+  const timezone = parsed.timezone ?? null;
+  const message = parsed.message ?? "";
+  const script = parsed.script ?? null;
+  const enabled = parsed.enabled ?? true;
+  const fireAt = parsed.fire_at;
+  // mode / routing_intent / workflow_args (and capabilities, read below) stay
+  // raw-input reads: they are undeclared in the schema (see its doc comment).
   const mode = (input.mode as ScheduleMode | undefined) ?? "execute";
   const routingIntent = input.routing_intent as string | undefined;
-  const routingHints = input.routing_hints as
-    | Record<string, unknown>
-    | undefined;
-  const quiet = (input.quiet as boolean) ?? false;
-  const reuseConversation = input.reuse_conversation as boolean | undefined;
-  const maxRetries = input.max_retries as number | undefined;
-  const retryBackoffMs = input.retry_backoff_ms as number | undefined;
-  const timeoutMs = input.timeout_ms as number | undefined;
-  const workflowName =
-    typeof input.workflow_name === "string" ? input.workflow_name.trim() : null;
+  const routingHints = parsed.routing_hints;
+  const quiet = parsed.quiet ?? false;
+  const reuseConversation = parsed.reuse_conversation;
+  const maxRetries = parsed.max_retries;
+  const retryBackoffMs = parsed.retry_backoff_ms;
+  const timeoutMs = parsed.timeout_ms;
+  const workflowName = parsed.workflow_name?.trim() ?? null;
   const workflowArgs = input.workflow_args;
-  const inferenceProfile = input.inference_profile as string | undefined;
+  const inferenceProfile = parsed.inference_profile;
 
   // Validated workflow capability manifest, resolved only for workflow mode.
   // Left null for non-workflow modes so `createSchedule` persists no manifest.
@@ -72,30 +127,32 @@ export async function executeScheduleCreate(
   }
 
   if (inferenceProfile !== undefined) {
-    if (typeof inferenceProfile !== "string") {
-      return {
-        content: "Error: inference_profile must be a string",
-        isError: true,
-      };
-    }
     const profileError = validateScheduleInferenceProfile(inferenceProfile);
     if (profileError) {
       return { content: `Error: ${profileError}`, isError: true };
     }
   }
 
-  if (!name || typeof name !== "string") {
+  // Sidebar group for run conversations; null = default system:scheduled.
+  let groupId: string | null = null;
+  let groupName: string | null = null;
+  if (parsed.group !== undefined) {
+    const resolvedGroup = resolveGroupReference(parsed.group);
+    if ("error" in resolvedGroup) {
+      return { content: `Error: ${resolvedGroup.error}`, isError: true };
+    }
+    groupId = resolvedGroup.group.id;
+    groupName = resolvedGroup.group.name;
+  }
+
+  if (!name) {
     return {
       content: "Error: name is required and must be a string",
       isError: true,
     };
   }
 
-  if (
-    !description ||
-    typeof description !== "string" ||
-    description.trim().length === 0
-  ) {
+  if (!description || description.trim().length === 0) {
     return {
       content: "Error: description is required and must be a non-empty string",
       isError: true,
@@ -112,7 +169,7 @@ export async function executeScheduleCreate(
 
   // Mode-specific field validation
   if (mode === "script") {
-    if (!script || typeof script !== "string") {
+    if (!script) {
       return {
         content:
           "Error: script is required for script mode and must be a non-empty string",
@@ -218,6 +275,7 @@ export async function executeScheduleCreate(
         workflowArgs,
         capabilities,
         inferenceProfile,
+        groupId,
         createdFromConversationId: context.conversationId,
       });
 
@@ -234,6 +292,7 @@ export async function executeScheduleCreate(
           ...(job.inferenceProfile
             ? [`  Inference profile: ${job.inferenceProfile}`]
             : []),
+          ...(groupName ? [`  Conversation group: ${groupName}`] : []),
           `  Fire at: ${fireDate}`,
           `  Enabled: ${job.enabled}`,
           `  Status: ${job.status}`,
@@ -251,8 +310,8 @@ export async function executeScheduleCreate(
 
   // ── Recurring schedule (expression) ──────────────────────────────
   const resolved = normalizeScheduleSyntax({
-    syntax: input.syntax as "cron" | "rrule" | undefined,
-    expression: input.expression as string | undefined,
+    syntax: parsed.syntax,
+    expression: parsed.expression,
   });
 
   if (!resolved) {
@@ -309,6 +368,7 @@ export async function executeScheduleCreate(
       workflowArgs,
       capabilities,
       inferenceProfile,
+      groupId,
       createdFromConversationId: context.conversationId,
     });
 
@@ -332,6 +392,7 @@ export async function executeScheduleCreate(
         ...(job.inferenceProfile
           ? [`  Inference profile: ${job.inferenceProfile}`]
           : []),
+        ...(groupName ? [`  Conversation group: ${groupName}`] : []),
         `  Schedule: ${scheduleDescription}${
           job.timezone ? ` (${job.timezone})` : ""
         }`,

@@ -48,7 +48,9 @@ function isToolResultMessage(message: Message): boolean {
 function countUserTurns(messages: ReadonlyArray<Message>): number {
   let turns = 0;
   for (const message of messages) {
-    if (message.role === "user" && !isToolResultMessage(message)) turns++;
+    if (message.role === "user" && !isToolResultMessage(message)) {
+      turns++;
+    }
   }
   return turns;
 }
@@ -57,7 +59,9 @@ function shouldRetryFallbackTitle(conversation: {
   title: string | null;
   isAutoTitle: number;
 }): boolean {
-  if (!conversation.isAutoTitle) return false;
+  if (!conversation.isAutoTitle) {
+    return false;
+  }
   return (
     isReplaceableTitle(conversation.title) ||
     conversation.isAutoTitle === AUTO_TITLE_DETERMINISTIC
@@ -68,10 +72,14 @@ const stop: HookFunction<StopContext> = async (ctx) => {
   // Re-title only at a genuine successful turn end (the model returned a reply
   // with no tool calls). Any other terminal — a provider rejection, abort, or
   // an output-limit cutoff — produced no new topic to re-title from.
-  if (ctx.exitReason !== "no_tool_calls") return;
+  if (ctx.exitReason !== "no_tool_calls") {
+    return;
+  }
 
   const userTurns = countUserTurns(ctx.messages);
-  if (userTurns === 0) return;
+  if (userTurns === 0) {
+    return;
+  }
 
   // System conversations (background/scheduled) keep their deterministic
   // bootstrap title — multi-prompt background jobs can reach three user-role
@@ -81,7 +89,9 @@ const stop: HookFunction<StopContext> = async (ctx) => {
   let retryFallbackTitle = false;
   try {
     const conversation = getConversation(ctx.conversationId);
-    if (conversation && conversation.conversationType !== "standard") return;
+    if (conversation && conversation.conversationType !== "standard") {
+      return;
+    }
     retryFallbackTitle = conversation
       ? shouldRetryFallbackTitle(conversation)
       : false;

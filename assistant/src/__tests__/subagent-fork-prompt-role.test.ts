@@ -15,7 +15,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
 // ── Captured constructor state ──────────────────────────────────────────────
 
@@ -148,7 +148,9 @@ describe("SubagentManager fork — prompt source and role decoupling", () => {
   ): Promise<CapturedConversationState> {
     await manager.spawn(makeForkSpawnConfig(overrides), () => {});
     const created = capturedConversations[0];
-    if (!created) {throw new Error("Expected a subagent conversation");}
+    if (!created) {
+      throw new Error("Expected a subagent conversation");
+    }
     return created;
   }
 

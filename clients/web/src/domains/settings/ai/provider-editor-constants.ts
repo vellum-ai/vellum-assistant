@@ -35,6 +35,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "atlascloud",
   "litellm",
   "baseten",
+  "poolside",
   "openai-compatible",
 ];
 

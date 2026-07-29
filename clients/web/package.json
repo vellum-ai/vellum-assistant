@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.10.12",
+  "version": "0.11.0",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -18,7 +18,7 @@
     "audit:cross-domain:check": "node scripts/audit-cross-domain-imports.mjs --check",
     "pretypecheck": "bun run openapi-ts",
     "typecheck": "bunx tsc --noEmit",
-    "postinstall": "test -d src/generated || bun run openapi-ts",
+    "postinstall": "bun run openapi-ts",
     "openapi-ts": "bun run scripts/transform-daemon-spec.ts && bun run scripts/transform-gateway-spec.ts && openapi-ts",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
     "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",

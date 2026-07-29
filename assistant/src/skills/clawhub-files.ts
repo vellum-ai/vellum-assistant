@@ -40,7 +40,9 @@ const inspectCache = new Map<string, CacheEntry>();
 
 function getCached(slug: string): ClawhubInspectResult | null {
   const entry = inspectCache.get(slug);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   if (Date.now() > entry.expiresAt) {
     inspectCache.delete(slug);
     return null;
@@ -59,7 +61,9 @@ async function inspectCached(
   slug: string,
 ): Promise<ClawhubInspectResult | null> {
   const cached = getCached(slug);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const result = await clawhubInspect(slug);
   if (!result.data) {
@@ -98,15 +102,21 @@ function classifyBinary(fileName: string, contentType?: string): boolean {
 export function createClawhubProvider(): SkillFileProvider {
   return {
     canHandle(skillId: string): boolean {
-      if (!validateSlug(skillId)) return false;
+      if (!validateSlug(skillId)) {
+        return false;
+      }
       // skills.sh slugs have ≥ 3 segments (owner/repo/skill)
-      if (skillId.split("/").length >= 3) return false;
+      if (skillId.split("/").length >= 3) {
+        return false;
+      }
       return true;
     },
 
     async listFiles(skillId: string): Promise<SkillFileEntry[] | null> {
       const data = await inspectCached(skillId);
-      if (!data || !data.files) return null;
+      if (!data || !data.files) {
+        return null;
+      }
 
       const entries: SkillFileEntry[] = data.files.map((f) => {
         const name = basename(f.path);
@@ -175,7 +185,9 @@ export function createClawhubProvider(): SkillFileProvider {
       }
 
       // Text file but content fetch failed — file doesn't exist.
-      if (content == null) return null;
+      if (content == null) {
+        return null;
+      }
 
       return {
         path: sanitizedPath,
@@ -189,7 +201,9 @@ export function createClawhubProvider(): SkillFileProvider {
 
     async toSlimSkill(skillId: string): Promise<SlimSkillResponse | null> {
       const data = await inspectCached(skillId);
-      if (!data) return null;
+      if (!data) {
+        return null;
+      }
 
       return {
         id: data.skill.slug,

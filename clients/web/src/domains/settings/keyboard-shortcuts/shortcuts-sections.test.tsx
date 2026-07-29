@@ -49,9 +49,8 @@ mock.module("@/runtime/hotkeys", () => ({
   onHotkeysChange,
 }));
 
-const { ShortcutsSections } = await import(
-  "@/domains/settings/keyboard-shortcuts/shortcuts-sections"
-);
+const { ShortcutsSections } =
+  await import("@/domains/settings/keyboard-shortcuts/shortcuts-sections");
 
 beforeEach(() => {
   catalog = [
@@ -82,7 +81,9 @@ describe("ShortcutsSections", () => {
 
   test("records a keypress into a setHotkey write", async () => {
     render(<ShortcutsSections />);
-    fireEvent.click(await screen.findByLabelText("Record shortcut for New chat"));
+    fireEvent.click(
+      await screen.findByLabelText("Record shortcut for New chat"),
+    );
 
     fireEvent.keyDown(document.body, {
       code: "KeyT",
@@ -91,19 +92,26 @@ describe("ShortcutsSections", () => {
     });
 
     expect(setHotkey).toHaveBeenCalledTimes(1);
-    expect(setHotkey).toHaveBeenCalledWith("newConversation", "CmdOrCtrl+Alt+T");
+    expect(setHotkey).toHaveBeenCalledWith(
+      "newConversation",
+      "CmdOrCtrl+Alt+T",
+    );
   });
 
   test("blocks a conflicting capture and surfaces a warning", async () => {
     render(<ShortcutsSections />);
-    fireEvent.click(await screen.findByLabelText("Record shortcut for Open Vellum"));
+    fireEvent.click(
+      await screen.findByLabelText("Record shortcut for Open Vellum"),
+    );
 
     // CmdOrCtrl+N is already bound to "New chat".
     fireEvent.keyDown(document.body, { code: "KeyN", metaKey: true });
 
     expect(setHotkey).not.toHaveBeenCalled();
     // Surfaced both in the page-level Notice and inline under the row.
-    expect(screen.getAllByText(/already used by New chat/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/already used by New chat/i).length,
+    ).toBeGreaterThan(0);
   });
 
   test("does not render a row for a reserved command", async () => {
@@ -127,7 +135,9 @@ describe("ShortcutsSections", () => {
 
   test("Escape cancels recording without writing", async () => {
     render(<ShortcutsSections />);
-    fireEvent.click(await screen.findByLabelText("Record shortcut for New chat"));
+    fireEvent.click(
+      await screen.findByLabelText("Record shortcut for New chat"),
+    );
 
     fireEvent.keyDown(document.body, { code: "Escape" });
     fireEvent.keyDown(document.body, { code: "KeyT", metaKey: true });

@@ -8,14 +8,7 @@
  * that writes are serialized (no two PATCHes in flight at once), and that the
  * final write always reflects the newest zone when triggers overlap.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -164,7 +157,9 @@ describe("TimezoneSync", () => {
 
     publish("app.resume", { signal: "visibility" });
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
-    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+    expect(lastBody()).toEqual({
+      ui: { detectedTimezone: "America/New_York" },
+    });
   });
 
   test("retries on window focus with the same zone after a failed initial sync", async () => {
@@ -176,7 +171,9 @@ describe("TimezoneSync", () => {
 
     window.dispatchEvent(new Event("focus"));
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
-    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+    expect(lastBody()).toEqual({
+      ui: { detectedTimezone: "America/New_York" },
+    });
   });
 
   test("does not re-PATCH on resume/focus after a successful sync with the same zone", async () => {
@@ -207,7 +204,9 @@ describe("TimezoneSync", () => {
     const { rerender } = renderSync();
     // First PATCH issued (mount) for America/New_York; still pending.
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
-    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+    expect(lastBody()).toEqual({
+      ui: { detectedTimezone: "America/New_York" },
+    });
 
     // Zone flips before the first request settles. NO second PATCH yet — the
     // first is still in flight, so only ONE PATCH is ever in flight at once.
@@ -238,6 +237,8 @@ describe("TimezoneSync", () => {
     rerender(<TimezoneSync />);
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(3));
     resolvers[2]!();
-    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+    expect(lastBody()).toEqual({
+      ui: { detectedTimezone: "America/New_York" },
+    });
   });
 });

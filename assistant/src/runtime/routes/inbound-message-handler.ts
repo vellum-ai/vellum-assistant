@@ -1302,6 +1302,9 @@ export async function handleChannelInbound({
             actorExternalId: admittedSenderId,
             actorDisplayName: body.actorDisplayName,
             actorUsername: body.actorUsername,
+            // The nudge fires after recordInbound, so the originating
+            // conversation exists — attach the in-app card to it.
+            destinationConversationId: result.conversationId,
             messagePreview: truncate(
               trimmedContent,
               MESSAGE_PREVIEW_MAX_LENGTH,
@@ -1352,6 +1355,14 @@ export async function handleChannelInbound({
         sourceMetadata.actorTeamId.length > 0
           ? sourceMetadata.actorTeamId
           : undefined;
+      // What the sender had open in Slack when they sent this message. The
+      // entities themselves are validated where they are rendered; here we
+      // only confirm the envelope is the array shape the contract promises.
+      const slackAppContextEntities =
+        sourceChannel === "slack" &&
+        Array.isArray(sourceMetadata?.appContext?.entities)
+          ? sourceMetadata.appContext.entities
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1379,6 +1390,9 @@ export async function handleChannelInbound({
                   slackTranscriptTimestampTimezone?.timestampTimezoneLabel,
                 speakerTimezoneLabel: slackSpeakerTimezoneLabel,
               }),
+              ...(slackAppContextEntities?.length
+                ? { appContext: { entities: slackAppContextEntities } }
+                : {}),
             }
           : undefined;
 
@@ -1458,6 +1472,9 @@ export async function handleChannelInbound({
         trustClass: trustCtx.trustClass,
         sourceChannel,
         requesterIdentifier: trustCtx.requesterIdentifier,
+        ...(slackInbound?.appContext
+          ? { slackAppContext: slackInbound.appContext }
+          : {}),
       });
 
       // Fire-and-forget: process the message and deliver the reply in the background.

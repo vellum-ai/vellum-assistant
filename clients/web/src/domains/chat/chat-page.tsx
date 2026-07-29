@@ -32,7 +32,8 @@ export function ChatPage() {
   const isSessionInitializing = useIsSessionInitializing();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
+  const selfHostedChatEnabled =
+    useClientFeatureFlagStore.use.selfHostedAssistant();
 
   const shouldRenderChat =
     assistantState.kind === "active" ||
@@ -40,10 +41,8 @@ export function ChatPage() {
 
   // Conversation list query — needed for the self-hosted error guard below.
   // TanStack Query deduplicates with the same query in ActiveChatView.
-  const {
-    isError: conversationListIsError,
-    refetch: refetchConversationList,
-  } = useConversationListQuery(assistantId, shouldRenderChat);
+  const { isError: conversationListIsError, refetch: refetchConversationList } =
+    useConversationListQuery(assistantId, shouldRenderChat);
 
   const retryAssistant = useCallback(
     () => lifecycleService.retryAssistant(),

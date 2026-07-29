@@ -13,6 +13,7 @@
  */
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   addMessage,
   getConversation,
@@ -27,7 +28,6 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import type { AssistantEvent } from "./message-protocol.js";
 import type {
   SubagentToolGateMode,
   WakeToolContextPin,
@@ -176,7 +176,9 @@ export function emitWakeAgentEvent(
     event,
     conversation.conversationId,
   );
-  if (!frame) {return;}
+  if (!frame) {
+    return;
+  }
   broadcastMessage(frame);
 }
 

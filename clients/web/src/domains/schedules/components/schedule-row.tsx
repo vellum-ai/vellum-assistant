@@ -126,9 +126,7 @@ export function ScheduleRow({
   /** Omit for read-only rows (past one-shots) — hides the enable/disable toggle. */
   onToggle?: (enabled: boolean) => void;
 }) {
-  const cadence = schedule.isOneShot
-    ? ""
-    : schedule.cadenceDescription.trim();
+  const cadence = schedule.isOneShot ? "" : schedule.cadenceDescription.trim();
   const runAt = schedule.lastRunAt ?? schedule.nextRunAt;
   const metaParts = [cadence, runAt ? formatTimestamp(runAt) : ""].filter(
     Boolean,

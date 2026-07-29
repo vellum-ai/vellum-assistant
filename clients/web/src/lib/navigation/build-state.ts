@@ -14,8 +14,32 @@ import {
   readDiagnosticsConsentCurrent,
   readConsentHydrated,
 } from "@/domains/onboarding/prefs";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
+import {
+  assistantsValidForOrg,
+  useResolvedAssistantsStore,
+  type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
 import type { NavigationState } from "./navigation-resolver";
+
+/**
+ * Whether the active organization has a platform-hosted assistant — the only
+ * kind a managed plan can apply to.
+ *
+ * The org narrows the list only once it resolves. Before that every resolved
+ * assistant counts: narrowing against an unresolved org would read an
+ * established user's own managed assistant as absent (lockfile entries carry
+ * an `organizationId`, and `assistantsValidForOrg` drops those that name a
+ * different one).
+ */
+function hasPlatformHostedAssistant(assistants: ResolvedAssistant[]): boolean {
+  const activeOrganizationId = getActiveOrganizationIdForRequests();
+  const scoped =
+    activeOrganizationId == null
+      ? assistants
+      : assistantsValidForOrg(assistants, activeOrganizationId);
+  return scoped.some((assistant) => assistant.isPlatformHosted);
+}
 
 export function buildNavigationState(
   overrides?: Partial<NavigationState>,
@@ -33,6 +57,7 @@ export function buildNavigationState(
       : "",
     isGatewayAuth: isGatewayAuthMode(),
     hasAssistants: assistants.length > 0,
+    hasPlatformHostedAssistant: hasPlatformHostedAssistant(assistants),
     sessionSettled: isSessionSettled(sessionStatus),
     // `isAuthenticated` mirrors `sessionStatus`. The local gateway is the sole
     // session authority (#35152), so a reachable local user is already

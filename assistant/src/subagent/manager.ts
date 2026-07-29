@@ -10,6 +10,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
@@ -18,11 +19,12 @@ import {
   removeSubagentConversation,
   setSubagentConversation,
 } from "../daemon/conversation-registry.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../persistence/conversation-bootstrap.js";
 import {
-  deleteSubagentRecord,
-  loadAllSubagentRecords,
+  deleteAllSubagentRecords,
+  deleteSubagentRecordsByParent,
+  loadRehydratableSubagentRecords,
+  type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
@@ -38,6 +40,8 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
+  normalizeSubagentLabel,
+  settleUnsupervisedStatus,
   SUBAGENT_LIMITS,
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
@@ -53,6 +57,81 @@ const log = getLogger("subagent-manager");
 const TERMINAL_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
 /** How often to sweep expired terminal entries (ms). */
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+/**
+ * Cap on the terminal subagents a restart rebuilds in memory. Rows live as long
+ * as their parent conversation, so the table is unbounded history, while a
+ * rehydrated terminal entry only serves the in-process subagent tools for the
+ * current session. Both route surfaces read the durable table directly and
+ * carry their own bounds, so this one is invisible to them. Subagents that are
+ * not terminal are never capped: an unsettled row has to be settled to
+ * `interrupted` at any age.
+ */
+const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
+
+// ── Durable record → state mapping ─────────────────────────────────────
+
+/**
+ * The in-memory view of a durable subagent record. Shared by the startup
+ * rehydration and by the subagent tools' fallback for a record the manager
+ * does not hold, so the two cannot drift.
+ *
+ * The recorded status maps through verbatim. What an active status means for a
+ * subagent nothing is executing is a separate decision, made by
+ * {@link settleUnsupervisedStatus} at the call site. The spawn-time
+ * `SubagentConfig` fields that are not persisted (context, prompts, trust,
+ * profile overrides) are absent, so this shape answers lifecycle questions
+ * only.
+ */
+export function subagentStateFromRecord(rec: SubagentRecord): SubagentState {
+  return {
+    config: {
+      id: rec.id,
+      parentConversationId: rec.parentConversationId,
+      label: rec.label,
+      objective: rec.objective,
+      role: rec.role as SubagentRole,
+      fork: rec.isFork,
+      ...(rec.sendResultToUser != null
+        ? { sendResultToUser: rec.sendResultToUser }
+        : {}),
+      ...(rec.parentToolUseId != null
+        ? { parentToolUseId: rec.parentToolUseId }
+        : {}),
+    },
+    status: rec.status as SubagentStatus,
+    conversationId: rec.conversationId,
+    isFork: rec.isFork,
+    ...(rec.error != null ? { error: rec.error } : {}),
+    createdAt: rec.createdAt,
+    ...(rec.startedAt != null ? { startedAt: rec.startedAt } : {}),
+    ...(rec.completedAt != null ? { completedAt: rec.completedAt } : {}),
+    usage: {
+      inputTokens: rec.inputTokens,
+      outputTokens: rec.outputTokens,
+      estimatedCost: rec.estimatedCost,
+    },
+  };
+}
+
+// ── Spawn ordering ─────────────────────────────────────────────────────
+
+/** Total order on spawns: recorded spawn time, then the row's insertion order. */
+interface SpawnKey {
+  createdAt: number;
+  spawnSeq: number;
+}
+
+/**
+ * Whether `a` was spawned after `b`. `created_at` is millisecond-resolution, so
+ * two subagents spawned in the same tick compare equal on it; `spawnSeq` (the
+ * row's `rowid`) then decides, giving the same last-spawn-wins answer the live
+ * label index gives.
+ */
+function isLaterSpawn(a: SpawnKey, b: SpawnKey): boolean {
+  return a.createdAt === b.createdAt
+    ? a.spawnSeq > b.spawnSeq
+    : a.createdAt > b.createdAt;
+}
 
 // ── Skill ID merge helper ──────────────────────────────────────────────
 
@@ -528,8 +607,13 @@ export class SubagentManager {
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without
     // this, tool execution falls back to `unknown` trust and guardian-owned
-    // desktop turns get denied as unverified.
-    if (parentConversation?.trustContext) {
+    // desktop turns get denied as unverified. An explicit config trust context
+    // wins over parent inheritance: a parent that stamps trust per-turn (the
+    // live-voice bridge) has already cleared it by the time a detached spawn
+    // reads it, so its spawner resolves trust itself.
+    if (config.trustContext) {
+      conversation.setTrustContext({ ...config.trustContext });
+    } else if (parentConversation?.trustContext) {
       conversation.setTrustContext({ ...parentConversation.trustContext });
     }
     const parentAuthContext = parentConversation?.getAuthContext();
@@ -567,11 +651,20 @@ export class SubagentManager {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
 
-    // A read-only subagent (e.g. the live-voice background continuation) refuses
-    // side-effecting tools regardless of trust class; the executor gate rejects
+    // A read-only subagent refuses side-effecting tools regardless of trust
+    // class; the executor gate rejects
     // any such dispatch and they are kept off the model's tool surface.
     if (config.denySideEffectTools) {
       conversation.setSubagentDenySideEffects(true);
+    }
+
+    // A synchronous child's only parent channel is the awaiting caller: a
+    // mid-run notify_parent would inject a user-role turn into the live
+    // parent conversation (starting an unsolicited parent run) instead of
+    // reaching that caller, so suppress it — the same reason runSubagent
+    // skips the terminal parent-injection on this path.
+    if (opts?.synchronous) {
+      conversation.setSubagentSuppressParentNotifications(true);
     }
 
     // Pre-activate skills defined by the role config, merged with any caller-provided skill IDs.
@@ -589,7 +682,7 @@ export class SubagentManager {
     // context, disk-pressure warning) can resolve it by id; subagents are not
     // in the eviction-managed conversation store.
     setSubagentConversation(conversationRecord.id, conversation);
-    const labelKey = `${config.parentConversationId}:${config.label.toLowerCase().trim()}`;
+    const labelKey = `${config.parentConversationId}:${normalizeSubagentLabel(config.label)}`;
     if (this.labelIndex.has(labelKey)) {
       log.warn(
         {
@@ -960,8 +1053,14 @@ export class SubagentManager {
   }
 
   /**
-   * Abort all subagents belonging to a parent conversation.
-   * Called when the parent conversation is aborted or evicted.
+   * Abort all in-flight subagents belonging to a parent conversation, keeping
+   * every child's metadata (and durable record) readable for the normal
+   * terminal-retention window. Called when the parent conversation stops or is
+   * released from memory but its id lives on — user cancel, idle eviction,
+   * config-reload rebuild — so a completed child's result stays retrievable via
+   * `subagent_read` afterwards. Aborted children release their live
+   * conversations through the run's own teardown and are swept on the TTL like
+   * any other terminal entry.
    */
   abortAllForParent(
     parentConversationId: string,
@@ -979,10 +1078,83 @@ export class SubagentManager {
       }
     }
 
-    // Dispose all children — the parent conversation is going away so nobody
-    // will call subagent_read.  Use snapshot since dispose mutates the set.
-    for (const childId of [...children]) {
-      this.dispose(childId);
+    return count;
+  }
+
+  /**
+   * Abort and fully dispose every subagent across all parents, deleting their
+   * durable records. For clear-all: every conversation's data is going away,
+   * including retained children of parents that are no longer in the in-memory
+   * conversation store.
+   *
+   * `keepRecords` tears down the in-memory side only, leaving every row for the
+   * caller to delete. Clear-all passes it so the ordered persistence wipe that
+   * follows owns row deletion (conversations first, then subagents), matching
+   * the retry-safe pattern already on `disposeAllForParent`: an eager delete
+   * here would lose the rows if that wipe throws. Without it, behavior is
+   * unchanged and the records are deleted here.
+   */
+  disposeAllForAllParents(opts?: { keepRecords?: boolean }): void {
+    for (const parentId of [...this.parentToChildren.keys()]) {
+      this.disposeAllForParent(parentId, undefined, opts);
+    }
+    // `parentToChildren` only names parents that still hold in-memory children,
+    // and the TTL sweep drops a child's entry while keeping its row, so a
+    // parent whose children were all swept has no key to iterate. Clearing the
+    // table is the only way to take every retained row with the data it
+    // belongs to.
+    if (!this.shuttingDown && !opts?.keepRecords) {
+      try {
+        deleteAllSubagentRecords();
+      } catch (err) {
+        log.warn({ err }, "Failed to delete subagent records");
+      }
+    }
+  }
+
+  /**
+   * Abort and fully dispose all subagents belonging to a parent conversation,
+   * deleting their durable records. Only for parents whose conversation data is
+   * going away (deletion, clear-all) — nobody will call subagent_read.
+   *
+   * `keepRecords` tears down the in-memory side only, leaving the rows for the
+   * caller to delete itself. For a caller that has destructive work of its own
+   * still to do: the rows are a subagent's only durable metadata, so dropping
+   * them before that work commits loses them for good if it throws, while the
+   * conversation they describe survives for a retried delete.
+   */
+  disposeAllForParent(
+    parentConversationId: string,
+    parentSendToClient?: (msg: AssistantEvent) => void,
+    opts?: { keepRecords?: boolean },
+  ): number {
+    const count = this.abortAllForParent(
+      parentConversationId,
+      parentSendToClient,
+    );
+
+    const children = this.parentToChildren.get(parentConversationId);
+    if (children) {
+      // Use snapshot since dispose mutates the set.
+      for (const childId of [...children]) {
+        this.dispose(childId);
+      }
+    }
+
+    // The durable rows are dropped here rather than per child: a subagent's row
+    // lives as long as its parent conversation, and one the TTL sweep already
+    // evicted has no in-memory entry left to dispose, so its row is only
+    // reachable by parent. Shutdown keeps every row so in-flight children can
+    // rehydrate as `interrupted` on the next boot.
+    if (!this.shuttingDown && !opts?.keepRecords) {
+      try {
+        deleteSubagentRecordsByParent(parentConversationId);
+      } catch (err) {
+        log.warn(
+          { parentConversationId, err },
+          "Failed to delete subagent records for parent",
+        );
+      }
     }
 
     return count;
@@ -1049,7 +1221,7 @@ export class SubagentManager {
     label: string,
     parentConversationId: string,
   ): SubagentState | undefined {
-    const key = `${parentConversationId}:${label.toLowerCase().trim()}`;
+    const key = `${parentConversationId}:${normalizeSubagentLabel(label)}`;
     const id = this.labelIndex.get(key);
     return id ? this.getState(id) : undefined;
   }
@@ -1136,6 +1308,11 @@ export class SubagentManager {
    * Dispose a subagent and remove it from tracking.
    * Should be called after the subagent reaches a terminal state
    * and its data is no longer needed.
+   *
+   * In-memory only: a subagent's row in the `subagents` table lives as long as
+   * its parent conversation, so it survives this and keeps answering
+   * `getSubagentDetail` for a client that missed the spawn event. Rows are
+   * deleted by parent, from `disposeAllForParent` / `disposeAllForAllParents`.
    */
   dispose(subagentId: string): void {
     const managed = this.subagents.get(subagentId);
@@ -1160,22 +1337,11 @@ export class SubagentManager {
     }
     this.subagents.delete(subagentId);
 
-    // Drop the durable record too — but only during normal operation. On
-    // shutdown we keep rows so a subagent that was in flight can rehydrate as
-    // `interrupted` on the next boot.
-    if (!this.shuttingDown) {
-      try {
-        deleteSubagentRecord(subagentId);
-      } catch (err) {
-        log.warn({ subagentId, err }, "Failed to delete subagent record");
-      }
-    }
-
     // Remove from label index only if it still maps to this subagent
     // (guards against stale delete when a newer subagent reused the label).
     const label = managed.state.config.label;
     const parentConvId = managed.state.config.parentConversationId;
-    const labelKey = `${parentConvId}:${label.toLowerCase().trim()}`;
+    const labelKey = `${parentConvId}:${normalizeSubagentLabel(label)}`;
     if (this.labelIndex.get(labelKey) === subagentId) {
       this.labelIndex.delete(labelKey);
     }
@@ -1220,6 +1386,7 @@ export class SubagentManager {
         role: state.config.role ?? "general",
         isFork: state.isFork,
         sendResultToUser: state.config.sendResultToUser ?? null,
+        parentToolUseId: state.config.parentToolUseId ?? null,
         status: state.status,
         error: state.error ?? null,
         createdAt: state.createdAt,
@@ -1246,46 +1413,35 @@ export class SubagentManager {
    * carry a no-op sender and no live conversation, and are swept on the normal
    * TTL like any other terminal subagent.
    *
+   * Bounded by `MAX_REHYDRATED_TERMINAL_RECORDS`: every row still unsettled
+   * loads however old it is, plus the most recently finished terminal ones.
+   * Older terminal subagents stay in the table and are read from there.
+   *
    * Best-effort and idempotent: a second restart re-reads `interrupted` rows
    * and leaves them unchanged.
    */
   rehydrateFromDb(): { rehydrated: number; interrupted: number } {
-    const records = loadAllSubagentRecords();
+    const records = loadRehydratableSubagentRecords({
+      terminalStatuses: [...TERMINAL_STATUSES],
+      maxTerminal: MAX_REHYDRATED_TERMINAL_RECORDS,
+    });
     let interrupted = 0;
     const now = Date.now();
+    // Spawn key of the record currently holding each label. Precedence is
+    // decided here rather than by the order rows arrive in, and follows spawn
+    // order to match the live index, which `spawn()` moves to the newest
+    // subagent regardless of what finishes first.
+    const labelClaimedBy = new Map<string, SpawnKey>();
     for (const rec of records) {
       const wasInFlight = !TERMINAL_STATUSES.has(rec.status as SubagentStatus);
-      const status: SubagentStatus = wasInFlight
-        ? "interrupted"
-        : (rec.status as SubagentStatus);
       if (wasInFlight) {
         interrupted++;
       }
 
+      const mapped = subagentStateFromRecord(rec);
       const state: SubagentState = {
-        config: {
-          id: rec.id,
-          parentConversationId: rec.parentConversationId,
-          label: rec.label,
-          objective: rec.objective,
-          role: rec.role as SubagentRole,
-          fork: rec.isFork,
-          ...(rec.sendResultToUser != null
-            ? { sendResultToUser: rec.sendResultToUser }
-            : {}),
-        },
-        status,
-        conversationId: rec.conversationId,
-        isFork: rec.isFork,
-        ...(rec.error != null ? { error: rec.error } : {}),
-        createdAt: rec.createdAt,
-        ...(rec.startedAt != null ? { startedAt: rec.startedAt } : {}),
-        ...(rec.completedAt != null ? { completedAt: rec.completedAt } : {}),
-        usage: {
-          inputTokens: rec.inputTokens,
-          outputTokens: rec.outputTokens,
-          estimatedCost: rec.estimatedCost,
-        },
+        ...mapped,
+        status: settleUnsupervisedStatus(mapped.status),
       };
 
       const managed: ManagedSubagent = {
@@ -1296,8 +1452,16 @@ export class SubagentManager {
       };
       this.subagents.set(rec.id, managed);
 
-      const labelKey = `${rec.parentConversationId}:${rec.label.toLowerCase().trim()}`;
-      this.labelIndex.set(labelKey, rec.id);
+      const labelKey = `${rec.parentConversationId}:${normalizeSubagentLabel(rec.label)}`;
+      const spawnKey: SpawnKey = {
+        createdAt: rec.createdAt,
+        spawnSeq: rec.spawnSeq,
+      };
+      const claimedBy = labelClaimedBy.get(labelKey);
+      if (claimedBy === undefined || isLaterSpawn(spawnKey, claimedBy)) {
+        labelClaimedBy.set(labelKey, spawnKey);
+        this.labelIndex.set(labelKey, rec.id);
+      }
 
       if (!this.parentToChildren.has(rec.parentConversationId)) {
         this.parentToChildren.set(rec.parentConversationId, new Set());
@@ -1367,6 +1531,8 @@ export class SubagentManager {
         { subagentId: id },
         "Sweeping expired terminal subagent metadata",
       );
+      // Metadata only: the durable row outlives the sweep so a client that
+      // missed `subagent_spawned` can still resolve the child conversation.
       this.dispose(id);
     }
     // Stop the timer if there are no more entries to sweep.

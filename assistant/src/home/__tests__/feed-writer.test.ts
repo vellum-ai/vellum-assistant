@@ -35,7 +35,9 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
     // hub's real shape has more fields. Tests never call them.
     subscribe: () => () => {},
   },
-  broadcastMessage: async () => {},
+  broadcastMessage: (message: unknown, conversationId?: string) => {
+    void publishSpy({ message, conversationId });
+  },
 }));
 
 // Dynamic import so the module resolves after the mock above is in
@@ -717,11 +719,7 @@ describe("feed-writer", () => {
         }),
       );
 
-      const count = await bulkSetFeedItemStatus(
-        ["new"],
-        "seen",
-        ["n1", "n3"],
-      );
+      const count = await bulkSetFeedItemStatus(["new"], "seen", ["n1", "n3"]);
       expect(count).toBe(2);
 
       const decoded = readFileJson();
@@ -734,7 +732,9 @@ describe("feed-writer", () => {
     test("ids scope with no matching ids returns 0", async () => {
       await appendFeedItem(makeItem({ id: "n1", status: "new" }));
 
-      const count = await bulkSetFeedItemStatus(["new"], "seen", ["nonexistent"]);
+      const count = await bulkSetFeedItemStatus(["new"], "seen", [
+        "nonexistent",
+      ]);
       expect(count).toBe(0);
 
       const decoded = readFileJson();

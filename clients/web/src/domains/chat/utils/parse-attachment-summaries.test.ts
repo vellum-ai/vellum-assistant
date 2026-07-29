@@ -66,7 +66,8 @@ describe("parseAttachmentSummariesFromContent", () => {
   });
 
   test("treats a missing size suffix as 0 bytes", () => {
-    const content = "[File attachment] empty.bin, type=application/octet-stream";
+    const content =
+      "[File attachment] empty.bin, type=application/octet-stream";
     const result = parseAttachmentSummariesFromContent(content);
     expect(result.attachments?.[0]).toMatchObject({
       filename: "empty.bin",

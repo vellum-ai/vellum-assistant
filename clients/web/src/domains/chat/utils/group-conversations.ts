@@ -1,4 +1,7 @@
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 /**
@@ -19,8 +22,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
  *   (`conversationType === "background"` or `groupId === "system:background"`),
- *   including auto-analysis (reflections). Sub-grouping by `source` is
- *   handled downstream by `backgroundSubGroups.ts`.
+ *   including auto-analysis (reflections).
  * - `recents` — everything else (foreground, non-pinned), sorted by
  *   `lastMessageAt` descending. Background/scheduled conversations with a
  *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
@@ -37,6 +39,9 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 export interface CustomGroup {
   id: string;
   name: string;
+  /** Stored icon name from the group row; null when none was chosen
+   *  (older assistants omit the field entirely). */
+  icon: string | null;
   conversations: Conversation[];
 }
 
@@ -80,8 +85,12 @@ function isBackground(c: Conversation): boolean {
  * into its section when it has no explicit (custom or system) group.
  */
 function channelSectionBucketId(c: Conversation): string | null {
-  if (!isChannelConversation(c)) return null;
-  if (c.groupId != null && c.groupId !== "system:all") return null;
+  if (!isChannelConversation(c)) {
+    return null;
+  }
+  if (c.groupId != null && c.groupId !== "system:all") {
+    return null;
+  }
   return c.originChannel ?? null;
 }
 
@@ -109,7 +118,9 @@ function parseLastMessageAt(conversation: Conversation): number {
  */
 function compareByCreatedAt(a: Conversation, b: Conversation): number {
   const byCreated = (b.createdAt ?? 0) - (a.createdAt ?? 0);
-  if (byCreated !== 0) return byCreated;
+  if (byCreated !== 0) {
+    return byCreated;
+  }
   return a.conversationId.localeCompare(b.conversationId);
 }
 
@@ -124,11 +135,17 @@ function compareByDisplayOrder(a: Conversation, b: Conversation): number {
   const aOrder = a.displayOrder;
   const bOrder = b.displayOrder;
   if (aOrder != null && bOrder != null) {
-    if (aOrder !== bOrder) return aOrder - bOrder;
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder;
+    }
     return compareByCreatedAt(a, b);
   }
-  if (aOrder != null) return -1;
-  if (bOrder != null) return 1;
+  if (aOrder != null) {
+    return -1;
+  }
+  if (bOrder != null) {
+    return 1;
+  }
   return compareByCreatedAt(a, b);
 }
 
@@ -136,7 +153,9 @@ function compareByDisplayOrder(a: Conversation, b: Conversation): number {
  * True when a `groupId` refers to a non-system (custom) group.
  * System groups use a `"system:"` prefix (e.g. `"system:pinned"`).
  */
-export function isCustomGroupId(groupId: string | undefined): groupId is string {
+export function isCustomGroupId(
+  groupId: string | undefined,
+): groupId is string {
   return !!groupId && !groupId.startsWith("system:");
 }
 
@@ -187,8 +206,15 @@ export function groupConversations(
   const customGroupsList: CustomGroup[] = [];
   if (options?.groups) {
     for (const g of options.groups) {
-      if (g.isSystemGroup) continue;
-      const bucket: CustomGroup = { id: g.id, name: g.name, conversations: [] };
+      if (g.isSystemGroup) {
+        continue;
+      }
+      const bucket: CustomGroup = {
+        id: g.id,
+        name: g.name,
+        icon: g.icon ?? null,
+        conversations: [],
+      };
       groupLookup.set(g.id, bucket);
       customGroupsList.push(bucket);
     }
@@ -196,7 +222,9 @@ export function groupConversations(
 
   for (const c of conversations) {
     // Skip archived — they live in a separate view, not the sidebar.
-    if (c.archivedAt != null) continue;
+    if (c.archivedAt != null) {
+      continue;
+    }
 
     // Pinned wins over every other classification.
     if (isConversationPinned(c)) {
@@ -219,8 +247,11 @@ export function groupConversations(
     const channelId = channelSectionBucketId(c);
     if (channelId) {
       const bucket = channelBuckets.get(channelId);
-      if (bucket) bucket.push(c);
-      else channelBuckets.set(channelId, [c]);
+      if (bucket) {
+        bucket.push(c);
+      } else {
+        channelBuckets.set(channelId, [c]);
+      }
       continue;
     }
 

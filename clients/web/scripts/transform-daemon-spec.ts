@@ -47,8 +47,12 @@ const EXCLUDED_PREFIXES = [
 const EXCLUDED_SEGMENTS = ["/playground/"];
 
 function shouldExclude(path: string): boolean {
-  if (EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix))) return true;
-  if (EXCLUDED_SEGMENTS.some((seg) => path.includes(seg))) return true;
+  if (EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+    return true;
+  }
+  if (EXCLUDED_SEGMENTS.some((seg) => path.includes(seg))) {
+    return true;
+  }
   return false;
 }
 
@@ -78,9 +82,7 @@ function hoistInlineDefs(
   }
 
   if (Array.isArray(node)) {
-    return node.map((item) =>
-      hoistInlineDefs(item, componentSchemas, counter),
-    );
+    return node.map((item) => hoistInlineDefs(item, componentSchemas, counter));
   }
 
   const obj = node as Record<string, unknown>;
@@ -166,9 +168,13 @@ const spec = YAML.load(raw) as Record<string, unknown>;
 spec.servers = [{ url: "", description: "Same-origin (platform gateway)" }];
 
 // Ensure components.schemas exists for hoisted definitions.
-if (!spec.components) spec.components = {};
+if (!spec.components) {
+  spec.components = {};
+}
 const components = spec.components as Record<string, unknown>;
-if (!components.schemas) components.schemas = {};
+if (!components.schemas) {
+  components.schemas = {};
+}
 const componentSchemas = components.schemas as Record<string, unknown>;
 
 const sourcePaths = (spec.paths ?? {}) as Record<
@@ -195,7 +201,9 @@ for (const [path, methods] of Object.entries(sourcePaths)) {
   const newPath = `/v1/assistants/{assistant_id}/${rest}`;
 
   for (const [key, value] of Object.entries(methods)) {
-    if (key === "parameters") continue;
+    if (key === "parameters") {
+      continue;
+    }
     const operation = value as Record<string, unknown>;
     const params = (operation.parameters ?? []) as Array<
       Record<string, unknown>
@@ -228,7 +236,5 @@ console.log(
   `Wrote ${OUTPUT_PATH} (${included} paths included, ${excluded} excluded)`,
 );
 if (counter.value > 0) {
-  console.log(
-    `Hoisted ${counter.value} inline $defs to components.schemas`,
-  );
+  console.log(`Hoisted ${counter.value} inline $defs to components.schemas`);
 }

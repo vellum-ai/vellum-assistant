@@ -51,7 +51,9 @@ export function createFollowUp(input: FollowUpCreateInput): FollowUp {
 function getFollowUp(id: string): FollowUp | null {
   const db = getDb();
   const row = db.select().from(followups).where(eq(followups.id, id)).get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseFollowUp(row);
 }
 
@@ -94,7 +96,9 @@ export function resolveFollowUp(id: string): FollowUp {
     .from(followups)
     .where(eq(followups.id, id))
     .get();
-  if (!existing) throw new Error(`Follow-up "${id}" not found`);
+  if (!existing) {
+    throw new Error(`Follow-up "${id}" not found`);
+  }
 
   db.update(followups)
     .set({ status: "resolved", updatedAt: now })
@@ -128,7 +132,9 @@ export function resolveByConversation(
     )
     .all();
 
-  if (rows.length === 0) return [];
+  if (rows.length === 0) {
+    return [];
+  }
 
   for (const row of rows) {
     db.update(followups)

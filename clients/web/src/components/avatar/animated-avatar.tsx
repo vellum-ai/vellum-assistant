@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
-import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
-import type { CharacterComponents, CharacterTraits, EyePathDefinition } from "@/types/avatar";
+import {
+  computeTransforms,
+  resolveDefinitions,
+} from "@/utils/avatar-svg-compositor";
+import type {
+  CharacterComponents,
+  CharacterTraits,
+  EyePathDefinition,
+} from "@/types/avatar";
 
 interface AnimatedAvatarProps {
   components: CharacterComponents;
@@ -69,9 +76,7 @@ function wobblePath(
     const refVal = isX ? center.x : center.y;
     const pairedIdx = isX ? currentIdx + 1 : currentIdx - 1;
     const pairedVal =
-      pairedIdx >= 0 && pairedIdx < nums.length
-        ? nums[pairedIdx]!
-        : refVal;
+      pairedIdx >= 0 && pairedIdx < nums.length ? nums[pairedIdx]! : refVal;
 
     const px = isX ? val : pairedVal;
     const py = isX ? pairedVal : val;
@@ -171,9 +176,8 @@ export function AnimatedAvatar({
 
   const [isBlinking, setIsBlinking] = useState(false);
   const [twitchAngle, setTwitchAngle] = useState(0);
-  const [morphIndex, setMorphIndex] = useState(0);
 
-  const morphTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bodyPathRef = useRef<SVGPathElement | null>(null);
 
   useEffect(() => {
     // Force eyes open whenever blinking is disabled (reduced-motion or
@@ -190,27 +194,38 @@ export function AnimatedAvatar({
     let cancelled = false;
 
     function scheduleBlink() {
-      const timer = setTimeout(() => {
-        if (cancelled) return;
-        setIsBlinking(true);
-        setTimeout(() => {
-          if (cancelled) return;
-          setIsBlinking(false);
-          if (Math.random() < 0.2) {
-            setTimeout(() => {
-              if (cancelled) return;
-              setIsBlinking(true);
-              setTimeout(() => {
-                if (cancelled) return;
-                setIsBlinking(false);
-                scheduleBlink();
-              }, 150);
-            }, 200);
-          } else {
-            scheduleBlink();
+      const timer = setTimeout(
+        () => {
+          if (cancelled) {
+            return;
           }
-        }, 150);
-      }, randomBetween(3000, 7000));
+          setIsBlinking(true);
+          setTimeout(() => {
+            if (cancelled) {
+              return;
+            }
+            setIsBlinking(false);
+            if (Math.random() < 0.2) {
+              setTimeout(() => {
+                if (cancelled) {
+                  return;
+                }
+                setIsBlinking(true);
+                setTimeout(() => {
+                  if (cancelled) {
+                    return;
+                  }
+                  setIsBlinking(false);
+                  scheduleBlink();
+                }, 150);
+              }, 200);
+            } else {
+              scheduleBlink();
+            }
+          }, 150);
+        },
+        randomBetween(3000, 7000),
+      );
 
       return timer;
     }
@@ -235,17 +250,23 @@ export function AnimatedAvatar({
     let cancelled = false;
 
     function scheduleTwitch() {
-      const timer = setTimeout(() => {
-        if (cancelled) return;
-        const angle =
-          (Math.random() < 0.5 ? -1 : 1) * randomBetween(1, 2);
-        setTwitchAngle(angle);
-        setTimeout(() => {
-          if (cancelled) return;
-          setTwitchAngle(0);
-          scheduleTwitch();
-        }, 200);
-      }, randomBetween(8000, 15000));
+      const timer = setTimeout(
+        () => {
+          if (cancelled) {
+            return;
+          }
+          const angle = (Math.random() < 0.5 ? -1 : 1) * randomBetween(1, 2);
+          setTwitchAngle(angle);
+          setTimeout(() => {
+            if (cancelled) {
+              return;
+            }
+            setTwitchAngle(0);
+            scheduleTwitch();
+          }, 200);
+        },
+        randomBetween(8000, 15000),
+      );
 
       return timer;
     }
@@ -258,24 +279,44 @@ export function AnimatedAvatar({
     };
   }, [reduce, isAssistantBusy]);
 
-  // Morph path cycling (only during streaming)
+  // Morph path cycling (only during streaming).
+  //
+  // Written straight to the DOM rather than held in React state. The morph is
+  // decoration — a 6.7Hz wobble on a body outline — but as state it put a
+  // React update on the queue every 150ms, per visible busy avatar, for the
+  // whole length of every streaming turn. React counts commits that finish
+  // with an update already pending and throws `Maximum update depth exceeded`
+  // once fifty-one land back to back, so purely visual work has no business in
+  // the commit stream at all; this was the most frequently blamed frame in
+  // that error family (LUM-2859). `d` stays out of the rendered props below,
+  // so an unrelated re-render never clobbers the imperative value.
   useEffect(() => {
-    if (!isAssistantBusy || reduce) {
-      setMorphIndex(0);
+    const el = bodyPathRef.current;
+    if (!el) {
+      return;
+    }
+    const basePath = morphPaths[0] ?? bodyShape.svgPath;
+    if (!isAssistantBusy || reduce || morphPaths.length <= 1) {
+      el.setAttribute("d", basePath);
       return;
     }
 
     let idx = 0;
-    morphTimerRef.current = setInterval(() => {
+    const timer = setInterval(() => {
       idx = (idx + 1) % morphPaths.length;
-      setMorphIndex(idx);
+      const next = morphPaths[idx];
+      if (next) {
+        el.setAttribute("d", next);
+      }
     }, 150);
 
     return () => {
-      if (morphTimerRef.current) clearInterval(morphTimerRef.current);
-      morphTimerRef.current = null;
+      clearInterval(timer);
+      // A turn that ends mid-cycle would otherwise leave the body frozen on a
+      // wobbled variant instead of settling back to its resting shape.
+      el.setAttribute("d", basePath);
     };
-  }, [isAssistantBusy, reduce, morphPaths.length]);
+  }, [isAssistantBusy, reduce, morphPaths, bodyShape.svgPath]);
 
   const bodyCenterX = size / 2;
   const bodyCenterY = size / 2;
@@ -292,7 +333,10 @@ export function AnimatedAvatar({
   // Never squish the eyes while streaming — guards the one frame between
   // `isAssistantBusy` flipping true and the blink effect resetting `isBlinking`.
   const effectiveBlinking = isBlinking && !isAssistantBusy;
-  const currentBodyPath = morphPaths[morphIndex] ?? bodyShape.svgPath;
+  // Resting shape. The morph effect above drives `d` from here on, so this
+  // value must stay stable across re-renders — React only patches attributes
+  // whose props changed, which is what keeps the imperative writes intact.
+  const baseBodyPath = morphPaths[0] ?? bodyShape.svgPath;
 
   return (
     <svg
@@ -303,6 +347,9 @@ export function AnimatedAvatar({
       style={{
         animation: breatheAnimation,
         transformOrigin: "center",
+        // The body fills the viewBox edge to edge, so the busy wobble (±6%) and
+        // the idle twitch draw past it and would otherwise be clipped flat.
+        overflow: "visible",
       }}
     >
       <g
@@ -316,7 +363,8 @@ export function AnimatedAvatar({
         }}
       >
         <path
-          d={currentBodyPath}
+          ref={bodyPathRef}
+          d={baseBodyPath}
           fill={color.hex}
           transform={bodyTransform}
           style={{
@@ -333,12 +381,7 @@ export function AnimatedAvatar({
         }}
       >
         {eyeStyle.paths.map((p: EyePathDefinition, i: number) => (
-          <path
-            key={i}
-            d={p.svgPath}
-            fill={p.color}
-            transform={eyeTransform}
-          />
+          <path key={i} d={p.svgPath} fill={p.color} transform={eyeTransform} />
         ))}
       </g>
     </svg>

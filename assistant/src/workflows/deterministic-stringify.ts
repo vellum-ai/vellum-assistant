@@ -17,8 +17,12 @@ export function deterministicStringify(value: unknown): string {
 }
 
 function sortValue(value: unknown): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(sortValue);
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(sortValue);
+  }
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(value as Record<string, unknown>).sort()) {
     out[key] = sortValue((value as Record<string, unknown>)[key]);

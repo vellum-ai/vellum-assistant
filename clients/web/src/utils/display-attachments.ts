@@ -19,7 +19,9 @@ import { deriveDisplayUrls } from "@/utils/attachment-urls";
 export function toDisplayAttachments(
   attachments: AssistantOutboundAttachment[] | undefined,
 ): DisplayAttachment[] | undefined {
-  if (!attachments || attachments.length === 0) return undefined;
+  if (!attachments || attachments.length === 0) {
+    return undefined;
+  }
   return attachments.map((att) => {
     const { previewUrl, thumbnailUrl } = deriveDisplayUrls(
       att.mimeType,

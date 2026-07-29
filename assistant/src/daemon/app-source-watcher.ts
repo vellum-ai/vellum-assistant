@@ -51,7 +51,9 @@ export function ensureAppSourceWatcher(): void {
  */
 function resolveAppIdFromRelPath(relPath: string): string | null {
   const slashIdx = relPath.indexOf("/");
-  if (slashIdx === -1) return null; // file directly in apps/ (e.g. .json definition)
+  if (slashIdx === -1) {
+    return null;
+  } // file directly in apps/ (e.g. .json definition)
 
   const dirName = relPath.slice(0, slashIdx);
   const innerPath = relPath.slice(slashIdx + 1);
@@ -95,12 +97,16 @@ export class AppSourceWatcher {
    * starts if the apps directory was created after daemon startup.
    */
   ensureStarted(): void {
-    if (this.watcher || !this.onChange) return;
+    if (this.watcher || !this.onChange) {
+      return;
+    }
     this.tryWatch();
   }
 
   private tryWatch(): void {
-    if (this.watcher) return;
+    if (this.watcher) {
+      return;
+    }
 
     let appsDir: string;
     try {
@@ -118,17 +124,23 @@ export class AppSourceWatcher {
     }
 
     const onChange = this.onChange;
-    if (!onChange) return;
+    if (!onChange) {
+      return;
+    }
 
     try {
       this.watcher = watch(
         appsDir,
         { recursive: true },
         (_eventType, filename) => {
-          if (!filename) return;
+          if (!filename) {
+            return;
+          }
 
           const appId = resolveAppIdFromRelPath(filename);
-          if (!appId) return;
+          if (!appId) {
+            return;
+          }
 
           this.debouncer.schedule(`app:${appId}`, () => {
             onChange(appId);
@@ -163,7 +175,9 @@ export class AppSourceWatcher {
  */
 function handleAppSourceChange(appId: string): void {
   const app = getApp(appId);
-  if (!app) return;
+  if (!app) {
+    return;
+  }
 
   const doRefresh = () => {
     for (const conversation of allConversations()) {

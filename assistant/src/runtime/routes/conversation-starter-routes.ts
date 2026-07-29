@@ -57,7 +57,9 @@ const REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
 function hasActiveConversationStarterJob(): boolean {
   const memoryDb = getMemoryDb();
-  if (!memoryDb) return false;
+  if (!memoryDb) {
+    return false;
+  }
   return (
     memoryDb
       .select({ id: memoryJobs.id })
@@ -78,7 +80,9 @@ function hasActiveConversationStarterJob(): boolean {
  * This is deterministic — same input always produces the same output.
  */
 export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
-  if (items.length <= 1) return items;
+  if (items.length <= 1) {
+    return items;
+  }
 
   const byCategory = new Map<string, T[]>();
   for (const item of items) {
@@ -119,7 +123,9 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
           });
 
     for (const group of nextGroups) {
-      if (group.idx >= group.items.length) continue;
+      if (group.idx >= group.items.length) {
+        continue;
+      }
       const candidate = group.items[group.idx];
       const cat = candidate.category ?? "other";
       result.push(candidate);
@@ -145,7 +151,9 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
       }
     }
 
-    if (!picked) break;
+    if (!picked) {
+      break;
+    }
   }
 
   return result;

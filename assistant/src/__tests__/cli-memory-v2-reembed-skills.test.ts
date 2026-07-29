@@ -41,7 +41,7 @@ mock.module("../ipc/cli-client.js", () => ({
 }));
 
 let seedCallCount = 0;
-mock.module("../plugins/defaults/memory/v3/substrate/skill-store.js", () => ({
+mock.module("../plugins/defaults/memory/substrate/skill-store.js", () => ({
   seedV2SkillEntries: async () => {
     seedCallCount += 1;
   },
@@ -88,7 +88,9 @@ async function runCommand(args: string[]): Promise<{ exitCode: number }> {
     const program = buildProgram();
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;

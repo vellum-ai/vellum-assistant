@@ -34,7 +34,9 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   }) => ({
     queryKey: [{ _id: "memoryWorkerStatusGet", path: options.path }],
     queryFn: async () => {
-      if (!workerStatus) throw new Error("not found");
+      if (!workerStatus) {
+        throw new Error("not found");
+      }
       return workerStatus;
     },
   }),

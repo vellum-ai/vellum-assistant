@@ -24,7 +24,7 @@ import { Button, Menu, Typography } from "@vellumai/design-library";
 import { FileMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
-import { DetailShell } from "@/domains/chat/components/detail-shell";
+import { DetailShell } from "@/components/detail-shell";
 import {
   skillsByIdGetOptions,
   useSkillsByIdDeleteMutation,

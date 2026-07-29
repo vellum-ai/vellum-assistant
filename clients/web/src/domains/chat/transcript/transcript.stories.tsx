@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -6,7 +12,11 @@ import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
-import { Transcript, type TranscriptHandle, type TranscriptProps } from "./transcript";
+import {
+  Transcript,
+  type TranscriptHandle,
+  type TranscriptProps,
+} from "./transcript";
 import type { MessageItem, TranscriptItem } from "./types";
 
 // ---------------------------------------------------------------------------

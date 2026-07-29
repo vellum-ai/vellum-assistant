@@ -10,7 +10,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import * as sdkGen from "@/generated/api/sdk.gen";
@@ -85,7 +91,17 @@ mock.module("@/runtime/browser", () => ({
   openUrlFinishedListener: () => () => {},
 }));
 
-import { readCheckoutIntent } from "@/lib/billing/checkout-intent";
+import {
+  clearTakeoverAvatarStash,
+  readTakeoverAvatarStash,
+} from "@/lib/billing/takeover-avatar-stash";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import {
+  clearCheckoutIntent,
+  readCheckoutIntent,
+} from "@/lib/billing/checkout-intent";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { AdjustPlanModal } from "./adjust-plan-modal";
 
 const CREDIT_TIERS: CreditTier[] = [
@@ -214,7 +230,11 @@ function renderModal(
   );
   const result = render(
     <QueryClientProvider client={client}>
-      <AdjustPlanModal open onClose={() => {}} onTierUpgraded={onTierUpgraded} />
+      <AdjustPlanModal
+        open
+        onClose={() => {}}
+        onTierUpgraded={onTierUpgraded}
+      />
     </QueryClientProvider>,
   );
   return { ...result, client };
@@ -224,7 +244,9 @@ function getDropdownTrigger(label: string): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     `button[role="combobox"][aria-label="${label}"]`,
   );
-  if (!trigger) throw new Error(`expected a ${label} dropdown trigger`);
+  if (!trigger) {
+    throw new Error(`expected a ${label} dropdown trigger`);
+  }
   return trigger;
 }
 
@@ -240,7 +262,9 @@ function clickOptionStartingWith(prefix: string): void {
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => o.textContent?.trim().startsWith(prefix));
-  if (!option) throw new Error(`expected option starting with "${prefix}"`);
+  if (!option) {
+    throw new Error(`expected option starting with "${prefix}"`);
+  }
   fireEvent.click(option);
 }
 
@@ -248,7 +272,9 @@ function clickOption(label: string): void {
   const option = Array.from(
     document.querySelectorAll<HTMLElement>('[role="option"]'),
   ).find((o) => o.textContent?.trim() === label);
-  if (!option) throw new Error(`expected option "${label}"`);
+  if (!option) {
+    throw new Error(`expected option "${label}"`);
+  }
   fireEvent.click(option);
 }
 
@@ -259,7 +285,15 @@ beforeEach(() => {
   changeMachineTierCall = null;
   changeStorageTierCall = null;
   openedUrl = null;
-  sessionStorage.clear();
+  // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
+  // leaves a prior test's intent readable.
+  clearCheckoutIntent();
+  clearTakeoverAvatarStash();
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: null,
+    assistants: [],
+    assistantsHydrated: false,
+  });
 });
 
 afterEach(() => {
@@ -279,7 +313,9 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
     await waitFor(() => {
-      if (!upgradeCall) throw new Error("upgrade not called");
+      if (!upgradeCall) {
+        throw new Error("upgrade not called");
+      }
     });
     expect((upgradeCall!.body as Record<string, unknown>).credit_tier).toBe(
       "credits_50",
@@ -295,7 +331,9 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
     await waitFor(() => {
-      if (!upgradeCall) throw new Error("upgrade not called");
+      if (!upgradeCall) {
+        throw new Error("upgrade not called");
+      }
     });
     expect(
       (upgradeCall!.body as Record<string, unknown>).credit_tier,
@@ -306,10 +344,22 @@ describe("AdjustPlanModal credit bundle — upgrade", () => {
 describe("AdjustPlanModal upgrade — checkout intent stash", () => {
   test("stashes the selected tiers before redirecting to Stripe checkout", async () => {
     upgradeResponse = { checkout_url: "https://checkout.example.com/session" };
-    const { getByTestId } = renderModal(
+    const { getByTestId, client } = renderModal(
       subscription("base", null),
       proPlansResponse(CREDIT_TIERS),
     );
+    // The live avatar key appends a `supportsManifest` boolean, and capture only
+    // stashes for a hydrated list holding exactly one assistant.
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "a1",
+      assistants: [{ id: "a1", isLocal: false, isPlatformHosted: true }],
+      assistantsHydrated: true,
+    });
+    client.setQueryData([...avatarQueryKey("a1"), true], {
+      components: BUNDLED_COMPONENTS,
+      traits: { bodyShape: "blob", eyeStyle: "curious", color: "purple" },
+      customImageUrl: null,
+    });
 
     fireEvent.click(getByTestId("modal-upgrade-to-pro-button"));
 
@@ -327,6 +377,9 @@ describe("AdjustPlanModal upgrade — checkout intent stash", () => {
       storageTier: "storage_10",
       creditTier: null,
     });
+    // The avatar snapshot rides along so the takeover can draw it on a cold
+    // return, before the live avatar query resolves.
+    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("does not stash when the upgrade response has no checkout URL", async () => {
@@ -360,7 +413,9 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     expect(
       (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
@@ -379,7 +434,9 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     expect(
       (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
@@ -402,7 +459,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     const button = getByTestId("modal-change-tier-button") as HTMLButtonElement;
@@ -422,7 +481,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     fireEvent.click(getByTestId("modal-change-tier-button"));
@@ -447,7 +508,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     const button = getByTestId("modal-change-tier-button") as HTMLButtonElement;
@@ -475,7 +538,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     // Simulate a mid-modal refetch: re-seed by replacing the plans object so the
@@ -489,7 +554,10 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     const refetched = proPlansResponse(CREDIT_TIERS);
     refetched.plans[1]!.name = "Pro (refetched)";
     await act(async () => {
-      client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), refetched);
+      client.setQueryData(
+        organizationsBillingPlansRetrieveQueryKey(),
+        refetched,
+      );
       await new Promise((r) => setTimeout(r, 0));
     });
 
@@ -500,7 +568,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
     });
     expect(
       (changeMachineTierCall!.body as Record<string, unknown>).machine_tier,
@@ -523,7 +593,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
       const trigger = document.querySelector(
         'button[role="combobox"][aria-label="Credit bundle"]',
       );
-      if (!trigger) throw new Error("picker not rendered yet");
+      if (!trigger) {
+        throw new Error("picker not rendered yet");
+      }
     });
 
     openCreditDropdown();
@@ -540,7 +612,9 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     expect(
       (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
@@ -565,7 +639,9 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) throw new Error("change not called");
+      if (!changeCreditTierCall) {
+        throw new Error("change not called");
+      }
     });
     // The credit mutation fired (refresh path), but the resize flow must not.
     expect(upgraded).toBe(false);
@@ -591,10 +667,14 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
     });
     await waitFor(() => {
-      if (!upgraded) throw new Error("onTierUpgraded not called");
+      if (!upgraded) {
+        throw new Error("onTierUpgraded not called");
+      }
     });
     expect(changeCreditTierCall).toBeNull();
   });
@@ -610,8 +690,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo")) {
         return;
+      }
       throw new Error("base total not rendered yet");
     });
 
@@ -619,8 +700,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     clickOption("50 credits — $50/mo");
 
     await waitFor(() => {
-      if (getByTestId("modal-pro-price").textContent?.includes("$85/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$85/mo")) {
         return;
+      }
       throw new Error("total did not include the selected bundle");
     });
   });
@@ -634,8 +716,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
     );
 
     await waitFor(() => {
-      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo"))
+      if (getByTestId("modal-pro-price").textContent?.includes("$35/mo")) {
         return;
+      }
       throw new Error("current total not rendered yet");
     });
 
@@ -644,7 +727,9 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
 
     await waitFor(() => {
       const text = getByTestId("modal-pro-price").textContent ?? "";
-      if (text.includes("$60/mo") && text.includes("+$25/mo")) return;
+      if (text.includes("$60/mo") && text.includes("+$25/mo")) {
+        return;
+      }
       throw new Error("total/delta did not reflect the swapped bundle");
     });
   });
@@ -671,7 +756,9 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
 
     await waitFor(() => {
       const text = getByTestId("modal-pro-price").textContent ?? "";
-      if (text.includes("Currently") && text.includes("$59/mo")) return;
+      if (text.includes("Currently") && text.includes("$59/mo")) {
+        return;
+      }
       throw new Error("current total not rendered yet");
     });
 
@@ -680,7 +767,9 @@ describe("AdjustPlanModal Pro header total — no picker shown", () => {
 
     // No tier picker and no "Update Plan" button render in this flow.
     expect(
-      document.querySelector('button[role="combobox"][aria-label="Machine tier"]'),
+      document.querySelector(
+        'button[role="combobox"][aria-label="Machine tier"]',
+      ),
     ).toBeNull();
     expect(queryByTestId("modal-change-tier-button")).toBeNull();
     expect(queryByTestId("modal-upgrade-to-pro-button")).toBeNull();
@@ -809,20 +898,28 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
       const btn = document.querySelector<HTMLButtonElement>(
         '[data-testid="confirm-downgrade-button"]',
       );
-      if (!btn) throw new Error("reconfirm not open");
+      if (!btn) {
+        throw new Error("reconfirm not open");
+      }
       fireEvent.click(btn);
     });
 
     // Both mutations should fire.
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
-      if (!changeStorageTierCall) throw new Error("storage change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
+      if (!changeStorageTierCall) {
+        throw new Error("storage change not called");
+      }
     });
 
     // The storage upgrade must trigger the resize flow even though the machine
     // change is a downgrade.
     await waitFor(() => {
-      if (!upgraded) throw new Error("onTierUpgraded not called");
+      if (!upgraded) {
+        throw new Error("onTierUpgraded not called");
+      }
     });
   });
 
@@ -847,13 +944,19 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) throw new Error("machine change not called");
-      if (!changeCreditTierCall) throw new Error("credit change not called");
+      if (!changeMachineTierCall) {
+        throw new Error("machine change not called");
+      }
+      if (!changeCreditTierCall) {
+        throw new Error("credit change not called");
+      }
     });
 
     // Machine upgrade triggers resize flow.
     await waitFor(() => {
-      if (!upgraded) throw new Error("onTierUpgraded not called");
+      if (!upgraded) {
+        throw new Error("onTierUpgraded not called");
+      }
     });
   });
 });

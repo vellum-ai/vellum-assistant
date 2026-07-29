@@ -200,9 +200,7 @@ export function IntroEyesLine({ words, eye, eyesWidth }: IntroEyesLineProps) {
             style={{ transformOrigin: "50% 55%" }}
             initial={false}
             animate={
-              parked
-                ? { scaleY: [1, 0.12, 1, 1, 0.12, 1] }
-                : { scaleY: 1 }
+              parked ? { scaleY: [1, 0.12, 1, 1, 0.12, 1] } : { scaleY: 1 }
             }
             transition={
               parked

@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
 import {
   getDefaultProviderFromConfig,
   resolveDefaultConnectionName,
@@ -509,8 +509,14 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
     }
   }
 
-  // llm.profiles.*: only ProfileEntry has provider_connection.
-  const profiles = getEffectiveProfiles(config.llm?.profiles);
+  // llm.profiles.*: only ProfileEntry has provider_connection. Resolved
+  // provider-aware so the scan sees the same bodies the runtime resolver
+  // produces: on a BYO install the default profiles carry the
+  // `provider_connection` they actually dispatch through. Today every name
+  // the defaults can stamp is also caught by the `llm.defaultProvider` guard
+  // above; this keeps the scan a faithful backstop rather than one that
+  // silently skips the defaults.
+  const profiles = getEffectiveProfilesForProvider(config.llm?.profiles, dp);
   const referencingProfiles = Object.entries(profiles)
     .filter(
       ([, p]) => (p as Record<string, unknown>).provider_connection === name,

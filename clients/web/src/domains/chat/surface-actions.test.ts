@@ -25,7 +25,9 @@ mock.module("@/domains/chat/api/surfaces", () => ({
     data?: Record<string, unknown>,
   ): Promise<SurfaceActionResult> => {
     submitCalls.push(data);
-    if (submitThrows) throw new Error("network down");
+    if (submitThrows) {
+      throw new Error("network down");
+    }
     return submitResult;
   },
 }));
@@ -41,17 +43,17 @@ mock.module("@/domains/onboarding/funnel-events", () => ({
   ): void => {
     emittedScopes.push(scope);
     emittedUserIds.push(options?.userId);
-    if (emitThrows) throw new Error("telemetry down");
+    if (emitThrows) {
+      throw new Error("telemetry down");
+    }
   },
 }));
 
 const { handleSurfaceAction } = await import("@/domains/chat/surface-actions");
-const { FIRST_RUN_SCOPE_DATA_KEY } = await import(
-  "@/domains/onboarding/first-run-scope"
-);
-const { useChatSessionStore } = await import(
-  "@/domains/chat/chat-session-store"
-);
+const { FIRST_RUN_SCOPE_DATA_KEY } =
+  await import("@/domains/onboarding/first-run-scope");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 const { useAuthStore } = await import("@/stores/auth-store");

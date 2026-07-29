@@ -58,17 +58,27 @@ let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
  * Notification API).
  */
 export function isNotificationsSupported(): boolean {
-  if (typeof window === "undefined") return false;
-  if (isElectron()) return !!window.vellum?.notifications;
-  if (isNativePlatform()) return true;
+  if (typeof window === "undefined") {
+    return false;
+  }
+  if (isElectron()) {
+    return !!window.vellum?.notifications;
+  }
+  if (isNativePlatform()) {
+    return true;
+  }
   return "Notification" in window;
 }
 
 async function checkNativePermission(): Promise<PermissionState> {
   try {
     const { display } = await LocalNotifications.checkPermissions();
-    if (display === "granted") return "granted";
-    if (display === "denied") return "denied";
+    if (display === "granted") {
+      return "granted";
+    }
+    if (display === "denied") {
+      return "denied";
+    }
     return "prompt";
   } catch {
     return "unsupported";
@@ -76,7 +86,9 @@ async function checkNativePermission(): Promise<PermissionState> {
 }
 
 function checkBrowserPermission(): PermissionState {
-  if (typeof Notification === "undefined") return "unsupported";
+  if (typeof Notification === "undefined") {
+    return "unsupported";
+  }
   switch (Notification.permission) {
     case "granted":
       return "granted";
@@ -90,8 +102,12 @@ function checkBrowserPermission(): PermissionState {
 async function requestNativePermission(): Promise<PermissionState> {
   try {
     const { display } = await LocalNotifications.requestPermissions();
-    if (display === "granted") return "granted";
-    if (display === "denied") return "denied";
+    if (display === "granted") {
+      return "granted";
+    }
+    if (display === "denied") {
+      return "denied";
+    }
     return "prompt";
   } catch {
     return "unsupported";
@@ -99,10 +115,16 @@ async function requestNativePermission(): Promise<PermissionState> {
 }
 
 async function requestBrowserPermission(): Promise<PermissionState> {
-  if (typeof Notification === "undefined") return "unsupported";
+  if (typeof Notification === "undefined") {
+    return "unsupported";
+  }
   const result = await Notification.requestPermission();
-  if (result === "granted") return "granted";
-  if (result === "denied") return "denied";
+  if (result === "granted") {
+    return "granted";
+  }
+  if (result === "denied") {
+    return "denied";
+  }
   return "prompt";
 }
 
@@ -110,7 +132,9 @@ async function requestBrowserPermission(): Promise<PermissionState> {
  * Resolve the current permission state without prompting the user.
  */
 export async function getNotificationPermission(): Promise<PermissionState> {
-  if (cachedPermission) return cachedPermission;
+  if (cachedPermission) {
+    return cachedPermission;
+  }
   const state = isNativePlatform()
     ? await checkNativePermission()
     : checkBrowserPermission();
@@ -126,8 +150,12 @@ export async function getNotificationPermission(): Promise<PermissionState> {
  */
 export async function ensureNotificationPermission(): Promise<PermissionState> {
   const current = await getNotificationPermission();
-  if (current !== "prompt") return current;
-  if (permissionPromptIssued) return current;
+  if (current !== "prompt") {
+    return current;
+  }
+  if (permissionPromptIssued) {
+    return current;
+  }
   permissionPromptIssued = true;
   const result = isNativePlatform()
     ? await requestNativePermission()
@@ -137,7 +165,9 @@ export async function ensureNotificationPermission(): Promise<PermissionState> {
 }
 
 async function registerTapListeners(): Promise<void> {
-  if (tapListenersRegistered) return;
+  if (tapListenersRegistered) {
+    return;
+  }
   tapListenersRegistered = true;
 
   // Electron path: subscribe to main-process notification action events.
@@ -146,7 +176,9 @@ async function registerTapListeners(): Promise<void> {
   // regardless of platform. The listener is permanent (app lifetime).
   if (isElectron() && window.vellum?.notifications) {
     window.vellum.notifications.onAction((event) => {
-      if (!tapHandler) return;
+      if (!tapHandler) {
+        return;
+      }
       tapHandler({
         conversationId: event.conversationId,
         sourceEventName: `electron:${event.category}:${event.kind}`,
@@ -156,15 +188,18 @@ async function registerTapListeners(): Promise<void> {
     return;
   }
 
-  if (!isNativePlatform()) return;
+  if (!isNativePlatform()) {
+    return;
+  }
   try {
     await LocalNotifications.addListener(
       "localNotificationActionPerformed",
       (action) => {
         const extra = action.notification.extra as
-          | NotificationTapPayload
-          | undefined;
-        if (extra && tapHandler) tapHandler(extra);
+          NotificationTapPayload | undefined;
+        if (extra && tapHandler) {
+          tapHandler(extra);
+        }
       },
     );
   } catch {
@@ -212,7 +247,9 @@ function toNotificationId(seed: string): number {
 export function extractConversationId(
   metadata: Record<string, unknown> | undefined,
 ): string | undefined {
-  if (!metadata) return undefined;
+  if (!metadata) {
+    return undefined;
+  }
   const { conversationId } = metadata;
   if (typeof conversationId === "string" && conversationId.length > 0) {
     return conversationId;
@@ -380,7 +417,9 @@ export async function postLocalNotification(
       });
       n.onclick = () => {
         window.focus();
-        if (tapHandler) tapHandler(tapPayload);
+        if (tapHandler) {
+          tapHandler(tapPayload);
+        }
         n.close();
       };
     } catch (err) {

@@ -52,9 +52,21 @@ import { toast } from "@vellumai/design-library/components/toast";
 interface Props {
   assistantId: string;
   conversationId: string | undefined;
+  /**
+   * Which trigger segment(s) this instance renders. The composer's action
+   * row splits them across its two ends (Figma: New-App 7471-25234 —
+   * access on the left beside the attach button, model profile on the
+   * right beside the mic), mounting one instance per side. Server state
+   * is TanStack-Query-cached, so the two instances share fetches.
+   */
+  segments?: "both" | "access" | "profile";
 }
 
-export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
+export function ComposerSettingsMenu({
+  assistantId,
+  conversationId,
+  segments = "both",
+}: Props) {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   // Two independent menus/triggers — the access-level segment and the model-
@@ -200,12 +212,19 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // their stash and applies it to the conversation it mints.
   const promotingProfileRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!conversationId) return;
-    const stashed = pendingDraftProfiles.get(conversationId);
-    if (stashed === undefined) return;
-    if (findConversation(queryClient, assistantId, conversationId)?.draft)
+    if (!conversationId) {
       return;
-    if (promotingProfileRef.current.has(conversationId)) return;
+    }
+    const stashed = pendingDraftProfiles.get(conversationId);
+    if (stashed === undefined) {
+      return;
+    }
+    if (findConversation(queryClient, assistantId, conversationId)?.draft) {
+      return;
+    }
+    if (promotingProfileRef.current.has(conversationId)) {
+      return;
+    }
     const id = conversationId;
     promotingProfileRef.current.add(id);
     void (async () => {
@@ -246,7 +265,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   const handleSelect = useCallback(
     async (preset: ThresholdPreset) => {
       // Don't act until the real global threshold has loaded.
-      if (serverGlobalInteractive === null) return;
+      if (serverGlobalInteractive === null) {
+        return;
+      }
 
       setOptimisticPreset(preset);
 
@@ -299,7 +320,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             setOptimisticIsOverride(null);
           });
       } catch {
-        if (conversationIdRef.current !== conversationId) return;
+        if (conversationIdRef.current !== conversationId) {
+          return;
+        }
         // Re-fetch the server state to display the actual value.
         void queryClient.invalidateQueries({
           queryKey: [
@@ -321,7 +344,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
   const handleProfileSelect = useCallback(
     async (name: string): Promise<boolean> => {
-      if (!configQuery.isSuccess) return false;
+      if (!configQuery.isSuccess) {
+        return false;
+      }
       const capturedConversationId = conversationIdRef.current;
       setOptimisticActiveProfile(name);
 
@@ -456,7 +481,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         disabled={!profilesLoaded}
         aria-disabled={!profilesLoaded}
         onClick={() => {
-          if (!profilesLoaded) return;
+          if (!profilesLoaded) {
+            return;
+          }
           setProfileOpen(false);
           openProfileQuickAdd({
             existingNames: existingProfileNames,
@@ -486,52 +513,76 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // value loads. Only the icon is shown inline — the label lives in a tooltip
   // and the menu — to keep the composer's bottom bar compact.
   const AccessIcon = activePreset.icon;
-  const showAccess = globalThresholdsQuery.isSuccess || serverIsOverride;
+  const showAccess =
+    (globalThresholdsQuery.isSuccess || serverIsOverride) &&
+    segments !== "profile";
+  const showProfile = segments !== "access";
 
-  // Each trigger is a self-contained button: highlights on hover and while its
-  // own menu is open, independent of the sibling trigger.
+  // Each trigger is the design library's ghost Button — same chrome and
+  // sizing as the row's other icon buttons (attach, mic) — in the action
+  // row's tertiary resting tone, held open-highlighted while its own menu
+  // is up.
   const triggerClass =
-    "flex h-7 items-center gap-1.5 rounded-md px-1.5 py-1 text-body-small-default text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)] data-[state=open]:bg-[var(--surface-active)] data-[state=open]:text-[var(--content-default)]";
+    "[--vbtn-fg:var(--content-tertiary)] touch-mobile:[--vbtn-fg:var(--content-tertiary)] data-[state=open]:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]";
+  const triggerLabelClass = "gap-1.5 px-1.5 text-body-small-default";
 
-  // Access trigger — icon only. Sits between the context-window ring and the
-  // model-profile trigger. `title` surfaces the active preset name since the
-  // label is no longer shown inline.
-  const accessTrigger = (
-    <button
-      type="button"
-      aria-label={`Assistant access: ${activePreset.label}`}
-      title={`Assistant access: ${activePreset.label}`}
-      className={`${triggerClass} shrink-0`}
+  // Access trigger — icon plus, on desktop, the active preset's name
+  // (Figma 7471-25243). Mobile stays icon-only to keep the bottom bar
+  // compact; there the label lives in the tooltip and the sheet.
+  const accessLabel = `Assistant access: ${activePreset.label}`;
+  const accessTrigger = isMobile ? (
+    <Button
+      variant="ghost"
+      iconOnly={<AccessIcon />}
+      aria-label={accessLabel}
+      title={accessLabel}
+      className={triggerClass}
+    />
+  ) : (
+    <Button
+      variant="ghost"
+      leftIcon={<AccessIcon className="h-3.5 w-3.5 shrink-0" />}
+      aria-label={accessLabel}
+      title={accessLabel}
+      className={`${triggerClass} ${triggerLabelClass} shrink-0`}
     >
-      <AccessIcon className="h-3.5 w-3.5 shrink-0" />
-    </button>
+      {activePreset.label}
+    </Button>
   );
 
-  // Profile trigger — Sparkles + label. Falls back to the sliders icon until
-  // the active profile resolves so there's always an affordance to open it.
-  const profileTrigger = (
-    <button
-      type="button"
-      aria-label="Model profile"
-      className={`${triggerClass} min-w-0`}
-    >
-      {activeProfileLabel ? (
-        <>
-          <Sparkles className="h-3.5 w-3.5 shrink-0" />
-          {/* min-w-0 + truncate keeps a long label from pushing the composer's
-              action buttons off-screen on narrow viewports; the cap is tighter
-              on mobile where the bottom bar has the least room. */}
-          {/* leading-snug: text-body-small-default is line-height:1, so truncate
-              clips descenders (e.g. the "g" in profile names). */}
-          <span className="max-w-[7rem] truncate leading-snug sm:max-w-[10rem]">
-            {activeProfileLabel}
-          </span>
-        </>
-      ) : (
-        <SlidersHorizontal className="h-[18px] w-[18px]" />
-      )}
-    </button>
-  );
+  // Profile trigger — Sparkles + label on desktop; icon-only on mobile
+  // (the label lives in the sheet there), matching the access trigger.
+  // Falls back to the sliders icon until the active profile resolves so
+  // there's always an affordance to open it.
+  const profileLabel = activeProfileLabel
+    ? `Model profile: ${activeProfileLabel}`
+    : "Model profile";
+  const profileTrigger =
+    isMobile || !activeProfileLabel ? (
+      <Button
+        variant="ghost"
+        iconOnly={activeProfileLabel ? <Sparkles /> : <SlidersHorizontal />}
+        aria-label="Model profile"
+        title={profileLabel}
+        className={triggerClass}
+      />
+    ) : (
+      <Button
+        variant="ghost"
+        leftIcon={<Sparkles className="h-3.5 w-3.5 shrink-0" />}
+        aria-label="Model profile"
+        title={profileLabel}
+        className={`${triggerClass} ${triggerLabelClass} min-w-0`}
+      >
+        {/* min-w-0 + truncate keeps a long label from pushing the composer's
+            action buttons off-screen on narrow viewports. leading-snug:
+            text-body-small-default is line-height:1, so truncate clips
+            descenders (e.g. the "g" in profile names). */}
+        <span className="max-w-[10rem] truncate leading-snug">
+          {activeProfileLabel}
+        </span>
+      </Button>
+    );
 
   const accessItems = THRESHOLD_PRESETS.map((preset) => ({
     preset,
@@ -561,7 +612,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                   <PanelItem
                     key={preset.id}
                     icon={preset.icon}
-                    label={isDefault ? `${preset.label} (default)` : preset.label}
+                    label={
+                      isDefault ? `${preset.label} (default)` : preset.label
+                    }
                     active={isActive}
                     className="max-md:[&>span:first-child]:gap-[11px]"
                     trailingAction={
@@ -579,42 +632,44 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             </BottomSheet.Content>
           </BottomSheet.Root>
         )}
-        <BottomSheet.Root open={profileOpen} onOpenChange={setProfileOpen}>
-          <BottomSheet.Trigger asChild>{profileTrigger}</BottomSheet.Trigger>
-          <BottomSheet.Content aria-describedby={undefined}>
-            <BottomSheet.Header className="sr-only">
-              <BottomSheet.Title>Model profile</BottomSheet.Title>
-            </BottomSheet.Header>
-            {/* Wrap in Body so a long profile list scrolls when the sheet
+        {showProfile && (
+          <BottomSheet.Root open={profileOpen} onOpenChange={setProfileOpen}>
+            <BottomSheet.Trigger asChild>{profileTrigger}</BottomSheet.Trigger>
+            <BottomSheet.Content aria-describedby={undefined}>
+              <BottomSheet.Header className="sr-only">
+                <BottomSheet.Title>Model profile</BottomSheet.Title>
+              </BottomSheet.Header>
+              {/* Wrap in Body so a long profile list scrolls when the sheet
                 hits its 50dvh cap. `pt-0` because the Header is sr-only. */}
-            <BottomSheet.Body className="pt-0">
-              <SectionLabel trailingAction={quickAddButton}>
-                Model Profile
-              </SectionLabel>
-              {visibleProfileEntries.map((entry) => {
-                const isActive = entry.name === profileActiveKey;
-                return (
-                  <PanelItem
-                    key={entry.name}
-                    icon={Sparkles}
-                    label={profilePickerLabel(entry)}
-                    active={isActive}
-                    className="max-md:[&>span:first-child]:gap-[11px]"
-                    trailingAction={
-                      isActive ? (
-                        <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
-                      ) : undefined
-                    }
-                    onSelect={() => {
-                      handleProfileSelect(entry.name);
-                      setProfileOpen(false);
-                    }}
-                  />
-                );
-              })}
-            </BottomSheet.Body>
-          </BottomSheet.Content>
-        </BottomSheet.Root>
+              <BottomSheet.Body className="pt-0">
+                <SectionLabel trailingAction={quickAddButton}>
+                  Model Profile
+                </SectionLabel>
+                {visibleProfileEntries.map((entry) => {
+                  const isActive = entry.name === profileActiveKey;
+                  return (
+                    <PanelItem
+                      key={entry.name}
+                      icon={Sparkles}
+                      label={profilePickerLabel(entry)}
+                      active={isActive}
+                      className="max-md:[&>span:first-child]:gap-[11px]"
+                      trailingAction={
+                        isActive ? (
+                          <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
+                        ) : undefined
+                      }
+                      onSelect={() => {
+                        handleProfileSelect(entry.name);
+                        setProfileOpen(false);
+                      }}
+                    />
+                  );
+                })}
+              </BottomSheet.Body>
+            </BottomSheet.Content>
+          </BottomSheet.Root>
+        )}
       </>
     );
   }
@@ -659,37 +714,39 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           </Menu.Content>
         </Menu.Root>
       )}
-      <Menu.Root open={profileOpen} onOpenChange={setProfileOpen}>
-        <Menu.Trigger asChild>{profileTrigger}</Menu.Trigger>
-        <Menu.Content side="top" align="start">
-          <Menu.Label className="flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
-            <span>Model Profile</span>
-            {quickAddButton}
-          </Menu.Label>
-          {visibleProfileEntries.map((entry) => {
-            const isActive = entry.name === profileActiveKey;
-            return (
-              <Menu.Item
-                key={entry.name}
-                onSelect={() => handleProfileSelect(entry.name)}
-                leftIcon={<Sparkles className="h-3.5 w-3.5" />}
-                className={
-                  isActive
-                    ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
-                    : ""
-                }
-                shortcut={
-                  isActive ? (
-                    <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
-                  ) : undefined
-                }
-              >
-                {profilePickerLabel(entry)}
-              </Menu.Item>
-            );
-          })}
-        </Menu.Content>
-      </Menu.Root>
+      {showProfile && (
+        <Menu.Root open={profileOpen} onOpenChange={setProfileOpen}>
+          <Menu.Trigger asChild>{profileTrigger}</Menu.Trigger>
+          <Menu.Content side="top" align="start">
+            <Menu.Label className="flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
+              <span>Model Profile</span>
+              {quickAddButton}
+            </Menu.Label>
+            {visibleProfileEntries.map((entry) => {
+              const isActive = entry.name === profileActiveKey;
+              return (
+                <Menu.Item
+                  key={entry.name}
+                  onSelect={() => handleProfileSelect(entry.name)}
+                  leftIcon={<Sparkles className="h-3.5 w-3.5" />}
+                  className={
+                    isActive
+                      ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
+                      : ""
+                  }
+                  shortcut={
+                    isActive ? (
+                      <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+                    ) : undefined
+                  }
+                >
+                  {profilePickerLabel(entry)}
+                </Menu.Item>
+              );
+            })}
+          </Menu.Content>
+        </Menu.Root>
+      )}
     </>
   );
 }

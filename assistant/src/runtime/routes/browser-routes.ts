@@ -50,7 +50,9 @@ export function browserCliConversationKey(sessionId: string): string {
 function extractScreenshots(
   contentBlocks?: ContentBlock[],
 ): Array<{ mediaType: string; data: string }> {
-  if (!contentBlocks) return [];
+  if (!contentBlocks) {
+    return [];
+  }
   const screenshots: Array<{ mediaType: string; data: string }> = [];
   for (const block of contentBlocks) {
     if (block.type === "image" && block.source.type === "base64") {

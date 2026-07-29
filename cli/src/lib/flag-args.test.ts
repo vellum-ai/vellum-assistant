@@ -4,9 +4,9 @@ import { parseFeatureFlagArgs } from "./flag-args";
 
 describe("parseFeatureFlagArgs", () => {
   test("single flag produces env var and empty remaining", () => {
-    const result = parseFeatureFlagArgs(["--flag", "voice-mode=true"]);
+    const result = parseFeatureFlagArgs(["--flag", "browser=true"]);
     expect(result).toEqual({
-      envVars: { VELLUM_FLAG_VOICE_MODE: "true" },
+      envVars: { VELLUM_FLAG_BROWSER: "true" },
       remaining: [],
     });
   });
@@ -75,7 +75,7 @@ describe("parseFeatureFlagArgs", () => {
       "process.exit",
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      'Error: invalid flag key "UPPER". Keys must be kebab-case (e.g. "voice-mode")',
+      'Error: invalid flag key "UPPER". Keys must be kebab-case (e.g. "browser")',
     );
 
     exitSpy.mockRestore();

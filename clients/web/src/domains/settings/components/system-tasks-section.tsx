@@ -72,12 +72,8 @@ export function SystemTaskRow({
             </div>
           ) : null}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
-            {nextRunAt ? (
-              <span>Next: {formatTimestamp(nextRunAt)}</span>
-            ) : null}
-            {lastRunAt ? (
-              <span>Last: {formatTimestamp(lastRunAt)}</span>
-            ) : null}
+            {nextRunAt ? <span>Next: {formatTimestamp(nextRunAt)}</span> : null}
+            {lastRunAt ? <span>Last: {formatTimestamp(lastRunAt)}</span> : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">

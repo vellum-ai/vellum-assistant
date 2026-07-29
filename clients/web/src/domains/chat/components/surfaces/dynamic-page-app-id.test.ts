@@ -21,15 +21,21 @@ describe("getDynamicPageAppId", () => {
   });
 
   test("prefers camelCase app id over snake_case app id", () => {
-    expect(getDynamicPageAppId(surface({ appId: "app-123", app_id: "app-456" }))).toBe("app-123");
+    expect(
+      getDynamicPageAppId(surface({ appId: "app-123", app_id: "app-456" })),
+    ).toBe("app-123");
   });
 
   test("trims surrounding whitespace", () => {
-    expect(getDynamicPageAppId(surface({ appId: "  app-123  " }))).toBe("app-123");
+    expect(getDynamicPageAppId(surface({ appId: "  app-123  " }))).toBe(
+      "app-123",
+    );
   });
 
   test("falls back to snake_case app id when camelCase app id is blank", () => {
-    expect(getDynamicPageAppId(surface({ appId: "  ", app_id: "app-123" }))).toBe("app-123");
+    expect(
+      getDynamicPageAppId(surface({ appId: "  ", app_id: "app-123" })),
+    ).toBe("app-123");
   });
 
   test("returns null when no app id is present", () => {
@@ -37,7 +43,9 @@ describe("getDynamicPageAppId", () => {
   });
 
   test("does not fall back to the surface id", () => {
-    expect(getDynamicPageAppId(surface({ preview: { title: "Calculator" } }))).toBeNull();
+    expect(
+      getDynamicPageAppId(surface({ preview: { title: "Calculator" } })),
+    ).toBeNull();
   });
 
   test("returns null for non-string or empty app ids", () => {

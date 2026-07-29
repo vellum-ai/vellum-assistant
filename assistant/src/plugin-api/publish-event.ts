@@ -12,18 +12,15 @@
  *
  * Typical use is a route or hook surfacing a UI-invalidation event (e.g.
  * `sync_changed`) so subscribed clients re-fetch the data that changed.
+ *
+ * Transitional: this is a thin shim over the facade while direct hub access is
+ * deprecated out. Once callers no longer hold the raw `assistantEventHub`
+ * handle, this wrapper is expected to be folded away.
  */
 
-import type { AssistantEventEnvelope } from "../runtime/assistant-event.js";
-import {
-  pluginAssistantEventHub,
-  type PluginEventHub,
-} from "./event-hub-facade.js";
-
-/** Publish options, mirroring the hub's `publish` options (targeting, self-echo suppression). */
-export type PublishEventOptions = NonNullable<
-  Parameters<PluginEventHub["publish"]>[1]
->;
+import type { AssistantEventEnvelope } from "../api/index.js";
+import type { AssistantEventPublishOptions } from "../runtime/assistant-event-publish-options.js";
+import { pluginAssistantEventHub } from "./event-hub-facade.js";
 
 /**
  * Publish a runtime event to the assistant's event hub. Resolves once fanout to
@@ -33,7 +30,7 @@ export type PublishEventOptions = NonNullable<
  */
 export function publishEvent(
   event: AssistantEventEnvelope,
-  options?: PublishEventOptions,
+  options?: AssistantEventPublishOptions,
 ): Promise<void> {
   return pluginAssistantEventHub.publish(event, options);
 }

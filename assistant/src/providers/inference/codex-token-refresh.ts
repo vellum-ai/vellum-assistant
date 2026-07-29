@@ -41,12 +41,16 @@ export async function getValidCodexAccessToken(
   const accessToken = await getSecureKeyAsync(
     `${credentialPrefix}/access_token`,
   );
-  if (!accessToken) return null;
+  if (!accessToken) {
+    return null;
+  }
 
   const expiresAtStr = await getSecureKeyAsync(
     `${credentialPrefix}/expires_at`,
   );
-  if (!expiresAtStr) return accessToken; // no expiry info — use token as-is
+  if (!expiresAtStr) {
+    return accessToken;
+  } // no expiry info — use token as-is
 
   const expiresAt = Number(expiresAtStr);
   const now = Date.now() / 1000;

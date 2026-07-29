@@ -28,6 +28,15 @@ export const END_CALL_MARKER = "[END_CALL]";
 export const HOLD_VERDICT_TOKEN = "[0]";
 export const ESCALATE_VERDICT_TOKEN = "[1]";
 
+/**
+ * Emitted inline by the main/escalated voice leg to ask the live-voice
+ * client to minimize the voice room and reveal the screen behind it
+ * (e.g. after creating an app worth showing). Advisory: the daemon
+ * translates it into a `minimize_room` server frame after the turn's TTS
+ * drains; it is never spoken and never persisted.
+ */
+export const MINIMIZE_ROOM_MARKER = "[-1]";
+
 // ---------------------------------------------------------------------------
 // Regexes
 // ---------------------------------------------------------------------------
@@ -47,6 +56,7 @@ const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
 const HOLD_VERDICT_TOKEN_REGEX = /\[0\]/g;
 const ESCALATE_VERDICT_TOKEN_REGEX = /\[1\]/g;
+const MINIMIZE_ROOM_MARKER_REGEX = /\[-1\]/g;
 const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
 const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
 
@@ -71,11 +81,15 @@ export function extractBalancedJson(
   text: string,
 ): { json: string; fullMatch: string; startIndex: number } | null {
   const prefixMatch = ASK_GUARDIAN_APPROVAL_PREFIX_RE.exec(text);
-  if (!prefixMatch) return null;
+  if (!prefixMatch) {
+    return null;
+  }
 
   const prefixIdx = prefixMatch.index;
   const jsonStart = prefixIdx + prefixMatch[0].length;
-  if (jsonStart >= text.length || text[jsonStart] !== "{") return null;
+  if (jsonStart >= text.length || text[jsonStart] !== "{") {
+    return null;
+  }
 
   let depth = 0;
   let inString = false;
@@ -99,7 +113,9 @@ export function extractBalancedJson(
       continue;
     }
 
-    if (inString) continue;
+    if (inString) {
+      continue;
+    }
 
     if (ch === "{") {
       depth++;
@@ -144,7 +160,9 @@ function stripGuardianApprovalMarkers(text: string): string {
   let result = text;
   for (;;) {
     const match = extractBalancedJson(result);
-    if (!match) break;
+    if (!match) {
+      break;
+    }
     result =
       result.slice(0, match.startIndex) +
       result.slice(match.startIndex + match.fullMatch.length);
@@ -163,6 +181,7 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replace(END_CALL_MARKER_REGEX, "")
     .replace(HOLD_VERDICT_TOKEN_REGEX, "")
     .replace(ESCALATE_VERDICT_TOKEN_REGEX, "")
+    .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
     .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, "")
     .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, "");
   return result;
@@ -187,6 +206,7 @@ const CONTROL_MARKER_STRINGS = [
   "[END_CALL]",
   "[0]",
   "[1]",
+  "[-1]",
   "[GUARDIAN_TIMEOUT]",
   "[GUARDIAN_UNAVAILABLE]",
 ];
@@ -202,4 +222,48 @@ export function couldBeControlMarker(text: string): boolean {
   return CONTROL_MARKER_STRINGS.some(
     (marker) => marker.startsWith(text) || text.startsWith(marker),
   );
+}
+
+// Colon-style markers whose bodies terminate at the first "]" — their strip
+// regexes are non-greedy (`.+?\]`), so the first bracket IS the terminator.
+// ASK_GUARDIAN_APPROVAL is deliberately absent: its balanced-JSON body may
+// itself contain "]" (arrays, string values), so only the balanced parser can
+// judge it complete.
+const FIRST_BRACKET_TERMINATED_PREFIXES = [
+  "[ASK_GUARDIAN:",
+  "[USER_ANSWERED:",
+  "[USER_INSTRUCTION:",
+];
+
+const GUARDIAN_APPROVAL_PREFIX = "[ASK_GUARDIAN_APPROVAL:";
+
+/**
+ * Whether `tail` (a buffer starting at a `[`) is a control marker that is
+ * still streaming — i.e. holding it back is required because
+ * {@link stripInternalSpeechMarkers} cannot yet remove it. Returns false for
+ * complete markers (safe to flush: stripping removes them) and for text that
+ * is not a marker at all (safe to flush: it is speech).
+ *
+ * Completion is judged per marker family: a strict prefix of any known
+ * marker string is always incomplete; an ASK_GUARDIAN_APPROVAL body is
+ * complete only when {@link extractBalancedJson} finds the balanced JSON and
+ * its closing bracket (a bare "]" inside the JSON does NOT terminate it);
+ * the other colon-style markers terminate at their first "]"; the fixed
+ * literal markers are complete the moment they match.
+ */
+export function isIncompleteControlMarkerTail(tail: string): boolean {
+  if (
+    CONTROL_MARKER_STRINGS.some(
+      (marker) => marker.length > tail.length && marker.startsWith(tail),
+    )
+  ) {
+    return true;
+  }
+  if (tail.startsWith(GUARDIAN_APPROVAL_PREFIX)) {
+    return extractBalancedJson(tail) === null;
+  }
+  if (FIRST_BRACKET_TERMINATED_PREFIXES.some((p) => tail.startsWith(p))) {
+    return !tail.includes("]");
+  }
+  return false;
 }

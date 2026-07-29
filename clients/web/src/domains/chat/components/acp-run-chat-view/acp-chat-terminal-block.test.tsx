@@ -15,9 +15,7 @@ const EXPECTED_TIME = new Date(COMPLETED_AT).toLocaleTimeString([], {
 
 describe("AcpChatTerminalBlock", () => {
   test("renders nothing for active statuses", () => {
-    const { container } = render(
-      <AcpChatTerminalBlock status="running" />,
-    );
+    const { container } = render(<AcpChatTerminalBlock status="running" />);
     expect(container.firstChild).toBeNull();
   });
 
@@ -25,7 +23,9 @@ describe("AcpChatTerminalBlock", () => {
     render(<AcpChatTerminalBlock status="completed" stopReason="end_turn" />);
     expect(screen.getByText("Completed")).toBeDefined();
     expect(
-      screen.getByTestId("acp-chat-terminal-block").getAttribute("data-terminal-kind"),
+      screen
+        .getByTestId("acp-chat-terminal-block")
+        .getAttribute("data-terminal-kind"),
     ).toBe("completed");
   });
 
@@ -41,7 +41,10 @@ describe("AcpChatTerminalBlock", () => {
 
   test("completed + max_turn_requests → Stopped: limit reached", () => {
     render(
-      <AcpChatTerminalBlock status="completed" stopReason="max_turn_requests" />,
+      <AcpChatTerminalBlock
+        status="completed"
+        stopReason="max_turn_requests"
+      />,
     );
     expect(screen.getByText("Stopped: limit reached")).toBeDefined();
   });
@@ -87,7 +90,9 @@ describe("AcpChatTerminalBlock", () => {
     render(
       <AcpChatTerminalBlock
         status="failed"
-        error={"Run failed on a very long line that wraps across\nmultiple lines"}
+        error={
+          "Run failed on a very long line that wraps across\nmultiple lines"
+        }
       />,
     );
     const root = screen.getByTestId("acp-chat-terminal-block");

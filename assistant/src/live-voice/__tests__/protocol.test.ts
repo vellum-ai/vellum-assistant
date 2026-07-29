@@ -24,7 +24,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     expect(result.frame).toEqual({
       type: "start",
@@ -43,7 +45,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     expect(result.frame).toEqual({
       type: "audio",
@@ -77,7 +81,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
       JSON.stringify({ type: "update_config", silenceThresholdMs: 900 }),
     );
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.frame).toEqual({
       type: "update_config",
       silenceThresholdMs: 900,
@@ -102,7 +108,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
       [field]: badValue,
     });
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.error).toMatchObject({
       code: "invalid_field",
       field,
@@ -114,7 +122,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     const result = parseLiveVoiceClientTextFrame("{");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
 
     expect(result.error.code).toBe("invalid_json");
   });
@@ -123,7 +133,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     const result = parseLiveVoiceClientTextFrame("[]");
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
 
     expect(result.error).toMatchObject({
       code: "invalid_frame",
@@ -136,7 +148,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
 
     expect(result.error).toMatchObject({
       code: "unknown_type",
@@ -202,7 +216,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
 
     expect(result.error).toMatchObject({
       code: "invalid_field",
@@ -324,7 +340,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.frame).toMatchObject({
       type: "start",
       silenceThresholdMs: 1500,
@@ -342,7 +360,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect(result.frame).toMatchObject({ bargeInMinSpeechMs: 0 });
   });
 
@@ -355,7 +375,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
     expect("silenceThresholdMs" in result.frame).toBe(false);
     expect("bargeInMinSpeechMs" in result.frame).toBe(false);
   });
@@ -377,7 +399,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
       });
 
       expect(result.ok).toBe(false);
-      if (result.ok) return;
+      if (result.ok) {
+        return;
+      }
       expect(result.error).toMatchObject({
         code: "invalid_field",
         field,
@@ -396,7 +420,9 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
 
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
 
     expect(result.error).toMatchObject({
       code: "missing_required_field",
@@ -412,7 +438,9 @@ describe("parseLiveVoiceBinaryAudioFrame", () => {
     const result = parseLiveVoiceBinaryAudioFrame(bytes.buffer);
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     expect(result.frame.type).toBe("binary_audio");
     expect(Array.from(result.frame.data)).toEqual([1, 2, 3]);
@@ -423,7 +451,9 @@ describe("parseLiveVoiceBinaryAudioFrame", () => {
     const result = parseLiveVoiceBinaryAudioFrame(source.subarray(1, 3));
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     expect(Array.from(result.frame.data)).toEqual([8, 7]);
   });

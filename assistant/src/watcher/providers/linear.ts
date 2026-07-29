@@ -415,10 +415,18 @@ function clearLinearStateCache(watcherKey: string): void {
  * issueCommentMentionedYou, issueStatusChanged, etc.
  */
 function notificationTypeToEventType(type: string): string {
-  if (type === "issueAssignedToYou") return "linear_issue_assigned";
-  if (type === "issueMentionedYou") return "linear_mention";
-  if (type === "issueCommentMentionedYou") return "linear_comment_mention";
-  if (type === "issueStatusChanged") return "linear_status_changed";
+  if (type === "issueAssignedToYou") {
+    return "linear_issue_assigned";
+  }
+  if (type === "issueMentionedYou") {
+    return "linear_mention";
+  }
+  if (type === "issueCommentMentionedYou") {
+    return "linear_comment_mention";
+  }
+  if (type === "issueStatusChanged") {
+    return "linear_status_changed";
+  }
   return "linear_notification";
 }
 
@@ -532,7 +540,9 @@ export const linearProvider: WatcherProvider = {
     const items: WatcherItem[] = [];
 
     for (const n of notifications) {
-      if (!relevantTypes.has(n.type)) continue;
+      if (!relevantTypes.has(n.type)) {
+        continue;
+      }
       items.push(notificationToItem(n));
     }
 

@@ -27,7 +27,10 @@ describe("assistantQueryKey", () => {
   });
 
   test("suffixes the selected id so a switch is a distinct cache key", () => {
-    expect(assistantQueryKey("ast-2")).toEqual([...ASSISTANT_QUERY_KEY, "ast-2"]);
+    expect(assistantQueryKey("ast-2")).toEqual([
+      ...ASSISTANT_QUERY_KEY,
+      "ast-2",
+    ]);
     expect(assistantQueryKey("ast-2")).not.toBe(ASSISTANT_QUERY_KEY);
     expect(assistantQueryKey("ast-2")).not.toEqual(assistantQueryKey("ast-3"));
   });

@@ -70,19 +70,74 @@ export interface SidebarItem {
  * layout. Each item has a Lucide icon.
  */
 export const SETTINGS_SIDEBAR: SidebarItem[] = [
-  { id: "assistant-status", label: "General", href: routes.settings.general, icon: SlidersHorizontal },
-  { id: "model", label: "Models & Services", href: routes.settings.ai, icon: Cpu },
-  { id: "integrations", label: "Integrations", href: routes.settings.integrations, icon: Puzzle },
-  { id: "credentials", label: "Credentials", href: routes.settings.credentials, icon: KeyRound },
-  { id: "notifications", label: "Notifications", href: routes.settings.notifications, icon: Bell },
+  {
+    id: "assistant-status",
+    label: "General",
+    href: routes.settings.general,
+    icon: SlidersHorizontal,
+  },
+  {
+    id: "model",
+    label: "Models & Services",
+    href: routes.settings.ai,
+    icon: Cpu,
+  },
+  {
+    id: "integrations",
+    label: "Integrations",
+    href: routes.settings.integrations,
+    icon: Puzzle,
+  },
+  {
+    id: "credentials",
+    label: "Credentials",
+    href: routes.settings.credentials,
+    icon: KeyRound,
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    href: routes.settings.notifications,
+    icon: Bell,
+  },
   { id: "voice", label: "Voice", href: routes.settings.voice, icon: Mic },
-  { id: "sounds", label: "Sounds", href: routes.settings.sounds, icon: Volume2 },
-  { id: "privacy", label: "Permissions & Privacy", href: routes.settings.privacy, icon: ShieldCheck },
-  { id: "bookmarks", label: "Bookmarks", href: routes.settings.bookmarks, icon: Bookmark },
-  { id: "billing", label: "Usage", href: routes.settings.usage, icon: BarChart3 },
-  { id: "community", label: "Community", href: routes.settings.community, icon: Users },
+  {
+    id: "sounds",
+    label: "Sounds",
+    href: routes.settings.sounds,
+    icon: Volume2,
+  },
+  {
+    id: "privacy",
+    label: "Permissions & Privacy",
+    href: routes.settings.privacy,
+    icon: ShieldCheck,
+  },
+  {
+    id: "bookmarks",
+    label: "Bookmarks",
+    href: routes.settings.bookmarks,
+    icon: Bookmark,
+  },
+  {
+    id: "billing",
+    label: "Usage",
+    href: routes.settings.usage,
+    icon: BarChart3,
+  },
+  {
+    id: "community",
+    label: "Community",
+    href: routes.settings.community,
+    icon: Users,
+  },
   { id: "debug", label: "Debug", href: routes.settings.debug, icon: Bug },
-  { id: "developer", label: "Developer", href: routes.settings.developer, icon: Code },
+  {
+    id: "developer",
+    label: "Developer",
+    href: routes.settings.developer,
+    icon: Code,
+  },
 ];
 
 const SETTINGS_TAB_ID_ALIASES: Record<string, PanelId> = {

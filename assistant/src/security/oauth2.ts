@@ -308,7 +308,13 @@ async function runGatewayFlow(
 
   const code = await codePromise;
 
-  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+  return await exchangeCodeForTokens(
+    config,
+    code,
+    redirectUri,
+    codeVerifier,
+    state,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +342,13 @@ async function runLoopbackFlow(
     callbackPath,
   );
 
-  return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+  return await exchangeCodeForTokens(
+    config,
+    code,
+    redirectUri,
+    codeVerifier,
+    state,
+  );
 }
 
 /**
@@ -448,7 +460,9 @@ function startLoopbackServerAndWaitForCode(
         reject(new Error("OAuth2 loopback callback timed out"));
       }
     }, LOOPBACK_TIMEOUT_MS);
-    if (typeof timeout === "object" && "unref" in timeout) timeout.unref();
+    if (typeof timeout === "object" && "unref" in timeout) {
+      timeout.unref();
+    }
 
     function cleanup() {
       clearTimeout(timeout);
@@ -579,7 +593,13 @@ export async function prepareOAuth2Flow(
   const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
-    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+    return await exchangeCodeForTokens(
+      config,
+      code,
+      redirectUri,
+      codeVerifier,
+      state,
+    );
   });
 
   log.debug({ transport: "gateway", state }, "Prepared deferred OAuth2 flow");
@@ -621,7 +641,13 @@ async function prepareLoopbackFlow(
   const authorizeUrl = `${config.authorizeUrl}?${authParams}`;
 
   const completion = codePromise.then(async (code) => {
-    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier, state);
+    return await exchangeCodeForTokens(
+      config,
+      code,
+      redirectUri,
+      codeVerifier,
+      state,
+    );
   });
 
   log.debug(
@@ -718,7 +744,9 @@ function startLoopbackServerForPreparedFlow(
         codeReject(new Error("OAuth2 loopback callback timed out"));
       }
     }, LOOPBACK_TIMEOUT_MS);
-    if (typeof timeout === "object" && "unref" in timeout) timeout.unref();
+    if (typeof timeout === "object" && "unref" in timeout) {
+      timeout.unref();
+    }
 
     function cleanup() {
       clearTimeout(timeout);
@@ -933,8 +961,9 @@ export async function refreshOAuth2Token(
           safeDetail.error = String(parsed.error);
           errorCode = String(parsed.error);
         }
-        if (parsed.error_description)
+        if (parsed.error_description) {
           safeDetail.error_description = String(parsed.error_description);
+        }
       } catch {
         safeDetail.error = "[non-JSON response]";
       }

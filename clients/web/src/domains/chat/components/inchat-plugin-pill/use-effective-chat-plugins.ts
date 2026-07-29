@@ -113,8 +113,7 @@ export function useEffectiveChatPlugins(
     }
 
     const conversation = convData?.conversation as
-      | ConversationWithEnabledPlugins
-      | undefined;
+      ConversationWithEnabledPlugins | undefined;
 
     // The chat's scope is known once the conversation detail settles: a loaded
     // row, a confirmed 404/no-row, or a draft context (no conversationId /

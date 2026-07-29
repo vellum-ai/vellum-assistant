@@ -71,7 +71,6 @@ import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { safeParseRecord } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
-import { silentlyWithLog } from "../../util/silently.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
@@ -105,7 +104,9 @@ const log = getLogger("conversation-management-routes");
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
+  if (!id) {
+    throw new NotFoundError(`Conversation ${rawId} not found`);
+  }
   return id;
 }
 
@@ -337,10 +338,7 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
         conversation.abortController = null;
       }
       conversation.setProcessing(false);
-      silentlyWithLog(
-        conversation.drainQueue(),
-        "summarize-command queue drain",
-      );
+      void conversation.kickDrainQueue("loop_complete", "summarize_command");
     }
   })();
 
@@ -483,7 +481,9 @@ async function handleDeleteConversation({
 
   await cancelScheduleIfLast(resolvedId);
 
-  destroyActiveConversation(resolvedId);
+  // In-memory teardown only: `deleteConversation` drops the durable subagent
+  // rows inside its own transaction.
+  destroyActiveConversation(resolvedId, { keepSubagentRecords: true });
   const deleted = deleteConversation(resolvedId);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {

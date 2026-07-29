@@ -2,7 +2,9 @@
  * Tests for the gateway → assistant reverse IPC client.
  *
  * Uses a real in-process socket server (net.createServer) rather than mocking
- * net.connect, because mocking the net module is very tricky in bun.
+ * net.connect, because mocking the net module is very tricky in bun. The test
+ * server speaks the same length-prefixed framing the daemon does, via the
+ * shared reader/writer, so the wire format is exercised rather than imitated.
  *
  * Each test creates a unique workspace directory so that resolveIpcSocketPath
  * produces a socket path that matches our in-process server.
@@ -15,9 +17,17 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  IpcFrameReader,
+  writeMessage,
+  writeStreamChunk,
+  writeStreamEnd,
+} from "@vellumai/ipc-server-utils";
+
+import {
   IpcHandlerError,
   IpcTransportError,
   ipcCallAssistant,
+  ipcCallAssistantRaw,
   ipcSuggestTrustRule,
 } from "./assistant-client.js";
 
@@ -26,6 +36,8 @@ import {
 // ---------------------------------------------------------------------------
 
 let server: Server | undefined;
+/** Binary frame the test server received alongside the last request. */
+let lastRequestBinary: Uint8Array | undefined;
 let origWorkspaceDir: string | undefined;
 let origAssistantIpcDir: string | undefined;
 
@@ -38,6 +50,7 @@ beforeEach(() => {
   origAssistantIpcDir = process.env.ASSISTANT_IPC_SOCKET_DIR;
   delete process.env.ASSISTANT_IPC_SOCKET_DIR;
   server = undefined;
+  lastRequestBinary = undefined;
 });
 
 afterEach(async () => {
@@ -79,14 +92,14 @@ function setupWorkspace(): string {
   return join(dir, "assistant.sock");
 }
 
-/** Send a success NDJSON response over the socket. */
+/** Send a success response over the socket. */
 function sendResult(socket: Socket, id: string, result: unknown): void {
-  socket.write(JSON.stringify({ id, result }) + "\n");
+  writeMessage(socket, { id, result });
 }
 
-/** Send an error NDJSON response over the socket. */
+/** Send an error response over the socket. */
 function sendError(socket: Socket, id: string, error: string): void {
-  socket.write(JSON.stringify({ id, error }) + "\n");
+  writeMessage(socket, { id, error });
 }
 
 /** Send a handler-level error (with statusCode) over the socket. */
@@ -97,9 +110,23 @@ function sendHandlerError(
   statusCode: number,
   errorCode: string,
 ): void {
-  socket.write(
-    JSON.stringify({ id, error, statusCode, errorCode }) + "\n",
+  writeMessage(socket, { id, error, statusCode, errorCode } as never);
+}
+
+/** Send a single binary response frame, as the daemon does for file bodies. */
+function sendBinary(socket: Socket, id: string, bytes: Uint8Array): void {
+  writeMessage(
+    socket,
+    { id, headers: { "content-length": String(bytes.byteLength) } },
+    bytes,
   );
+}
+
+/** Send a chunked binary response, as the daemon does for streams. */
+function sendChunked(socket: Socket, id: string, chunks: Uint8Array[]): void {
+  writeMessage(socket, { id, headers: { "transfer-encoding": "chunked" } });
+  for (const chunk of chunks) writeStreamChunk(socket, chunk);
+  writeStreamEnd(socket);
 }
 
 /**
@@ -116,24 +143,12 @@ async function startServer(
   ) => void,
 ): Promise<void> {
   server = createServer((socket) => {
-    let buf = "";
+    const reader = new IpcFrameReader((envelope, binary) => {
+      lastRequestBinary = binary;
+      handler(envelope.id, envelope.method!, envelope.params, socket);
+    });
     socket.on("data", (chunk) => {
-      buf += chunk.toString();
-      const newlineIdx = buf.indexOf("\n");
-      if (newlineIdx === -1) return;
-      const line = buf.slice(0, newlineIdx).trim();
-      buf = buf.slice(newlineIdx + 1);
-      if (!line) return;
-      try {
-        const msg = JSON.parse(line) as {
-          id: string;
-          method: string;
-          params?: Record<string, unknown>;
-        };
-        handler(msg.id, msg.method, msg.params, socket);
-      } catch {
-        // Ignore malformed
-      }
+      reader.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
   });
 
@@ -148,7 +163,7 @@ async function startServer(
 // ---------------------------------------------------------------------------
 
 describe("ipcCallAssistant", () => {
-  test("resolves with the result field from the NDJSON response", async () => {
+  test("resolves with the result field from the response", async () => {
     const sockPath = setupWorkspace();
     const expectedResult = { foo: "bar", count: 42 };
 
@@ -380,5 +395,86 @@ describe("ipcSuggestTrustRule", () => {
     await expect(ipcSuggestTrustRule(validRequest)).rejects.toBeInstanceOf(
       IpcTransportError,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Binary frames — the reason for the framed protocol
+// ---------------------------------------------------------------------------
+
+describe("binary bodies", () => {
+  test("sends a request body as a binary frame, not re-encoded JSON", async () => {
+    const sockPath = setupWorkspace();
+    const body = new Uint8Array([0x00, 0xff, 0x7b, 0x0a, 0x80]);
+
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, "ok");
+      socket.end();
+    });
+
+    await ipcCallAssistant("user_route_post", {}, { binary: body });
+
+    // Byte-for-byte, including bytes that are not valid UTF-8 and a newline
+    // that the legacy dialect would have treated as a message boundary.
+    expect(lastRequestBinary).toEqual(body);
+  });
+
+  test("receives a single binary response body", async () => {
+    const sockPath = setupWorkspace();
+    const bytes = new Uint8Array([1, 2, 3, 250]);
+
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendBinary(socket, id, bytes);
+      socket.end();
+    });
+
+    const res = await ipcCallAssistantRaw("m");
+
+    expect(res.binary).toEqual(bytes);
+  });
+
+  test("accumulates a chunked response rather than hanging on it", async () => {
+    // Legacy clients made the daemon buffer streams and then dropped the
+    // bytes. Framed, the chunks actually arrive — and a client that ignored
+    // them would wait out the full call timeout instead of resolving.
+    const sockPath = setupWorkspace();
+
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendChunked(socket, id, [
+        new Uint8Array([1, 2]),
+        new Uint8Array([3]),
+        new Uint8Array([4, 5]),
+      ]);
+      socket.end();
+    });
+
+    const res = await ipcCallAssistantRaw("m", undefined, { timeoutMs: 2000 });
+
+    expect(res.binary).toEqual(new Uint8Array([1, 2, 3, 4, 5]));
+  });
+
+  test("keeps returning the JSON result for ordinary calls", async () => {
+    // The common path must be untouched by the transport change.
+    const sockPath = setupWorkspace();
+
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, { ok: true });
+      socket.end();
+    });
+
+    expect(await ipcCallAssistant("m")).toEqual({ ok: true });
+  });
+
+  test("surfaces a handler error even when the call carried a body", async () => {
+    const sockPath = setupWorkspace();
+
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendHandlerError(socket, id, "nope", 404, "NOT_FOUND");
+      socket.end();
+    });
+
+    await expect(
+      ipcCallAssistant("m", {}, { binary: new Uint8Array([1]) }),
+    ).rejects.toBeInstanceOf(IpcHandlerError);
   });
 });

@@ -41,7 +41,9 @@ export function useOnboardingAttribution({
 }: UseOnboardingAttributionOptions): void {
   const consumedRef = useRef(false);
   useEffect(() => {
-    if (consumedRef.current) return;
+    if (consumedRef.current) {
+      return;
+    }
     if (
       searchParams.get(ONBOARDING_ATTRIBUTION_PARAM) !==
       RESEARCH_CHECKIN_CALENDAR_ATTRIBUTION
@@ -49,7 +51,9 @@ export function useOnboardingAttribution({
       return;
     }
     // Wait for auth so the event carries the real user id; harmless to defer.
-    if (!userId) return;
+    if (!userId) {
+      return;
+    }
 
     consumedRef.current = true;
     emitResearchOnboardingCheckinCalendarOpened({ userId });

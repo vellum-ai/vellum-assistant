@@ -23,9 +23,8 @@ mock.module("../../../contacts/contact-store.js", () => ({
   },
 }));
 
-const { handleContactsMirrorApply } = await import(
-  "../contacts-mirror-ipc-routes.js"
-);
+const { handleContactsMirrorApply } =
+  await import("../contacts-mirror-ipc-routes.js");
 
 await initializeDb();
 
@@ -48,7 +47,11 @@ describe("contacts_mirror_apply atomicity", () => {
         body: {
           ops: [
             // op1: a real contact write that MUST NOT survive the rollback.
-            { op: "upsert_contact", contactId: "rollback-co", displayName: "RB" },
+            {
+              op: "upsert_contact",
+              contactId: "rollback-co",
+              displayName: "RB",
+            },
             // op2: throws mid-transaction, aborting the whole batch.
             { op: "delete_contact", contactId: "anything" },
           ],

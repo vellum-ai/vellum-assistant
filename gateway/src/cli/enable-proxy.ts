@@ -24,8 +24,6 @@ try {
 
 const gateway = (config.gateway ?? {}) as Record<string, unknown>;
 gateway.runtimeProxyRequireAuth = false;
-gateway.unmappedPolicy = "default";
-gateway.defaultAssistantId = "self";
 config.gateway = gateway;
 
 const dir = dirname(configPath);

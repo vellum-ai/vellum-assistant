@@ -14,10 +14,7 @@ import {
   githubSourceSchema,
   type ResolvedPluginSource,
 } from "./plugin-marketplace.js";
-import type {
-  PluginSearchMatch,
-  SearchPluginsDeps,
-} from "./search-plugins.js";
+import type { PluginSearchMatch, SearchPluginsDeps } from "./search-plugins.js";
 
 /** Find the catalog entry claiming {@link name}, or `null` when none does. */
 export async function findCatalogEntry(
@@ -59,7 +56,12 @@ export function resolveSourceFromMatch(
     );
   }
   const [owner, repoName] = parsed.data.repo.split("/", 2) as [string, string];
-  return { owner, repo: repoName, path: match.source.path ?? "", ref: match.source.ref };
+  return {
+    owner,
+    repo: repoName,
+    path: match.source.path ?? "",
+    ref: match.source.ref,
+  };
 }
 
 /** Resolve {@link name} to install coordinates from the catalog, or `null`. */

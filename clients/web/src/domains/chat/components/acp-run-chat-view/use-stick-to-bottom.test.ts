@@ -72,13 +72,14 @@ function mountHook(contentKey: unknown): {
   function Harness() {
     const api = useStickToBottom(contentKey);
     latest = api;
-    return createElement("div", { ref: api.scrollRef, "data-testid": "scroll" });
+    return createElement("div", {
+      ref: api.scrollRef,
+      "data-testid": "scroll",
+    });
   }
 
   const { container } = render(createElement(Harness));
-  const el = container.querySelector(
-    "[data-testid=scroll]",
-  ) as HTMLDivElement;
+  const el = container.querySelector("[data-testid=scroll]") as HTMLDivElement;
 
   return { el, latest: () => latest as UseStickToBottomReturn };
 }

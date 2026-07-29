@@ -103,10 +103,12 @@ export function cancelGeneration(conversationId: string): boolean {
   conversation.abort(
     createAbortReason("user_cancel", "cancelGeneration", conversationId),
   );
-  // Also abort any child subagents spawned by this conversation.
+  // Also abort any in-flight child subagents spawned by this conversation.
   // Omit sendToClient to suppress parent notifications — the parent is
   // being cancelled, so enqueuing synthetic messages would trigger
-  // unwanted model activity after the user pressed stop.
+  // unwanted model activity after the user pressed stop. Terminal children
+  // stay readable: the conversation survives the stop, and its next turn may
+  // still `subagent_read` a completed child's result.
   getSubagentManager().abortAllForParent(conversationId);
   // Cancel any in-flight ACP agent sessions this conversation spawned, for the
   // same reason: a backgrounded ACP prompt would otherwise keep running (and
@@ -363,7 +365,9 @@ export function steerOnEnqueuedMessageIfQuestionParked(
   const hasParkedQuestion = pendingInteractions
     .getByConversation(conversationId)
     .some((interaction) => interaction.kind === "question");
-  if (!hasParkedQuestion) return false;
+  if (!hasParkedQuestion) {
+    return false;
+  }
   steerToMessage(conversationId, enqueuedRequestId);
   return true;
 }
@@ -390,7 +394,9 @@ export function supersedePendingInteractionsOnEnqueue(
   enqueuedRequestId: string,
 ): void {
   const conversation = findConversation(conversationId);
-  if (!conversation) return;
+  if (!conversation) {
+    return;
+  }
 
   if (conversation.hasAnyPendingConfirmation()) {
     for (const interaction of pendingInteractions.getByConversation(

@@ -57,7 +57,9 @@ export function MobileSidebarDrawer({
   });
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     closeButtonRef.current?.focus();
 
     const previousBodyOverflow = document.body.style.overflow;
@@ -65,7 +67,9 @@ export function MobileSidebarDrawer({
 
     const mql = window.matchMedia(SM_MEDIA_QUERY);
     const handleMediaChange = (e: MediaQueryListEvent) => {
-      if (e.matches) onCloseRef.current();
+      if (e.matches) {
+        onCloseRef.current();
+      }
     };
     mql.addEventListener("change", handleMediaChange);
 
@@ -77,9 +81,8 @@ export function MobileSidebarDrawer({
       if (event.key !== "Tab" || !drawerRef.current) {
         return;
       }
-      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
-        FOCUSABLE_SELECTOR,
-      );
+      const focusable =
+        drawerRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (!first || !last) {
@@ -107,7 +110,9 @@ export function MobileSidebarDrawer({
     };
   }, [open]);
 
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   return (
     <div

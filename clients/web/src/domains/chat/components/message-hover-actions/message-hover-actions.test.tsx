@@ -13,7 +13,9 @@ describe("MessageHoverActions", () => {
       timestamp: Date.UTC(2026, 0, 2, 12, 34),
       ...textBody(""),
     };
-    const html = renderToStaticMarkup(<MessageHoverActions message={message} />);
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
 
     expect(html).toContain("title=");
     expect(html).toContain("select-none");
@@ -54,7 +56,9 @@ describe("MessageHoverActions", () => {
       timestamp: Date.UTC(2026, 0, 2, 12, 34),
       ...textBody("hello"),
     };
-    const html = renderToStaticMarkup(<MessageHoverActions message={message} />);
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
 
     expect(html).not.toContain('title="Summarize up to here"');
   });
@@ -80,7 +84,9 @@ describe("MessageHoverActions", () => {
       timestamp: Date.UTC(2026, 0, 2, 12, 34),
       ...textBody("hello"),
     };
-    const html = renderToStaticMarkup(<MessageHoverActions message={message} />);
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
 
     expect(html).not.toContain('title="Retry"');
   });

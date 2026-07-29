@@ -39,7 +39,12 @@ describe("sanitizeDisplayMessages", () => {
   test("returns the input unchanged when no sub-method fires", () => {
     const messages: DisplayMessage[] = [
       makeMessage({ id: "u-1", role: "user", ...textBody("hi"), timestamp: 1 }),
-      makeMessage({ id: "a-1", role: "assistant", ...textBody("hello"), timestamp: 2 }),
+      makeMessage({
+        id: "a-1",
+        role: "assistant",
+        ...textBody("hello"),
+        timestamp: 2,
+      }),
     ];
     const result = sanitizeDisplayMessages(messages);
     expect(result.map((m) => m.id)).toEqual(["u-1", "a-1"]);
@@ -47,8 +52,18 @@ describe("sanitizeDisplayMessages", () => {
 
   test("does not mutate the input array", () => {
     const messages: DisplayMessage[] = [
-      makeMessage({ id: "b", role: "assistant", ...textBody("b"), timestamp: 200 }),
-      makeMessage({ id: "a", role: "assistant", ...textBody("a"), timestamp: 100 }),
+      makeMessage({
+        id: "b",
+        role: "assistant",
+        ...textBody("b"),
+        timestamp: 200,
+      }),
+      makeMessage({
+        id: "a",
+        role: "assistant",
+        ...textBody("a"),
+        timestamp: 100,
+      }),
     ];
     const snapshot = messages.map((m) => m.id);
     sanitizeDisplayMessages(messages);
@@ -64,7 +79,12 @@ describe("sanitizeDisplayMessages", () => {
 describe("sanitizeDisplayMessages · invalid row filter", () => {
   test("drops blank user rows with no content / segments / surfaces / attachments / tool calls", () => {
     const blank = makeMessage({ id: "blank", role: "user", ...textBody("") });
-    const real = makeMessage({ id: "real", role: "user", ...textBody("hi"), timestamp: 1 });
+    const real = makeMessage({
+      id: "real",
+      role: "user",
+      ...textBody("hi"),
+      timestamp: 1,
+    });
     const result = sanitizeDisplayMessages([blank, real]);
     expect(result.map((m) => m.id)).toEqual(["real"]);
   });
@@ -151,18 +171,14 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
       id: "msg-1",
       role: "assistant",
       textSegments: ["Final answer"],
-      toolCalls: [
-        makeToolCall({ id: "tc-1", name: "bash", result: "ok" }),
-      ],
+      toolCalls: [makeToolCall({ id: "tc-1", name: "bash", result: "ok" })],
       timestamp: 1000,
     });
     const orphan = makeMessage({
       id: "assistant-abc",
       role: "assistant",
       textSegments: ["Final answer"],
-      toolCalls: [
-        makeToolCall({ id: "tc-1", name: "bash", result: "ok" }),
-      ],
+      toolCalls: [makeToolCall({ id: "tc-1", name: "bash", result: "ok" })],
       timestamp: 1000,
     });
 
@@ -171,7 +187,12 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
   });
 
   test("keeps both rows when only one is the assistant", () => {
-    const user = makeMessage({ id: "u", role: "user", ...textBody("hi"), timestamp: 1 });
+    const user = makeMessage({
+      id: "u",
+      role: "user",
+      ...textBody("hi"),
+      timestamp: 1,
+    });
     const assistant = makeMessage({
       id: "a",
       role: "assistant",
@@ -209,10 +230,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const second = makeMessage({
       id: "second",
       role: "assistant",
-      textSegments: [
-        "Answer",
-        "More",
-      ],
+      textSegments: ["Answer", "More"],
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([first, second]);
@@ -445,7 +463,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, u, a2]);
-    expect(Boolean((result[0]!.toolCalls![0]!).isError)).toBe(true);
+    expect(Boolean(result[0]!.toolCalls![0]!.isError)).toBe(true);
     expect(result[0]!.toolCalls![0]!.result).toBe(SYNTHETIC);
   });
 
@@ -531,7 +549,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     });
     const result = sanitizeDisplayMessages([older, later]);
     expect(result[0]!.toolCalls![0]!.result).toBe("first ok");
-    expect(Boolean((result[0]!.toolCalls![1]!).isError)).toBe(true);
+    expect(Boolean(result[0]!.toolCalls![1]!.isError)).toBe(true);
     expect(result[0]!.toolCalls![1]!.isError).toBe(true);
     expect(result[0]!.toolCalls![1]!.result).toBe(SYNTHETIC);
     expect(result[0]!.toolCalls![2]!.result).toBe("third ok");
@@ -561,8 +579,8 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, a2, a3]);
-    expect(Boolean((result[0]!.toolCalls![0]!).isError)).toBe(true);
-    expect(Boolean((result[1]!.toolCalls![0]!).isError)).toBe(true);
+    expect(Boolean(result[0]!.toolCalls![0]!.isError)).toBe(true);
+    expect(Boolean(result[1]!.toolCalls![0]!.isError)).toBe(true);
     expect(result[2]).toBe(a3);
   });
 
@@ -669,7 +687,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
-    expect(Boolean((patched!.toolCalls![0]!).isError)).toBe(true);
+    expect(Boolean(patched!.toolCalls![0]!.isError)).toBe(true);
     expect(patched!.toolCalls![0]!.isError).toBe(true);
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
@@ -717,7 +735,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
-    expect(Boolean((patched!.toolCalls![0]!).isError)).toBe(true);
+    expect(Boolean(patched!.toolCalls![0]!.isError)).toBe(true);
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
 
@@ -797,7 +815,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     });
     mockNow(now);
     const result = sanitizeDisplayMessages([u, lastAssistant]);
-    expect(Boolean((result[1]!.toolCalls![0]!).isError)).toBe(true);
+    expect(Boolean(result[1]!.toolCalls![0]!.isError)).toBe(true);
     expect(result[1]!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
 
@@ -834,7 +852,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     mockNow(now);
     const [patched] = sanitizeDisplayMessages([m]);
     expect(patched!.toolCalls![0]!.result).toBe("first ok");
-    expect(Boolean((patched!.toolCalls![1]!).isError)).toBe(true);
+    expect(Boolean(patched!.toolCalls![1]!.isError)).toBe(true);
     expect(patched!.toolCalls![1]!.isError).toBe(true);
     expect(patched!.toolCalls![1]!.result).toContain(STALE_PREFIX);
     expect(patched!.toolCalls![2]!.result).toBe("third ok");
@@ -904,9 +922,7 @@ describe("sanitizeDisplayMessages · integration", () => {
       id: "phantom",
       role: "user",
       ...textBody(""),
-      toolCalls: [
-        makeToolCall({ id: "p", name: "unknown", result: "orphan" }),
-      ],
+      toolCalls: [makeToolCall({ id: "p", name: "unknown", result: "orphan" })],
       timestamp: 50,
     });
     const userTurn = makeMessage({
@@ -958,13 +974,9 @@ describe("sanitizeDisplayMessages · integration", () => {
     //     (matches `server` on text + tool calls),
     //   - olderWithDangling's running tool call patched by the dangling-tool
     //     repair because `server` is a later assistant.
-    expect(result.map((m) => m.id)).toEqual([
-      "user",
-      "older",
-      "msg-1",
-    ]);
+    expect(result.map((m) => m.id)).toEqual(["user", "older", "msg-1"]);
     const patchedTool = result[1]!.toolCalls![0]!;
-    expect(Boolean((patchedTool).isError)).toBe(true);
+    expect(Boolean(patchedTool.isError)).toBe(true);
     expect(patchedTool.isError).toBe(true);
     expect(patchedTool.result).toContain("client-side data loss");
   });

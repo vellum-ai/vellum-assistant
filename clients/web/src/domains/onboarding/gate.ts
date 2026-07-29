@@ -8,10 +8,10 @@ export function resolveOnboardingRedirect({
 }: {
   intendedDestination: string;
 }): string | null {
-  const decision = resolveNavigation(
-    buildNavigationState(),
-    { kind: "onboarding-intercept", intendedDestination },
-  );
+  const decision = resolveNavigation(buildNavigationState(), {
+    kind: "onboarding-intercept",
+    intendedDestination,
+  });
   return decision.action === "redirect" ? decision.to : null;
 }
 

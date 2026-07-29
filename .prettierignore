@@ -1,0 +1,9 @@
+# Nested git worktrees hold a full second copy of this repo. They are gitignored
+# (see .gitignore), but Prettier does not consult .gitignore — so an ad-hoc
+# `prettier --write .` from the repo root would rewrite files inside another
+# session's worktree. Keep these patterns in sync with .gitignore:38-41.
+.claude/worktrees/
+worktrees/
+.worktrees/
+.codex-worktrees/
+*-worktrees/

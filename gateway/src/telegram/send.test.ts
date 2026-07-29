@@ -24,7 +24,6 @@ const { buildInlineKeyboard, sendTelegramReply } = await import("./send.js");
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://localhost:7821",
-  defaultAssistantId: undefined,
   gatewayInternalBaseUrl: "http://127.0.0.1:7830",
   logFile: { dir: undefined, retentionDays: 30 },
   maxAttachmentBytes: {
@@ -42,7 +41,6 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  unmappedPolicy: "reject",
   trustProxy: false,
 };
 

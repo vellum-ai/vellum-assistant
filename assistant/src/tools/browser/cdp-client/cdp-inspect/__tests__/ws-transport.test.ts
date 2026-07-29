@@ -52,7 +52,9 @@ function startFakeWsServer(options: {
     port: 0,
     hostname: "127.0.0.1",
     fetch(req, srv) {
-      if (srv.upgrade(req)) return;
+      if (srv.upgrade(req)) {
+        return;
+      }
       return new Response("expected ws", { status: 400 });
     },
     websocket: {
@@ -521,7 +523,9 @@ describe("connectCdpWsTransport", () => {
     // tight enough to flake on busy CI runners.
     const server = startFakeWsServer({
       onMessage(ws, frame) {
-        if (frame.method !== "Test.startEvents") return;
+        if (frame.method !== "Test.startEvents") {
+          return;
+        }
         ws.send(JSON.stringify({ id: frame.id, result: {} }));
         ws.send(JSON.stringify({ method: "Ev.first", params: {} }));
         setTimeout(() => {
@@ -534,7 +538,9 @@ describe("connectCdpWsTransport", () => {
         const received: string[] = [];
         const unsub = transport.addEventListener((ev) => {
           received.push(ev.method);
-          if (ev.method === "Ev.first") unsub();
+          if (ev.method === "Ev.first") {
+            unsub();
+          }
         });
         await transport.send("Test.startEvents");
         await new Promise((r) => setTimeout(r, 60));

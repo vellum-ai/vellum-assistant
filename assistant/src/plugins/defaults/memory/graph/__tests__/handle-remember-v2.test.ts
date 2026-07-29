@@ -28,7 +28,7 @@ const enqueueCalls: Array<{
   absPath: string;
 }> = [];
 
-mock.module("../../jobs/embed-pkb-file.js", () => ({
+mock.module("../../v1/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
     enqueueCalls.push(input);
     return "job-mock-id";

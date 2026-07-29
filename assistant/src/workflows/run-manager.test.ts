@@ -42,7 +42,9 @@ function makeFakeJournal() {
   const rows = new Map<string, WorkflowRun>();
   const setStats = (id: string, patch: Partial<WorkflowRun>): void => {
     const existing = rows.get(id);
-    if (existing) rows.set(id, { ...existing, ...patch });
+    if (existing) {
+      rows.set(id, { ...existing, ...patch });
+    }
   };
   return {
     rows,
@@ -77,7 +79,9 @@ function makeFakeJournal() {
         patch: Partial<WorkflowRun>,
       ): WorkflowRun | null => {
         const existing = rows.get(id);
-        if (!existing) return null;
+        if (!existing) {
+          return null;
+        }
         const updated = { ...existing, ...patch, updatedAt: Date.now() };
         rows.set(id, updated);
         return updated;
@@ -208,7 +212,9 @@ function makeHarness(opts?: {
     fake,
     resolveLatest: async (result) => {
       const resolve = resolvers[resolvers.length - 1];
-      if (!resolve) throw new Error("no in-flight engine run to resolve");
+      if (!resolve) {
+        throw new Error("no in-flight engine run to resolve");
+      }
       resolve(result);
       // Let the manager's post-completion microtasks (broadcast + wake) settle.
       await new Promise((r) => setTimeout(r, 0));

@@ -11,7 +11,9 @@ import { useEffect, useState } from "react";
  * result straight into a `title` attribute (React drops undefined attrs).
  */
 export function formatStartTime(epoch: number | undefined): string | undefined {
-  if (epoch === undefined) return undefined;
+  if (epoch === undefined) {
+    return undefined;
+  }
   const date = new Date(epoch);
   const now = new Date();
   const isToday =
@@ -23,7 +25,9 @@ export function formatStartTime(epoch: number | undefined): string | undefined {
     minute: "2-digit",
     second: "2-digit",
   });
-  if (isToday) return `Started ${timeStr}`;
+  if (isToday) {
+    return `Started ${timeStr}`;
+  }
   const dayStr = date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -37,7 +41,9 @@ export function formatStartTime(epoch: number | undefined): string | undefined {
  * "Xm Ys" for >= 60s.
  */
 function formatStepDuration(secs: number): string {
-  if (secs < 60) return `${secs.toFixed(1)}s`;
+  if (secs < 60) {
+    return `${secs.toFixed(1)}s`;
+  }
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
   return `${m}m ${s}s`;
@@ -50,7 +56,9 @@ function formatStepDuration(secs: number): string {
  */
 function formatHeaderElapsed(secs: number): string {
   const whole = Math.floor(secs);
-  if (whole < 60) return `${whole}s`;
+  if (whole < 60) {
+    return `${whole}s`;
+  }
   const m = Math.floor(whole / 60);
   const s = whole % 60;
   return `${m}m ${s}s`;
@@ -77,29 +85,40 @@ export function useElapsedTime(
   const [now, setNow] = useState(Date.now);
 
   useEffect(() => {
-    if (startedAt === undefined || completed) return;
+    if (startedAt === undefined || completed) {
+      return;
+    }
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [startedAt, completed]);
 
-  if (startedAt === undefined) return null;
+  if (startedAt === undefined) {
+    return null;
+  }
 
   if (mode === "step") {
-    if (!completed)
+    if (!completed) {
       return formatHeaderElapsed(Math.max(0, now - startedAt) / 1000);
-    if (completedAt === undefined) return null;
+    }
+    if (completedAt === undefined) {
+      return null;
+    }
     return formatStepDuration((completedAt - startedAt) / 1000);
   }
 
   if (completed && completedAt !== undefined) {
     const secs = (completedAt - startedAt) / 1000;
-    if (secs < 5) return null;
+    if (secs < 5) {
+      return null;
+    }
     return formatHeaderElapsed(secs);
   }
 
   if (!completed) {
     const secs = (now - startedAt) / 1000;
-    if (secs < 5) return null;
+    if (secs < 5) {
+      return null;
+    }
     return formatHeaderElapsed(secs);
   }
 

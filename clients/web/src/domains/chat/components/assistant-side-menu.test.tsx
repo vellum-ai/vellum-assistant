@@ -107,9 +107,7 @@ describe("AssistantSideMenu · Chats category rows", () => {
     expect(html).not.toContain(">Recents<");
     expect(html).not.toContain(">Slack<");
 
-    expect(html.indexOf(">Pinned<")).toBeLessThan(
-      html.indexOf(">Chats<"),
-    );
+    expect(html.indexOf(">Pinned<")).toBeLessThan(html.indexOf(">Chats<"));
   });
 
   test("renders Slack as a conditional peer section after Recents", () => {
@@ -486,7 +484,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
 
     expect(html).toContain(">New Chat<");
     // It is a button row, not a navigation link.
-    expect(html).not.toContain("<a aria-label=\"New Chat\"");
+    expect(html).not.toContain('<a aria-label="New Chat"');
     // New Chat sits above the assistant row.
     expect(html.indexOf(">New Chat<")).toBeLessThan(
       html.indexOf("Your Assistant"),
@@ -528,4 +526,145 @@ describe("AssistantSideMenu · overlay close affordance", () => {
   });
 });
 
+describe("AssistantSideMenu · section header menus", () => {
+  const conversations = [
+    makeConversation({
+      conversationId: "p1",
+      title: "Pin one",
+      isPinned: true,
+    }),
+    makeConversation({
+      conversationId: "r1",
+      title: "Recent one",
+      hasUnseenLatestAssistantMessage: true,
+    }),
+    makeConversation({
+      conversationId: "s1",
+      title: "Slack one",
+      originChannel: "slack",
+    }),
+  ];
 
+  function renderWithGroupActions() {
+    return render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail" as const,
+        conversations,
+        onSelectConversation: () => {},
+        onMarkAllReadInGroup: () => {},
+        onArchiveAllInGroup: () => {},
+      }),
+    );
+  }
+
+  function headerFor(container: HTMLElement, label: string): HTMLElement {
+    const headers = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      ),
+    );
+    const match = headers.find((h) => h.textContent?.includes(label));
+    if (!match) {
+      throw new Error(`No section header for "${label}"`);
+    }
+    return match;
+  }
+
+  // Every section header carries the same bulk actions, Pinned and Chats
+  // included — not just the channel sections.
+  test.each(["Pinned", "Chats", "Slack"])(
+    "%s exposes the same bulk actions on right-click",
+    async (label) => {
+      const { container } = renderWithGroupActions();
+      try {
+        act(() => {
+          headerFor(container, label).dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+          );
+        });
+
+        await waitFor(() => {
+          const menu = document.querySelector('[role="menu"]');
+          expect(menu?.textContent).toContain("Mark All as Read");
+          expect(menu?.textContent).toContain("Archive All");
+        });
+      } finally {
+        cleanup();
+      }
+    },
+  );
+
+  test("Mark All as Read is disabled for a section with nothing unread", async () => {
+    const { container } = renderWithGroupActions();
+    try {
+      // Only the Chats conversation is unread; Pinned has none.
+      act(() => {
+        headerFor(container, "Pinned").dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+        );
+      });
+
+      await waitFor(() => {
+        const items = Array.from(
+          document.querySelectorAll('[role="menuitem"]'),
+        );
+        const markAllRead = items.find((el) =>
+          el.textContent?.includes("Mark All as Read"),
+        );
+        const archiveAll = items.find((el) =>
+          el.textContent?.includes("Archive All"),
+        );
+        expect(markAllRead).toBeDefined();
+        expect(markAllRead?.getAttribute("aria-disabled")).toBe("true");
+        // Pinned has a conversation, so the other bulk action stays enabled —
+        // the disabled state tracks each action's own precondition.
+        expect(archiveAll?.getAttribute("aria-disabled")).not.toBe("true");
+      });
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("AssistantSideMenu · section spacing", () => {
+  // One accordion root holds every section, so its gap is the only thing
+  // separating them — no boundary can pick up the Body's larger gap instead.
+  test("Pinned, Chats and channel sections share a single accordion root", () => {
+    const html = renderMenu({
+      conversations: [
+        makeConversation({ conversationId: "p1", isPinned: true }),
+        makeConversation({ conversationId: "r1", title: "Recent one" }),
+        makeConversation({
+          conversationId: "s1",
+          title: "Slack one",
+          originChannel: "slack",
+        }),
+      ],
+    });
+
+    // A detached node, not a testing-library render: this only inspects
+    // static markup, and mounting it would leave React's cleanup with a tree
+    // it doesn't own.
+    const container = document.createElement("div");
+    container.innerHTML = html;
+
+    const sections = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-section"]',
+      ),
+    );
+    const labels = sections.map((s) =>
+      s
+        .querySelector('[data-slot="collapsible-nav-section-header"]')
+        ?.textContent?.trim(),
+    );
+    expect(labels).toEqual(["Pinned", "Chats", "Slack"]);
+
+    // All three are siblings — one shared parent, so one shared gap.
+    const parents = new Set(sections.map((s) => s.parentElement));
+    expect(parents.size).toBe(1);
+    expect([...parents][0]?.className).toContain("gap-3");
+  });
+});

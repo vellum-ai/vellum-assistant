@@ -85,7 +85,9 @@ describe("enforceAdmissionPolicy — revoked member denial", () => {
       }),
     );
     expect(result.admitted).toBe(false);
-    if (!result.admitted) expect(result.reason).toBe("member_revoked");
+    if (!result.admitted) {
+      expect(result.reason).toBe("member_revoked");
+    }
   });
 
   test("revoked member is denied under `trusted_contacts`", () => {
@@ -97,7 +99,9 @@ describe("enforceAdmissionPolicy — revoked member denial", () => {
       }),
     );
     expect(result.admitted).toBe(false);
-    if (!result.admitted) expect(result.reason).toBe("member_revoked");
+    if (!result.admitted) {
+      expect(result.reason).toBe("member_revoked");
+    }
   });
 });
 
@@ -111,7 +115,9 @@ describe("enforceAdmissionPolicy — blocked member denial", () => {
       makeInput({ memberStatus: "blocked", policy: "strangers" }),
     );
     expect(result.admitted).toBe(false);
-    if (!result.admitted) expect(result.reason).toBe("member_blocked");
+    if (!result.admitted) {
+      expect(result.reason).toBe("member_blocked");
+    }
   });
 });
 

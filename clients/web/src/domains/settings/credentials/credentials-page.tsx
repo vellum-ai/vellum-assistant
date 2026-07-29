@@ -12,7 +12,9 @@ import { NotFound } from "@/components/not-found";
 import { useCredentialsDeletePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { credentialsListPost } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useSupportsCredentialsSettings } from "@/lib/backwards-compat/use-supports-credentials-settings";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -56,14 +58,22 @@ const SEARCH_VISIBILITY_THRESHOLD = 6;
 type CredentialView = "own" | "managed";
 
 export function CredentialsPage() {
-  const credentialsSettingsEnabled =
-    useAssistantFeatureFlagStore.use.credentialsSettings();
-  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
+  const assistantId = useActiveAssistantId();
+  // Older assistants don't serve the credentials-page routes (v0.10.8+); on
+  // direct navigation render NotFound once the version is known, and nothing
+  // while it hydrates. "Known" requires the identity snapshot to belong to
+  // THIS assistant: mid-switch the store can still hold the previous
+  // assistant's non-null version, which must read as unresolved, not 404.
+  const supportsCredentials = useSupportsCredentialsSettings(assistantId);
+  const identityAssistantId = useAssistantIdentityStore.use.assistantId();
+  const versionResolvedForOwner =
+    useAssistantIdentityStore.use.version() !== null &&
+    identityAssistantId === assistantId;
 
-  if (flagsHydrated && !credentialsSettingsEnabled) {
+  if (versionResolvedForOwner && !supportsCredentials) {
     return <NotFound />;
   }
-  if (!flagsHydrated) {
+  if (!supportsCredentials) {
     return null;
   }
   return <CredentialsPageInner />;
@@ -73,8 +83,6 @@ function CredentialsPageInner() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
-  const credentialRequestsEnabled =
-    useAssistantFeatureFlagStore.use.credentialRequests();
 
   const listQueryKey = credentialsListQueryKey(assistantId);
   const listQuery = useQuery({
@@ -220,11 +228,10 @@ function CredentialsPageInner() {
     if (!url) {
       return;
     }
-    void navigator.clipboard.writeText(url).then(
-      () => toast.success("Link copied to clipboard."),
-      () =>
-        toast.error("Couldn't copy the link — select it and copy manually."),
-    );
+    copyToClipboard(url, {
+      successMessage: "Link copied to clipboard.",
+      errorMessage: "Couldn't copy the link. Select it and copy manually.",
+    });
   };
 
   // --- Render ---
@@ -337,7 +344,6 @@ function CredentialsPageInner() {
                           key={credential.credentialId ?? name}
                           credential={credential}
                           assistantId={assistantId}
-                          canGenerateLink={credentialRequestsEnabled}
                           generatingLink={generatingLinkName === name}
                           deleting={deletingName === name}
                           onGenerateLink={() =>

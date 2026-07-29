@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { normalizeSSEPayload, unwrapMessageEnvelope } from "@/lib/streaming/sse-payload";
+import {
+  normalizeSSEPayload,
+  unwrapMessageEnvelope,
+} from "@/lib/streaming/sse-payload";
 
 // ---------------------------------------------------------------------------
 // normalizeSSEPayload
@@ -33,7 +36,9 @@ describe("normalizeSSEPayload", () => {
   });
 
   test("returns null for array payloads", () => {
-    expect(normalizeSSEPayload([1, 2, 3] as unknown as Record<string, unknown>)).toBeNull();
+    expect(
+      normalizeSSEPayload([1, 2, 3] as unknown as Record<string, unknown>),
+    ).toBeNull();
   });
 
   test("returns null for null/undefined", () => {

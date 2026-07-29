@@ -27,23 +27,54 @@ import {
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import { BadRequestError, ForbiddenError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-const VALID_STATES: ReadonlySet<HostAppControlState> = new Set([
+/**
+ * States the client may report. `satisfies` keeps this tuple a subset of
+ * {@link HostAppControlState}, so the wire enum cannot drift past the type.
+ */
+const APP_CONTROL_STATES = [
   "running",
   "missing",
   "minimized",
-]);
+] as const satisfies readonly HostAppControlState[];
+
+/**
+ * Body of `POST /v1/host-app-control-result`, declared as the route's
+ * `requestBody` and parsed by the handler, so the OpenAPI contract and the
+ * runtime check are one schema rather than two hand-kept copies.
+ *
+ * Unknown keys are stripped rather than rejected: the macOS executor forwards
+ * its helper's result through a `.passthrough()` schema, so extra fields can
+ * legitimately ride along.
+ */
+const HostAppControlResultBodySchema = z.object({
+  requestId: z.string().min(1).describe("Pending app-control request ID"),
+  state: z
+    .enum(APP_CONTROL_STATES)
+    .describe("Lifecycle state of the targeted application"),
+  pngBase64: z
+    .string()
+    .describe("Base64 PNG screenshot of the targeted app window")
+    .optional(),
+  windowBounds: z
+    .object({
+      x: z.number(),
+      y: z.number(),
+      width: z.number(),
+      height: z.number(),
+    })
+    .optional(),
+  executionResult: z.string().optional(),
+  executionError: z.string().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // POST /v1/host-app-control-result
 // ---------------------------------------------------------------------------
 
 async function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-
   const {
     requestId,
     state,
@@ -51,24 +82,7 @@ async function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
     windowBounds,
     executionResult,
     executionError,
-  } = body as {
-    requestId?: string;
-    state?: string;
-    pngBase64?: string;
-    windowBounds?: { x: number; y: number; width: number; height: number };
-    executionResult?: string;
-    executionError?: string;
-  };
-
-  if (!requestId || typeof requestId !== "string") {
-    throw new BadRequestError("requestId is required");
-  }
-
-  if (!state || !VALID_STATES.has(state as HostAppControlState)) {
-    throw new BadRequestError(
-      "state must be one of: running, missing, minimized",
-    );
-  }
+  } = parseBody(HostAppControlResultBodySchema, body);
 
   // Late-delivery tolerance: if the pending interaction is already gone (the
   // proxy timed out, the conversation was disposed, etc.), accept the post
@@ -115,7 +129,7 @@ async function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
 
   const payload: HostAppControlResultPayload = {
     requestId,
-    state: state as HostAppControlState,
+    state,
     ...(pngBase64 !== undefined ? { pngBase64 } : {}),
     ...(windowBounds !== undefined ? { windowBounds } : {}),
     ...(executionResult !== undefined ? { executionResult } : {}),
@@ -145,26 +159,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Resolve a pending host app-control request by requestId. Returns 200 even when no pending interaction matches (late delivery is tolerated).",
     tags: ["host"],
-    requestBody: z.object({
-      requestId: z.string().describe("Pending app-control request ID"),
-      state: z
-        .enum(["running", "missing", "minimized"])
-        .describe("Lifecycle state of the targeted application"),
-      pngBase64: z
-        .string()
-        .describe("Base64 PNG screenshot of the targeted app window")
-        .optional(),
-      windowBounds: z
-        .object({
-          x: z.number(),
-          y: z.number(),
-          width: z.number(),
-          height: z.number(),
-        })
-        .optional(),
-      executionResult: z.string().optional(),
-      executionError: z.string().optional(),
-    }),
+    requestBody: HostAppControlResultBodySchema,
     responseBody: z.object({
       accepted: z.boolean(),
     }),

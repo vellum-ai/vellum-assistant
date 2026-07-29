@@ -195,7 +195,14 @@ function makeConversationWithPendingConfirmation(
       agentLoopOptions = options;
     },
     setPreactivatedSkillIds: () => {},
-    drainQueue: async () => {},
+    drainQueue: async (_reason?: string) => {},
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     warmPromptCache: () => {},
     getMessages: () => [],
     assistantId: "self",

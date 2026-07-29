@@ -29,9 +29,13 @@ function buildSharePayload(
   sourceChannel: string,
   rawToken?: string,
 ): { url: string; displayText: string } | undefined {
-  if (!rawToken || !isChannelId(sourceChannel)) return undefined;
+  if (!rawToken || !isChannelId(sourceChannel)) {
+    return undefined;
+  }
   const adapter = getInviteAdapterRegistry().get(sourceChannel);
-  if (!adapter?.buildShareLink) return undefined;
+  if (!adapter?.buildShareLink) {
+    return undefined;
+  }
 
   try {
     return adapter.buildShareLink({

@@ -4,12 +4,19 @@ import { ChevronDown } from "lucide-react";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
   buildMoveToGroupTargets,
   isInCustomGroup,
 } from "@/domains/chat/utils/group-conversations";
-import { ChannelIcon, getOpenInChannelLabel } from "@/utils/channel-presentation";
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import {
+  ChannelIcon,
+  getOpenInChannelLabel,
+} from "@/utils/channel-presentation";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
   assistantId: string | null;
@@ -45,24 +52,37 @@ export function ChatConversationHeader({
   onRemoveFromGroup,
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
-    if (!assistantId) {return null;}
+    if (!assistantId) {
+      return null;
+    }
+    // `min-w-0` + `truncate` are load-bearing, not cosmetic: the header's
+    // centre slot is a `flex-1 min-w-0 justify-center` box, so when the right
+    // cluster (voice pill, assets pill) claims the row this item shrinks
+    // toward zero. Without them the span refuses to shrink and overflows its
+    // box in *both* directions — `justify-center` splits the overflow evenly —
+    // painting the title underneath the surrounding chrome. The titled branch
+    // below truncates for the same reason.
     return (
-      <span className="text-sm font-medium text-[var(--content-default)]">
+      <span className="min-w-0 truncate text-sm font-medium text-[var(--content-default)]">
         New Chat
       </span>
     );
   }
 
   const isReadonly = isChannelConversation(activeConversation);
-  const isPinned = activeConversation.isPinned || activeConversation.groupId === "system:pinned";
+  const isPinned =
+    activeConversation.isPinned ||
+    activeConversation.groupId === "system:pinned";
   const isArchived = activeConversation.archivedAt != null;
 
   // Channel tag — icon + label identifying the originating external
   // channel (Slack, Telegram, …). Slack uses its brand glyph; other
   // channels use a neutral Lucide icon from the presentation registry.
   const channelHeaderLabel = headerSupplements?.channelHeaderLabel ?? null;
-  const channelHeaderChannelId = headerSupplements?.channelHeaderChannelId ?? null;
-  const channelSourceLinkHref = headerSupplements?.channelSourceLinkHref ?? null;
+  const channelHeaderChannelId =
+    headerSupplements?.channelHeaderChannelId ?? null;
+  const channelSourceLinkHref =
+    headerSupplements?.channelSourceLinkHref ?? null;
   const channelSourceLink = channelSourceLinkHref
     ? {
         href: channelSourceLinkHref,
@@ -79,7 +99,10 @@ export function ChatConversationHeader({
       isReadonly={isReadonly}
       onPinToggle={() => onPinToggle(activeConversation)}
       onRename={() => onRename(activeConversation)}
-      moveToGroups={buildMoveToGroupTargets(activeConversation, conversationGroups)}
+      moveToGroups={buildMoveToGroupTargets(
+        activeConversation,
+        conversationGroups,
+      )}
       onMoveToGroup={(groupId) => onMoveToGroup(activeConversation, groupId)}
       onCreateGroupInto={() => onCreateGroupInto(activeConversation)}
       onRemoveFromGroup={
@@ -90,28 +113,44 @@ export function ChatConversationHeader({
       onArchive={() => onArchive(activeConversation)}
       onUnarchive={() => onUnarchive(activeConversation)}
       onForkConversation={
-        !isReadonly && headerSupplements?.hasPersistedMessage && headerSupplements?.onForkConversation
+        !isReadonly &&
+        headerSupplements?.hasPersistedMessage &&
+        headerSupplements?.onForkConversation
           ? headerSupplements.onForkConversation
           : undefined
       }
       onOpenInNewWindow={
-        headerSupplements?.onOpenInNewWindow && activeConversation.conversationId
+        headerSupplements?.onOpenInNewWindow &&
+        activeConversation.conversationId
           ? () => headerSupplements.onOpenInNewWindow!(activeConversation)
           : undefined
       }
       onInspect={
-        showLlmInspector && headerSupplements?.onInspect && activeConversation.conversationId
+        showLlmInspector &&
+        headerSupplements?.onInspect &&
+        activeConversation.conversationId
           ? () => headerSupplements.onInspect!(activeConversation)
           : undefined
       }
       onCopyConversation={headerSupplements?.onCopyConversation ?? undefined}
+      onCopyConversationId={
+        activeConversation.conversationId
+          ? () =>
+              copyIdToClipboard(
+                activeConversation.conversationId!,
+                "Conversation ID",
+              )
+          : undefined
+      }
       onRefresh={
-        headerSupplements?.onRefresh && activeConversation.conversationId != null
+        headerSupplements?.onRefresh &&
+        activeConversation.conversationId != null
           ? headerSupplements.onRefresh
           : undefined
       }
       onMarkUnread={
-        !isReadonly && activeConversation.hasUnseenLatestAssistantMessage === false
+        !isReadonly &&
+        activeConversation.hasUnseenLatestAssistantMessage === false
           ? () => onMarkUnread(activeConversation)
           : undefined
       }

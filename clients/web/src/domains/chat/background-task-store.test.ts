@@ -124,7 +124,11 @@ describe("completeTask", () => {
   it("settles a running task with status, exit code, output, and time", () => {
     getState().startTask(startedEvent());
     getState().completeTask(
-      completedEvent({ exitCode: 0, output: "build ok", completedAt: NOW + 1500 }),
+      completedEvent({
+        exitCode: 0,
+        output: "build ok",
+        completedAt: NOW + 1500,
+      }),
     );
 
     const entry = getState().byId["bg-1"]!;
@@ -154,7 +158,12 @@ describe("completeTask", () => {
     // The daemon's cancellation emits a failed terminal — status stays cancelled
     // but the captured output/exit code still land.
     getState().completeTask(
-      completedEvent({ status: "failed", exitCode: 143, output: "killed", completedAt: NOW + 2000 }),
+      completedEvent({
+        status: "failed",
+        exitCode: 143,
+        output: "killed",
+        completedAt: NOW + 2000,
+      }),
     );
 
     const entry = getState().byId["bg-1"]!;
@@ -226,7 +235,12 @@ describe("restoreTaskStatus", () => {
     // A failed terminal races in before the cancel request reports: it settles
     // the entry (sets completedAt) while preserving the "cancelled" status.
     getState().completeTask(
-      completedEvent({ status: "failed", exitCode: 143, output: "killed", completedAt: NOW + 2000 }),
+      completedEvent({
+        status: "failed",
+        exitCode: 143,
+        output: "killed",
+        completedAt: NOW + 2000,
+      }),
     );
     expect(getState().byId["bg-1"]!.completedAt).toBe(NOW + 2000);
 
@@ -296,7 +310,12 @@ describe("retireMissing", () => {
 describe("seedFromHistory", () => {
   it("adds new entries and ordered ids", () => {
     getState().seedFromHistory([
-      historyEntry({ id: "bg-h1", status: "completed", exitCode: 0, output: "ok" }),
+      historyEntry({
+        id: "bg-h1",
+        status: "completed",
+        exitCode: 0,
+        output: "ok",
+      }),
     ]);
 
     expect(getState().orderedIds).toEqual(["bg-h1"]);
@@ -318,7 +337,12 @@ describe("seedFromHistory", () => {
     expect(getState().byId["bg-1"]!.status).toBe("running");
 
     getState().seedFromHistory([
-      historyEntry({ status: "completed", exitCode: 0, output: "done", completedAt: NOW + 3000 }),
+      historyEntry({
+        status: "completed",
+        exitCode: 0,
+        output: "done",
+        completedAt: NOW + 3000,
+      }),
     ]);
 
     const entry = getState().byId["bg-1"]!;
@@ -330,11 +354,20 @@ describe("seedFromHistory", () => {
   it("does not regress a live terminal entry with a non-terminal history status", () => {
     getState().startTask(startedEvent());
     getState().completeTask(
-      completedEvent({ status: "completed", exitCode: 0, output: "done", completedAt: NOW + 1000 }),
+      completedEvent({
+        status: "completed",
+        exitCode: 0,
+        output: "done",
+        completedAt: NOW + 1000,
+      }),
     );
 
     getState().seedFromHistory([
-      historyEntry({ status: "running", exitCode: undefined, output: undefined }),
+      historyEntry({
+        status: "running",
+        exitCode: undefined,
+        output: undefined,
+      }),
     ]);
 
     const entry = getState().byId["bg-1"]!;

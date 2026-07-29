@@ -32,9 +32,8 @@ mock.module("@/generated/daemon/client.gen", () => ({
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 
-const { useAcpRunRehydration } = await import(
-  "@/domains/chat/hooks/use-acp-run-rehydration"
-);
+const { useAcpRunRehydration } =
+  await import("@/domains/chat/hooks/use-acp-run-rehydration");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
 
 function mount(

@@ -5,6 +5,7 @@ export type WebSearchProviderId =
   | "brave"
   | "perplexity"
   | "tavily"
+  | "keenable"
   | "firecrawl";
 
 export type WebFetchProviderId = "default" | "firecrawl";

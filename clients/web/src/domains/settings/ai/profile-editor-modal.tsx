@@ -1,116 +1,37 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
-import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Tag } from "@vellumai/design-library/components/tag";
-import { Toggle } from "@vellumai/design-library/components/toggle";
-import { Typography } from "@vellumai/design-library/components/typography";
-import { ChevronRight } from "lucide-react";
 
-import {
-  getModelsForProvider,
-  PROVIDER_DISPLAY_NAMES,
-} from "@/assistant/llm-model-catalog";
-import {
-  configGetOptions,
-  inferenceProviderconnectionsGetQueryKey,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-
-import type {
-  ProfileEntry,
-  ProfilePatchEntry,
-  ProfileStatus,
-} from "@/generated/daemon/types.gen";
-
+import { ProfileEditorFields } from "@/domains/settings/ai/profile-editor-fields";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import {
-  ProfileAdvancedParams,
-  THINKING_LEVEL_INHERIT,
-} from "@/domains/settings/ai/profile-advanced-params";
-import {
-  PickerMeta,
-  ProfileEditorProviderSection,
-} from "@/domains/settings/ai/profile-editor-provider-section";
-import {
-  type GeminiThinkingLevel,
-  isGeminiThinkingLevel,
-  resolveProfileParamVisibility,
-} from "@/domains/settings/ai/profile-param-visibility";
-import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
-import {
-  MANAGED_ROUTABLE_PROVIDERS,
-  OPENAI_COMPATIBLE_PROVIDER,
-  VELLUM_CONNECTION_PROVIDER,
-} from "@/domains/settings/ai/constants";
-import {
-  getManagedUpstreamForModel,
-  parseVellumRoutedModel,
-} from "@/assistant/llm-model-catalog";
-import { assistantSupportsVellumProviderProfiles } from "@/lib/backwards-compat/vellum-profile-provider";
-import {
-  endpointPickerValue,
-  expandEndpointEntries,
-  parseEndpointPickerValue,
-  providersServedByConnections,
-} from "@/domains/settings/ai/provider-availability";
+  useProfileEditor,
+  type ProfileEditorMode,
+} from "@/domains/settings/ai/use-profile-editor";
 import type {
-  ConnectionProvider,
+  ProfilePatchEntry,
   ProviderConnection,
 } from "@/generated/daemon/types.gen";
-import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
-import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
-import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
-
-// Sentinel value for the "+ Create new provider" option in the create-mode
-// Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
-// of selecting a provider.
-const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
-type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
-
-/**
- * Whether a connection (identified by its stored `provider`) can back a profile
- * whose provider is `selectedProvider`. The provider-agnostic Vellum-managed
- * connection stores the `vellum` sentinel but serves every managed-routable
- * provider, so it counts as available for those.
- */
-function connectionServesProvider(
-  connectionProvider: string,
-  selectedProvider: string,
-): boolean {
-  if (connectionProvider === selectedProvider) {
-    return true;
-  }
-  // Legacy wire shape: a managed profile stores its real upstream (e.g.
-  // "fireworks") while binding to the provider-agnostic vellum connection.
-  return (
-    connectionProvider === VELLUM_CONNECTION_PROVIDER &&
-    MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
-  );
-}
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
-  mode: "create" | "edit" | "view";
+  mode: ProfileEditorMode;
   profileName?: string;
   initialValues?: ProfileWithName;
   existingNames: string[];
   /**
-   * Provider connections, supplied by the parent (`ManageProfilesModal`).
-   * Used to render the per-provider Connection sub-dropdown and filter the
-   * Provider picker to providers with at least one connection.
+   * Provider connections, supplied by the host. Used to render the
+   * per-provider Connection sub-dropdown and filter the Provider picker to
+   * providers with at least one connection.
    *
    * `undefined` vs `[]` is meaningful:
-   * - `undefined` → caller has not yet loaded connections (pre-load
-   *   window between mount and `listConnections` resolving, or older
-   *   callers that don't wire the prop). The Provider picker falls back
-   *   to the full catalog so the trigger isn't empty during that gap.
-   * - `[]` → caller fetched and got zero connections. The Provider
-   *   filter runs and yields empty, the empty-state hint fires, and
-   *   the user is steered to Providers instead of picking a provider
-   *   the daemon can't dispatch through.
+   * - `undefined` → caller has not yet loaded connections. The Provider
+   *   picker falls back to the full catalog so the trigger isn't empty
+   *   during that gap.
+   * - `[]` → caller fetched and got zero connections. The Provider filter
+   *   runs and yields empty, the empty-state hint fires, and the user is
+   *   steered to Providers instead of picking a provider the daemon can't
+   *   dispatch through.
    */
   connections?: ProviderConnection[];
   /**
@@ -118,17 +39,7 @@ export interface ProfileEditorModalProps {
    * sub-form writes to. Required for the create-mode quick-add flow.
    */
   assistantId: string;
-  /**
-   * Persist a profile entry. The optional `options.mode` argument tells the
-   * parent how to combine `entry` with the existing on-disk record:
-   *   - `"replace"` (default for create/edit modes): the parent does a
-   *     delete-then-recreate cycle so omitted fields are reset to default.
-   *   - `"merge"` (view mode): the parent skips the delete and sends a
-   *     single deep-merge PATCH so unspecified fields (provider, model,
-   *     advanced params) survive. View mode's only save is the managed
-   *     re-enable — `{status: "active"}` — and we must not destroy the
-   *     seed-owned fields.
-   */
+  /** See `UseProfileEditorArgs.onSave` for the merge/replace contract. */
   onSave: (
     name: string,
     entry: ProfilePatchEntry,
@@ -137,10 +48,12 @@ export interface ProfileEditorModalProps {
   onCancel: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// ProfileEditorModal
-// ---------------------------------------------------------------------------
-
+/**
+ * Modal host for the profile editor (the composer quick-add flow, and any
+ * host that wants the editor in a dialog). The editor's state/persistence
+ * lives in `useProfileEditor`; the settings page hosts the same editor in
+ * the sidepanel via `ProfileDetailPanel`.
+ */
 export function ProfileEditorModal({
   isOpen,
   mode,
@@ -177,25 +90,7 @@ export function ProfileEditorModal({
   );
 }
 
-// ---------------------------------------------------------------------------
-// ProfileEditorModalInner
-// ---------------------------------------------------------------------------
-
-interface ProfileEditorModalInnerProps {
-  mode: "create" | "edit" | "view";
-  profileName?: string;
-  initialValues?: ProfileWithName;
-  existingNames: string[];
-  // See `ProfileEditorModalProps.connections` for nil-vs-empty semantics.
-  connections: ProviderConnection[] | undefined;
-  assistantId: string;
-  onSave: (
-    name: string,
-    entry: ProfilePatchEntry,
-    options?: { mode?: "merge" | "replace" },
-  ) => Promise<void>;
-  onCancel: () => void;
-}
+type ProfileEditorModalInnerProps = Omit<ProfileEditorModalProps, "isOpen">;
 
 function ProfileEditorModalInner({
   mode,
@@ -207,847 +102,27 @@ function ProfileEditorModalInner({
   onSave,
   onCancel,
 }: ProfileEditorModalInnerProps) {
-  const [effectiveMode, setEffectiveMode] = useState<
-    "create" | "edit" | "view"
-  >(mode);
-  // Managed profiles are read-only: no rename, no reshaping, no disabling —
-  // the only interactive control is the enable-only status toggle when the
-  // profile is disabled. The lock keys off the server-stamped `invariant`
-  // wire flag (the daemon stamps it exactly on the managed-source entries it
-  // freezes), so it must hold even if the parent opens the editor in edit
-  // mode. Customization goes through "Save As New", which switches
-  // `effectiveMode` to "create" and therefore drops the lock on the
-  // duplicate.
-  const isInvariant =
-    initialValues?.invariant === true && effectiveMode !== "create";
-  // The invariant lock forces read-only handling even in edit mode, so Save
-  // takes the partial-merge path and never the delete/recreate cycle the
-  // daemon rejects for managed profiles.
-  const isReadOnly = effectiveMode === "view" || isInvariant;
-  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
-
-  // Baseline for `hasViewModeChanges`: the enable flip is the only edit
-  // read-only mode permits.
-  const initialStatus: ProfileStatus = initialValues?.status ?? "active";
-
-  const [label, setLabel] = useState(initialValues?.label ?? "");
-  const [description, setDescription] = useState(
-    initialValues?.description ?? "",
-  );
-  const [key, setKey] = useState(mode === "create" ? "" : (profileName ?? ""));
-  // "vellum" is a picker-level value: profiles bound to the Vellum-managed
-  // connection present (and edit) as provider "Vellum"; the wire-shape
-  // upstream is derived from the model at save time. The form opens on the
-  // stored upstream and only promotes to Vellum once the loaded connections
-  // prove the bound row is the managed sentinel (see the effect below) — a
-  // user-owned row merely named "vellum" must never enter Vellum mode, even
-  // in the pre-load window.
-  // The editor tracks connection providers ("vellum" among them). `LlmProvider`
-  // also admits "chatgpt", a routing identity this editor never emits —
-  // ChatGPT is offered as an OpenAI connection sub-option in the create form,
-  // never as a provider selection here, so a stored "chatgpt" provider (written
-  // via the API or CLI) opens with no provider selected.
-  const [provider, setProvider] = useState<ConnectionProvider | "">(
-    initialValues?.provider && initialValues.provider !== "chatgpt"
-      ? initialValues.provider
-      : "",
-  );
-  const [model, setModel] = useState(initialValues?.model ?? "");
-  // Per-profile provider-connection binding. Empty string means no explicit
-  // binding — daemon falls back to its first-connection dispatch. Snake_case
-  // `provider_connection` matches the wire schema.
-  const [providerConnection, setProviderConnection] = useState(
-    initialValues?.provider_connection ?? "",
-  );
-  const [status, setStatus] = useState<ProfileStatus>(
-    initialValues?.status ?? "active",
-  );
-  // Connections created inline this session, before the parent's `connections`
-  // prop has refetched. Unioned into the available-connections set so a
-  // just-created binding is treated as valid immediately — otherwise
-  // `connectionNotFound` would stay true during the parent refetch window and
-  // `handleSave` would persist an empty `provider_connection` (the binding the
-  // user just created + selected would be silently dropped).
-  const [locallyCreatedConnections, setLocallyCreatedConnections] = useState<
-    ProviderConnection[]
-  >([]);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Advanced params — sliders (null = "inherit / not overridden")
-  const [maxTokens, setMaxTokens] = useState<number | null>(
-    initialValues?.maxTokens ?? null,
-  );
-  const [contextWindowMaxInputTokens, setContextWindowMaxInputTokens] =
-    useState<number | null>(
-      initialValues?.contextWindow?.maxInputTokens ?? null,
-    );
-
-  // Advanced params — segment controls
-  const [effort, setEffort] = useState<EffortSelection>(
-    initialValues?.effort ?? "inherit",
-  );
-  // speed: "standard" is the sentinel for "not overridden"
-  const [speed, setSpeed] = useState<NonNullable<ProfileEntry["speed"]>>(
-    initialValues?.speed ?? "standard",
-  );
-  // verbosity: defaults to "medium"; always included when visible
-  const [verbosity, setVerbosity] = useState<
-    NonNullable<ProfileEntry["verbosity"]>
-  >(initialValues?.verbosity ?? "medium");
-
-  // Advanced params — temperature
-  const [temperatureEnabled, setTemperatureEnabled] = useState<boolean>(
-    typeof initialValues?.temperature === "number",
-  );
-  const [temperature, setTemperature] = useState<number>(
-    typeof initialValues?.temperature === "number"
-      ? initialValues.temperature
-      : 0.7,
-  );
-
-  // Advanced params — top P
-  const [topPEnabled, setTopPEnabled] = useState<boolean>(
-    typeof initialValues?.topP === "number",
-  );
-  const [topP, setTopP] = useState<number>(
-    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
-  );
-
-  // True when read-only mode's one permitted edit — the enable flip
-  // (disabled → active) — has been made. Drives the view-mode Save button's
-  // enabled state and the re-enable save path.
-  const hasViewModeChanges = isReadOnly && status !== initialStatus;
-
-  // Advanced params — thinking
-  const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
-    initialValues?.thinking?.enabled ?? false,
-  );
-  const [thinkingStreamThinking, setThinkingStreamThinking] = useState<boolean>(
-    initialValues?.thinking?.streamThinking ?? false,
-  );
-  // Gemini reasoning-depth knob. "default" = inherit the model default.
-  const [thinkingLevel, setThinkingLevel] = useState<
-    GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT
-  >(
-    isGeminiThinkingLevel(initialValues?.thinking?.level)
-      ? initialValues.thinking.level
-      : THINKING_LEVEL_INHERIT,
-  );
-
-  // Derived: selected model from catalog
-  // A saved Vellum model may be a routed `<provider>/<model>` string; parse
-  // it once — the native id feeds every catalog lookup (visibility, token
-  // ranges) and the save path, the prefix feeds upstream derivation.
-  const routedModel = useMemo(
-    () =>
-      provider === VELLUM_CONNECTION_PROVIDER
-        ? parseVellumRoutedModel(model)
-        : null,
-    [provider, model],
-  );
-  const nativeModel = routedModel?.model ?? model;
-
-  const selectedModel = useMemo(
-    () =>
-      provider
-        ? (getModelsForProvider(provider).find((m) => m.id === nativeModel) ??
-          null)
-        : null,
-    [provider, nativeModel],
-  );
-
-  // The advanced-param defaults a profile inherits when it omits an override
-  // live on `llm.default`, not on the profile fragment the editor edits. Read
-  // them from the loaded config (shared cache with ManageProfilesModal) so the
-  // Max Output / Context Window fields advertise the value the daemon will
-  // actually resolve, falling back to the schema defaults when unset.
-  const { data: config } = useQuery({
-    ...configGetOptions({ path: { assistant_id: assistantId } }),
-    staleTime: 30_000,
+  const editor = useProfileEditor({
+    mode,
+    profileName,
+    initialValues,
+    existingNames,
+    connections,
+    assistantId,
+    onSave,
   });
-  const defaultMaxOutputTokens = config?.llm?.default?.maxTokens;
-  const defaultContextWindowMaxInputTokens =
-    config?.llm?.default?.contextWindow?.maxInputTokens;
-
-  // Derived: which advanced param fields to show
-  const visibility = useMemo(
-    () =>
-      resolveProfileParamVisibility(
-        provider === VELLUM_CONNECTION_PROVIDER
-          ? (routedModel?.provider ??
-              getManagedUpstreamForModel(model) ??
-              initialValues?.provider ??
-              "")
-          : provider,
-        nativeModel,
-      ),
-    [provider, model, nativeModel, routedModel, initialValues?.provider],
-  );
-
-  // Parent-supplied connections unioned with any created inline this session
-  // (deduped by name, prop wins). Drives the Connection sub-dropdown and the
-  // save handler's binding resolution so an inline-created connection counts
-  // as valid before the parent refetch lands.
-  const effectiveConnections = useMemo(() => {
-    const base = connections ?? [];
-    if (locallyCreatedConnections.length === 0) {
-      return base;
-    }
-    const known = new Set(base.map((c) => c.name));
-    return [
-      ...base,
-      ...locallyCreatedConnections.filter((c) => !known.has(c.name)),
-    ];
-  }, [connections, locallyCreatedConnections]);
-
-  // Connections matching the currently selected provider. Also used by
-  // the save handler for binding resolution. The provider-agnostic `vellum`
-  // connection serves managed-routable providers, so it counts as available
-  // for those even though its own `provider` is the `vellum` sentinel.
-  const availableConnectionsForProvider = useMemo(
-    () =>
-      provider
-        ? effectiveConnections.filter((c) =>
-            connectionServesProvider(c.provider, provider),
-          )
-        : [],
-    [provider, effectiveConnections],
-  );
-
-  // Saved binding no longer points at any known connection. The save handler
-  // auto-clears it; the provider section surfaces a warning to the user.
-  const connectionNotFound =
-    providerConnection !== "" &&
-    !availableConnectionsForProvider.some((c) => c.name === providerConnection);
-
-  const { handleLabelChange, handleKeyChange, resetDirty, getDirty } =
-    useLabelKeySync(effectiveMode, setLabel, setKey);
-
-  const queryClient = useQueryClient();
-
-  // Create-mode-only UI: whether the inline "+ Create new provider" sub-form
-  // is mounted, and whether the Advanced disclosure is expanded.
-  const [creatingProvider, setCreatingProvider] = useState(false);
-  const [advancedExpanded, setAdvancedExpanded] = useState(false);
-  // One-time helper note shown after an inline provider create succeeds.
-  const [newProviderNote, setNewProviderNote] = useState(false);
-
-  // Promote a vellum-bound profile into Vellum picker mode once the loaded
-  // connections prove the bound row is the managed sentinel (the daemon's
-  // seeder preserves a user-owned row that merely claims the name, and such
-  // profiles must keep their real provider). Skipped once the user changes
-  // the provider themselves.
-  useEffect(() => {
-    if (initialValues?.provider_connection !== VELLUM_CONNECTION_PROVIDER) {
-      return;
-    }
-    if (provider !== (initialValues?.provider ?? "")) {
-      return;
-    }
-    const boundRow = connections?.find(
-      (c) => c.name === initialValues.provider_connection,
-    );
-    if (boundRow?.provider === VELLUM_CONNECTION_PROVIDER) {
-      setProvider(VELLUM_CONNECTION_PROVIDER);
-    }
-  }, [connections, provider, initialValues]);
-
-  // Reset dirty tracking when modal re-opens with new values.
-  useEffect(() => {
-    resetDirty();
-    setCreatingProvider(false);
-    setAdvancedExpanded(false);
-    setNewProviderNote(false);
-    setLocallyCreatedConnections([]);
-  }, [profileName, mode, resetDirty]);
-
-  function handleProviderChange(newProvider: ConnectionProvider) {
-    if (newProvider === provider) {
-      return;
-    }
-    setProvider(newProvider);
-    setModel("");
-    // Auto-select connection: if exactly one connection exists for the new
-    // provider, select it automatically. If multiple exist, clear so the user
-    // must pick. If zero, clear.
-    const connectionsForProvider = effectiveConnections.filter((c) =>
-      connectionServesProvider(c.provider, newProvider),
-    );
-    setProviderConnection(
-      connectionsForProvider.length === 1 ? connectionsForProvider[0].name : "",
-    );
-    // Reset all advanced params when provider changes
-    setMaxTokens(null);
-    setContextWindowMaxInputTokens(null);
-    setEffort("inherit");
-    setSpeed("standard");
-    setVerbosity("medium");
-    setTemperatureEnabled(false);
-    setTemperature(0.7);
-    setTopPEnabled(false);
-    setTopP(0.95);
-    setThinkingEnabled(false);
-    setThinkingStreamThinking(false);
-    setThinkingLevel(THINKING_LEVEL_INHERIT);
-  }
-
-  function handleConnectionChange(newConnection: string) {
-    setProviderConnection(newConnection);
-    // For providers with per-connection models (openai-compatible), clear the
-    // selected model when switching connections if it's not in the new list.
-    if (provider && getModelsForProvider(provider).length === 0 && model) {
-      if (newConnection === "") {
-        // "Any connection" — merge models from all connections and keep the
-        // model if it exists in the merged set.
-        const allModelIds = new Set(
-          availableConnectionsForProvider.flatMap((c) =>
-            (c.models ?? []).map((m) => m.id),
-          ),
-        );
-        if (!allModelIds.has(model)) {
-          setModel("");
-        }
-      } else {
-        const conn = availableConnectionsForProvider.find(
-          (c) => c.name === newConnection,
-        );
-        const connModelIds = new Set((conn?.models ?? []).map((m) => m.id));
-        if (!connModelIds.has(model)) {
-          setModel("");
-        }
-      }
-    }
-  }
-
-  // Resolve a model id to its human-facing display name. The static catalog
-  // covers first-party providers; openai-compatible models live on the
-  // connection, so fall back to those and finally to the id itself.
-  function resolveModelDisplayName(modelId: string): string {
-    const catalogMatch = getModelsForProvider(provider).find(
-      (m) => m.id === modelId,
-    );
-    if (catalogMatch) {
-      return catalogMatch.displayName;
-    }
-    for (const conn of availableConnectionsForProvider) {
-      const match = (conn.models ?? []).find((m) => m.id === modelId);
-      if (match) {
-        return match.displayName ?? match.id;
-      }
-    }
-    return modelId;
-  }
-
-  function handleModelChange(newModel: string) {
-    if (newModel === model) {
-      return;
-    }
-    setModel(newModel);
-    // Reset token sliders when model changes
-    setMaxTokens(null);
-    setContextWindowMaxInputTokens(null);
-    // Create-mode pre-fill: seed Name + Key from the model's display name,
-    // but only while the user hasn't manually edited either field (dirty
-    // tracking lives in useLabelKeySync). Clearing the model leaves the
-    // current values untouched.
-    if (effectiveMode === "create" && newModel && !getDirty()) {
-      const { name, key: derivedKey } = deriveProfileDefaults(
-        resolveModelDisplayName(newModel),
-        existingNames,
-      );
-      setLabel(name);
-      setKey(derivedKey);
-    }
-  }
-
-  // Inline provider create: bind the new connection as this profile's
-  // provider + connection, collapse the sub-form, surface the helper note,
-  // and invalidate the connections query so the dropdown picks up the row.
-  function handleProviderCreated(connection: ProviderConnection) {
-    // The create form can't produce a vellum connection; bail before touching
-    // any state so the sub-form can't get stuck.
-    const newProvider = connection.provider;
-    if (newProvider === "vellum") {
-      return;
-    }
-    // Optimistically register the new connection locally so the binding is
-    // valid immediately (the parent `connections` refetch below is async).
-    setLocallyCreatedConnections((prev) =>
-      prev.some((c) => c.name === connection.name)
-        ? prev
-        : [...prev, connection],
-    );
-    setProvider(newProvider);
-    setProviderConnection(connection.name);
-    setModel("");
-    setCreatingProvider(false);
-    setNewProviderNote(true);
-    void queryClient.invalidateQueries({
-      queryKey: inferenceProviderconnectionsGetQueryKey({
-        path: { assistant_id: assistantId },
-      }),
-    });
-  }
-
-  // Validation
-  const keyTrimmed = key.trim();
-  const keyEmpty = keyTrimmed.length === 0;
-  const keyHasWhitespace = /\s/.test(key);
-  const keyNotUnique =
-    effectiveMode === "create"
-      ? existingNames.includes(keyTrimmed)
-      : existingNames.filter((n) => n !== profileName).includes(keyTrimmed);
-  const providerMissing = provider.length === 0;
-  const providerWithoutModel = provider.length > 0 && model.length === 0;
-
-  const isInvalid =
-    keyEmpty ||
-    keyHasWhitespace ||
-    keyNotUnique ||
-    providerMissing ||
-    providerWithoutModel;
-
-  const keyError = keyEmpty
-    ? "Key is required"
-    : keyHasWhitespace
-      ? "Key cannot contain whitespace"
-      : keyNotUnique
-        ? "A profile with this key already exists"
-        : null;
-
-  async function handleSave() {
-    if (isInvalid && !isReadOnly) {
-      return;
-    }
-    // Read-only (managed) profiles reach Save only via the enable flip — the
-    // daemon rejects every other mutation on them — so the body is exactly
-    // `{status: "active"}`. `mode: "merge"` tells the parent to skip its
-    // delete-then-recreate cycle and send a single deep-merge PATCH so the
-    // seed-owned fields (provider, model, advanced params) stay intact.
-    if (isReadOnly) {
-      if (!hasViewModeChanges) {
-        return;
-      }
-      setSaving(true);
-      setSaveError(null);
-      try {
-        await onSave(keyTrimmed, { status: "active" }, { mode: "merge" });
-      } catch {
-        setSaveError("Failed to save profile. Please try again.");
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const entry: ProfilePatchEntry = {};
-      // Stale bindings are auto-cleared on save: if the saved
-      // provider_connection doesn't match any known connection for the
-      // current provider, treat it as cleared instead of silently
-      // re-persisting the broken binding. When providerConnection is
-      // empty and there's exactly one available connection, resolve to
-      // that connection's name so profiles always persist with an
-      // explicit binding.
-      const resolvedBinding =
-        providerConnection === "" &&
-        availableConnectionsForProvider.length === 1
-          ? availableConnectionsForProvider[0].name
-          : providerConnection;
-      const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
-      // The Vellum picker entry's wire shape is version-gated. Daemons at
-      // the gate's MIN_VERSION store the routing identity directly:
-      // `provider: "vellum"` + the native model, no connection binding
-      // (dispatch derives the upstream from the model). Older daemons
-      // reject that value at the write route, so they get the legacy
-      // shape: the model's managed upstream as `provider`, bound to the
-      // provider-agnostic vellum connection.
-      // Legacy-shape notes:
-      // - Derivation can miss for a bound model this build doesn't list (a
-      //   newer managed model); the editor preserves such models, so
-      //   preserve the stored upstream too instead of clearing it.
-      // - A routed `<provider>/<model>` string names its upstream directly
-      //   and must be stripped to the upstream's native id.
-      // The gate is judged against this modal's write target: the hydrated
-      // identity must belong to `assistantId` or the payload stays legacy.
-      const writesIdentityPayload =
-        provider === VELLUM_CONNECTION_PROVIDER &&
-        (await assistantSupportsVellumProviderProfiles(assistantId));
-      const wireProvider =
-        provider === VELLUM_CONNECTION_PROVIDER
-          ? writesIdentityPayload
-            ? VELLUM_CONNECTION_PROVIDER
-            : (routedModel?.provider ??
-              getManagedUpstreamForModel(model) ??
-              initialValues?.provider ??
-              "")
-          : provider;
-      const wireModel = nativeModel;
-      // Identity payloads carry no binding; sending null on edit clears a
-      // legacy-shape binding left on the stored profile.
-      const wireBinding = writesIdentityPayload ? "" : effectiveBinding;
-      if (effectiveMode === "edit") {
-        // In edit mode send null for cleared fields so the server deep-merges
-        // them as cleared rather than silently preserving the old value.
-        entry.label = label.trim() || null;
-        entry.description = description.trim() || null;
-        entry.provider = wireProvider || null;
-        entry.model = wireModel || null;
-        entry.provider_connection = wireBinding || null;
-      } else {
-        // In create mode omit optional fields that are still empty.
-        if (label.trim()) {
-          entry.label = label.trim();
-        }
-        if (description.trim()) {
-          entry.description = description.trim();
-        }
-        if (wireProvider) {
-          entry.provider = wireProvider;
-        }
-        if (wireModel) {
-          entry.model = wireModel;
-        }
-        if (wireBinding) {
-          entry.provider_connection = wireBinding;
-        }
-      }
-      // Advanced params
-      if (visibility.maxTokens && maxTokens !== null) {
-        entry.maxTokens = maxTokens;
-      }
-      if (visibility.contextWindow && contextWindowMaxInputTokens !== null) {
-        entry.contextWindow = { maxInputTokens: contextWindowMaxInputTokens };
-      }
-      if (visibility.effort && effort !== "inherit") {
-        entry.effort = effort;
-      }
-      if (visibility.speed && speed !== "standard") {
-        entry.speed = speed;
-      }
-      if (visibility.verbosity) {
-        entry.verbosity = verbosity;
-      }
-      if (visibility.temperature) {
-        if (temperatureEnabled) {
-          entry.temperature = temperature;
-        } else if (effectiveMode === "edit") {
-          entry.temperature = null;
-        }
-        // create mode + toggle off → omit
-      }
-      if (visibility.topP) {
-        if (topPEnabled) {
-          entry.topP = topP;
-        } else if (effectiveMode === "edit") {
-          entry.topP = null;
-        }
-        // create mode + toggle off → omit
-      }
-      if (visibility.thinking) {
-        entry.thinking = {
-          enabled: thinkingEnabled,
-          ...(thinkingEnabled
-            ? { streamThinking: thinkingStreamThinking }
-            : {}),
-        };
-      }
-      // Gemini: a chosen level implies thinking is on; "default" omits the
-      // field so the daemon applies the model default.
-      if (
-        visibility.thinkingLevel &&
-        thinkingLevel !== THINKING_LEVEL_INHERIT
-      ) {
-        entry.thinking = { enabled: true, level: thinkingLevel };
-      }
-      // Status — always include in edit mode; omit in create when active (default)
-      if (effectiveMode === "edit") {
-        entry.status = status;
-      } else if (status !== "active") {
-        entry.status = status;
-      }
-      // Do NOT include source or name
-      await onSave(keyTrimmed, entry);
-    } catch {
-      setSaveError("Failed to save profile. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   const modalTitle =
-    effectiveMode === "create"
+    editor.effectiveMode === "create"
       ? "New Profile"
-      : effectiveMode === "edit"
+      : editor.effectiveMode === "edit"
         ? "Edit Profile"
         : (initialValues?.label ?? profileName ?? "Profile");
-
-  // Create mode uses the provider-first layout, with derived identity fields
-  // grouped under Advanced. Edit and view modes use the legacy layout below.
-  const useProviderFirst = effectiveMode === "create";
-
-  // ---- Reusable field nodes (shared by create + edit/view bodies) ----
-
-  const displayNameField = (
-    <div className="space-y-1">
-      <label className="block text-body-small-default text-[var(--content-tertiary)]">
-        {useProviderFirst ? "Name" : "Display Name"}
-      </label>
-      <Input
-        type="text"
-        value={label}
-        onChange={(e) => handleLabelChange(e.target.value)}
-        placeholder="e.g. Fast & Cheap"
-        disabled={isReadOnly}
-        fullWidth
-      />
-    </div>
-  );
-
-  const descriptionField = (
-    <Textarea
-      label={
-        <>
-          Description{" "}
-          <span className="text-[var(--content-disabled)]">(optional)</span>
-        </>
-      }
-      value={description}
-      onChange={(e) => setDescription(e.target.value)}
-      placeholder="Describe when to use this profile"
-      disabled={isReadOnly}
-      rows={2}
-      fullWidth
-      className="resize-none"
-    />
-  );
-
-  const keyField = (
-    <div className="space-y-1">
-      <label className="block text-body-small-default text-[var(--content-tertiary)]">
-        Key
-      </label>
-      <Input
-        type="text"
-        value={key}
-        onChange={(e) => handleKeyChange(e.target.value)}
-        placeholder="e.g. fast-cheap"
-        disabled={isReadOnly || effectiveMode === "edit"}
-        fullWidth
-      />
-      {keyError && !isReadOnly ? (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-(--system-negative-strong)"
-        >
-          {keyError}
-        </Typography>
-      ) : null}
-    </div>
-  );
-
-  // An active read-only (managed) profile shows no status toggle (it cannot
-  // be disabled); a disabled one keeps an enable-only toggle, mirroring the
-  // manage-profiles list item and the daemon's one-directional status rule.
-  const activeToggle =
-    !isReadOnly || status !== "active" ? (
-      <Toggle
-        checked={status === "active"}
-        onChange={(v) => setStatus(v ? "active" : "disabled")}
-        label="Active"
-        className="touch-mobile:mt-2 touch-mobile:[&_button]:h-7 touch-mobile:[&_button]:w-10 touch-mobile:[&_button>span]:h-6 touch-mobile:[&_button>span]:w-6"
-      />
-    ) : null;
-
-  const advancedParamsNode = (
-    <ProfileAdvancedParams
-      visibility={visibility}
-      isReadOnly={isReadOnly}
-      model={model}
-      selectedModel={selectedModel}
-      defaultMaxOutputTokens={defaultMaxOutputTokens}
-      defaultContextWindowMaxInputTokens={defaultContextWindowMaxInputTokens}
-      maxTokens={maxTokens}
-      onMaxTokensChange={setMaxTokens}
-      contextWindowMaxInputTokens={contextWindowMaxInputTokens}
-      onContextWindowChange={setContextWindowMaxInputTokens}
-      effort={effort}
-      onEffortChange={setEffort}
-      speed={speed}
-      onSpeedChange={setSpeed}
-      verbosity={verbosity}
-      onVerbosityChange={setVerbosity}
-      temperatureEnabled={temperatureEnabled}
-      onTemperatureEnabledChange={setTemperatureEnabled}
-      temperature={temperature}
-      onTemperatureChange={setTemperature}
-      topPEnabled={topPEnabled}
-      onTopPEnabledChange={setTopPEnabled}
-      topP={topP}
-      onTopPChange={setTopP}
-      thinkingEnabled={thinkingEnabled}
-      onThinkingEnabledChange={setThinkingEnabled}
-      thinkingStreamThinking={thinkingStreamThinking}
-      onThinkingStreamThinkingChange={setThinkingStreamThinking}
-      thinkingLevel={thinkingLevel}
-      onThinkingLevelChange={setThinkingLevel}
-    />
-  );
-
-  const saveErrorNode = saveError ? (
-    <Typography
-      variant="body-small-default"
-      as="p"
-      className="text-(--system-negative-strong)"
-    >
-      {saveError}
-    </Typography>
-  ) : null;
-
-  // ---- Create-mode-only: provider-first picker with inline create ----
-
-  // Providers with at least one connection, plus the always-present "+ Create
-  // new provider" sentinel. First-run empty state shows ONLY the sentinel.
-  const createModeProviderOptions = useMemo(() => {
-    const opts: { value: string; label: string; suffix?: ReactNode }[] =
-      expandEndpointEntries(
-        providersServedByConnections(
-          effectiveConnections,
-          activeAssistantIsSelfHosted,
-        ),
-        effectiveConnections,
-        (p) => PROVIDER_DISPLAY_NAMES[p] ?? p,
-      ).map(({ value, label, meta }) => ({
-        value,
-        label,
-        suffix: meta ? <PickerMeta text={meta} /> : undefined,
-      }));
-    opts.push({
-      value: CREATE_NEW_PROVIDER_SENTINEL,
-      label: "+ Create new provider",
-    });
-    return opts;
-  }, [activeAssistantIsSelfHosted, effectiveConnections]);
-
-  const createProviderSection = (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <label
-          id="profile-editor-provider-label"
-          className="block text-body-small-default text-[var(--content-tertiary)]"
-        >
-          Provider
-        </label>
-        <Dropdown
-          value={
-            creatingProvider
-              ? CREATE_NEW_PROVIDER_SENTINEL
-              : provider === OPENAI_COMPATIBLE_PROVIDER && providerConnection
-                ? endpointPickerValue(providerConnection)
-                : provider
-          }
-          onChange={(next) => {
-            if (next === CREATE_NEW_PROVIDER_SENTINEL) {
-              setCreatingProvider(true);
-              setNewProviderNote(false);
-              return;
-            }
-            if (!next) {
-              return;
-            }
-            setCreatingProvider(false);
-            const endpoint = parseEndpointPickerValue(next);
-            if (endpoint) {
-              // Each endpoint entry implies the openai-compatible provider
-              // plus its binding; switching endpoints re-picks the model.
-              if (provider !== OPENAI_COMPATIBLE_PROVIDER) {
-                handleProviderChange(OPENAI_COMPATIBLE_PROVIDER);
-              } else {
-                setModel("");
-              }
-              setProviderConnection(endpoint);
-              return;
-            }
-            handleProviderChange(next as ConnectionProvider);
-          }}
-          placeholder="Select a provider…"
-          aria-labelledby="profile-editor-provider-label"
-          options={createModeProviderOptions}
-        />
-        {newProviderNote ? (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-[var(--content-tertiary)]"
-          >
-            New provider connection will show up in the Providers section.
-          </Typography>
-        ) : null}
-      </div>
-
-      {creatingProvider ? (
-        <ProviderCreateForm
-          variant="inline"
-          assistantId={assistantId}
-          existingNames={effectiveConnections.map((c) => c.name)}
-          connections={effectiveConnections}
-          defaultProviderType={provider || undefined}
-          onCreated={handleProviderCreated}
-          onCancel={() => setCreatingProvider(false)}
-        />
-      ) : (
-        <ProfileEditorProviderSection
-          provider={provider}
-          model={model}
-          providerConnection={providerConnection}
-          onProviderChange={handleProviderChange}
-          onModelChange={handleModelChange}
-          onConnectionChange={handleConnectionChange}
-          connections={effectiveConnections}
-          isReadOnly={isReadOnly}
-          availableConnectionsForProvider={availableConnectionsForProvider}
-          connectionNotFound={connectionNotFound}
-          hideProviderField
-        />
-      )}
-    </div>
-  );
-
-  // Only surface Advanced once a model is chosen: Name and Key derive from the
-  // model, and the model controls the available advanced parameters.
-  const createAdvancedOpen =
-    advancedExpanded || (Boolean(keyError) && getDirty());
-  const createAdvancedDisclosure =
-    model !== "" ? (
-      <div>
-        <button
-          type="button"
-          aria-expanded={createAdvancedOpen}
-          onClick={() => setAdvancedExpanded((v) => !v)}
-          className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-        >
-          <ChevronRight
-            className={`h-4 w-4 transition-transform ${createAdvancedOpen ? "rotate-90" : ""}`}
-          />
-          <span>Advanced</span>
-        </button>
-        {createAdvancedOpen ? (
-          <div className="mt-4 space-y-4">
-            {displayNameField}
-            {keyField}
-            {advancedParamsNode}
-          </div>
-        ) : null}
-      </div>
-    ) : null;
 
   return (
     <Modal.Content size="md">
       <Modal.Header>
-        {effectiveMode === "view" ? (
+        {editor.effectiveMode === "view" ? (
           <div className="flex items-center gap-2">
             <Modal.Title>{modalTitle}</Modal.Title>
             <Tag tone="positive">Platform</Tag>
@@ -1058,48 +133,12 @@ function ProfileEditorModalInner({
       </Modal.Header>
 
       <Modal.Body>
-        {useProviderFirst ? (
-          // Create mode is provider-first: Provider (with inline create) ->
-          // Model -> Description -> Active -> collapsed Advanced.
-          <div className="space-y-4">
-            {createProviderSection}
-
-            {descriptionField}
-            {activeToggle}
-
-            {/* Advanced params — collapsed by default in create mode. */}
-            {createAdvancedDisclosure}
-
-            {saveErrorNode}
-          </div>
-        ) : (
-          // Edit / view modes keep the original field order and locking:
-          // Display Name -> Description -> Key -> Active -> Provider -> Model
-          // -> always-visible Advanced.
-          <div className="space-y-4">
-            {displayNameField}
-            {descriptionField}
-            {keyField}
-            {activeToggle}
-
-            <ProfileEditorProviderSection
-              provider={provider}
-              model={model}
-              providerConnection={providerConnection}
-              onProviderChange={handleProviderChange}
-              onModelChange={handleModelChange}
-              onConnectionChange={handleConnectionChange}
-              connections={connections}
-              isReadOnly={isReadOnly}
-              availableConnectionsForProvider={availableConnectionsForProvider}
-              connectionNotFound={connectionNotFound}
-            />
-
-            {advancedParamsNode}
-
-            {saveErrorNode}
-          </div>
-        )}
+        <ProfileEditorFields
+          editor={editor}
+          assistantId={assistantId}
+          connections={connections}
+          variant="modal"
+        />
       </Modal.Body>
 
       <Modal.Footer>
@@ -1107,13 +146,13 @@ function ProfileEditorModalInner({
             an invariant profile opened in edit mode still gets the safe
             footer: Close, Save As New, and a Save gated by
             `hasViewModeChanges` that only ever takes the merge path. */}
-        {isReadOnly ? (
+        {editor.isReadOnly ? (
           <>
             <Button
               variant="outlined"
               className="touch-mobile:h-10"
               onClick={onCancel}
-              disabled={saving}
+              disabled={editor.saving}
               data-testid="modal-cancel-btn"
             >
               Close
@@ -1121,12 +160,8 @@ function ProfileEditorModalInner({
             <Button
               variant="outlined"
               className="touch-mobile:h-10"
-              onClick={() => {
-                setEffectiveMode("create");
-                setKey("");
-                resetDirty();
-              }}
-              disabled={saving}
+              onClick={editor.switchToSaveAsNew}
+              disabled={editor.saving}
             >
               Save As New
             </Button>
@@ -1136,11 +171,11 @@ function ProfileEditorModalInner({
             <Button
               variant="primary"
               className="touch-mobile:h-10"
-              onClick={() => void handleSave()}
-              disabled={!hasViewModeChanges || saving}
+              onClick={() => void editor.handleSave()}
+              disabled={!editor.hasViewModeChanges || editor.saving}
               data-testid="modal-save-btn"
             >
-              {saving ? "Saving…" : "Save"}
+              {editor.saving ? "Saving…" : "Save"}
             </Button>
           </>
         ) : (
@@ -1149,7 +184,7 @@ function ProfileEditorModalInner({
               variant="outlined"
               className="touch-mobile:h-10"
               onClick={onCancel}
-              disabled={saving}
+              disabled={editor.saving}
               data-testid="modal-cancel-btn"
             >
               Cancel
@@ -1157,11 +192,11 @@ function ProfileEditorModalInner({
             <Button
               variant="primary"
               className="touch-mobile:h-10"
-              onClick={() => void handleSave()}
-              disabled={isInvalid || saving}
+              onClick={() => void editor.handleSave()}
+              disabled={editor.isInvalid || editor.saving}
               data-testid="modal-save-btn"
             >
-              {saving ? "Saving…" : "Save"}
+              {editor.saving ? "Saving…" : "Save"}
             </Button>
           </>
         )}

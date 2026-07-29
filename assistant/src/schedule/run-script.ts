@@ -16,6 +16,14 @@ export const MIN_SCRIPT_TIMEOUT_MS = 1_000;
  * budget in scheduler.ts.
  */
 export const MAX_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * How long to wait for the output pipes to drain after the process group is
+ * killed before giving up (ms). A pipe only reaches EOF once every process
+ * holding its write end has exited, so a child that escaped the group via
+ * setsid could otherwise hold the pipe open forever and wedge the scheduler
+ * tick.
+ */
+const DRAIN_TIMEOUT_MS = 5_000;
 
 export interface ScriptResult {
   exitCode: number;
@@ -29,6 +37,11 @@ export interface ScriptResult {
  * Uses Bun.spawn with /bin/sh so the command string supports pipes,
  * redirects, and shell builtins. Output is truncated to
  * {@link MAX_OUTPUT_BYTES} to keep schedule_runs rows bounded.
+ *
+ * The command runs in its own process group, and the whole group is killed
+ * on timeout and swept after exit, so background children cannot outlive the
+ * run. A child that daemonizes itself with setsid leaves the group and
+ * deliberately survives.
  */
 export async function runScript(
   command: string,
@@ -46,6 +59,7 @@ export async function runScript(
 
   const proc = Bun.spawn(["sh", "-c", command], {
     cwd,
+    detached: true,
     stdout: "pipe",
     stderr: "pipe",
     env: {
@@ -59,40 +73,34 @@ export async function runScript(
   });
 
   // Start consuming streams immediately so buffered output is available even on timeout.
-  // When the process is killed the pipe fds close and these promises resolve on their own.
-  const stdoutPromise = new Response(proc.stdout).text();
-  const stderrPromise = new Response(proc.stderr).text();
+  // When the process group is killed the pipe fds close and the collectors finish on their own.
+  const stdoutCollector = collectStream(proc.stdout);
+  const stderrCollector = collectStream(proc.stderr);
 
   let timedOut = false;
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     const timer = setTimeout(() => {
       timedOut = true;
-      proc.kill("SIGKILL");
+      killProcessGroup(proc.pid);
       reject(new Error(`Script timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref();
     proc.exited.then(() => clearTimeout(timer));
   });
 
-  /** How long to wait for pipes to drain after SIGKILL before giving up. */
-  const DRAIN_TIMEOUT_MS = 5_000;
-
   let exitCode: number;
   try {
     exitCode = await Promise.race([proc.exited, timeoutPromise]);
   } catch (err) {
-    if (!timedOut) throw err;
-    // Collect whatever the process wrote before it was killed.
-    // Race each stream against a short drain window — if a background child
-    // process inherited the pipe fd, the stream would otherwise never reach
-    // EOF and block the scheduler tick indefinitely.
-    const empty = (ms: number): Promise<string> =>
-      new Promise((resolve) => setTimeout(() => resolve(""), ms));
-    const [stdoutStr, stderrStr] = await Promise.all([
-      Promise.race([stdoutPromise, empty(DRAIN_TIMEOUT_MS)]),
-      Promise.race([stderrPromise, empty(DRAIN_TIMEOUT_MS)]),
-    ]);
+    if (!timedOut) {
+      throw err;
+    }
+    // Collect whatever the process wrote before the group was killed.
+    const [stdoutStr, stderrStr] = await drainStreams(
+      stdoutCollector,
+      stderrCollector,
+    );
     const stdout = truncate(stdoutStr);
     const timeoutMsg = `Script timed out after ${timeoutMs}ms`;
     const stderr = truncate(
@@ -105,8 +113,17 @@ export async function runScript(
     return { exitCode: 124, stdout, stderr };
   }
 
-  const stdout = truncate(await stdoutPromise);
-  const stderr = truncate(await stderrPromise);
+  // Sweep anything the script left running. This reaps orphaned background
+  // children and closes their copies of the pipe fds so the stream reads
+  // below can reach EOF.
+  killProcessGroup(proc.pid);
+
+  const [stdoutStr, stderrStr] = await drainStreams(
+    stdoutCollector,
+    stderrCollector,
+  );
+  const stdout = truncate(stdoutStr);
+  const stderr = truncate(stderrStr);
 
   log.info(
     { command, exitCode, stdoutLen: stdout.length, stderrLen: stderr.length },
@@ -116,8 +133,81 @@ export async function runScript(
   return { exitCode, stdout, stderr };
 }
 
+/**
+ * SIGKILL every process in the script's process group. The group is often
+ * already empty, in which case the signal fails with ESRCH and there is
+ * nothing to reap.
+ */
+function killProcessGroup(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // Process group may have already exited.
+  }
+}
+
+interface StreamCollector {
+  /** Resolves with the text read so far once the stream ends or is cancelled. */
+  promise: Promise<string>;
+  cancel: () => void;
+}
+
+/**
+ * Read a stream to EOF, accumulating text. `cancel` closes the underlying
+ * pipe fd and settles the promise with whatever was read so far, so a run
+ * never leaves a reader holding the pipe open after it is over.
+ */
+function collectStream(stream: ReadableStream<Uint8Array>): StreamCollector {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  const promise = (async () => {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        text += decoder.decode(value, { stream: true });
+      }
+    } catch {
+      // Cancelled or the pipe errored; keep what was read.
+    }
+    return text + decoder.decode();
+  })();
+  return {
+    promise,
+    cancel: () => void reader.cancel().catch(() => {}),
+  };
+}
+
+/**
+ * Wait for both output streams, cancelling any stream that has not reached
+ * EOF within {@link DRAIN_TIMEOUT_MS}. Cancelling matters when a process
+ * escaped the group kill and still holds the pipe's write end: without it the
+ * readers would keep the pipe fds alive until that process exits, leaking
+ * two fds per firing of a schedule that leaves such a process behind.
+ */
+async function drainStreams(
+  stdout: StreamCollector,
+  stderr: StreamCollector,
+): Promise<[string, string]> {
+  const deadline = setTimeout(() => {
+    stdout.cancel();
+    stderr.cancel();
+  }, DRAIN_TIMEOUT_MS);
+  deadline.unref();
+  try {
+    return await Promise.all([stdout.promise, stderr.promise]);
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
 function truncate(text: string): string {
-  if (text.length <= MAX_OUTPUT_BYTES) return text;
+  if (text.length <= MAX_OUTPUT_BYTES) {
+    return text;
+  }
   return text.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
 }
 

@@ -44,7 +44,13 @@ const capturedParentIds: string[] = [];
 // Live subagent conversations, keyed by conversationId. notifyParentFromChild
 // routes to the parent recorded here (the non-writable in-process source), so
 // tests register a child before expecting a notification to route.
-const liveSubagents = new Map<string, { parentConversationId: string }>();
+const liveSubagents = new Map<
+  string,
+  {
+    parentConversationId: string;
+    subagentSuppressParentNotifications?: boolean;
+  }
+>();
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => {
@@ -60,9 +66,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
   },
   findConversationOrSubagent: (id: string) => {
     const live = liveSubagents.get(id);
-    return live
-      ? { parentConversationId: live.parentConversationId }
-      : undefined;
+    return live ? { ...live } : undefined;
   },
 }));
 
@@ -112,6 +116,7 @@ function seedSubagent(
     role: "general",
     isFork: false,
     sendResultToUser: null,
+    parentToolUseId: null,
     status: "running",
     error: null,
     createdAt: 0,
@@ -321,6 +326,23 @@ describe("notifyParentFromChild", () => {
     expect(lastCapturedMessage()).toContain("Test message");
   });
 
+  test("returns false for a synchronous child that suppresses parent notifications", () => {
+    clearCaptured();
+    const conversationId = "conv-suppressed-1";
+    seedSubagent(conversationId);
+    // spawnAndAwait children carry this flag: the awaiting caller is their
+    // only parent channel, so a mid-run injection must not reach the parent.
+    const live = liveSubagents.get(conversationId);
+    if (live) {
+      live.subagentSuppressParentNotifications = true;
+    }
+
+    expect(
+      notifyParentFromChild(conversationId, "Should not arrive", "info"),
+    ).toBe(false);
+    expect(capturedMessages).toHaveLength(0);
+  });
+
   test("labels forks as Fork", () => {
     clearCaptured();
     const conversationId = "conv-fork-1";
@@ -347,5 +369,28 @@ describe("notifyParentFromChild", () => {
     );
     expect(capturedParentIds).toContain("real-parent-conversation");
     expect(capturedParentIds).not.toContain("victim-conversation");
+  });
+});
+
+describe("notify_parent — model-input schema validation (LUM-2857)", () => {
+  test("rejects a non-string message", async () => {
+    const result = await executeSubagentNotifyParent(
+      { message: 42 },
+      makeContext("conv-notify-schema-1"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "notify_parent"');
+  });
+
+  test("degrades a malformed urgency to info instead of forwarding it", async () => {
+    const conversationId = "conv-notify-schema-2";
+    seedSubagent(conversationId);
+    const result = await executeSubagentNotifyParent(
+      { message: "found something", urgency: 42 },
+      makeContext(conversationId),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content) as { urgency: string };
+    expect(parsed.urgency).toBe("info");
   });
 });

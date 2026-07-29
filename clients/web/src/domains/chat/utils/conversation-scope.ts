@@ -18,6 +18,7 @@ export function isAsyncChatScopeCurrent({
   }
   return (
     currentConversationId === requestConversationId ||
-    (!!resolvedConversationId && currentConversationId === resolvedConversationId)
+    (!!resolvedConversationId &&
+      currentConversationId === resolvedConversationId)
   );
 }

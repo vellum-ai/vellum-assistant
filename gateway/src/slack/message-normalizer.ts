@@ -67,6 +67,33 @@ function buildNormalizedSlackMessage(
   const threadTs =
     event.thread_ts ?? (shape.fallbackThreadToTs ? event.ts : undefined);
 
+  // Ids are carried as-is — resolving them to names is the daemon's job, where
+  // the channel cache lives, not a hot ingress path. The schema collapses a
+  // malformed entity to `undefined` in place, so drop the holes and keep its
+  // valid siblings. An empty context (Slack sends `{}` rather than omitting the
+  // field) collapses to undefined.
+  const appContextEntities = (event.app_context?.entities ?? [])
+    .filter((entity) => entity !== undefined)
+    .map((entity) => ({
+      type: entity.type,
+      value:
+        typeof entity.value === "string"
+          ? entity.value
+          : {
+              ...(entity.value.message_ts
+                ? { messageTs: entity.value.message_ts }
+                : {}),
+              ...(entity.value.channel_id
+                ? { channelId: entity.value.channel_id }
+                : {}),
+            },
+      ...(entity.team_id ? { teamId: entity.team_id } : {}),
+      ...(entity.enterprise_id ? { enterpriseId: entity.enterprise_id } : {}),
+    }));
+  const appContext = appContextEntities.length
+    ? { entities: appContextEntities }
+    : undefined;
+
   return {
     event: {
       version: "v1",
@@ -89,6 +116,7 @@ function buildNormalizedSlackMessage(
         messageId: event.ts,
         ...(shape.chatType ? { chatType: shape.chatType } : {}),
         ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
+        ...(appContext ? { appContext } : {}),
       },
       raw: rawEvent,
     },
@@ -116,16 +144,7 @@ export function normalizeSlackDirectMessage(
   if (msg.subtype && msg.subtype !== "file_share") return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
-  // DMs are always directed at the bot, so fall back to the default assistant
-  // even when the DM channel id isn't in the routing table — otherwise guardian
-  // verification replies would be silently dropped.
-  let routing = resolveAssistant(config, msg.channel, msg.user);
-  if (isRejection(routing) && config.defaultAssistantId) {
-    routing = {
-      assistantId: config.defaultAssistantId,
-      routeSource: "default" as const,
-    };
-  }
+  const routing = resolveAssistant(config, msg.channel, msg.user);
   if (isRejection(routing)) return null;
 
   return buildNormalizedSlackMessage(

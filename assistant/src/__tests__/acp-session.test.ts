@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { VellumAcpClientHandler } from "../acp/client-handler.js";
 import { AcpSessionManager } from "../acp/session-manager.js";
-import type { AssistantEvent } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 // ---------------------------------------------------------------------------

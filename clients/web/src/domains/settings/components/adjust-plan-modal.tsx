@@ -3,29 +3,30 @@ import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import {
-    buildPortalReturnSnapshot,
-    formatGraceDate,
-    getEffectiveCancelDate,
-    useBillingPortalSession,
+  buildPortalReturnSnapshot,
+  formatGraceDate,
+  getEffectiveCancelDate,
+  useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import {
-    organizationsBillingPlansRetrieveOptions,
-    organizationsBillingPlansRetrieveQueryKey,
-    organizationsBillingSubscriptionChangeCreditTierCreateMutation,
-    organizationsBillingSubscriptionChangeMachineTierCreateMutation,
-    organizationsBillingSubscriptionChangeStorageTierCreateMutation,
-    organizationsBillingSubscriptionOnboardingRetrieveOptions,
-    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
-    organizationsBillingSubscriptionRetrieveOptions,
-    organizationsBillingSubscriptionRetrieveQueryKey,
-    organizationsBillingSubscriptionUpgradeCreateMutation,
+  organizationsBillingPlansRetrieveOptions,
+  organizationsBillingPlansRetrieveQueryKey,
+  organizationsBillingSubscriptionChangeCreditTierCreateMutation,
+  organizationsBillingSubscriptionChangeMachineTierCreateMutation,
+  organizationsBillingSubscriptionChangeStorageTierCreateMutation,
+  organizationsBillingSubscriptionOnboardingRetrieveOptions,
+  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
+  organizationsBillingSubscriptionRetrieveOptions,
+  organizationsBillingSubscriptionRetrieveQueryKey,
+  organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-    CreditTierEnum,
-    MachineTierEnum,
-    ProPlan,
-    StorageTierEnum,
+  CreditTierEnum,
+  MachineTierEnum,
+  ProPlan,
+  StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
@@ -36,10 +37,10 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 import {
-    TIER_CHANGE_ELIGIBLE_STATUSES,
-    extractMutationError,
-    resolveCreditTierSelection,
-    resolveTierSelection,
+  TIER_CHANGE_ELIGIBLE_STATUSES,
+  extractMutationError,
+  resolveCreditTierSelection,
+  resolveTierSelection,
 } from "./adjust-plan-utils";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
 import { PlanCardContent } from "./plan-card-content";
@@ -50,7 +51,11 @@ export interface AdjustPlanModalProps {
   onTierUpgraded?: () => void;
 }
 
-export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanModalProps) {
+export function AdjustPlanModal({
+  open,
+  onClose,
+  onTierUpgraded,
+}: AdjustPlanModalProps) {
   const queryClient = useQueryClient();
   const plansQuery = useQuery(organizationsBillingPlansRetrieveOptions());
   const subscriptionQuery = useQuery(
@@ -78,8 +83,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     useState<StorageTierEnum | null>(null);
   // `undefined` is the un-seeded sentinel (before the seeding effect runs);
   // `null` is the user's explicit "No bundle" choice.
-  const [selectedCreditTier, setSelectedCreditTier] =
-    useState<CreditTierEnum | null | undefined>(undefined);
+  const [selectedCreditTier, setSelectedCreditTier] = useState<
+    CreditTierEnum | null | undefined
+  >(undefined);
 
   // On native (Capacitor iOS), Stripe Checkout / the billing portal opens in
   // SFSafariViewController as a popover on top of the app. When the user
@@ -166,9 +172,13 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       setSelectedCreditTier(undefined);
       return;
     }
-    if (!proPlan) return;
+    if (!proPlan) {
+      return;
+    }
     if (proTierChangeMode) {
-      if (currentMachineTier == null || currentStorageTier == null) return;
+      if (currentMachineTier == null || currentStorageTier == null) {
+        return;
+      }
       setSelectedMachineTier((prev) =>
         resolveTierSelection<MachineTierEnum>(
           machineTiersForPicker,
@@ -215,7 +225,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   // ---------------------------------------------------------------------------
 
   const handleUpgrade = () => {
-    if (upgradeMutation.isPending) return;
+    if (upgradeMutation.isPending) {
+      return;
+    }
     if (!selectedMachineTier || !selectedStorageTier) {
       toast.error("Pick a machine and storage tier to continue.", {
         id: "pro-upgrade-error",
@@ -244,6 +256,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
               storageTier: selectedStorageTier,
               creditTier: displayCreditTier,
             });
+            captureTakeoverAvatarStash(queryClient);
             void openUrl(data.checkout_url);
             return;
           }
@@ -271,7 +284,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   };
 
   const handleConfirmDowngrade = () => {
-    if (portalMutation.isPending) return;
+    if (portalMutation.isPending) {
+      return;
+    }
     setView("plans");
     portalMutation.mutate({});
   };
@@ -321,7 +336,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   // Fixes the race condition where the first mutation to succeed would close
   // the modal before others complete — potentially hiding later errors.
   const submitTierChanges = () => {
-    if (tierChangePending) return;
+    if (tierChangePending) {
+      return;
+    }
 
     type DimensionResult = { dimension: string; ok: boolean; error?: unknown };
     const pending: Promise<DimensionResult>[] = [];
@@ -379,21 +396,21 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       const storageSucceeded = results.some(
         (r) => r.ok && r.dimension === "storage",
       );
-      const machineUpgradeSucceeded = results.some(
-        (r) => r.ok && r.dimension === "machine",
-      ) && !isMachineDowngrade;
-      const needsResize = (storageSucceeded || machineUpgradeSucceeded) && !!onTierUpgraded;
+      const machineUpgradeSucceeded =
+        results.some((r) => r.ok && r.dimension === "machine") &&
+        !isMachineDowngrade;
+      const needsResize =
+        (storageSucceeded || machineUpgradeSucceeded) && !!onTierUpgraded;
 
       const failures = results.filter((r) => !r.ok);
 
       if (failures.length > 0) {
         const msg = failures
-          .map(
-            (f) =>
-              extractMutationError(
-                f.error,
-                `Failed to update ${f.dimension} tier.`,
-              ),
+          .map((f) =>
+            extractMutationError(
+              f.error,
+              `Failed to update ${f.dimension} tier.`,
+            ),
           )
           .join(" ");
         toast.error(msg, { id: "pro-tier-change-error" });
@@ -428,7 +445,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   // When the machine tier is being lowered, defer the whole apply behind the
   // reconfirm modal so the user confirms the smaller compute profile.
   const handleApplyTierChange = () => {
-    if (tierChangePending) return;
+    if (tierChangePending) {
+      return;
+    }
     if (isMachineDowngrade) {
       setTierDowngradeOpen(true);
       return;
@@ -499,7 +518,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           {view === "downgrade-confirm" ? (
             <>
               <Modal.Header>
-                <Modal.Title icon={AlertTriangle}>Downgrade to Base?</Modal.Title>
+                <Modal.Title icon={AlertTriangle}>
+                  Downgrade to Base?
+                </Modal.Title>
               </Modal.Header>
               <Modal.Body>
                 <Typography
@@ -566,7 +587,8 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                         variant="body-medium-lighter"
                         className="text-[var(--content-secondary)]"
                       >
-                        Choose the plan that works best for you and your assistant.
+                        Choose the plan that works best for you and your
+                        assistant.
                       </Typography>
                     </div>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -607,7 +629,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             storageTiersForPicker={storageTiersForPicker}
                             currentMachinePrice={currentMachinePrice}
                             currentStoragePrice={currentStoragePrice}
-                            currentCreditPriceUnknown={currentCreditPriceUnknown}
+                            currentCreditPriceUnknown={
+                              currentCreditPriceUnknown
+                            }
                             proCurrentTotalCents={currentTotalCents}
                             proLiveTotalCents={liveTotalCents}
                             proTotalDelta={totalDelta}
@@ -621,7 +645,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                             portalPending={portalMutation.isPending}
                             onUpgrade={handleUpgrade}
                             onApplyTierChange={handleApplyTierChange}
-                            onDowngradeClick={() => setView("downgrade-confirm")}
+                            onDowngradeClick={() =>
+                              setView("downgrade-confirm")
+                            }
                             onKeepPlan={() => portalMutation.mutate({})}
                           />
                         );
@@ -637,7 +663,8 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
                   className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-tertiary)]"
                 >
                   <span className="pointer-events-auto">
-                    You can change or cancel your plan at any time from billing settings.
+                    You can change or cancel your plan at any time from billing
+                    settings.
                   </span>
                 </Typography>
                 <div className="ml-auto">

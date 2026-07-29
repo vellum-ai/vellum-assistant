@@ -228,6 +228,11 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
 
     // The guardian-facing question asks about the tool, never about the person.
     expect(emittedSignals.length).toBe(1);
+    // The in-app card is pinned to the conversation the escalated tool runs
+    // in — never left to LLM conversation routing.
+    expect(emittedSignals[0].conversationAffinityHint).toEqual({
+      vellum: "conv-1",
+    });
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     const questionText = payload.questionText as string;
     expect(questionText.startsWith("Approve tool: bash")).toBe(true);
