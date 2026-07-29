@@ -42,7 +42,7 @@ Confirm with the creator before bundling — they may have set `HERMES_HOME` to 
 Once a consistent snapshot of `memory.db` is in the workspace (see Pre-bundle safety for the `.backup` pattern), extract review candidates deterministically:
 
 ```sh
-bun run scripts/parse-agent-memory-db.ts --file /path/to/memory.db.snapshot --source hermes
+bun run {baseDir}/scripts/parse-agent-memory-db.ts --file /path/to/memory.db.snapshot --source hermes
 ```
 
 The parser introspects `sqlite_master` instead of assuming a schema, skips FTS5 shadow tables and credential-named tables/columns, redacts credential-shaped values, and emits `MemoryImportItem[]` JSON on stdout plus a per-table census on stderr. Honcho user-model rows come out through the same introspection pass. Then follow SKILL.md's Memory Import Guidance from the review step onward: creator review, staged v3 pages (`source: import:hermes`), and the `assistant memory ingest` run.

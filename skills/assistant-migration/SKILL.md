@@ -227,8 +227,7 @@ Review the per-page dry-run results (written / skipped / invalid) with the creat
 ### 5. Verify
 
 - Check the summary counts: written, skipped, invalid.
-- Spot-check retrieval on two or three imported facts.
-- For a large import, `assistant memory v3 eval` can gate the change, but it is a two-corpus comparison requiring `--staging`, `--snapshot`, and `--out`; use it only when a pre-import snapshot of `memory/concepts/` exists to compare against. Otherwise the retrieval spot-check above is the verification.
+- Spot-check retrieval on two or three imported facts; that spot-check is the verification. (`assistant memory v3 eval` does not apply here: it compares two complete corpora, and an import's staging directory holds only the new pages, not a corpus.)
 
 ### Small volumes
 

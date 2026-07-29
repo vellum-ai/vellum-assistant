@@ -30,7 +30,7 @@ For non-conversation material that is not in the export (or that the creator pre
 - **Non-conversation material → parser extraction, then the memory-import flow.** The official export ZIP also contains custom instructions and saved memories that `chatgpt-import` does not consume. Extract them deterministically instead of unzipping by hand:
 
   ```sh
-  bun run scripts/parse-chatgpt-memory.ts --file /path/to/chatgpt-export.zip
+  bun run {baseDir}/scripts/parse-chatgpt-memory.ts --file /path/to/chatgpt-export.zip
   ```
 
   The parser emits `MemoryImportItem[]` JSON on stdout (with `source: import:chatgpt` and `origin_date` where the export carries timestamps) and an entry-by-entry inventory on stderr showing what was and was not recognized. Route the results per the Vellum Primitive Map in SKILL.md:
