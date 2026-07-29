@@ -115,9 +115,10 @@ The map tells the model a slice exists; the drill-in skill is how it follows the
 # search.sh <pattern> [YYYY-MM]  scoped search over the <source> cold store
 DIR="$VELLUM_WORKSPACE_DIR/imports/<source>"
 if [ -n "$2" ]; then
-  # Two globs: one for the date in a filename, one for the date in a
-  # directory segment (rg's "-g foo" does not match foo/bar).
-  rg -i -C 3 "$1" "$DIR" --glob "*$2*" --glob "*$2*/**"
+  # Two globs: a slash-free pattern matches the date in any basename, and
+  # the "**/" prefixed pattern matches the date in a directory segment at
+  # any depth (a leading "*" cannot cross path separators).
+  rg -i -C 3 "$1" "$DIR" --glob "*$2*" --glob "**/*$2*/**"
 else
   rg -i -C 3 "$1" "$DIR"
 fi

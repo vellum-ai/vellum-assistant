@@ -62,6 +62,12 @@ describe("dateFromFilename", () => {
     expect(dateFromFilename("release-1.2.3.txt")).toBeNull();
     expect(dateFromFilename("undated-notes.txt")).toBeNull();
   });
+
+  test("rejects syntactically shaped but impossible calendar dates", () => {
+    expect(dateFromFilename("2025-02-29 standup.vtt")).toBeNull();
+    expect(dateFromFilename("2025-04-31 retro.vtt")).toBeNull();
+    expect(dateFromFilename("2024-02-29 leap-day.vtt")).toBe("2024-02-29");
+  });
 });
 
 describe("walkFiles", () => {

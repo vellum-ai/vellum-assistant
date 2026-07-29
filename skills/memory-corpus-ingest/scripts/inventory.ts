@@ -72,8 +72,10 @@ const FILENAME_DATE_PATTERNS = [
 
 /**
  * Extract an ISO date (YYYY-MM-DD) from a date-like pattern in a file path,
- * or null when no plausible date is present. Month and day ranges are
- * validated so version strings like 1.2.20250199 do not match.
+ * or null when no plausible date is present. Candidates are validated
+ * against the actual calendar (a UTC round-trip), so version strings like
+ * 1.2.20250199 and impossible dates like 2025-02-29 in a non-leap year or
+ * 2025-04-31 do not match; callers then fall back to the file mtime.
  */
 export function dateFromFilename(path: string): string | null {
   for (const pattern of FILENAME_DATE_PATTERNS) {
@@ -87,10 +89,15 @@ export function dateFromFilename(path: string): string | null {
     if (year < 1980 || year > 2100) {
       continue;
     }
-    if (month < 1 || month > 12) {
-      continue;
-    }
-    if (day < 1 || day > 31) {
+    // Round-trip through Date.UTC: JavaScript normalizes overflow (month 13
+    // becomes January, April 31 becomes May 1), so a candidate is a real
+    // calendar date only when every component survives unchanged.
+    const roundTrip = new Date(Date.UTC(year, month - 1, day));
+    if (
+      roundTrip.getUTCFullYear() !== year ||
+      roundTrip.getUTCMonth() !== month - 1 ||
+      roundTrip.getUTCDate() !== day
+    ) {
       continue;
     }
     return `${match[1]}-${match[2]}-${match[3]}`;
