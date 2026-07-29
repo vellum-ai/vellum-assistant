@@ -32,6 +32,8 @@ import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/lib/provider-catalogs";
+import { sttLanguageOptionsFor } from "@/lib/stt/language-catalog";
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 /**
  * The speech-to-text provider + API key form: provider choice, key entry, and
@@ -133,7 +135,8 @@ export function SttProviderForm({
   // `services.stt` falls under the ConfigGetResponse index signature
   // (`unknown`), so narrow it explicitly to read the provider.
   const daemonStt = daemonConfig?.services?.stt as
-    { provider?: string; mode?: string } | undefined;
+    | { provider?: string; mode?: string }
+    | undefined;
   // A config written by the legacy mode toggle marks managed via `mode` while
   // `provider` holds the BYOK restore value — the daemon routes it to Vellum,
   // so the form must render it as Vellum too.
@@ -155,6 +158,40 @@ export function SttProviderForm({
   const daemonHasProvider = !!daemonSttProvider;
 
   const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
+  // Spoken-language pick, shown only when the daemon reports the provider it
+  // would steer as manually language-selectable. Hot-applies through the
+  // hook, independent of this form's Save.
+  const {
+    available: languageAvailable,
+    currentCode: languageCode,
+    isLanguageSelectable,
+    selectLanguage,
+  } = useSttLanguageSelection(assistantId);
+  // A language pick hot-applies to the daemon's CONFIGURED provider, so the
+  // picker binds to that provider and hides while the dropdown holds an
+  // unsaved draft of a different one: offering the draft's languages would
+  // write a value the still-active provider may ignore (e.g. Multilingual
+  // drafted for Vellum while xAI runs, whose resolver drops "multi"). With
+  // no pending draft, the steered id is the daemon's own provider when the
+  // dropdown can't represent it (e.g. xai via CLI renders as a placeholder),
+  // otherwise the selection's mapping. The client-only native choice has no
+  // daemon mapping (its recognizer never reads `services.stt.language`), so
+  // it resolves to undefined and the capability check below hides the
+  // picker.
+  const languageDaemonProviderId = useMemo(() => {
+    if (draftProvider !== serverProvider) {
+      return undefined;
+    }
+    if (daemonSttProvider && !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider]) {
+      return daemonSttProvider;
+    }
+    return STT_DAEMON_PROVIDER[draftProvider]?.provider;
+  }, [daemonSttProvider, draftProvider, serverProvider]);
+  // Unknown and absent probe entries read as false, hiding the control
+  // rather than offering a language its provider ignores.
+  const draftLanguageSelectable =
+    !!languageDaemonProviderId &&
+    isLanguageSelectable(languageDaemonProviderId);
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -342,6 +379,30 @@ export function SttProviderForm({
           aria-label="STT provider"
         />
       </div>
+
+      {languageAvailable && draftLanguageSelectable && (
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Spoken language
+          </label>
+          <Dropdown
+            value={languageCode}
+            onChange={selectLanguage}
+            options={sttLanguageOptionsFor(
+              languageCode,
+              languageDaemonProviderId ?? "",
+            ).map((l) => ({
+              value: l.code,
+              label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
+              tooltip: l.description,
+            }))}
+            aria-label="Spoken language"
+          />
+          <p className="text-body-small-default text-[var(--content-tertiary)]">
+            Applies from your next spoken turn.
+          </p>
+        </div>
+      )}
 
       {requiresApiKey && (
         <div className="space-y-1">

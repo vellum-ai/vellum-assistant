@@ -42,6 +42,46 @@ export const STT_LANGUAGES: readonly SttLanguageOption[] = [
 ];
 
 /**
+ * Daemon provider ids whose language option accepts `"multi"`: Deepgram
+ * code-switching is a nova-3 mode, so it only works where nova-3 runs.
+ * `deepgram` streams to nova-3 directly and `vellum` relays to Deepgram
+ * with the model pinned to nova-3 server-side. Mirrors the resolver's guard
+ * in `assistant/src/providers/speech-to-text/resolve.ts`, which drops
+ * `"multi"` before it reaches any other adapter (xAI expects BCP-47 codes),
+ * so offering it elsewhere would be a silent no-op.
+ */
+const MULTI_CAPABLE_DAEMON_PROVIDERS: ReadonlySet<string> = new Set([
+  "deepgram",
+  "vellum",
+]);
+
+/**
+ * Dropdown options for a picker whose current selection is `currentCode`,
+ * steering the daemon provider `daemonProviderId`: the catalog, minus the
+ * Multilingual entry for providers whose adapter drops `"multi"` (see
+ * `MULTI_CAPABLE_DAEMON_PROVIDERS`), plus a synthetic "(custom)" entry when
+ * the code sits outside the offered set. `services.stt.language` accepts any
+ * non-empty string (the CLI and chat config edits write codes like "en-US",
+ * and can persist `"multi"` for a provider that ignores it), and a trigger
+ * that renders blank for such a value invites an accidental overwrite; the
+ * synthetic entry keeps the persisted value visible while picking a catalog
+ * option still overwrites it normally.
+ */
+export function sttLanguageOptionsFor(
+  currentCode: string,
+  daemonProviderId: string,
+): readonly SttLanguageOption[] {
+  const catalog = MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
+    ? STT_LANGUAGES
+    : STT_LANGUAGES.filter((option) => option.code !== STT_MULTI_CODE);
+  const inCatalog = catalog.some((option) => option.code === currentCode);
+  if (inCatalog) {
+    return catalog;
+  }
+  return [...catalog, { code: currentCode, label: `${currentCode} (custom)` }];
+}
+
+/**
  * Suggested STT language for a browser locale (`navigator.language`), or
  * `null` when no suggestion applies (English, empty, or outside the catalog).
  *

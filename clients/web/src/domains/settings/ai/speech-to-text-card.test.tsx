@@ -8,6 +8,10 @@
  *   3. A persisted native choice on a build without the capability falls
  *      back to the default provider instead of an empty dropdown.
  *
+ * Plus the "Spoken language" dropdown: shown only when the daemon reports
+ * the configured provider as manually language-selectable, hidden for
+ * auto-detecting providers and old daemons that omit the capability field.
+ *
  * The native-dictation runtime module is mocked (its real implementation
  * imports a Vite `?worker&url` asset and probes `window.vellum`); the
  * design-library Dropdown is real, driven via its combobox trigger like
@@ -39,8 +43,11 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   Toaster: () => null,
   ToastContent: () => null,
 }));
+// Mutable so the Spoken-language tests can enable the org-gated queries the
+// language hook depends on; the provider tests keep the gate closed.
+let orgReady = false;
 mock.module("@/hooks/use-is-org-ready", () => ({
-  useIsOrgReady: () => false,
+  useIsOrgReady: () => orgReady,
 }));
 
 // Controllable daemon config the config-get query resolves to. `initialData`
@@ -48,6 +55,15 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 // mirroring how the real query would already be cached. Default `{ services: {} }`
 // leaves the daemon with no stt provider, so the happy-path tests still PATCH it.
 let daemonConfigData: { services: Record<string, unknown> } = { services: {} };
+// Provider capability probe backing the Spoken-language dropdown. Default
+// empty: the language control stays hidden in the provider-focused tests.
+let providerCatalogData: {
+  providers: {
+    id: string;
+    displayName: string;
+    languageSelection?: "manual" | "auto";
+  }[];
+} = { providers: [] };
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   configGetOptions: () => ({
     queryKey: ["config-get-test"],
@@ -55,6 +71,11 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     initialData: daemonConfigData,
   }),
   configGetQueryKey: () => ["config-get-test"],
+  sttProvidersGetOptions: () => ({
+    queryKey: ["stt-providers-test"],
+    queryFn: () => Promise.resolve(providerCatalogData),
+    initialData: providerCatalogData,
+  }),
 }));
 
 // Capture the daemon writes Save now performs (CES key + services.stt config).
@@ -126,6 +147,8 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
     daemonConfigData = { services: {} };
+    providerCatalogData = { providers: [] };
+    orgReady = false;
   });
 
   afterEach(() => {
@@ -223,7 +246,8 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     // The provider is unchanged and the daemon already has one, so no config
     // PATCH must fire (which would re-assert / risk clobbering the provider).
     const sttBody = configPatchCalls[0]?.body as
-      { services?: { stt?: Record<string, unknown> } } | undefined;
+      | { services?: { stt?: Record<string, unknown> } }
+      | undefined;
     expect(sttBody?.services?.stt ?? {}).not.toHaveProperty("provider");
   });
 
@@ -250,6 +274,8 @@ describe("SpeechToTextCard — Vellum provider", () => {
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
     daemonConfigData = { services: {} };
+    providerCatalogData = { providers: [] };
+    orgReady = false;
   });
 
   afterEach(() => {
@@ -347,5 +373,207 @@ describe("SpeechToTextCard — Vellum provider", () => {
     });
     // The client keeps routing dictation locally.
     expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("macos-native");
+  });
+});
+
+describe("SpeechToTextCard: Spoken language dropdown", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    nativeDictationSupported = false;
+    credentialsSetCalls.length = 0;
+    configPatchCalls.length = 0;
+    daemonConfigData = { services: {} };
+    providerCatalogData = { providers: [] };
+    // The language hook's queries are org-gated; open the gate so the
+    // capability probe and config read resolve.
+    orgReady = true;
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
+  function languageTrigger(): HTMLButtonElement | null {
+    return document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="Spoken language"]',
+    );
+  }
+
+  test("renders for a manually language-selectable provider and lists Multilingual", async () => {
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    fireEvent.click(languageTrigger()!);
+    expect(visibleOptions()).toContain("Multilingual");
+  });
+
+  test("does not render for an auto-detecting provider", () => {
+    daemonConfigData = { services: { stt: { provider: "google-gemini" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "google-gemini",
+          displayName: "Gemini",
+          languageSelection: "auto",
+        },
+      ],
+    };
+    renderCard();
+
+    expect(languageTrigger()).toBeNull();
+  });
+
+  test("hides while the form shows the client-only native provider", async () => {
+    // The daemon reports its own (language-selectable) provider, but the
+    // native recognizer never reads `services.stt.language`: a picker here
+    // would PATCH a value nothing consumes.
+    nativeDictationSupported = true;
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+
+    openProviderDropdown();
+    selectOption("macOS Native Dictation");
+
+    expect(languageTrigger()).toBeNull();
+  });
+
+  test("hides when the draft switches to an auto-detecting provider", async () => {
+    // Saved provider vellum (manual), dropdown switched to OpenAI without
+    // saving: Whisper auto-detects, so a picker here would offer a language
+    // the drafted provider ignores.
+    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+    providerCatalogData = {
+      providers: [
+        { id: "vellum", displayName: "Vellum", languageSelection: "manual" },
+        {
+          id: "openai-whisper",
+          displayName: "Whisper",
+          languageSelection: "auto",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+
+    openProviderDropdown();
+    selectOption("OpenAI");
+
+    expect(languageTrigger()).toBeNull();
+  });
+
+  test("hides when the draft switches between manual providers", async () => {
+    // Saved provider deepgram (manual), dropdown switched to Vellum without
+    // saving: both are manual, but a pick would hot-apply to the still
+    // active deepgram config while the row advertises the draft's options,
+    // so any pending provider draft hides the picker.
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+        { id: "vellum", displayName: "Vellum", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+
+    openProviderDropdown();
+    selectOption("Vellum");
+
+    expect(languageTrigger()).toBeNull();
+  });
+
+  test("renders for an xai daemon without the Multilingual option", async () => {
+    // xai is configurable via the CLI but unrepresentable in the dropdown
+    // (which falls back to a placeholder); the picker still steers the xai
+    // daemon config, whose adapter drops "multi", so the Multilingual entry
+    // must not be offered.
+    daemonConfigData = { services: { stt: { provider: "xai" } } };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    fireEvent.click(languageTrigger()!);
+    const options = visibleOptions();
+    expect(options).not.toContain("Multilingual");
+    expect(options).toContain("Spanish (Español)");
+  });
+
+  test("a persisted multi under an xai daemon renders via the custom fallback", async () => {
+    daemonConfigData = {
+      services: { stt: { provider: "xai", language: "multi" } },
+    };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    // The trigger shows the persisted truth even though xai ignores it.
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    expect(languageTrigger()!.textContent).toContain("multi (custom)");
+  });
+
+  test("shows an out-of-catalog configured language on the trigger", async () => {
+    // Any non-empty string is a valid `services.stt.language` (CLI/chat can
+    // write "en-US"); the trigger must show it rather than render blank.
+    daemonConfigData = {
+      services: { stt: { provider: "deepgram", language: "en-US" } },
+    };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    expect(languageTrigger()!.textContent).toContain("en-US");
+  });
+
+  test("does not render when the daemon omits the capability field (old daemon)", () => {
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [{ id: "deepgram", displayName: "Deepgram" }],
+    };
+    renderCard();
+
+    expect(languageTrigger()).toBeNull();
   });
 });
