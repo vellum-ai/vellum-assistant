@@ -731,7 +731,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-27T13:35:46.000Z"
+      "updatedAt": "2026-07-29T22:31:05.000Z"
     },
     {
       "id": "public-ingress",
@@ -1146,7 +1146,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-28T20:26:37.000Z"
+      "updatedAt": "2026-07-28T22:26:01.000Z"
     },
     {
       "id": "vellum-skills-catalog",
