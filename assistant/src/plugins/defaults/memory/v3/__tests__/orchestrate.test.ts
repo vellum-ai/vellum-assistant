@@ -178,6 +178,7 @@ function makeEntries(): PageIndexEntry[] {
     edges: [],
     leaves: [],
     modifiedAt: 0,
+    freshAt: 0,
   }));
 }
 
@@ -872,6 +873,7 @@ describe("orchestrate — edge-only injection", () => {
       edges: [],
       leaves: [],
       modifiedAt: 0,
+      freshAt: 0,
     }));
     const sectionIndex = await buildSectionIndex(slugs, async (s) => pages[s]!);
     const needle = buildSectionNeedle(sectionIndex);

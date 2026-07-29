@@ -66,9 +66,21 @@ export interface PageIndexEntry {
   /**
    * File mtime in epoch ms; 0 for synthetic entries (skills, CLI commands)
    * that have no on-disk source file. Used by `splitTier1` to rank pages
-   * by recency.
+   * by recency. This stays raw mtime because the maintain job's re-embed
+   * delta (`computeChangedPages` in v3/maintain-job.ts) diffs on it; the
+   * origin-aware recency signal lives in {@link PageIndexEntry.freshAt}.
    */
   modifiedAt: number;
+  /**
+   * Effective recency in epoch ms: `Date.parse(frontmatter.origin_date)` when
+   * that field is present and parseable, else the file mtime; 0 for synthetic
+   * entries. Imported or backfilled pages carry the date their content is
+   * about, so recency-ranked consumers (the v3 fresh lane, card date stamps)
+   * read this instead of `modifiedAt`. `splitTier1` deliberately keeps sorting
+   * on `modifiedAt`: consolidation-facing tier ranking reflects actual edit
+   * recency.
+   */
+  freshAt: number;
 }
 
 /**
@@ -145,6 +157,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     outgoingSlugs: string[];
     leaves: string[];
     modifiedAt: number;
+    freshAt: number;
   }
 
   const [
@@ -216,6 +229,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: page.frontmatter.edges,
       leaves: page.frontmatter.leaves ?? [],
       modifiedAt: mtimeMs,
+      freshAt: resolveFreshAt(page.frontmatter.origin_date, mtimeMs),
     });
   }
 
@@ -226,6 +240,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: [],
       leaves: [],
       modifiedAt: 0,
+      freshAt: 0,
     });
   }
 
@@ -236,6 +251,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: [],
       leaves: [],
       modifiedAt: 0,
+      freshAt: 0,
     });
   }
 
@@ -252,6 +268,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       edges: [],
       leaves: draft.leaves,
       modifiedAt: draft.modifiedAt,
+      freshAt: draft.freshAt,
     };
     bySlug.set(entry.slug, entry);
     byId.set(entry.id, entry);
@@ -283,6 +300,23 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
   const index: PageIndex = { entries, bySlug, byId, rendered, parseFailures };
   cache = { workspaceDir, index };
   return index;
+}
+
+/**
+ * Effective recency for a real concept page: the parsed `origin_date`
+ * frontmatter (ISO 8601 date or datetime) when present and parseable to a
+ * positive epoch-ms value, else the file mtime. An unparseable value degrades
+ * to mtime rather than dropping the page from recency ranking.
+ */
+function resolveFreshAt(
+  originDate: string | undefined,
+  mtimeMs: number,
+): number {
+  if (originDate === undefined) {
+    return mtimeMs;
+  }
+  const parsed = Date.parse(originDate);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : mtimeMs;
 }
 
 /** First line of an error's message — parse errors (YAML) are multi-line with
@@ -391,6 +425,7 @@ function buildLocalPageIndex(
       edges: [],
       leaves: src.leaves,
       modifiedAt: src.modifiedAt,
+      freshAt: src.freshAt,
     };
     localBySlug.set(local.slug, local);
     localById.set(local.id, local);

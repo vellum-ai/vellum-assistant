@@ -76,6 +76,7 @@ function makePage(
     summary?: string;
     body?: string;
     leaves?: string[];
+    originDate?: string;
   } = {},
 ): ConceptPage {
   return {
@@ -86,6 +87,9 @@ function makePage(
       ref_urls: [],
       ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
       ...(opts.leaves !== undefined ? { leaves: opts.leaves } : {}),
+      ...(opts.originDate !== undefined
+        ? { origin_date: opts.originDate }
+        : {}),
     },
     body: opts.body ?? "",
   };
@@ -374,6 +378,48 @@ describe("getPageIndex", () => {
     expect(idx.bySlug.get("skills/browser")?.summary).toBe(
       "Seeded skill content.",
     );
+  });
+
+  test("freshAt is the parsed origin_date; modifiedAt stays raw mtime", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("imported", { summary: "I", originDate: "2019-03-05" }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("imported")!;
+    expect(entry.freshAt).toBe(Date.parse("2019-03-05"));
+    // The file was written just now, so its raw mtime is far past the
+    // backdated origin: modifiedAt must not follow origin_date.
+    expect(entry.modifiedAt).toBeGreaterThan(entry.freshAt);
+  });
+
+  test("freshAt falls back to file mtime when origin_date is absent", async () => {
+    await writePage(workspaceDir, makePage("alice", { summary: "A" }));
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("alice")!;
+    expect(entry.freshAt).toBeGreaterThan(0);
+    expect(entry.freshAt).toBe(entry.modifiedAt);
+  });
+
+  test("freshAt falls back to file mtime when origin_date is unparseable", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("garbled", { summary: "G", originDate: "not-a-date" }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("garbled")!;
+    expect(entry.freshAt).toBeGreaterThan(0);
+    expect(entry.freshAt).toBe(entry.modifiedAt);
+  });
+
+  test("synthetic skill entries carry freshAt 0", async () => {
+    skillState.entries = [{ id: "browser", content: "Drive a browser." }];
+
+    const idx = await getPageIndex(workspaceDir);
+    expect(idx.bySlug.get("skills/browser")?.freshAt).toBe(0);
   });
 
   test("collision dedupe leaves non-colliding pages and skills intact", async () => {
