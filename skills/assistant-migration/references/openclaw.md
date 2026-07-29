@@ -31,7 +31,7 @@ openclaw gateway status --json > /tmp/openclaw-gateway-status.json
 | `openclaw-gateway-status.json` (CLI dump) | Channels (URL/account refs)   | Review             |
 | `~/.openclaw/agents/<name>/AGENTS.md`     | Identity / `SOUL.md`          | Port               |
 | `~/.openclaw/skills/<name>/SKILL.md`      | Vellum skills (same standard) | Port               |
-| `~/.openclaw/memory.db` (SQLite)          | Memory                        | Review             |
+| `~/.openclaw/memory.db` (SQLite)          | Memory                        | Review (see below) |
 | `~/.openclaw/schedules.json`              | Schedules                     | Port               |
 | `~/.openclaw/mcp.json` (URLs only)        | MCP setup tasks               | Re-setup           |
 | `~/.openclaw/subagents/`                  | Subagents / skills            | Review             |
@@ -40,6 +40,16 @@ openclaw gateway status --json > /tmp/openclaw-gateway-status.json
 | `~/.openclaw/tokens/`                     | —                             | **Skip (secrets)** |
 | `~/.openclaw/.env`, `*.key`, `*.pem`      | —                             | **Skip (secrets)** |
 | `~/.openclaw/gateway/auth/`               | —                             | **Skip (secrets)** |
+
+### Memory extraction (`memory.db`)
+
+Once the consistent snapshot rides along in the bundle (`openclaw-memory.db` in the recipe below), extract review candidates deterministically:
+
+```sh
+bun run scripts/parse-agent-memory-db.ts --file /path/to/openclaw-memory.db --source openclaw
+```
+
+The parser introspects `sqlite_master` instead of assuming a schema, skips FTS5 shadow tables and credential-named tables/columns, redacts credential-shaped values, and emits `MemoryImportItem[]` JSON on stdout plus a per-table census on stderr. Then follow SKILL.md's Memory Import Guidance: review the candidates with the creator, shape approved items into staged v3 pages with `source: import:openclaw` and `origin_date:` frontmatter, and ingest via `assistant memory ingest --dir <staging> --dry-run` followed by the real run.
 
 ## Pre-bundle safety
 

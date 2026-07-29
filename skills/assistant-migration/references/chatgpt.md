@@ -27,9 +27,15 @@ For non-conversation material that is not in the export (or that the creator pre
 ## Inspect
 
 - **Conversation history → delegate to `chatgpt-import`.** Once the creator has the export ZIP, invoke the `chatgpt-import` skill. That skill owns the export-and-parse flow and the `assistant conversations import` step. Do **not** duplicate its parse logic or re-document its commands here — cross-reference it by name.
-- **Non-conversation material → normal inventory/review flow.** The official export ZIP also contains custom instructions and saved memories that `chatgpt-import` does not consume — unzip the export and read those files directly into the inventory rather than relying on the creator to re-paste them. Map per the Vellum Primitive Map in SKILL.md:
+- **Non-conversation material → parser extraction, then the memory-import flow.** The official export ZIP also contains custom instructions and saved memories that `chatgpt-import` does not consume. Extract them deterministically instead of unzipping by hand:
+
+  ```sh
+  bun run scripts/parse-chatgpt-memory.ts --file /path/to/chatgpt-export.zip
+  ```
+
+  The parser emits `MemoryImportItem[]` JSON on stdout (with `source: import:chatgpt` and `origin_date` where the export carries timestamps) and an entry-by-entry inventory on stderr showing what was and was not recognized. Route the results per the Vellum Primitive Map in SKILL.md:
   - Custom instructions / "what ChatGPT should know about you" / "how ChatGPT should respond" → Identity, Personality, durable Memory instructions.
-  - Saved memories → Memory candidates (review before saving; ChatGPT memories can be inferred or stale).
+  - Saved memories → memory candidates. Follow SKILL.md's Memory Import Guidance: review the candidates with the creator (ChatGPT memories can be inferred or stale), shape approved items into staged v3 pages with provenance frontmatter, then `assistant memory ingest --dir <staging> --dry-run` and ingest.
   - GPT configs (names, descriptions, instructions, knowledge files) → Skills, recreated as portable Vellum skills. Connected actions become MCP / integration setup tasks, not direct imports.
 
 Classify everything that is not a clean structured export per the Internals Salvage Guidance (high/medium/low confidence) rather than assuming a schema.
