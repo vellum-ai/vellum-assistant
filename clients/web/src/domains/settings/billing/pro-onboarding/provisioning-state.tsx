@@ -304,9 +304,20 @@ function Copy({ status, caption }: { status: string; caption?: string }) {
  * slot; the two are mutually exclusive.
  *
  * The chip is built to shrink: `min-w-0` on the outer box and on the text
- * column releases the flex minimum content size, and the value row wraps, so a
- * narrow viewport takes a second line inside the chip rather than pushing the
- * row that holds it onto a second line of its own.
+ * column releases the flex minimum content size, the value row wraps between
+ * its parts, and `wrap-anywhere` lets a single unbreakable word ("Machine",
+ * "credits/mo") break rather than spill into the chip beside it. `anywhere`
+ * rather than `break-word` because only `anywhere` feeds the break opportunity
+ * into min-content sizing, which is what a shrinking flex item measures itself
+ * against. Together those bound the chip at every width, so the row it sits in
+ * never needs a second line.
+ *
+ * Below 420px there is no width to spare for the decorative icon, so it drops
+ * out and hands its 32px to the text.
+ *
+ * The check and the spinner are both `aria-hidden` and the dimming is pure
+ * paint, so an `sr-only` status carries the per-dimension progress, and an
+ * `sr-only` "to" carries the relation the arrow glyph draws.
  */
 function DimensionChip({
   icon: Icon,
@@ -325,6 +336,12 @@ function DimensionChip({
   pending?: boolean;
   testId?: string;
 }) {
+  let status: string | null = null;
+  if (done) {
+    status = "Complete";
+  } else if (pending) {
+    status = "Pending";
+  }
   return (
     <div
       data-testid={testId}
@@ -333,13 +350,13 @@ function DimensionChip({
       }`}
       style={{ backgroundColor: CHIP_BACKGROUND }}
     >
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+      <span className="hidden h-6 w-6 shrink-0 items-center justify-center min-[420px]:flex">
         <Icon
           className="h-3.5 w-3.5 text-[var(--content-tertiary)]"
           aria-hidden="true"
         />
       </span>
-      <div className="flex min-w-0 flex-col gap-1 text-left">
+      <div className="flex min-w-0 flex-col gap-1 text-left wrap-anywhere">
         <span className="text-[12px] font-medium leading-tight text-[var(--content-tertiary)]">
           {label}
         </span>
@@ -347,6 +364,7 @@ function DimensionChip({
           {from && (
             <>
               <span>{from}</span>
+              <span className="sr-only">to</span>
               <ArrowRight
                 className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]"
                 aria-hidden="true"
@@ -369,6 +387,7 @@ function DimensionChip({
               />
             )
           )}
+          {status && <span className="sr-only">{status}</span>}
         </span>
       </div>
     </div>
@@ -391,7 +410,8 @@ function TextChip({ label }: { label: string }) {
  * mock's cap and holds two chips; a third needs `wide`, because three chips at
  * the value type's single-line width run to roughly 583px and `max-w-sm` (384px)
  * clips them. Below the cap `w-full` binds and the chips shrink instead, taking
- * a second line inside themselves rather than wrapping the row.
+ * a second line inside themselves, then breaking their own words once even that
+ * runs out, rather than wrapping the row.
  *
  * `items-stretch` keeps the chips equal height when one takes that second line.
  */
@@ -439,6 +459,12 @@ function chipDone(
  * its own progress: dimmed with a spinner while its dimension is still moving,
  * green check once it arrives. Showing them one at a time would hide the resize
  * the user is actually waiting on behind a dimension that was never in doubt.
+ *
+ * Each chip states its progress in `sr-only` text rather than the row holding a
+ * live region: the mutating node is the bare status word, so a polite region
+ * announces "Complete" without naming the dimension, and an atomic one re-reads
+ * all three chips every time one lands. The static reading is accurate on
+ * demand at any point in the wait, which is what the row owes.
  *
  * `allDone` is the terminal phase, where the state itself is the signal for
  * every dimension. The from-to arrow survives it, so one chip format covers

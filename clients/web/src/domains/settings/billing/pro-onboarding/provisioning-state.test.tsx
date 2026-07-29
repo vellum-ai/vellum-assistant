@@ -379,13 +379,14 @@ describe("waiting / resizing", () => {
   });
 });
 
-describe("per-chip progress", () => {
-  const IN_FLIGHT: Partial<ProvisioningStateProps> = {
-    state: "WAITING",
-    targets: { machineSize: "large", storageGib: 100 },
-    fromSnapshot: { machineSize: "small", storageGib: 30 },
-  };
+/** A machine + storage upgrade mid-resize, with nothing landed yet. */
+const IN_FLIGHT: Partial<ProvisioningStateProps> = {
+  state: "WAITING",
+  targets: { machineSize: "large", storageGib: 100 },
+  fromSnapshot: { machineSize: "small", storageGib: 30 },
+};
 
+describe("per-chip progress", () => {
   test("every chip starts pending with a spinner and no check", () => {
     const { getByTestId } = renderState(IN_FLIGHT);
 
@@ -450,6 +451,94 @@ describe("per-chip progress", () => {
     expect(
       within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
     ).toBeTruthy();
+  });
+
+  test("a mixed row reads its progress per dimension, not just paints it", () => {
+    // The spinner, the check and the dimming are all invisible to assistive
+    // tech, so without the status text a landed storage sounds identical to a
+    // pending one.
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    const storage = within(getByTestId("chip-storage"));
+    expect(storage.getByText("Complete").className).toContain("sr-only");
+    expect(storage.queryByText("Pending")).toBeNull();
+
+    const machine = within(getByTestId("chip-machine"));
+    expect(machine.getByText("Pending").className).toContain("sr-only");
+    expect(machine.queryByText("Complete")).toBeNull();
+  });
+
+  test("the from-to relation is spoken rather than left to the arrow glyph", () => {
+    // The arrow is aria-hidden, so the chip would otherwise read
+    // "Machine Small Large Pending".
+    const { getByTestId } = renderState(IN_FLIGHT);
+
+    expect(
+      within(getByTestId("chip-machine")).getByText("to").className,
+    ).toContain("sr-only");
+  });
+
+  test("a target-only intent chip claims neither status", () => {
+    // CONFIRMING has no per-dimension progress to report, so claiming
+    // "Pending" there would assert a resize that isn't in flight.
+    const { getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      intent: {
+        kind: "custom",
+        machineTier: "large",
+        storageTier: null,
+        creditTier: null,
+        savedAt: Date.now(),
+      },
+    });
+
+    expect(getByText("Machine")).toBeTruthy();
+    expect(queryByText("Pending")).toBeNull();
+    expect(queryByText("Complete")).toBeNull();
+  });
+});
+
+describe("chip fit at narrow widths", () => {
+  /** The widest row the takeover renders: all three dimensions at once. */
+  const NARROW: Partial<ProvisioningStateProps> = {
+    ...IN_FLIGHT,
+    intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+  };
+
+  test("chip text breaks inside a word so it can never spill into the next chip", () => {
+    // happy-dom runs no layout, so this asserts the rule the no-clip behaviour
+    // rests on. `min-w-0` lets the box shrink but an unbreakable word such as
+    // "Machine" still sets a floor; `anywhere` (not `break-word`) is what feeds
+    // the break opportunity into the min-content sizing a flex item measures
+    // itself against.
+    const { getByTestId } = renderState(NARROW);
+    const cases: Array<[string, string, string]> = [
+      ["chip-machine", "Machine", "Large"],
+      ["chip-storage", "Storage", "100 GB"],
+      ["chip-credits", "Credits", "$50 credits/mo"],
+    ];
+
+    for (const [key, label, value] of cases) {
+      const chip = within(getByTestId(key));
+      // Label and value both sit under the rule, which inherits from the text
+      // column rather than being repeated on each span.
+      expect(chip.getByText(label).closest(".wrap-anywhere")).toBeTruthy();
+      expect(chip.getByText(value).closest(".wrap-anywhere")).toBeTruthy();
+    }
+  });
+
+  test("the decorative icon yields its column below the narrow breakpoint", () => {
+    // 32px of icon and gap against roughly 37px of text width at 320px, for a
+    // glyph that is aria-hidden and repeats what the label already says.
+    const { getByTestId } = renderState(NARROW);
+    const slot =
+      getByTestId("chip-machine").querySelector(".lucide-cpu")?.parentElement;
+
+    expect(slot?.className).toContain("hidden");
+    expect(slot?.className).toContain("min-[420px]:flex");
   });
 });
 
