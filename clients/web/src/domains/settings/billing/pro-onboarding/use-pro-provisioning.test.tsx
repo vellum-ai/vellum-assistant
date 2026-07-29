@@ -117,6 +117,23 @@ function makeOperationalStatus(
   } as OperationalStatus;
 }
 
+/** A settled state carrying an in-flight resize marker for one dimension. */
+function makeResizeOperationStatus(
+  operation: "resize_machine" | "resize_storage",
+): OperationalStatus {
+  return {
+    ...makeOperationalStatus("active"),
+    active_operation: {
+      operation,
+      operation_id: "op-1",
+      phase: "waiting_for_ready",
+      started_at: "2026-08-01T00:00:00Z",
+      updated_at: "2026-08-01T00:00:00Z",
+      target: {},
+    },
+  } as OperationalStatus;
+}
+
 let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
@@ -1302,5 +1319,99 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
       timeout: 5000,
     });
     expect(latest!.kickError).toBeNull();
+  }, 20_000);
+});
+
+describe("useProProvisioning presentation signals", () => {
+  test("machineFloor is null before onboarding lands and for a real tier", async () => {
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    expect(latest!.machineFloor).toBeNull();
+
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    expect(latest!.targets).toEqual({ machineSize: "large", storageGib: 50 });
+    expect(latest!.machineFloor).toBeNull();
+  });
+
+  test("machineFloor is small when the package carries no machine tier", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: null };
+    renderProbe();
+
+    await waitFor(() => expect(latest!.machineFloor).toBe("small"), {
+      timeout: 5000,
+    });
+    // The floor is display only, so it never becomes a machine target.
+    expect(latest!.targets).toEqual({ machineSize: null, storageGib: 50 });
+  });
+
+  test("landed flips per dimension as each target is met", async () => {
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The machine lands first while storage is still growing.
+    assistantResponse = makeAssistant("large", 10);
+    await refetchAll(client);
+    await waitFor(
+      () => expect(latest!.landed).toEqual({ machine: true, storage: false }),
+      { timeout: 5000 },
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await refetchAll(client);
+    await waitFor(
+      () => expect(latest!.landed).toEqual({ machine: true, storage: true }),
+      { timeout: 5000 },
+    );
+  }, 20_000);
+
+  test("an in-flight machine resize holds machine pending while storage lands", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
+
+    // The platform persists both effective sizes at resize acceptance, so the
+    // actuals meet the targets while the pod is still restarting. Only the
+    // machine marker is in flight, so storage may land ahead of it.
+    assistantResponse = makeAssistant("large", 50);
+    await refetchAll(client);
+    await waitFor(
+      () => expect(latest!.landed).toEqual({ machine: false, storage: true }),
+      { timeout: 5000 },
+    );
+    expect(latest!.state).toBe("RESIZING");
+
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    await waitFor(
+      () => expect(latest!.landed).toEqual({ machine: true, storage: true }),
+      { timeout: 5000 },
+    );
+  }, 20_000);
+
+  test("an active resize_storage operation holds only the storage flag", async () => {
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeResizeOperationStatus("resize_storage");
+    await refetchAll(client);
+
+    await waitFor(
+      () => expect(latest!.landed).toEqual({ machine: true, storage: false }),
+      { timeout: 5000 },
+    );
   }, 20_000);
 });

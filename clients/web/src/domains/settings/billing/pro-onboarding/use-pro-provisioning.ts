@@ -39,11 +39,15 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
 import {
+  dimensionTargetsMet,
   isEntitlementRaceVerdict,
   isResizeOperationInFlight,
+  type ProvisioningDimensionFlags,
+  resizeDimensionsInFlight,
 } from "@/lib/billing/provisioning-targets";
 import { useOrganizationStore } from "@/stores/organization-store";
 
@@ -86,6 +90,25 @@ export interface ProProvisioningResult {
   targets: ProvisioningDimensions | null;
   /** First actuals observed, frozen — the "from" side of before/after cards. */
   actualsSnapshot: ProvisioningDimensions | null;
+  /**
+   * Machine size a package with no machine tier settles at, mirroring the
+   * server's ceiling for a null tier. Display only, so the takeover can show
+   * the resulting downsize; it never feeds `targets`, where a non-null machine
+   * size would demand non-null actuals and hang a fresh hatch.
+   */
+  machineFloor: MachineSizeEnum | null;
+  /**
+   * Per-dimension provisioning progress: a dimension has landed once its target
+   * is met and its own resize is no longer in flight. Presentation only, for
+   * per-chip progress; terminal completion still flows exclusively through
+   * `deriveProvisioningState`.
+   *
+   * A machine resize supersedes a storage one in the single per-assistant
+   * marker, so storage can read landed while the machine rollout is still
+   * running. That is honest: the storage grow was accepted, and the machine
+   * flag keeps its own row pending until the rollout converges.
+   */
+  landed: ProvisioningDimensionFlags;
   /**
    * The assistant provisioning targets: the onboarding payload's primary
    * assistant when named, else the active assistant. Drives the actuals and
@@ -495,6 +518,10 @@ export function useProProvisioning({
     };
   }, [onboarding]);
 
+  // Mirrors the server's machine ceiling for a package with no tier.
+  const machineFloor: MachineSizeEnum | null =
+    onboarding != null && onboarding.max_machine_tier == null ? "small" : null;
+
   // The managed-email entitlement alone doesn't make the domain step offerable:
   // the domain POST re-resolves the caller's primary assistant server-side and
   // rejects with 409 when there is none, so the payload must also name one. The
@@ -515,6 +542,20 @@ export function useProProvisioning({
       storageGib: assistant.provisioned_storage_gib ?? null,
     };
   }, [assistant]);
+
+  // Pairs the same two questions the state machine pairs globally. Actuals
+  // alone would not do: the platform persists the effective sizes at resize
+  // acceptance, before the pod restarts, so a dimension reads met mid-rollout.
+  // The pairing is also what carries a downgrade, where the null machine target
+  // is trivially met and only the in-flight marker holds the flag false.
+  const landed = useMemo<ProvisioningDimensionFlags>(() => {
+    const met = dimensionTargetsMet(targets, actuals);
+    const inFlight = resizeDimensionsInFlight(operationalStatusQuery.data);
+    return {
+      machine: met.machine && !inFlight.machine,
+      storage: met.storage && !inFlight.storage,
+    };
+  }, [targets, actuals, operationalStatusQuery.data]);
 
   const snapshotMatchesAssistant = snapshotAssistantId === assistantId;
 
@@ -605,6 +646,8 @@ export function useProProvisioning({
     softWaiting,
     targets,
     actualsSnapshot,
+    machineFloor,
+    landed,
     assistantId,
     domainStepAvailable,
     onboardingSettled,
