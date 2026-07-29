@@ -305,9 +305,9 @@ export function useConversationLoader({
       useConversationStore.getState().activeConversationId;
 
     // The Capacitor iOS shell cold-launches into a fresh draft instead of
-    // resuming a conversation. Minted per pass rather than retained: the pass
-    // that mints the key also writes it to the store, and a retained key would
-    // later resolve to a conversation the user has already sent in.
+    // resuming a conversation. A draft is minted only while nothing is selected
+    // in the URL or the store, and the minting pass writes the key to the store
+    // in the same body, so the gate closes for the rest of the session.
     const newChatDraftConversationId = shouldMintNewChatDraft({
       platformStartsInNewChat: isNativeIOS(),
       urlConversationId: explicitConversationId,
