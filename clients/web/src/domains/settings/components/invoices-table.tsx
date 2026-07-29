@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { organizationsBillingInvoicesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
@@ -76,15 +76,18 @@ export function InvoicesTable() {
   const [showAll, setShowAll] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
-  const invoicesQuery = useQuery({
+  const invoicesQuery = useInfiniteQuery({
     // The table hides behind the Show invoices toggle, so don't fetch
     // billing history for a section the user may never open.
     enabled: expanded,
-    queryKey: organizationsBillingInvoicesRetrieveQueryKey(),
-    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+    // Suffix the generated key so it can't collide with a plain-query cache
+    // entry for the same endpoint.
+    queryKey: [...organizationsBillingInvoicesRetrieveQueryKey(), "infinite"],
+    queryFn: async ({ signal, pageParam }) => {
       const { data, response } = await organizationsBillingInvoicesRetrieve({
         throwOnError: false,
         signal,
+        query: pageParam ? { starting_after: pageParam } : undefined,
       });
       if (response?.status === 404) {
         return EMPTY_RESPONSE;
@@ -96,9 +99,12 @@ export function InvoicesTable() {
       }
       return data;
     },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.invoices.at(-1)?.id : undefined,
   });
 
-  const invoices = invoicesQuery.data?.invoices ?? [];
+  const invoices = invoicesQuery.data?.pages.flatMap((p) => p.invoices) ?? [];
   const visibleInvoices = showAll
     ? invoices
     : invoices.slice(0, INITIAL_VISIBLE);
@@ -288,17 +294,32 @@ export function InvoicesTable() {
                 </tbody>
               </table>
             </div>
-            {hasMore && (
+            {showAll && invoicesQuery.hasNextPage ? (
               <button
                 type="button"
-                onClick={() => setShowAll((v) => !v)}
-                className="self-start text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
-                data-testid="invoices-show-more"
+                onClick={() => void invoicesQuery.fetchNextPage()}
+                disabled={invoicesQuery.isFetchingNextPage}
+                className="flex items-center gap-2 self-start text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                data-testid="invoices-load-more"
               >
-                {showAll
-                  ? "Show less"
-                  : `Show more (${invoices.length - INITIAL_VISIBLE} more)`}
+                {invoicesQuery.isFetchingNextPage && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                Load more
               </button>
+            ) : (
+              hasMore && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll((v) => !v)}
+                  className="self-start text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
+                  data-testid="invoices-show-more"
+                >
+                  {showAll
+                    ? "Show less"
+                    : `Show more (${invoices.length - INITIAL_VISIBLE} more)`}
+                </button>
+              )
             )}
           </>
         )}
