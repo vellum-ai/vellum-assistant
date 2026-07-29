@@ -74,11 +74,11 @@ export const ConceptPageFrontmatterSchema = z
     // `sources` (plural) passthrough key seen in migrated corpora.
     source: z.string().optional(),
     // ISO 8601 date (or datetime) the page's content originally dates from,
-    // for imported/backfilled material. Consumed by the page index as the
-    // page's *effective recency* (`freshAt`); does NOT affect the maintain
-    // job's mtime-based re-embed delta. Migrated corpora already carry leaked
-    // passthrough keys like `date`/`as_of`: `origin_date` is the declared,
-    // consumed field; the leaked keys stay inert.
+    // for imported/backfilled material whose file mtime reflects when it was
+    // written to this workspace rather than when its content was true.
+    // Migrated corpora already carry leaked passthrough keys like
+    // `date`/`as_of`: `origin_date` is the declared field; the leaked keys
+    // stay inert.
     origin_date: z.string().optional(),
   })
   // `.passthrough()`, NOT `.strict()`: tolerate unknown frontmatter keys instead
