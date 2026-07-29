@@ -76,6 +76,11 @@ export function InvoicesTable() {
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  // Sticky error flag scoped to pagination-initiated fetches (Load more and
+  // Retry). Unlike isRefetchError it ignores failed background refetches
+  // (window focus, reconnect), which should stay silent: the table still
+  // shows cached data and the user never asked for more.
+  const [pageLoadFailed, setPageLoadFailed] = useState(false);
 
   const invoicesQuery = useInfiniteQuery({
     // The table hides behind the Show invoices toggle, so don't fetch
@@ -110,11 +115,11 @@ export function InvoicesTable() {
     ? invoices
     : invoices.slice(0, INITIAL_VISIBLE);
   const hasHiddenRows = invoices.length > INITIAL_VISIBLE;
-  // Both flags stay true through the whole retry: a plain refetch clears the
-  // fetchMore meta (isFetchNextPageError drops), at which point the still-set
-  // error with data present reads as isRefetchError.
+  // pageLoadFailed keeps the error up through the whole retry: a plain
+  // refetch clears the fetchMore meta, so isFetchNextPageError alone would
+  // drop mid-retry.
   const showLoadMoreError =
-    invoicesQuery.isFetchNextPageError || invoicesQuery.isRefetchError;
+    invoicesQuery.isFetchNextPageError || pageLoadFailed;
   // "Load more" renders whenever every locally loaded row is already visible
   // but the server still has more, so remaining invoices are always reachable.
   // Retry supersedes it while the inline error is up.
@@ -123,15 +128,25 @@ export function InvoicesTable() {
     invoicesQuery.hasNextPage &&
     !showLoadMoreError;
 
+  function loadMore(): void {
+    // fetchNextPage() resolves with the query result rather than rejecting,
+    // so read isError from it to keep pageLoadFailed in sync.
+    void invoicesQuery
+      .fetchNextPage()
+      .then((result) => setPageLoadFailed(result.isError));
+  }
+
   function retryLoadMore(): void {
     // refetch() recomputes every cached page's cursor, healing a stale
     // starting_after, then fetchNextPage() fetches the page the user asked
     // for (a no-op if the refreshed pages already exhaust the list).
-    void invoicesQuery
-      .refetch()
-      .then((result) =>
-        result.isError ? undefined : invoicesQuery.fetchNextPage(),
-      );
+    void invoicesQuery.refetch().then((result) => {
+      if (result.isError) {
+        setPageLoadFailed(true);
+        return;
+      }
+      loadMore();
+    });
   }
 
   async function downloadAllInvoices(): Promise<void> {
@@ -335,7 +350,7 @@ export function InvoicesTable() {
                 {showLoadMore && (
                   <button
                     type="button"
-                    onClick={() => void invoicesQuery.fetchNextPage()}
+                    onClick={loadMore}
                     disabled={invoicesQuery.isFetchingNextPage}
                     className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
                     data-testid="invoices-load-more"
