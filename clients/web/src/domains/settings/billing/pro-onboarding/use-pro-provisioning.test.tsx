@@ -7,7 +7,15 @@
  * instead of waiting out real refetch intervals.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { useEffect } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -401,271 +409,239 @@ describe("useProProvisioning", () => {
     await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
   });
 
-  test(
-    "polling stops once DONE",
-    async () => {
-      const { client } = renderProbe();
-      await reachResizing(client);
+  test("polling stops once DONE", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
 
-      assistantResponse = makeAssistant("large", 50);
-      operationalStatusResponse = makeOperationalStatus("active");
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
 
-      // One clock tick may still be in flight when DONE lands; let it drain,
-      // then assert no further polls fire across a full poll interval.
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-      const settledAssistantCalls = assistantCalls;
-      const settledByIdCalls = assistantByIdCalls;
-      const settledStatusCalls = operationalStatusCalls;
-      const settledSubscriptionCalls = subscriptionCalls;
-      await new Promise((resolve) => setTimeout(resolve, 2600));
+    // One clock tick may still be in flight when DONE lands; let it drain,
+    // then assert no further polls fire across a full poll interval.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const settledAssistantCalls = assistantCalls;
+    const settledByIdCalls = assistantByIdCalls;
+    const settledStatusCalls = operationalStatusCalls;
+    const settledSubscriptionCalls = subscriptionCalls;
+    await new Promise((resolve) => setTimeout(resolve, 2600));
 
-      expect(assistantCalls).toBe(settledAssistantCalls);
-      expect(assistantByIdCalls).toBe(settledByIdCalls);
-      expect(operationalStatusCalls).toBe(settledStatusCalls);
-      expect(subscriptionCalls).toBe(settledSubscriptionCalls);
-      expect(latest!.state).toBe("DONE");
-    },
-    20_000,
-  );
+    expect(assistantCalls).toBe(settledAssistantCalls);
+    expect(assistantByIdCalls).toBe(settledByIdCalls);
+    expect(operationalStatusCalls).toBe(settledStatusCalls);
+    expect(subscriptionCalls).toBe(settledSubscriptionCalls);
+    expect(latest!.state).toBe("DONE");
+  }, 20_000);
 
-  test(
-    "a started verdict needs a status reading taken after the target actuals",
-    async () => {
-      // The marker is created by a background worker, so a status read taken
-      // right after a `started` verdict can predate it entirely. The status is
-      // held at `active` throughout here, so `sawOperation` never latches and
-      // the anchor is the only thing that can complete the flow.
-      ensureResponse = makeEnsureResponse("started");
-      const { client } = renderProbe();
+  test("a started verdict needs a status reading taken after the target actuals", async () => {
+    // The marker is created by a background worker, so a status read taken
+    // right after a `started` verdict can predate it entirely. The status is
+    // held at `active` throughout here, so `sawOperation` never latches and
+    // the anchor is the only thing that can complete the flow.
+    ensureResponse = makeEnsureResponse("started");
+    const { client } = renderProbe();
 
-      await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
-      subscriptionPlanId = "pro";
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
-        timeout: 5000,
-      });
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
 
-      // Targets now read as met, but no status reading has been taken since.
-      assistantResponse = makeAssistant("large", 50);
-      await refetchAll(client);
-      const callsAtTargetsMet = operationalStatusCalls;
-      expect(latest!.state).not.toBe("DONE");
+    // Targets now read as met, but no status reading has been taken since.
+    assistantResponse = makeAssistant("large", 50);
+    await refetchAll(client);
+    const callsAtTargetsMet = operationalStatusCalls;
+    expect(latest!.state).not.toBe("DONE");
 
-      // A later status poll is what actually settles it.
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
-      expect(operationalStatusCalls).toBeGreaterThan(callsAtTargetsMet);
-    },
-    20_000,
-  );
+    // A later status poll is what actually settles it.
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+    expect(operationalStatusCalls).toBeGreaterThan(callsAtTargetsMet);
+  }, 20_000);
 
-  test(
-    "a dead-end no_active_pro kick stays STALLED and surfaces why",
-    async () => {
-      // The auto reconcile consumes the once-per-open re-ask, so a later kick
-      // that still gets no_active_pro can queue nothing and re-ask nothing.
-      // Resuming the watch there would drop the user out of STALLED for another
-      // stall window with no resize running.
-      ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
-      const { client } = renderProbe();
-      await reachResizing(client);
+  test("a dead-end no_active_pro kick stays STALLED and surfaces why", async () => {
+    // The auto reconcile consumes the once-per-open re-ask, so a later kick
+    // that still gets no_active_pro can queue nothing and re-ask nothing.
+    // Resuming the watch there would drop the user out of STALLED for another
+    // stall window with no resize running.
+    ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
+    const { client } = renderProbe();
+    await reachResizing(client);
 
-      dateNowOffsetMs = 200_000;
-      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
-        timeout: 5000,
-      });
+    dateNowOffsetMs = 200_000;
+    await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+      timeout: 5000,
+    });
 
-      const callsBefore = ensureCalls;
-      act(() => latest!.kickProvisioning());
-      await waitFor(() => expect(ensureCalls).toBeGreaterThan(callsBefore));
+    const callsBefore = ensureCalls;
+    act(() => latest!.kickProvisioning());
+    await waitFor(() => expect(ensureCalls).toBeGreaterThan(callsBefore));
 
-      await waitFor(
-        () =>
-          expect(latest!.kickError).toEqual({
-            error: "no_active_pro",
-          }),
-        { timeout: 5000 },
-      );
-      // Still STALLED, so the flow keeps polling for a self-recovery.
-      expect(latest!.state).toBe("STALLED");
-    },
-    20_000,
-  );
-
-  test(
-    "the escape kick re-calls ensure-provisioned, leaves STALLED and can reach DONE",
-    async () => {
-      const { client } = renderProbe();
-      await reachResizing(client);
-      const autoCalls = ensureCalls;
-
-      // Jump the wall clock past the stall threshold; the next 1s clock tick
-      // re-derives the state as STALLED.
-      dateNowOffsetMs = 200_000;
-      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
-        timeout: 5000,
-      });
-
-      // The reconcile answers "started": the verdict alone lifts the wizard
-      // back to RESIZING and the success re-bases the stall clock.
-      ensureResponse = makeEnsureResponse("started");
-      act(() => latest!.kickProvisioning());
-      await waitFor(() => expect(ensureCalls).toBe(autoCalls + 1));
-      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
-        timeout: 5000,
-      });
-      expect(latest!.kickError).toBeNull();
-
-      // The landing resize also retires the operation marker: the platform
-      // reports `resizing_machine` until the rollout converges, so met actuals
-      // never coexist with an in-flight marker on a real completion.
-      assistantResponse = makeAssistant("large", 50);
-      operationalStatusResponse = makeOperationalStatus("active");
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
-    },
-    20_000,
-  );
-
-  test(
-    "a failed escape kick surfaces its error without leaving STALLED wedged",
-    async () => {
-      const { client } = renderProbe();
-      await reachResizing(client);
-
-      dateNowOffsetMs = 200_000;
-      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
-        timeout: 5000,
-      });
-
-      ensureError = { error: "provisioning_submission_failed" };
-      act(() => latest!.kickProvisioning());
-      await waitFor(() =>
+    await waitFor(
+      () =>
         expect(latest!.kickError).toEqual({
-          error: "provisioning_submission_failed",
+          error: "no_active_pro",
         }),
-      );
-      // A user-visible error, but not a terminal one: still STALLED, still
-      // polling, so a late-landing resize recovers on its own.
-      expect(latest!.state).toBe("STALLED");
+      { timeout: 5000 },
+    );
+    // Still STALLED, so the flow keeps polling for a self-recovery.
+    expect(latest!.state).toBe("STALLED");
+  }, 20_000);
 
-      assistantResponse = makeAssistant("large", 50);
-      operationalStatusResponse = makeOperationalStatus("active");
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
-    },
-    20_000,
-  );
+  test("the escape kick re-calls ensure-provisioned, leaves STALLED and can reach DONE", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
+    const autoCalls = ensureCalls;
 
-  test(
-    "STALLED keeps polling and self-recovers to DONE when the resize lands late",
-    async () => {
-      const { client } = renderProbe();
-      await reachResizing(client);
+    // Jump the wall clock past the stall threshold; the next 1s clock tick
+    // re-derives the state as STALLED.
+    dateNowOffsetMs = 200_000;
+    await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+      timeout: 5000,
+    });
 
-      dateNowOffsetMs = 200_000;
-      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
-        timeout: 5000,
-      });
+    // The reconcile answers "started": the verdict alone lifts the wizard
+    // back to RESIZING and the success re-bases the stall clock.
+    ensureResponse = makeEnsureResponse("started");
+    act(() => latest!.kickProvisioning());
+    await waitFor(() => expect(ensureCalls).toBe(autoCalls + 1));
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    expect(latest!.kickError).toBeNull();
 
-      // STALLED is not terminal: the actuals polls keep firing so a
-      // late-completing server resize can still be observed.
-      const stalledByIdCalls = assistantByIdCalls;
-      await waitFor(
-        () => expect(assistantByIdCalls).toBeGreaterThan(stalledByIdCalls),
-        { timeout: 5000 },
-      );
+    // The landing resize also retires the operation marker: the platform
+    // reports `resizing_machine` until the rollout converges, so met actuals
+    // never coexist with an in-flight marker on a real completion.
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+  }, 20_000);
 
-      // The resize lands with no manual apply — the flow self-recovers.
-      assistantResponse = makeAssistant("large", 50);
-      operationalStatusResponse = makeOperationalStatus("active");
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
-    },
-    20_000,
-  );
+  test("a failed escape kick surfaces its error without leaving STALLED wedged", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
 
-  test(
-    "escapeEligible flips after the escape window and re-bases on an escape-kick resume",
-    async () => {
-      const { client } = renderProbe();
-      await reachResizing(client);
-      expect(latest!.escapeEligible).toBe(false);
+    dateNowOffsetMs = 200_000;
+    await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+      timeout: 5000,
+    });
 
-      // Past the 60s escape window but under the 90s stall threshold.
-      dateNowOffsetMs = 61_000;
-      await waitFor(() => expect(latest!.escapeEligible).toBe(true), {
-        timeout: 5000,
-      });
-      expect(latest!.state).toBe("RESIZING");
+    ensureError = { error: "provisioning_submission_failed" };
+    act(() => latest!.kickProvisioning());
+    await waitFor(() =>
+      expect(latest!.kickError).toEqual({
+        error: "provisioning_submission_failed",
+      }),
+    );
+    // A user-visible error, but not a terminal one: still STALLED, still
+    // polling, so a late-landing resize recovers on its own.
+    expect(latest!.state).toBe("STALLED");
 
-      dateNowOffsetMs = 200_000;
-      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
-        timeout: 5000,
-      });
-      expect(latest!.escapeEligible).toBe(true);
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+  }, 20_000);
 
-      // A successful escape kick re-bases the watch clock, so eligibility
-      // starts over.
-      ensureResponse = makeEnsureResponse("started");
-      act(() => latest!.kickProvisioning());
-      await waitFor(() => expect(latest!.escapeEligible).toBe(false), {
-        timeout: 5000,
-      });
-      expect(latest!.state).toBe("RESIZING");
-    },
-    20_000,
-  );
+  test("STALLED keeps polling and self-recovers to DONE when the resize lands late", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
 
-  test(
-    "kickProvisioning fires the reconcile, captures kickError, and a success clears it",
-    async () => {
-      const { client } = renderProbe();
-      await reachResizing(client);
-      const autoCalls = ensureCalls;
+    dateNowOffsetMs = 200_000;
+    await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+      timeout: 5000,
+    });
 
-      dateNowOffsetMs = 200_000;
-      await waitFor(() => expect(latest!.state).toBe("STALLED"), {
-        timeout: 5000,
-      });
+    // STALLED is not terminal: the actuals polls keep firing so a
+    // late-completing server resize can still be observed.
+    const stalledByIdCalls = assistantByIdCalls;
+    await waitFor(
+      () => expect(assistantByIdCalls).toBeGreaterThan(stalledByIdCalls),
+      { timeout: 5000 },
+    );
 
-      // A fire-and-forget escape kick that fails captures kickError — a hung
-      // escape-fired call must never strand later UI.
-      ensureError = { error: "provisioning_submission_failed" };
-      act(() => latest!.kickProvisioning());
-      await waitFor(() => expect(ensureCalls).toBe(autoCalls + 1));
-      await waitFor(() =>
-        expect(latest!.kickError).toEqual({
-          error: "provisioning_submission_failed",
-        }),
-      );
-      // The failure is not terminal: still STALLED, still polling.
-      expect(latest!.state).toBe("STALLED");
+    // The resize lands with no manual apply — the flow self-recovers.
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+  }, 20_000);
 
-      // A subsequent successful escape kick clears kickError and re-bases the
-      // stall clock — the `started` verdict lifts the wizard back to RESIZING.
-      ensureError = null;
-      ensureResponse = makeEnsureResponse("started");
-      act(() => latest!.kickProvisioning());
-      await waitFor(() => expect(ensureCalls).toBe(autoCalls + 2));
-      await waitFor(() => expect(latest!.kickError).toBeNull());
-      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
-        timeout: 5000,
-      });
-    },
-    20_000,
-  );
+  test("escapeEligible flips after the escape window and re-bases on an escape-kick resume", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
+    expect(latest!.escapeEligible).toBe(false);
+
+    // Past the 60s escape window but under the 90s stall threshold.
+    dateNowOffsetMs = 61_000;
+    await waitFor(() => expect(latest!.escapeEligible).toBe(true), {
+      timeout: 5000,
+    });
+    expect(latest!.state).toBe("RESIZING");
+
+    dateNowOffsetMs = 200_000;
+    await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+      timeout: 5000,
+    });
+    expect(latest!.escapeEligible).toBe(true);
+
+    // A successful escape kick re-bases the watch clock, so eligibility
+    // starts over.
+    ensureResponse = makeEnsureResponse("started");
+    act(() => latest!.kickProvisioning());
+    await waitFor(() => expect(latest!.escapeEligible).toBe(false), {
+      timeout: 5000,
+    });
+    expect(latest!.state).toBe("RESIZING");
+  }, 20_000);
+
+  test("kickProvisioning fires the reconcile, captures kickError, and a success clears it", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
+    const autoCalls = ensureCalls;
+
+    dateNowOffsetMs = 200_000;
+    await waitFor(() => expect(latest!.state).toBe("STALLED"), {
+      timeout: 5000,
+    });
+
+    // A fire-and-forget escape kick that fails captures kickError — a hung
+    // escape-fired call must never strand later UI.
+    ensureError = { error: "provisioning_submission_failed" };
+    act(() => latest!.kickProvisioning());
+    await waitFor(() => expect(ensureCalls).toBe(autoCalls + 1));
+    await waitFor(() =>
+      expect(latest!.kickError).toEqual({
+        error: "provisioning_submission_failed",
+      }),
+    );
+    // The failure is not terminal: still STALLED, still polling.
+    expect(latest!.state).toBe("STALLED");
+
+    // A subsequent successful escape kick clears kickError and re-bases the
+    // stall clock — the `started` verdict lifts the wizard back to RESIZING.
+    ensureError = null;
+    ensureResponse = makeEnsureResponse("started");
+    act(() => latest!.kickProvisioning());
+    await waitFor(() => expect(ensureCalls).toBe(autoCalls + 2));
+    await waitFor(() => expect(latest!.kickError).toBeNull());
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+  }, 20_000);
 
   test("org-scoped queries hold until the org id is available", async () => {
     isOrgReadyMock = false;
@@ -787,256 +763,239 @@ describe("useProProvisioning", () => {
     await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
   });
 
-  test(
-    "the targets-met latch is re-keyed when the provisioning target changes",
-    async () => {
-      // Both assistants already satisfy the targets, so `currentTargetsMet`
-      // never flips false across the switch. Without re-keying, the first
-      // assistant's timestamp would survive and any status reading merely
-      // postdating it could confirm a rollout for the second that nobody
-      // observed. Status is held at `active` so `sawOperation` never latches.
-      ensureResponse = makeEnsureResponse("started");
-      subscriptionPlanId = "pro";
-      onboardingResponse = { ...makeOnboarding(), primary_assistant_id: null };
-      assistantResponse = makeAssistant("large", 50);
-      assistantsById["assistant-2"] = {
-        ...makeAssistant("large", 50),
-        id: "assistant-2",
-      };
-      const { client } = renderProbe();
+  test("the targets-met latch is re-keyed when the provisioning target changes", async () => {
+    // Both assistants already satisfy the targets, so `currentTargetsMet`
+    // never flips false across the switch. Without re-keying, the first
+    // assistant's timestamp would survive and any status reading merely
+    // postdating it could confirm a rollout for the second that nobody
+    // observed. Status is held at `active` so `sawOperation` never latches.
+    ensureResponse = makeEnsureResponse("started");
+    subscriptionPlanId = "pro";
+    onboardingResponse = { ...makeOnboarding(), primary_assistant_id: null };
+    assistantResponse = makeAssistant("large", 50);
+    assistantsById["assistant-2"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-2",
+    };
+    const { client } = renderProbe();
 
-      // Settles on the active assistant and completes against it.
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
+    // Settles on the active assistant and completes against it.
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+
+    // The primary lands and re-points the polls at a different assistant.
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-2",
+    };
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+      timeout: 5000,
+    });
+
+    // The latch now describes assistant-2, so its confirmation had to come
+    // from a status reading taken after *its* actuals were seen to meet the
+    // targets — not from the previous assistant's stale timestamp.
+    const callsAfterSwitch = operationalStatusCalls;
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+    expect(operationalStatusCalls).toBeGreaterThanOrEqual(callsAfterSwitch);
+  }, 20_000);
+
+  test("background onboarding refetch keeps the fresh primary selected (no flip to active)", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-2",
+    };
+    // The active assistant differs from the primary; a flip would re-target
+    // the polls and re-key the snapshot against it.
+    assistantResponse = {
+      ...makeAssistant("small", 10),
+      id: "assistant-active",
+    };
+    assistantsById["assistant-2"] = {
+      ...makeAssistant("small", 10),
+      id: "assistant-2",
+    };
+    const { client } = renderProbe();
+
+    // The fresh primary lands and drives the polls + frozen snapshot.
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+      timeout: 5000,
+    });
+    await waitFor(
+      () =>
+        expect(latest!.actualsSnapshot).toEqual({
+          machineSize: "small",
+          storageGib: 10,
+        }),
+      { timeout: 5000 },
+    );
+
+    // A background refetch (window-focus / reconnect / incidental
+    // invalidation) puts the onboarding query into isFetching WITHOUT
+    // changing `open`. Because the primary already landed fresh
+    // (dataUpdatedAt >= openedAt), it must stay selected — the polls and the
+    // snapshot must not fall back to the active assistant.
+    const gate = makeDeferred();
+    onboardingGate = gate;
+    await act(async () => {
+      void client.invalidateQueries({
+        queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
       });
+      // Let the held refetch enter its isFetching window.
+      await Promise.resolve();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // The primary lands and re-points the polls at a different assistant.
-      onboardingResponse = {
-        ...makeOnboarding(),
-        primary_assistant_id: "assistant-2",
-      };
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
-        timeout: 5000,
-      });
+    expect(latest!.assistantId).toBe("assistant-2");
+    expect(latest!.actualsSnapshot).toEqual({
+      machineSize: "small",
+      storageGib: 10,
+    });
 
-      // The latch now describes assistant-2, so its confirmation had to come
-      // from a status reading taken after *its* actuals were seen to meet the
-      // targets — not from the previous assistant's stale timestamp.
-      const callsAfterSwitch = operationalStatusCalls;
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
-      expect(operationalStatusCalls).toBeGreaterThanOrEqual(callsAfterSwitch);
-    },
-    20_000,
-  );
+    // The refetch completes: still the primary, snapshot unchanged.
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"));
+    expect(latest!.actualsSnapshot).toEqual({
+      machineSize: "small",
+      storageGib: 10,
+    });
+  }, 20_000);
 
-  test(
-    "background onboarding refetch keeps the fresh primary selected (no flip to active)",
-    async () => {
-      subscriptionPlanId = "pro";
-      onboardingResponse = {
-        ...makeOnboarding(),
-        primary_assistant_id: "assistant-2",
-      };
-      // The active assistant differs from the primary; a flip would re-target
-      // the polls and re-key the snapshot against it.
-      assistantResponse = {
-        ...makeAssistant("small", 10),
-        id: "assistant-active",
-      };
-      assistantsById["assistant-2"] = {
-        ...makeAssistant("small", 10),
-        id: "assistant-2",
-      };
-      const { client } = renderProbe();
+  test("reopen with a stale cached onboarding primary tracks the fresh assistant, not the stale one", async () => {
+    const client = makeClient();
+    // Hold the on-open onboarding refetch in flight so react-query keeps
+    // serving the stale cached payload (isFetching true, isPending false).
+    const gate = makeDeferred();
+    onboardingGate = gate;
+    // A prior wizard session cached onboarding naming assistant-A, which is
+    // already at the purchased targets — the trap the fence must avoid.
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      { ...makeOnboarding(), primary_assistant_id: "assistant-A" },
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "pro";
+    // The fresh payload names assistant-B, which is still below the targets.
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-B",
+    };
+    assistantResponse = {
+      ...makeAssistant("small", 10),
+      id: "assistant-active",
+    };
+    assistantsById["assistant-A"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-A",
+    };
+    assistantsById["assistant-B"] = {
+      ...makeAssistant("small", 10),
+      id: "assistant-B",
+    };
+    renderProbe(client);
 
-      // The fresh primary lands and drives the polls + frozen snapshot.
-      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
-        timeout: 5000,
-      });
-      await waitFor(
-        () =>
-          expect(latest!.actualsSnapshot).toEqual({
-            machineSize: "small",
-            storageGib: 10,
-          }),
-        { timeout: 5000 },
-      );
+    // While the refetch is in flight the stale primary (assistant-A) must not
+    // drive the polls; the hook falls back to the active assistant and never
+    // latches assistant-A's already-at-target (NOT_APPLICABLE) verdict.
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-active"), {
+      timeout: 5000,
+    });
+    expect(latest!.state).toBe("WAITING");
 
-      // A background refetch (window-focus / reconnect / incidental
-      // invalidation) puts the onboarding query into isFetching WITHOUT
-      // changing `open`. Because the primary already landed fresh
-      // (dataUpdatedAt >= openedAt), it must stay selected — the polls and the
-      // snapshot must not fall back to the active assistant.
-      const gate = makeDeferred();
-      onboardingGate = gate;
-      await act(async () => {
-        void client.invalidateQueries({
-          queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-        });
-        // Let the held refetch enter its isFetching window.
-        await Promise.resolve();
-      });
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    // Release the refetch: the freshly-settled primary (B, below target) now
+    // drives the polls and freezes the snapshot against B.
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-B"), {
+      timeout: 5000,
+    });
+    await waitFor(
+      () =>
+        expect(latest!.actualsSnapshot).toEqual({
+          machineSize: "small",
+          storageGib: 10,
+        }),
+      { timeout: 5000 },
+    );
+    expect(latest!.state).toBe("WAITING");
 
-      expect(latest!.assistantId).toBe("assistant-2");
-      expect(latest!.actualsSnapshot).toEqual({
-        machineSize: "small",
-        storageGib: 10,
-      });
+    // The resize lands on B: because the snapshot tracks B's below-target
+    // "from", the flow converges to DONE rather than NOT_APPLICABLE off A.
+    assistantsById["assistant-B"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-B",
+    };
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+  }, 20_000);
 
-      // The refetch completes: still the primary, snapshot unchanged.
-      await act(async () => {
-        gate.resolve();
-        await gate.promise;
-      });
-      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"));
-      expect(latest!.actualsSnapshot).toEqual({
-        machineSize: "small",
-        storageGib: 10,
-      });
-    },
-    20_000,
-  );
+  test("assistantId changing mid-open re-captures the snapshot against the new assistant", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-1",
+    };
+    // assistant-1 starts below the large/50 targets; assistant-2 is already
+    // fully provisioned before the wizard ever observes it.
+    assistantsById["assistant-1"] = {
+      ...makeAssistant("small", 10),
+      id: "assistant-1",
+    };
+    assistantsById["assistant-2"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-2",
+    };
+    const { client } = renderProbe();
 
-  test(
-    "reopen with a stale cached onboarding primary tracks the fresh assistant, not the stale one",
-    async () => {
-      const client = makeClient();
-      // Hold the on-open onboarding refetch in flight so react-query keeps
-      // serving the stale cached payload (isFetching true, isPending false).
-      const gate = makeDeferred();
-      onboardingGate = gate;
-      // A prior wizard session cached onboarding naming assistant-A, which is
-      // already at the purchased targets — the trap the fence must avoid.
-      client.setQueryData(
-        organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-        { ...makeOnboarding(), primary_assistant_id: "assistant-A" },
-        { updatedAt: realDateNow() - 60_000 },
-      );
-      subscriptionPlanId = "pro";
-      // The fresh payload names assistant-B, which is still below the targets.
-      onboardingResponse = {
-        ...makeOnboarding(),
-        primary_assistant_id: "assistant-B",
-      };
-      assistantResponse = {
-        ...makeAssistant("small", 10),
-        id: "assistant-active",
-      };
-      assistantsById["assistant-A"] = {
-        ...makeAssistant("large", 50),
-        id: "assistant-A",
-      };
-      assistantsById["assistant-B"] = {
-        ...makeAssistant("small", 10),
-        id: "assistant-B",
-      };
-      renderProbe(client);
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+    await waitFor(
+      () =>
+        expect(latest!.actualsSnapshot).toEqual({
+          machineSize: "small",
+          storageGib: 10,
+        }),
+      { timeout: 5000 },
+    );
+    expect(latest!.state).toBe("WAITING");
 
-      // While the refetch is in flight the stale primary (assistant-A) must not
-      // drive the polls; the hook falls back to the active assistant and never
-      // latches assistant-A's already-at-target (NOT_APPLICABLE) verdict.
-      await waitFor(
-        () => expect(latest!.assistantId).toBe("assistant-active"),
-        { timeout: 5000 },
-      );
-      expect(latest!.state).toBe("WAITING");
+    // The fresh onboarding payload re-targets the wizard at assistant-2.
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-2",
+    };
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
+      timeout: 5000,
+    });
 
-      // Release the refetch: the freshly-settled primary (B, below target) now
-      // drives the polls and freezes the snapshot against B.
-      await act(async () => {
-        gate.resolve();
-        await gate.promise;
-      });
-      await waitFor(() => expect(latest!.assistantId).toBe("assistant-B"), {
-        timeout: 5000,
-      });
-      await waitFor(
-        () =>
-          expect(latest!.actualsSnapshot).toEqual({
-            machineSize: "small",
-            storageGib: 10,
-          }),
-        { timeout: 5000 },
-      );
-      expect(latest!.state).toBe("WAITING");
-
-      // The resize lands on B: because the snapshot tracks B's below-target
-      // "from", the flow converges to DONE rather than NOT_APPLICABLE off A.
-      assistantsById["assistant-B"] = {
-        ...makeAssistant("large", 50),
-        id: "assistant-B",
-      };
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
-    },
-    20_000,
-  );
-
-  test(
-    "assistantId changing mid-open re-captures the snapshot against the new assistant",
-    async () => {
-      subscriptionPlanId = "pro";
-      onboardingResponse = {
-        ...makeOnboarding(),
-        primary_assistant_id: "assistant-1",
-      };
-      // assistant-1 starts below the large/50 targets; assistant-2 is already
-      // fully provisioned before the wizard ever observes it.
-      assistantsById["assistant-1"] = {
-        ...makeAssistant("small", 10),
-        id: "assistant-1",
-      };
-      assistantsById["assistant-2"] = {
-        ...makeAssistant("large", 50),
-        id: "assistant-2",
-      };
-      const { client } = renderProbe();
-
-      await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
-        timeout: 5000,
-      });
-      await waitFor(
-        () =>
-          expect(latest!.actualsSnapshot).toEqual({
-            machineSize: "small",
-            storageGib: 10,
-          }),
-        { timeout: 5000 },
-      );
-      expect(latest!.state).toBe("WAITING");
-
-      // The fresh onboarding payload re-targets the wizard at assistant-2.
-      onboardingResponse = {
-        ...makeOnboarding(),
-        primary_assistant_id: "assistant-2",
-      };
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.assistantId).toBe("assistant-2"), {
-        timeout: 5000,
-      });
-
-      // The "from" snapshot re-keys to assistant-2's own actuals. A stale
-      // assistant-1 snapshot ({small,10}) would make an already-provisioned
-      // assistant-2 look freshly resized (DONE); tracking the correct "from"
-      // reads it as NOT_APPLICABLE.
-      await waitFor(
-        () =>
-          expect(latest!.actualsSnapshot).toEqual({
-            machineSize: "large",
-            storageGib: 50,
-          }),
-        { timeout: 5000 },
-      );
-      expect(latest!.state).toBe("NOT_APPLICABLE");
-    },
-    20_000,
-  );
+    // The "from" snapshot re-keys to assistant-2's own actuals. A stale
+    // assistant-1 snapshot ({small,10}) would make an already-provisioned
+    // assistant-2 look freshly resized (DONE); tracking the correct "from"
+    // reads it as NOT_APPLICABLE.
+    await waitFor(
+      () =>
+        expect(latest!.actualsSnapshot).toEqual({
+          machineSize: "large",
+          storageGib: 50,
+        }),
+      { timeout: 5000 },
+    );
+    expect(latest!.state).toBe("NOT_APPLICABLE");
+  }, 20_000);
 
   test("unknown machine tier from a newer backend yields no machine target", async () => {
     subscriptionPlanId = "pro";
@@ -1111,29 +1070,25 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
     expect(ensureCalls).toBe(0);
   });
 
-  test(
-    "fires exactly once on the pro transition, across re-renders and repolls",
-    async () => {
-      ensureResponse = makeEnsureResponse("started");
-      const { client, rerender } = renderProbe();
-      await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
-      expect(ensureCalls).toBe(0);
+  test("fires exactly once on the pro transition, across re-renders and repolls", async () => {
+    ensureResponse = makeEnsureResponse("started");
+    const { client, rerender } = renderProbe();
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    expect(ensureCalls).toBe(0);
 
-      subscriptionPlanId = "pro";
-      await refetchAll(client);
-      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
 
-      // Re-renders, further polls and the still-running clock must not re-fire
-      // the reconcile — it is once per wizard open.
-      rerender();
-      await refetchAll(client);
-      rerender();
-      await refetchAll(client);
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      expect(ensureCalls).toBe(1);
-    },
-    20_000,
-  );
+    // Re-renders, further polls and the still-running clock must not re-fire
+    // the reconcile — it is once per wizard open.
+    rerender();
+    await refetchAll(client);
+    rerender();
+    await refetchAll(client);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(ensureCalls).toBe(1);
+  }, 20_000);
 
   test("a started verdict drives RESIZING with no operation ever observed", async () => {
     ensureResponse = makeEnsureResponse("started");
@@ -1165,163 +1120,187 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
     });
   });
 
-  test(
-    "a not_applicable / no_active_pro verdict is never adopted and is retried once",
-    async () => {
-      // The entitlement race: the subscription flipped to pro but the
-      // reconcile can't see the active pro entitlement yet.
-      ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
-      subscriptionPlanId = "pro";
-      renderProbe();
+  test("a not_applicable / no_active_pro verdict is never adopted and is retried once", async () => {
+    // The entitlement race: the subscription flipped to pro but the
+    // reconcile can't see the active pro entitlement yet.
+    ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
+    subscriptionPlanId = "pro";
+    renderProbe();
 
-      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
-      // Adopting it would strand the wizard in a terminal NOT_APPLICABLE with
-      // an unprovisioned assistant; inference keeps running instead.
-      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
-        timeout: 5000,
-      });
+    await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+    // Adopting it would strand the wizard in a terminal NOT_APPLICABLE with
+    // an unprovisioned assistant; inference keeps running instead.
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
 
-      // Exactly one automatic re-ask, which the race has resolved by now.
-      ensureResponse = makeEnsureResponse("started");
-      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
-      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
-        timeout: 5000,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      expect(ensureCalls).toBe(2);
-    },
-    20_000,
-  );
+    // Exactly one automatic re-ask, which the race has resolved by now.
+    ensureResponse = makeEnsureResponse("started");
+    await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(ensureCalls).toBe(2);
+  }, 20_000);
 
-  test(
-    "a dead-end no_active_pro on the automatic path sets kickError",
-    async () => {
-      // The auto reconcile hits no_active_pro and schedules its one race
-      // retry; the retry (also auto) hits the same dead end. With the
-      // once-per-open re-ask spent, the repeat dead end now surfaces kickError
-      // regardless of source.
-      ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
-      subscriptionPlanId = "pro";
-      renderProbe();
+  test("a dead-end no_active_pro on the automatic path sets kickError", async () => {
+    // The auto reconcile hits no_active_pro and schedules its one race
+    // retry; the retry (also auto) hits the same dead end. With the
+    // once-per-open re-ask spent, the repeat dead end now surfaces kickError
+    // regardless of source.
+    ensureResponse = makeEnsureResponse("not_applicable", "no_active_pro");
+    subscriptionPlanId = "pro";
+    renderProbe();
 
-      // Two automatic calls: the initial one and its single race retry.
-      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
-      await waitFor(
-        () =>
-          expect(latest!.kickError).toEqual({ error: "no_active_pro" }),
-        { timeout: 5000 },
-      );
-      // The verdict is still never adopted — inference keeps the flow WAITING.
-      expect(latest!.state).toBe("WAITING");
-    },
-    20_000,
-  );
+    // Two automatic calls: the initial one and its single race retry.
+    await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+    await waitFor(
+      () => expect(latest!.kickError).toEqual({ error: "no_active_pro" }),
+      { timeout: 5000 },
+    );
+    // The verdict is still never adopted — inference keeps the flow WAITING.
+    expect(latest!.state).toBe("WAITING");
+  }, 20_000);
 
-  test(
-    "a 503 on the automatic call never blocks the flow but is captured in kickError",
-    async () => {
-      ensureError = { error: "provisioning_submission_failed" };
-      subscriptionPlanId = "pro";
-      const { client } = renderProbe();
+  test("a not_applicable / no_provisionable_assistants verdict is never adopted and is retried once", async () => {
+    // The org holds the entitlement but has no settled assistant to apply it
+    // to, so the reconcile queued nothing — the same non-answer as the
+    // entitlement race.
+    ensureResponse = makeEnsureResponse(
+      "not_applicable",
+      "no_provisionable_assistants",
+    );
+    subscriptionPlanId = "pro";
+    renderProbe();
 
-      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
-      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
-        timeout: 5000,
-      });
-      // The automatic call failing does not block: no new blocking state, no
-      // auto-retry storm. It is not silent either — the failure is captured in
-      // kickError so the takeover can surface the snag variant.
-      await waitFor(() =>
+    await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+
+    // The assistant settles by the single automatic re-ask.
+    ensureResponse = makeEnsureResponse("started");
+    await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(ensureCalls).toBe(2);
+  }, 20_000);
+
+  test("a dead-end no_provisionable_assistants surfaces its own reason in kickError", async () => {
+    ensureResponse = makeEnsureResponse(
+      "not_applicable",
+      "no_provisionable_assistants",
+    );
+    subscriptionPlanId = "pro";
+    renderProbe();
+
+    await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+    await waitFor(
+      () =>
         expect(latest!.kickError).toEqual({
-          error: "provisioning_submission_failed",
+          error: "no_provisionable_assistants",
         }),
-      );
-      expect(latest!.confirmError).toBe(false);
-      expect(latest!.targetsError).toBe(false);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      expect(ensureCalls).toBe(1);
+      { timeout: 5000 },
+    );
+    expect(latest!.state).toBe("WAITING");
+  }, 20_000);
 
-      // The webhook-driven resize lands anyway and the flow completes on pure
-      // client-side inference.
-      assistantResponse = makeAssistant("large", 50);
-      await refetchAll(client);
-      await waitFor(() => expect(latest!.state).toBe("DONE"), {
-        timeout: 5000,
-      });
-    },
-    20_000,
-  );
+  test("a 503 on the automatic call never blocks the flow but is captured in kickError", async () => {
+    ensureError = { error: "provisioning_submission_failed" };
+    subscriptionPlanId = "pro";
+    const { client } = renderProbe();
 
-  test(
-    "a verdict landing after close is discarded and never drives the next open",
-    async () => {
-      ensureDeferred = true;
-      subscriptionPlanId = "pro";
-      const { setOpen } = renderProbe();
+    await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    // The automatic call failing does not block: no new blocking state, no
+    // auto-retry storm. It is not silent either — the failure is captured in
+    // kickError so the takeover can surface the snag variant.
+    await waitFor(() =>
+      expect(latest!.kickError).toEqual({
+        error: "provisioning_submission_failed",
+      }),
+    );
+    expect(latest!.confirmError).toBe(false);
+    expect(latest!.targetsError).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(ensureCalls).toBe(1);
 
-      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
-      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
-        timeout: 5000,
-      });
+    // The webhook-driven resize lands anyway and the flow completes on pure
+    // client-side inference.
+    assistantResponse = makeAssistant("large", 50);
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("DONE"), {
+      timeout: 5000,
+    });
+  }, 20_000);
 
-      act(() => setOpen(false));
+  test("a verdict landing after close is discarded and never drives the next open", async () => {
+    ensureDeferred = true;
+    subscriptionPlanId = "pro";
+    const { setOpen } = renderProbe();
 
-      // The first open's reconcile answers a terminal verdict only after the
-      // close reset; adopting it would park the reopened wizard in DONE with
-      // an assistant that is still below its targets.
-      await act(async () => {
-        pendingEnsures[0]!.resolve(makeEnsureResponse("already_done"));
-        await Promise.resolve();
-      });
+    await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
 
-      act(() => setOpen(true));
-      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
-      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
-        timeout: 5000,
-      });
+    act(() => setOpen(false));
 
-      // Only the reopen's own reconcile moves it.
-      await act(async () => {
-        pendingEnsures[1]!.resolve(makeEnsureResponse("started"));
-        await Promise.resolve();
-      });
-      await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
-        timeout: 5000,
-      });
-    },
-    20_000,
-  );
+    // The first open's reconcile answers a terminal verdict only after the
+    // close reset; adopting it would park the reopened wizard in DONE with
+    // an assistant that is still below its targets.
+    await act(async () => {
+      pendingEnsures[0]!.resolve(makeEnsureResponse("already_done"));
+      await Promise.resolve();
+    });
 
-  test(
-    "an error landing after close does not surface on the next open",
-    async () => {
-      ensureDeferred = true;
-      subscriptionPlanId = "pro";
-      const { setOpen } = renderProbe();
+    act(() => setOpen(true));
+    await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
 
-      await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
-      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
-        timeout: 5000,
-      });
+    // Only the reopen's own reconcile moves it.
+    await act(async () => {
+      pendingEnsures[1]!.resolve(makeEnsureResponse("started"));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+  }, 20_000);
 
-      // A reconcile captures its error; this one is fired while open but only
-      // rejects after close, so generation-gating must still discard it.
-      act(() => latest!.kickProvisioning());
-      await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+  test("an error landing after close does not surface on the next open", async () => {
+    ensureDeferred = true;
+    subscriptionPlanId = "pro";
+    const { setOpen } = renderProbe();
 
-      act(() => setOpen(false));
-      await act(async () => {
-        pendingEnsures[1]!.reject({ error: "provisioning_submission_failed" });
-        await Promise.resolve();
-      });
+    await waitFor(() => expect(ensureCalls).toBe(1), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
 
-      act(() => setOpen(true));
-      await waitFor(() => expect(ensureCalls).toBe(3), { timeout: 5000 });
-      await waitFor(() => expect(latest!.state).toBe("WAITING"), {
-        timeout: 5000,
-      });
-      expect(latest!.kickError).toBeNull();
-    },
-    20_000,
-  );
+    // A reconcile captures its error; this one is fired while open but only
+    // rejects after close, so generation-gating must still discard it.
+    act(() => latest!.kickProvisioning());
+    await waitFor(() => expect(ensureCalls).toBe(2), { timeout: 5000 });
+
+    act(() => setOpen(false));
+    await act(async () => {
+      pendingEnsures[1]!.reject({ error: "provisioning_submission_failed" });
+      await Promise.resolve();
+    });
+
+    act(() => setOpen(true));
+    await waitFor(() => expect(ensureCalls).toBe(3), { timeout: 5000 });
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    expect(latest!.kickError).toBeNull();
+  }, 20_000);
 });

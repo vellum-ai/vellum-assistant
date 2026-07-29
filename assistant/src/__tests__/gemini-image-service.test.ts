@@ -36,7 +36,9 @@ mock.module("@google/genai", () => ({
       generateContent: async (params: Record<string, unknown>) => {
         lastGenerateParams = params;
         generateCallCount++;
-        if (shouldThrow) throw shouldThrow;
+        if (shouldThrow) {
+          throw shouldThrow;
+        }
         return fakeResponse;
       },
     };

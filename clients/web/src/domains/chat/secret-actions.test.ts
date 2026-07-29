@@ -43,7 +43,9 @@ describe("handleSecretCancel", () => {
     useStreamStore.setState({
       streamContext: { assistantId: "assistant-1", conversationId: "conv-1" },
     });
-    useInteractionStore.getState().showSecret({ requestId: "req-1", label: "API Key" });
+    useInteractionStore
+      .getState()
+      .showSecret({ requestId: "req-1", label: "API Key" });
 
     handleSecretCancel();
 

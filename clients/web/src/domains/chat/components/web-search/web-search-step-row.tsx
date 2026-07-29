@@ -23,7 +23,8 @@ import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils
  * used as the monogram when a favicon is missing or fails to load.
  */
 function monogramLetter(item: WebSearchResultItem): string {
-  const source = item.domain && item.domain.length > 0 ? item.domain : item.title;
+  const source =
+    item.domain && item.domain.length > 0 ? item.domain : item.title;
   const first = source.charAt(0);
   return first ? first.toUpperCase() : "";
 }

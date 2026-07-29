@@ -37,7 +37,9 @@ function parseBoundedInt(
   label: string,
   bounds: { min: number; max?: number },
 ): { value?: number; error?: string } {
-  if (raw === undefined) return {};
+  if (raw === undefined) {
+    return {};
+  }
   const n = Number(raw);
   const upper = bounds.max ?? Infinity;
   if (
@@ -85,7 +87,9 @@ function validateEnumValue(
   label: string,
   allowed: readonly string[],
 ): { error?: string } {
-  if (value === undefined || allowed.includes(value)) return {};
+  if (value === undefined || allowed.includes(value)) {
+    return {};
+  }
   return {
     error: `Invalid ${label} "${value}". Must be one of: ${allowed.join(", ")}`,
   };
@@ -96,10 +100,14 @@ function validateEnumFlag(
   label: string,
   allowed: readonly string[],
 ): { error?: string } {
-  if (!values) return {};
+  if (!values) {
+    return {};
+  }
   for (const v of values) {
     const result = validateEnumValue(v, label, allowed);
-    if (result.error) return result;
+    if (result.error) {
+      return result;
+    }
   }
   return {};
 }
@@ -433,18 +441,39 @@ export function registerNotificationsCommand(program: Command): void {
             }
 
             const body: Record<string, unknown> = {};
-            if (opts.all) body.includeDismissed = true;
-            if (opts.status?.length) body.statuses = opts.status;
-            if (opts.before) body.before = opts.before;
-            if (opts.after) body.after = opts.after;
-            if (opts.urgency?.length) body.urgencies = opts.urgency;
-            if (opts.category?.length) body.categories = opts.category;
-            if (opts.conversationId)
+            if (opts.all) {
+              body.includeDismissed = true;
+            }
+            if (opts.status?.length) {
+              body.statuses = opts.status;
+            }
+            if (opts.before) {
+              body.before = opts.before;
+            }
+            if (opts.after) {
+              body.after = opts.after;
+            }
+            if (opts.urgency?.length) {
+              body.urgencies = opts.urgency;
+            }
+            if (opts.category?.length) {
+              body.categories = opts.category;
+            }
+            if (opts.conversationId) {
               body.conversationId = opts.conversationId.trim();
-            if (opts.fromAssistant) body.fromAssistant = true;
-            if (opts.noteworthy) body.noteworthy = true;
-            if (limit.value !== undefined) body.limit = limit.value;
-            if (offset.value !== undefined) body.offset = offset.value;
+            }
+            if (opts.fromAssistant) {
+              body.fromAssistant = true;
+            }
+            if (opts.noteworthy) {
+              body.noteworthy = true;
+            }
+            if (limit.value !== undefined) {
+              body.limit = limit.value;
+            }
+            if (offset.value !== undefined) {
+              body.offset = offset.value;
+            }
 
             const result = await cliIpcCall<ListHomeFeedPayload>(
               "list_home_feed",
@@ -540,10 +569,18 @@ export function registerNotificationsCommand(program: Command): void {
             }
 
             const body: Record<string, unknown> = { id };
-            if (opts.message !== undefined) body.body = opts.message;
-            if (opts.title !== undefined) body.title = opts.title;
-            if (opts.urgency !== undefined) body.urgency = opts.urgency;
-            if (opts.status !== undefined) body.status = opts.status;
+            if (opts.message !== undefined) {
+              body.body = opts.message;
+            }
+            if (opts.title !== undefined) {
+              body.title = opts.title;
+            }
+            if (opts.urgency !== undefined) {
+              body.urgency = opts.urgency;
+            }
+            if (opts.status !== undefined) {
+              body.status = opts.status;
+            }
 
             const result = await cliIpcCall<{
               feedItem: FeedItem;

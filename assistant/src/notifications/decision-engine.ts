@@ -974,7 +974,7 @@ export async function evaluateSignal(
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianCallConversationAffinity(decision, signal);
+    decision = enforceGuardianRequestConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
       signal.conversationAffinityHint,
@@ -992,7 +992,7 @@ export async function evaluateSignal(
     decision = enforceGuardianRequestCode(decision, signal);
     decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianCallConversationAffinity(decision, signal);
+    decision = enforceGuardianRequestConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
       signal.conversationAffinityHint,
@@ -1022,7 +1022,7 @@ export async function evaluateSignal(
   decision = enforceGuardianRequestCode(decision, signal);
   decision = enforceToolApprovalSeedBlocks(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
-  decision = enforceGuardianCallConversationAffinity(decision, signal);
+  decision = enforceGuardianRequestConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(
     decision,
     signal.conversationAffinityHint,
@@ -1258,33 +1258,32 @@ export function enforceRoutingIntent(
   return decision;
 }
 
-// ── Guardian call conversation affinity ──────────────────────────────────
+// ── Guardian request conversation affinity ───────────────────────────────
 
 /**
- * Force a new vellum conversation for the first guardian question in a phone call.
+ * Force a new vellum conversation for guardian-request signals that carry no
+ * vellum affinity hint.
  *
- * When a guardian.question signal carries a callSessionId but has no
- * conversationAffinityHint, this is the first dispatch in a new call and
- * should get its own conversation. Without this guard the LLM might reuse a
- * conversation from a previous call. For subsequent dispatches within the same
- * call, the affinity hint already exists and enforceConversationAffinity
- * handles routing — so this guard is a no-op.
+ * Guardian cards (tool approvals, tool grants, access requests, voice and
+ * ask_question prompts) are pinned to their originating conversation by the
+ * producer via `conversationAffinityHint`. When no pin exists — e.g. an
+ * access request from a sender with no prior conversation, or the first
+ * question in a phone call — the card must open its own conversation:
+ * leaving the choice to the LLM lets unrelated requests accumulate in
+ * whichever guardian conversation is most recent. For hinted signals,
+ * enforceConversationAffinity applies the pin — this guard is a no-op.
  */
-export function enforceGuardianCallConversationAffinity(
+export function enforceGuardianRequestConversationAffinity(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") {
+  if (
+    signal.sourceEventName !== "guardian.question" &&
+    signal.sourceEventName !== "ingress.access_request"
+  ) {
     return decision;
   }
 
-  const callSessionId = signal.contextPayload?.callSessionId;
-  if (typeof callSessionId !== "string" || callSessionId.trim().length === 0) {
-    return decision;
-  }
-
-  // If an affinity hint already exists for vellum, the second+ dispatch
-  // will be handled by enforceConversationAffinity — nothing to do here.
   if (signal.conversationAffinityHint?.vellum) {
     return decision;
   }
@@ -1299,8 +1298,8 @@ export function enforceGuardianCallConversationAffinity(
   enforced.conversationActions = conversationActions;
 
   log.info(
-    { callSessionId },
-    "Guardian call conversation affinity: first question in call — forcing start_new for vellum",
+    { sourceEventName: signal.sourceEventName },
+    "Guardian request conversation affinity: no vellum pin — forcing start_new",
   );
 
   return enforced;

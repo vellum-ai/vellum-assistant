@@ -4,9 +4,9 @@ import { type ReactNode, useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 function stripDecimals(amount: string): string {
@@ -54,10 +54,13 @@ export function ReferralContent() {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback((url: string) => {
-    void navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      toast.success("Copied to clipboard!");
-      setTimeout(() => setCopied(false), 2000);
+    copyToClipboard(url, {
+      successMessage: "Copied to clipboard!",
+      errorMessage: "Couldn't copy the referral link.",
+      onCopied: () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
     });
   }, []);
 

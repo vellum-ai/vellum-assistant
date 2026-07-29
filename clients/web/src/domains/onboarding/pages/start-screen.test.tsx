@@ -22,9 +22,7 @@ mock.module("@vellumai/design-library/components/button", () => ({
   }) => <button onClick={onClick}>{children}</button>,
 }));
 
-const { StartScreen } = await import(
-  "@/domains/onboarding/pages/start-screen"
-);
+const { StartScreen } = await import("@/domains/onboarding/pages/start-screen");
 
 describe("StartScreen", () => {
   beforeEach(() => navigateMock.mockClear());

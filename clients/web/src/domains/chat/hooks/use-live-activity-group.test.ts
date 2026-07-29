@@ -56,9 +56,10 @@ const BG_BASH: ChatMessageToolCall = {
 function itemsFor(toolCalls: ChatMessageToolCall[]): ToolCallCardItem[] {
   return [
     { kind: "thinking", text: "planning" },
-    ...toolCalls.map(
-      (tc): ToolCallCardItem => ({ kind: "toolCall", toolCall: tc }),
-    ),
+    ...toolCalls.map((tc): ToolCallCardItem => ({
+      kind: "toolCall",
+      toolCall: tc,
+    })),
   ];
 }
 
@@ -103,10 +104,7 @@ describe("filterCardBackedProcessCalls", () => {
     );
     expect(result.toolCalls.map((tc) => tc.id)).toEqual(["tc-bash"]);
     // The thinking item stays; the workflow's toolCall item is gone.
-    expect(result.items.map((it) => it.kind)).toEqual([
-      "thinking",
-      "toolCall",
-    ]);
+    expect(result.items.map((it) => it.kind)).toEqual(["thinking", "toolCall"]);
   });
 
   test("drops a card-backed acp_spawn call", () => {

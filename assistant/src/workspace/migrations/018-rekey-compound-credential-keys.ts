@@ -46,18 +46,24 @@ export const rekeyCompoundCredentialKeysMigration: WorkspaceMigration = {
     let failedCount = 0;
 
     for (const account of accounts) {
-      if (!account.startsWith(CREDENTIAL_PREFIX)) continue;
+      if (!account.startsWith(CREDENTIAL_PREFIX)) {
+        continue;
+      }
 
       const rest = account.slice(CREDENTIAL_PREFIX.length);
       const slashIdx = rest.indexOf("/");
-      if (slashIdx < 1 || slashIdx >= rest.length - 1) continue;
+      if (slashIdx < 1 || slashIdx >= rest.length - 1) {
+        continue;
+      }
 
       const oldService = rest.slice(0, slashIdx);
       const oldField = rest.slice(slashIdx + 1);
 
       // Only migrate keys where the field contains a colon — these were
       // stored using the old indexOf(":") split and need re-keying.
-      if (!oldField.includes(":")) continue;
+      if (!oldField.includes(":")) {
+        continue;
+      }
 
       // Reconstruct the original "service:field" name and re-split with lastIndexOf
       const originalName = `${oldService}:${oldField}`;
@@ -67,7 +73,9 @@ export const rekeyCompoundCredentialKeysMigration: WorkspaceMigration = {
       const newKey = credentialKey(newService, newField);
 
       // Skip if the key format didn't actually change
-      if (account === newKey) continue;
+      if (account === newKey) {
+        continue;
+      }
 
       // Skip if the new key already exists (idempotent — may have been
       // partially migrated or the user already stored under the new format)
@@ -84,7 +92,9 @@ export const rekeyCompoundCredentialKeysMigration: WorkspaceMigration = {
       }
 
       const value = await getSecureKeyAsync(account);
-      if (value === undefined) continue;
+      if (value === undefined) {
+        continue;
+      }
 
       // Write new key first, then delete old key (crash-safe order)
       const stored = await setSecureKeyAsync(newKey, value);
@@ -131,18 +141,24 @@ export const rekeyCompoundCredentialKeysMigration: WorkspaceMigration = {
     let failedCount = 0;
 
     for (const account of accounts) {
-      if (!account.startsWith(CREDENTIAL_PREFIX)) continue;
+      if (!account.startsWith(CREDENTIAL_PREFIX)) {
+        continue;
+      }
 
       const rest = account.slice(CREDENTIAL_PREFIX.length);
       const slashIdx = rest.indexOf("/");
-      if (slashIdx < 1 || slashIdx >= rest.length - 1) continue;
+      if (slashIdx < 1 || slashIdx >= rest.length - 1) {
+        continue;
+      }
 
       const service = rest.slice(0, slashIdx);
       const field = rest.slice(slashIdx + 1);
 
       // Only rollback keys where the service contains ":" — these are in
       // the new lastIndexOf format and need reverting to indexOf format.
-      if (!service.includes(":")) continue;
+      if (!service.includes(":")) {
+        continue;
+      }
 
       // Reconstruct the original name and re-split with indexOf (old format)
       const originalName = `${service}:${field}`;
@@ -151,10 +167,14 @@ export const rekeyCompoundCredentialKeysMigration: WorkspaceMigration = {
       const oldField = originalName.slice(firstColonIdx + 1);
       const oldKey = credentialKey(oldService, oldField);
 
-      if (account === oldKey) continue;
+      if (account === oldKey) {
+        continue;
+      }
 
       const value = await getSecureKeyAsync(account);
-      if (value === undefined) continue;
+      if (value === undefined) {
+        continue;
+      }
 
       const stored = await setSecureKeyAsync(oldKey, value);
       if (!stored) {

@@ -19,17 +19,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 
 import {
-    assistantsDomainsListQueryKey,
-    organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
-    organizationsBillingSubscriptionRetrieveQueryKey,
+  assistantsDomainsListQueryKey,
+  organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
+  organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type {
-    Assistant,
-    OnboardingStateResponse,
-    PaginatedAssistantDomainList,
-    SubscriptionPackage,
-    SubscriptionResponse,
+  Assistant,
+  OnboardingStateResponse,
+  PaginatedAssistantDomainList,
+  SubscriptionPackage,
+  SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as platformGate from "@/hooks/use-platform-gate";
 import * as authStore from "@/stores/auth-store";
@@ -48,352 +48,413 @@ let orgReady = true;
 const ACTIVE_ASSISTANT = { id: "assistant-1" } as unknown as Assistant;
 
 mock.module("@/generated/api/sdk.gen", () => ({
-    ...sdkGen,
-    organizationsBillingSubscriptionRetrieve: () =>
-        Promise.resolve({ data: subscriptionResponse, response: { ok: true } }),
-    organizationsBillingSubscriptionOnboardingRetrieve: () => {
-        onboardingCalls += 1;
-        return Promise.resolve({
-            data: onboardingResponse,
-            response: { ok: true },
-        });
-    },
-    assistantsActiveRetrieve: () =>
-        Promise.resolve({ data: ACTIVE_ASSISTANT, response: { ok: true } }),
-    assistantsRetrieve: (opts: { path: { id: string } }) =>
-        Promise.resolve({
-            data: { id: opts.path.id } as unknown as Assistant,
-            response: { ok: true },
-        }),
-    assistantsDomainsList: (opts: { path?: { assistant_id?: string } }) => {
-        domainsCalls += 1;
-        if (opts?.path?.assistant_id) {
-            domainsListPaths.push(opts.path.assistant_id);
-        }
-        return Promise.resolve({ data: domainsResponse, response: { ok: true } });
-    },
+  ...sdkGen,
+  organizationsBillingSubscriptionRetrieve: () =>
+    Promise.resolve({ data: subscriptionResponse, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: () => {
+    onboardingCalls += 1;
+    return Promise.resolve({
+      data: onboardingResponse,
+      response: { ok: true },
+    });
+  },
+  assistantsActiveRetrieve: () =>
+    Promise.resolve({ data: ACTIVE_ASSISTANT, response: { ok: true } }),
+  assistantsRetrieve: (opts: { path: { id: string } }) =>
+    Promise.resolve({
+      data: { id: opts.path.id } as unknown as Assistant,
+      response: { ok: true },
+    }),
+  assistantsDomainsList: (opts: { path?: { assistant_id?: string } }) => {
+    domainsCalls += 1;
+    if (opts?.path?.assistant_id) {
+      domainsListPaths.push(opts.path.assistant_id);
+    }
+    return Promise.resolve({ data: domainsResponse, response: { ok: true } });
+  },
 }));
 
-// Force the platform-hosted gate open so BillingTab mounts its plan-management
-// body instead of the login notice / unavailable states.
+// Drives the active assistant's hosting. Platform-hosted by default so
+// BillingTab mounts its plan-management body instead of the login notice /
+// unavailable states; flipped to model an org holding both hosting types with
+// the self-hosted one selected, where `platformHostedOnly` surfaces gate off.
+let activeAssistantIsPlatformHosted = true;
+
 mock.module("@/hooks/use-platform-gate", () => ({
-    ...platformGate,
-    usePlatformGate: () => "full",
-    useActiveAssistantIsPlatformHosted: () => true,
-    useActiveAssistantLifecycleIsLoading: () => false,
+  ...platformGate,
+  usePlatformGate: (options?: { platformHostedOnly?: boolean }) =>
+    options?.platformHostedOnly === true && !activeAssistantIsPlatformHosted
+      ? "gated"
+      : "full",
+  useActiveAssistantIsPlatformHosted: () => activeAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading: () => false,
 }));
 
 mock.module("@/stores/auth-store", () => ({
-    ...authStore,
-    useIsPlatformSessionSettled: () => true,
+  ...authStore,
+  useIsPlatformSessionSettled: () => true,
 }));
 
 mock.module("@/hooks/use-is-org-ready", () => ({
-    useIsOrgReady: () => orgReady,
+  useIsOrgReady: () => orgReady,
 }));
 
 mock.module(
-    "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
-    () => ({
-        BillingOnboardingModal: ({
-            open,
-            mode,
-        }: {
-            open: boolean;
-            mode?: "checkout" | "resize";
-        }) => (
-            <div
-                data-testid={
-                    mode === "resize"
-                        ? "resize-onboarding-modal"
-                        : "onboarding-modal"
-                }
-                data-open={open ? "true" : "false"}
-            />
-        ),
-    }),
+  "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
+  () => ({
+    BillingOnboardingModal: ({
+      open,
+      mode,
+    }: {
+      open: boolean;
+      mode?: "checkout" | "resize";
+    }) => (
+      <div
+        data-testid={
+          mode === "resize" ? "resize-onboarding-modal" : "onboarding-modal"
+        }
+        data-open={open ? "true" : "false"}
+      />
+    ),
+  }),
 );
 mock.module("@/domains/settings/billing/usage/usage-tab", () => ({
-    UsageTab: () => null,
+  UsageTab: () => null,
 }));
 mock.module("@/domains/settings/components/adjust-plan-modal", () => ({
-    AdjustPlanModal: () => null,
+  AdjustPlanModal: () => null,
 }));
 mock.module("@/domains/settings/components/billing-panel", () => ({
-    BillingPanel: () => null,
+  BillingPanel: () => null,
 }));
 mock.module(
-    "@/domains/settings/components/billing-portal-return-handler",
-    () => ({ BillingPortalReturnHandler: () => null }),
+  "@/domains/settings/components/billing-portal-return-handler",
+  () => ({ BillingPortalReturnHandler: () => null }),
 );
 mock.module(
-    "@/domains/settings/components/billing-usage/billing-usage-panel",
-    () => ({ BillingUsagePanel: () => null }),
+  "@/domains/settings/components/billing-usage/billing-usage-panel",
+  () => ({ BillingUsagePanel: () => null }),
 );
 mock.module("@/domains/settings/components/grace-period-banner", () => ({
-    GracePeriodBanner: () => null,
+  GracePeriodBanner: () => null,
 }));
 mock.module("@/domains/settings/components/invoices-table", () => ({
-    InvoicesTable: () => null,
+  InvoicesTable: () => null,
 }));
 mock.module("@/domains/settings/components/plan-card", () => ({
-    PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
-        <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />
-    ),
+  PlanCard: ({ onTierUpgraded }: { onTierUpgraded?: () => void }) => (
+    <button data-testid="plan-card-tier-upgraded" onClick={onTierUpgraded} />
+  ),
 }));
 
 const { BillingPage } = await import("./billing-page");
 
 function makeSubscription(
-    planId: "base" | "pro",
-    pkg?: SubscriptionPackage,
+  planId: "base" | "pro",
+  pkg?: SubscriptionPackage,
 ): SubscriptionResponse {
-    return {
-        plan_id: planId,
-        status: "active",
-        renewal_date: null,
-        current_period_end: "2026-08-01T00:00:00Z",
-        cancel_at_period_end: false,
-        cancel_at: null,
-        package: pkg ?? null,
-        entitlements: { managed_email: false, phone_number: false },
-    };
+  return {
+    plan_id: planId,
+    status: "active",
+    renewal_date: null,
+    current_period_end: "2026-08-01T00:00:00Z",
+    cancel_at_period_end: false,
+    cancel_at: null,
+    package: pkg ?? null,
+    entitlements: { managed_email: false, phone_number: false },
+  };
 }
 
-function makeOnboarding(domainSetupAvailable: boolean): OnboardingStateResponse {
-    return {
-        max_machine_tier: "large",
-        selected_storage_tier: "md",
-        selected_storage_gib: 50,
-        pvc_ready: true,
-        domain_setup_available: domainSetupAvailable,
-        primary_assistant_id: "assistant-1",
-    };
+function makeOnboarding(
+  domainSetupAvailable: boolean,
+): OnboardingStateResponse {
+  return {
+    max_machine_tier: "large",
+    selected_storage_tier: "md",
+    selected_storage_gib: 50,
+    pvc_ready: true,
+    domain_setup_available: domainSetupAvailable,
+    primary_assistant_id: "assistant-1",
+  };
 }
 
 function makeDomains(hasDomain: boolean): PaginatedAssistantDomainList {
-    return {
-        count: hasDomain ? 1 : 0,
-        next: null,
-        previous: null,
-        results: hasDomain
-            ? [
-                  {
-                      id: "domain-1",
-                      subdomain: "velly",
-                      created: "2026-07-01T00:00:00Z",
-                      modified: "2026-07-01T00:00:00Z",
-                  },
-              ]
-            : [],
-    };
+  return {
+    count: hasDomain ? 1 : 0,
+    next: null,
+    previous: null,
+    results: hasDomain
+      ? [
+          {
+            id: "domain-1",
+            subdomain: "velly",
+            created: "2026-07-01T00:00:00Z",
+            modified: "2026-07-01T00:00:00Z",
+          },
+        ]
+      : [],
+  };
 }
 
 const domainsQueryKey = () =>
-    assistantsDomainsListQueryKey({ path: { assistant_id: "assistant-1" } });
+  assistantsDomainsListQueryKey({ path: { assistant_id: "assistant-1" } });
 
 function LocationProbe() {
-    const location = useLocation();
-    return <div data-testid="loc">{location.pathname + location.search}</div>;
+  const location = useLocation();
+  return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
 function renderPage(search = "?tab=billing") {
-    const client = new QueryClient({
-        defaultOptions: { queries: { retry: false } },
-    });
-    const view = render(
-        <MemoryRouter initialEntries={[`/assistant/settings/usage${search}`]}>
-            <QueryClientProvider client={client}>
-                <BillingPage />
-                <LocationProbe />
-            </QueryClientProvider>
-        </MemoryRouter>,
-    );
-    return { client, ...view };
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const view = render(
+    <MemoryRouter initialEntries={[`/assistant/settings/usage${search}`]}>
+      <QueryClientProvider client={client}>
+        <BillingPage />
+        <LocationProbe />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  return { client, ...view };
 }
 
 beforeEach(() => {
-    subscriptionResponse = makeSubscription("pro");
-    onboardingResponse = makeOnboarding(true);
-    domainsResponse = makeDomains(false);
-    onboardingCalls = 0;
-    domainsCalls = 0;
-    domainsListPaths = [];
-    orgReady = true;
+  subscriptionResponse = makeSubscription("pro");
+  onboardingResponse = makeOnboarding(true);
+  domainsResponse = makeDomains(false);
+  onboardingCalls = 0;
+  domainsCalls = 0;
+  domainsListPaths = [];
+  orgReady = true;
+  activeAssistantIsPlatformHosted = true;
 });
 
 afterEach(() => {
-    cleanup();
+  cleanup();
 });
 
 describe("BillingTab ?pro_onboarding param", () => {
-    test("opens the onboarding modal without a session_id and strips the param", async () => {
-        const { getByTestId } = renderPage("?tab=billing&pro_onboarding");
+  test("opens the onboarding modal without a session_id and strips the param", async () => {
+    const { getByTestId } = renderPage("?tab=billing&pro_onboarding");
 
-        await waitFor(() =>
-            expect(
-                getByTestId("onboarding-modal").getAttribute("data-open"),
-            ).toBe("true"),
-        );
-        // The checkout instance opens; the dedicated resize instance stays inert.
-        expect(
-            getByTestId("resize-onboarding-modal").getAttribute("data-open"),
-        ).toBe("false");
-        expect(getByTestId("loc").textContent).toBe(
-            "/assistant/settings/usage?tab=billing",
-        );
-    });
+    await waitFor(() =>
+      expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+        "true",
+      ),
+    );
+    // The checkout instance opens; the dedicated resize instance stays inert.
+    expect(
+      getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+    ).toBe("false");
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/settings/usage?tab=billing",
+    );
+  });
+});
+
+describe("BillingTab post-checkout return", () => {
+  // The pro onboarding wizard reads the org's subscription and its
+  // `primary_assistant_id`, so a completed checkout is consumable whichever
+  // assistant is selected. Gating its mount on the active assistant's hosting
+  // would drop `session_id` for an org holding both hosting types.
+
+  test("opens the wizard on session_id", async () => {
+    const { getByTestId } = renderPage("?tab=billing&session_id=cs_test_123");
+
+    await waitFor(() =>
+      expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+        "true",
+      ),
+    );
+  });
+
+  test("opens the wizard on session_id while a self-hosted assistant is active", async () => {
+    activeAssistantIsPlatformHosted = false;
+    const { getByTestId, queryByTestId } = renderPage(
+      "?tab=billing&session_id=cs_test_123",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+        "true",
+      ),
+    );
+    // Plan management still reads the active assistant, so it stays gated.
+    expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
+    expect(queryByTestId("resize-onboarding-modal")).toBeNull();
+    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+  });
+
+  test("opens the wizard on ?pro_onboarding while a self-hosted assistant is active", async () => {
+    activeAssistantIsPlatformHosted = false;
+    const { getByTestId } = renderPage("?tab=billing&pro_onboarding");
+
+    await waitFor(() =>
+      expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+        "true",
+      ),
+    );
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/settings/usage?tab=billing",
+    );
+  });
+
+  test("mounts no wizard for a self-hosted assistant with no billing intent", async () => {
+    activeAssistantIsPlatformHosted = false;
+    const { queryByTestId } = renderPage();
+
+    await waitFor(() => expect(queryByTestId("loc")).toBeTruthy());
+    expect(queryByTestId("onboarding-modal")).toBeNull();
+    expect(queryByTestId("resize-onboarding-modal")).toBeNull();
+  });
 });
 
 describe("BillingTab tier-upgrade resize takeover", () => {
-    test("opens the resize instance on tier upgrade without touching the URL or the checkout instance", async () => {
-        const { getByTestId } = renderPage();
+  test("opens the resize instance on tier upgrade without touching the URL or the checkout instance", async () => {
+    const { getByTestId } = renderPage();
 
-        await waitFor(() =>
-            expect(getByTestId("resize-onboarding-modal")).toBeTruthy(),
-        );
-        expect(
-            getByTestId("resize-onboarding-modal").getAttribute("data-open"),
-        ).toBe("false");
+    await waitFor(() =>
+      expect(getByTestId("resize-onboarding-modal")).toBeTruthy(),
+    );
+    expect(
+      getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+    ).toBe("false");
 
-        fireEvent.click(getByTestId("plan-card-tier-upgraded"));
+    fireEvent.click(getByTestId("plan-card-tier-upgraded"));
 
-        await waitFor(() =>
-            expect(
-                getByTestId("resize-onboarding-modal").getAttribute("data-open"),
-            ).toBe("true"),
-        );
-        // The checkout instance is untouched and the resize flow leaves the URL
-        // params exactly as they were.
-        expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
-            "false",
-        );
-        expect(getByTestId("loc").textContent).toBe(
-            "/assistant/settings/usage?tab=billing",
-        );
-    });
+    await waitFor(() =>
+      expect(
+        getByTestId("resize-onboarding-modal").getAttribute("data-open"),
+      ).toBe("true"),
+    );
+    // The checkout instance is untouched and the resize flow leaves the URL
+    // params exactly as they were.
+    expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+      "false",
+    );
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/settings/usage?tab=billing",
+    );
+  });
 });
 
 describe("Finish Pro setup nudge", () => {
-    test("stays hidden and skips the query chain until the org is ready", async () => {
-        // Fresh login: the org store hasn't hydrated, so the header source has
-        // no id yet. The nudge must not fire its subscription/onboarding chain
-        // (which would 4xx without `Vellum-Organization-Id`) or flash in.
-        orgReady = false;
-        const { queryByTestId } = renderPage();
+  test("stays hidden and skips the query chain until the org is ready", async () => {
+    // Fresh login: the org store hasn't hydrated, so the header source has
+    // no id yet. The nudge must not fire its subscription/onboarding chain
+    // (which would 4xx without `Vellum-Organization-Id`) or flash in.
+    orgReady = false;
+    const { queryByTestId } = renderPage();
 
-        await waitFor(() =>
-            expect(queryByTestId("onboarding-modal")).toBeTruthy(),
-        );
-        expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-        expect(onboardingCalls).toBe(0);
+    await waitFor(() => expect(queryByTestId("onboarding-modal")).toBeTruthy());
+    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+    expect(onboardingCalls).toBe(0);
+  });
+
+  test("renders for Pro with no domain registered and reopens the wizard", async () => {
+    const { getByTestId } = renderPage();
+
+    await waitFor(() =>
+      expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
+    );
+    expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+      "false",
+    );
+
+    fireEvent.click(getByTestId("finish-pro-setup-button"));
+
+    await waitFor(() =>
+      expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+        "true",
+      ),
+    );
+    // The transient param is consumed straight back out of the URL.
+    expect(getByTestId("loc").textContent).toBe(
+      "/assistant/settings/usage?tab=billing",
+    );
+  });
+
+  test("names the pinned package in the title", async () => {
+    subscriptionResponse = makeSubscription("pro", {
+      key: "super",
+      name: "Super",
+      version: 1,
+      customized: false,
     });
+    const { getByTestId } = renderPage();
 
-    test("renders for Pro with no domain registered and reopens the wizard", async () => {
-        const { getByTestId } = renderPage();
+    await waitFor(() =>
+      expect(getByTestId("finish-pro-setup-notice").textContent).toContain(
+        "Finish setting up your Super plan",
+      ),
+    );
+  });
 
-        await waitFor(() =>
-            expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
-        );
-        expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
-            "false",
-        );
+  test("falls back to Custom for an unpinned Pro sub", async () => {
+    const { getByTestId } = renderPage();
 
-        fireEvent.click(getByTestId("finish-pro-setup-button"));
+    await waitFor(() =>
+      expect(getByTestId("finish-pro-setup-notice").textContent).toContain(
+        "Finish setting up your Custom plan",
+      ),
+    );
+  });
 
-        await waitFor(() =>
-            expect(
-                getByTestId("onboarding-modal").getAttribute("data-open"),
-            ).toBe("true"),
-        );
-        // The transient param is consumed straight back out of the URL.
-        expect(getByTestId("loc").textContent).toBe(
-            "/assistant/settings/usage?tab=billing",
-        );
-    });
+  test("hidden for Pro when a domain is already registered", async () => {
+    // `domain_setup_available` is still true (the platform hard-codes it
+    // for every active-Pro org) — the registered domain alone must hide
+    // the nudge.
+    domainsResponse = makeDomains(true);
+    const { client, queryByTestId } = renderPage();
 
-    test("names the pinned package in the title", async () => {
-        subscriptionResponse = makeSubscription("pro", {
-            key: "super",
-            name: "Super",
-            version: 1,
-            customized: false,
-        });
-        const { getByTestId } = renderPage();
+    await waitFor(() =>
+      expect(client.getQueryData(domainsQueryKey())).toBeTruthy(),
+    );
+    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+  });
 
-        await waitFor(() =>
-            expect(
-                getByTestId("finish-pro-setup-notice").textContent,
-            ).toContain("Finish setting up your Super plan"),
-        );
-    });
+  test("hidden on the base plan; onboarding and domains endpoints are never queried", async () => {
+    subscriptionResponse = makeSubscription("base");
+    const { client, queryByTestId } = renderPage();
 
-    test("falls back to Custom for an unpinned Pro sub", async () => {
-        const { getByTestId } = renderPage();
+    await waitFor(() =>
+      expect(
+        client.getQueryData(organizationsBillingSubscriptionRetrieveQueryKey()),
+      ).toBeTruthy(),
+    );
+    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+    expect(onboardingCalls).toBe(0);
+    expect(domainsCalls).toBe(0);
+  });
 
-        await waitFor(() =>
-            expect(
-                getByTestId("finish-pro-setup-notice").textContent,
-            ).toContain("Finish setting up your Custom plan"),
-        );
-    });
+  test("checks domains on the onboarding payload's primary assistant", async () => {
+    onboardingResponse = {
+      ...makeOnboarding(true),
+      primary_assistant_id: "assistant-2",
+    };
+    const { getByTestId } = renderPage();
 
-    test("hidden for Pro when a domain is already registered", async () => {
-        // `domain_setup_available` is still true (the platform hard-codes it
-        // for every active-Pro org) — the registered domain alone must hide
-        // the nudge.
-        domainsResponse = makeDomains(true);
-        const { client, queryByTestId } = renderPage();
+    // The onboarding payload names the wizard's server-side target; the
+    // nudge must check that assistant's domains, not the active one's.
+    await waitFor(() => expect(domainsListPaths).toContain("assistant-2"));
+    await waitFor(() =>
+      expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
+    );
+  });
 
-        await waitFor(() =>
-            expect(client.getQueryData(domainsQueryKey())).toBeTruthy(),
-        );
-        expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-    });
+  test("hidden for Pro when domain setup is unavailable, without querying domains", async () => {
+    onboardingResponse = makeOnboarding(false);
+    const { client, queryByTestId } = renderPage();
 
-    test("hidden on the base plan; onboarding and domains endpoints are never queried", async () => {
-        subscriptionResponse = makeSubscription("base");
-        const { client, queryByTestId } = renderPage();
-
-        await waitFor(() =>
-            expect(
-                client.getQueryData(
-                    organizationsBillingSubscriptionRetrieveQueryKey(),
-                ),
-            ).toBeTruthy(),
-        );
-        expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-        expect(onboardingCalls).toBe(0);
-        expect(domainsCalls).toBe(0);
-    });
-
-    test("checks domains on the onboarding payload's primary assistant", async () => {
-        onboardingResponse = {
-            ...makeOnboarding(true),
-            primary_assistant_id: "assistant-2",
-        };
-        const { getByTestId } = renderPage();
-
-        // The onboarding payload names the wizard's server-side target; the
-        // nudge must check that assistant's domains, not the active one's.
-        await waitFor(() => expect(domainsListPaths).toContain("assistant-2"));
-        await waitFor(() =>
-            expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
-        );
-    });
-
-    test("hidden for Pro when domain setup is unavailable, without querying domains", async () => {
-        onboardingResponse = makeOnboarding(false);
-        const { client, queryByTestId } = renderPage();
-
-        await waitFor(() =>
-            expect(
-                client.getQueryData(
-                    organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-                ),
-            ).toBeTruthy(),
-        );
-        expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
-        expect(domainsCalls).toBe(0);
-    });
+    await waitFor(() =>
+      expect(
+        client.getQueryData(
+          organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+        ),
+      ).toBeTruthy(),
+    );
+    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+    expect(domainsCalls).toBe(0);
+  });
 });

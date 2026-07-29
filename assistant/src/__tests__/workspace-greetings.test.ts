@@ -13,7 +13,9 @@ mock.module("node:fs", () => ({
   },
   readFileSync: (path: string, _encoding: string) => {
     const name = path.split("/").pop() ?? "";
-    if (name in workspaceFiles) return workspaceFiles[name];
+    if (name in workspaceFiles) {
+      return workspaceFiles[name];
+    }
     throw new Error(`ENOENT: ${path}`);
   },
 }));

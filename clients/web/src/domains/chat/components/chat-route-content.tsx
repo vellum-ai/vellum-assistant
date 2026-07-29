@@ -381,8 +381,9 @@ export function ChatMainPanel({
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {
       haptic.light();
-      if (assistantId)
+      if (assistantId) {
         void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+      }
     },
     [assistantId],
   );
@@ -557,7 +558,9 @@ export function ChatMainPanel({
 
   const handleRecallLastMessage = useCallback(() => {
     const content = startEditing();
-    if (content !== null) useComposerStore.getState().setInput(content);
+    if (content !== null) {
+      useComposerStore.getState().setInput(content);
+    }
   }, [startEditing]);
 
   const handleCancelEdit = useCallback(() => {
@@ -794,7 +797,9 @@ export function ChatMainPanel({
             "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
         });
       }
-      if (allowed.length > 0) addChatAttachmentFiles(allowed);
+      if (allowed.length > 0) {
+        addChatAttachmentFiles(allowed);
+      }
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );
@@ -985,6 +990,7 @@ export function ChatMainPanel({
     dockStartersToBottom,
     renderAvatar,
     emptyStatePlaceholder,
+    composerPeekSlot,
   } = useChatEmptyState({
     assistantId,
     conversationId: activeConversationId,
@@ -1113,6 +1119,16 @@ export function ChatMainPanel({
           <ComposerSettingsMenu
             assistantId={assistantId}
             conversationId={activeConversation?.conversationId}
+            segments="access"
+          />
+        ) : undefined
+      }
+      modelPickerSlot={
+        assistantId ? (
+          <ComposerSettingsMenu
+            assistantId={assistantId}
+            conversationId={activeConversation?.conversationId}
+            segments="profile"
           />
         ) : undefined
       }
@@ -1296,7 +1312,9 @@ export function ChatMainPanel({
         <BottomSheet.Root
           open={Boolean(selectedSuggestion)}
           onOpenChange={(next) => {
-            if (!next) handleCloseSuggestion();
+            if (!next) {
+              handleCloseSuggestion();
+            }
           }}
         >
           {/* `SuggestionDetailPanel` brings its own visible heading + scroll-
@@ -1325,6 +1343,7 @@ export function ChatMainPanel({
   return (
     <>
       {mainContent}
+      {composerPeekSlot}
       <MicPermissionPrimer
         open={showPrimer}
         onContinue={handlePrimerContinue}

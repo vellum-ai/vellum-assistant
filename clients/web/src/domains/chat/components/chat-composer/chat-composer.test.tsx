@@ -20,6 +20,7 @@ import {
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { LiveVoicePreflightVerdict } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
+import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Pure helpers live in `chat-composer-utils` (no mocks needed), so import them
@@ -72,6 +73,8 @@ import {
 const liveStarterSpy = mock(
   (_assistantId: string, _conversationId: string | null) => {},
 );
+const livePrewarmSpy = mock(() => {});
+const liveCancelPrewarmSpy = mock(() => {});
 const liveControls = makeControlsSpies();
 
 /**
@@ -173,8 +176,11 @@ mock.module("@/lib/backwards-compat/use-supports-live-voice", () => ({
 }));
 
 // Avatar data feeding the voice bar's wave accent. Mocked so the composer
-// renders without a QueryClientProvider (the real hook is React Query).
+// renders without a QueryClientProvider (the real hook is React Query). The
+// real module is spread back in so its other exports survive the mock: the
+// auth store reaches `avatarQueryKey` through the takeover avatar stash.
 mock.module("@/hooks/use-assistant-avatar", () => ({
+  ...assistantAvatarMod,
   useAssistantAvatar: () => ({
     components: null,
     traits: null,
@@ -215,11 +221,17 @@ function resetLiveVoiceMocks() {
   navigateSpy.mockClear();
   setAudioLevelSpy.mockClear();
   liveStarterSpy.mockClear();
+  livePrewarmSpy.mockClear();
+  liveCancelPrewarmSpy.mockClear();
   liveControls.stop.mockClear();
   liveControls.release.mockClear();
   liveControls.interrupt.mockClear();
   useLiveVoiceStore.getState().reset();
-  useLiveVoiceStore.getState().setStarter(liveStarterSpy);
+  useLiveVoiceStore.getState().setStarter({
+    prewarm: livePrewarmSpy,
+    cancelPrewarm: liveCancelPrewarmSpy,
+    start: liveStarterSpy,
+  });
   // Default to the returning-user path so the entry-point mic starts a session
   // directly. First-run interception (the prefs card) is covered by
   // `voice-first-run-card.test.tsx`; a test that wants it opts in by setting
@@ -686,11 +698,15 @@ describe("ChatComposer — send/stop button visibility", () => {
  */
 function sendButtonHasDisabledAttr(html: string): boolean {
   const idx = html.indexOf('aria-label="Send message"');
-  if (idx === -1) return false;
+  if (idx === -1) {
+    return false;
+  }
   // Walk back to the opening '<' for this <button>, then forward to the next '>'.
   const openIdx = html.lastIndexOf("<button", idx);
   const closeIdx = html.indexOf(">", idx);
-  if (openIdx === -1 || closeIdx === -1) return false;
+  if (openIdx === -1 || closeIdx === -1) {
+    return false;
+  }
   const tag = html.slice(openIdx, closeIdx + 1);
   // The HTML disabled attribute renders as `disabled=""` or bare `disabled`
   // (followed by space or `>`). Class names always live INSIDE quotes, so an
@@ -953,14 +969,20 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the user clicks the entry-point mic
     const { getByLabelText } = renderVoiceComposer();
     fireEvent.click(getByLabelText("Start voice mode"));
+
+    // Playback unlock happens synchronously in the click task, while the
+    // readiness request is still pending.
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
+    expect(preflightSpy).toHaveBeenCalledWith("asst_test");
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+
     await flushPreflight();
 
-    // THEN the readiness preflight ran first, and only then the layout-owned
-    // controller is asked to start with the bound context (the composer holds
-    // no controller of its own)
-    expect(preflightSpy).toHaveBeenCalledWith("asst_test");
+    // THEN the layout-owned controller starts with the bound context after the
+    // ready verdict (the composer holds no controller of its own).
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
   });
 
   test("a not-ready verdict keeps the room closed and surfaces the configure-voice prompt", async () => {
@@ -981,6 +1003,8 @@ describe("ChatComposer — live-voice integration", () => {
     // daemon's configure-voice message is shown instead
     expect(preflightSpy).toHaveBeenCalledWith("asst_test");
     expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
+    expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);
     expect(useLiveVoiceStore.getState().state).toBe("idle");
     expect(getByText("Add a voice provider to start talking.")).toBeTruthy();
 
@@ -1005,6 +1029,8 @@ describe("ChatComposer — live-voice integration", () => {
     // the WS-level handshake surfaces any real credential problem
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
+    expect(liveCancelPrewarmSpy).not.toHaveBeenCalled();
   });
 
   test("switching chats mid-preflight drops the verdict instead of binding the room to the chat the user left", async () => {
@@ -1030,6 +1056,7 @@ describe("ChatComposer — live-voice integration", () => {
     // is not opened against `conv_test`, the chat the user already left
     expect(preflightSpy).toHaveBeenCalledWith("asst_test");
     expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);
     expect(useLiveVoiceStore.getState().state).toBe("idle");
   });
 
@@ -1049,6 +1076,7 @@ describe("ChatComposer — live-voice integration", () => {
       getByTestId("first-run-card").getAttribute("data-non-dismissible"),
     ).toBe("false");
     expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(livePrewarmSpy).not.toHaveBeenCalled();
   });
 
   test("first-run card Start persists the flag then starts the session", async () => {
@@ -1068,6 +1096,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
   });
 
   test("dismissing the first-run card cancels without consuming the first run", () => {
@@ -1084,6 +1113,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).not.toHaveBeenCalled();
     expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+    expect(livePrewarmSpy).not.toHaveBeenCalled();
   });
 
   test("Capacitor iOS: first-ever entry shows the prefs card too (web↔iOS parity)", () => {
@@ -1108,9 +1138,10 @@ describe("ChatComposer — live-voice integration", () => {
       getByTestId("first-run-card").getAttribute("data-non-dismissible"),
     ).toBe("true");
     expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(livePrewarmSpy).not.toHaveBeenCalled();
   });
 
-  test("Capacitor iOS: returning-user entry still starts directly (unchanged)", async () => {
+  test("Capacitor iOS: returning-user entry prewarms and starts after preflight", async () => {
     // GIVEN the native iOS shell with the first run already consumed
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockIsNativeIOS = true;
@@ -1125,6 +1156,7 @@ describe("ChatComposer — live-voice integration", () => {
     expect(queryByTestId("first-run-card")).toBeNull();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
     expect(liveStarterSpy).toHaveBeenCalledWith("asst_test", "conv_test");
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
   });
 
   test("owned active session swaps the action row for the voice bar (mutual exclusion by absence)", () => {
@@ -1217,18 +1249,32 @@ describe("ChatComposer — live-voice integration", () => {
     expect(liveControls.stop).toHaveBeenCalledTimes(1);
   });
 
-  test("voice bar ↑ manually releases the turn while listening", () => {
+  test("voice bar offers no manual send — turns release themselves", () => {
     // GIVEN a listening session owned by this composer
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
 
-    // WHEN the user clicks send-now
-    const { getByLabelText } = renderVoiceComposer();
-    fireEvent.click(getByLabelText("Send now"));
+    // WHEN the bar renders
+    const { queryByLabelText } = renderVoiceComposer();
 
-    // THEN the turn is released through the store-registered controls
-    expect(liveControls.release).toHaveBeenCalledTimes(1);
-    expect(liveControls.stop).not.toHaveBeenCalled();
+    // THEN there is no send-now control: server VAD (hands-free) and
+    // auto-release (manual fallback) both end the turn without the user.
+    expect(queryByLabelText("Send now")).toBeNull();
+    expect(liveControls.release).not.toHaveBeenCalled();
+  });
+
+  test("voice session hides the textarea and its placeholder", () => {
+    // GIVEN a listening session owned by this composer
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    seedLiveVoiceSession("listening");
+
+    // WHEN the bar renders
+    const { container } = renderVoiceComposer();
+
+    // THEN the textarea row is collapsed: it is disabled for the session's
+    // duration, so its placeholder invited an interaction that cannot happen.
+    const textarea = container.querySelector("textarea");
+    expect(textarea?.closest("div.hidden")).not.toBeNull();
   });
 
   test("dictation active hides the live-voice button (reverse mutual exclusion)", () => {
@@ -1388,10 +1434,24 @@ describe("ChatComposer — live-voice integration", () => {
 // ---------------------------------------------------------------------------
 // Live-voice transcript in the composer text area (Light 55)
 //
-// While speech streams, the disabled textarea is visually hidden and the
-// display-only `VoiceLiveTranscript` renders in its grid cell; with no
-// transcript yet the textarea (and its placeholder) stays visible.
+// An owned live-voice session collapses the textarea row for its whole
+// duration — the textarea is disabled throughout, so its placeholder would
+// invite an interaction that cannot happen. When the show-your-words pref is
+// on and speech is streaming, the display-only `VoiceLiveTranscript` takes
+// that same grid cell and the row stays mounted to carry it.
+//
+// The textarea's own `className` is not the signal: the row wrapping it is
+// what carries `hidden`, so assertions go through `textareaRowHidden`.
 // ---------------------------------------------------------------------------
+
+/** Whether the grid row wrapping the textarea is collapsed. */
+function textareaRowHidden(container: HTMLElement): boolean {
+  const textarea = container.querySelector("textarea");
+  if (!textarea) {
+    throw new Error("no textarea rendered");
+  }
+  return textarea.closest("div.hidden") !== null;
+}
 
 describe("ChatComposer — live-voice transcript area", () => {
   test("streaming speech hides the textarea and renders the transcript in its place", () => {
@@ -1438,11 +1498,12 @@ describe("ChatComposer — live-voice transcript area", () => {
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN no transcript region mounts and the (still-uneditable) textarea
-    // stays visible so its placeholder shows through instead
+    // THEN no transcript region mounts, and with nothing to put in that cell
+    // the whole row collapses — the disabled textarea's placeholder must not
+    // show through for the session's duration
     expect(queryByLabelText("Voice transcript")).toBeNull();
+    expect(textareaRowHidden(container)).toBe(true);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(true);
   });
 
@@ -1456,26 +1517,27 @@ describe("ChatComposer — live-voice transcript area", () => {
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN no transcript region mounts and the textarea stays editable —
-    // thread A's speech must not leak into thread B's input
+    // THEN no transcript region mounts and this composer keeps a normal,
+    // editable input — thread A's speech must not leak into thread B's input,
+    // and thread B's own row is not a session surface
     expect(queryByLabelText("Voice transcript")).toBeNull();
+    expect(textareaRowHidden(container)).toBe(false);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(false);
   });
 
-  test("empty transcript keeps the textarea (and its placeholder) visible", () => {
-    // GIVEN an active owned session with no speech yet (Light 53 baseline)
+  test("empty transcript collapses the row rather than showing a dead placeholder", () => {
+    // GIVEN an active owned session with no speech yet
     useTurnStore.setState(INITIAL_TURN_STATE);
     seedLiveVoiceSession("listening");
 
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN nothing replaces the textarea — its placeholder shows through
+    // THEN there is nothing to occupy the cell, so the row collapses and the
+    // voice bar stands alone
     expect(queryByLabelText("Voice transcript")).toBeNull();
-    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
+    expect(textareaRowHidden(container)).toBe(true);
   });
 
   test("textarea is restored after the session ends, even with a leftover final transcript", () => {
@@ -1486,10 +1548,11 @@ describe("ChatComposer — live-voice transcript area", () => {
     // WHEN the composer renders
     const { container, queryByLabelText } = renderVoiceComposer();
 
-    // THEN the composer behaves normally: no transcript region, editable textarea
+    // THEN the composer behaves normally: no transcript region, and the row
+    // is back with an editable textarea
     expect(queryByLabelText("Voice transcript")).toBeNull();
+    expect(textareaRowHidden(container)).toBe(false);
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-    expect(textarea.className).not.toContain("hidden");
     expect(textarea.disabled).toBe(false);
   });
 

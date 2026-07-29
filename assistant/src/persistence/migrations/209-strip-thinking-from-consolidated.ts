@@ -146,7 +146,9 @@ export async function migrateStripThinkingFromConsolidated(
       m: number | null;
     }
   ).m;
-  if (maxRow == null) return; // empty table — nothing to sweep
+  if (maxRow == null) {
+    return;
+  } // empty table — nothing to sweep
 
   const watermarkRow = raw
     .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)

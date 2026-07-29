@@ -53,7 +53,9 @@ function handleData(chunk: Buffer): void {
   const lines = chunk.toString().split("\n");
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed) continue;
+    if (!trimmed) {
+      continue;
+    }
     try {
       const msg = JSON.parse(trimmed) as { event?: string };
       if (msg.event === "feature_flags_changed") {
@@ -77,7 +79,9 @@ function handleData(chunk: Buffer): void {
 }
 
 function scheduleReconnect(): void {
-  if (stopped) return;
+  if (stopped) {
+    return;
+  }
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connectToGateway();
@@ -86,7 +90,9 @@ function scheduleReconnect(): void {
 }
 
 function connectToGateway(): void {
-  if (stopped) return;
+  if (stopped) {
+    return;
+  }
 
   const socketPath = getSocketPath();
   const conn = connect(socketPath);

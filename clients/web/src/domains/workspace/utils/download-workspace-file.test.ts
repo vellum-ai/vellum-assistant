@@ -23,15 +23,13 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 const saveFile = mock(
-  async (_source: Blob | string, _filename: string): Promise<void> =>
-    undefined,
+  async (_source: Blob | string, _filename: string): Promise<void> => undefined,
 );
 
 mock.module("@/runtime/native-file", () => ({ saveFile }));
 
-const { downloadWorkspaceFile } = await import(
-  "@/domains/workspace/utils/download-workspace-file"
-);
+const { downloadWorkspaceFile } =
+  await import("@/domains/workspace/utils/download-workspace-file");
 
 describe("downloadWorkspaceFile", () => {
   beforeEach(() => {

@@ -1,4 +1,3 @@
-
 import { Mic } from "lucide-react";
 
 import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button";
@@ -64,9 +63,9 @@ export function MicPermissionPrimer({
         </Modal.Header>
         <Modal.Body>
           <Modal.Description>
-            Voice input requires microphone access. Audio is transcribed by
-            your configured speech-to-text provider, or by your
-            device&apos;s built-in dictation when no provider is set.
+            Voice input requires microphone access. Audio is transcribed by your
+            configured speech-to-text provider, or by your device&apos;s
+            built-in dictation when no provider is set.
           </Modal.Description>
         </Modal.Body>
         <Modal.Footer>

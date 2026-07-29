@@ -23,11 +23,17 @@ import { emitMemoryEvent } from "@/domains/intelligence/memory-telemetry";
 import { Button } from "@vellumai/design-library";
 
 import { buildForceLayout } from "./build-force-layout";
+import { CenteredMessage } from "./centered-message";
 import { ConceptDetailPanel, type ConceptDetailNode } from "./concept-detail-panel";
 import { ConceptGraphIntroBanner } from "./concept-graph-intro-banner";
 import { ConceptGraphLegend } from "./concept-graph-legend";
-import { CLUSTER_PALETTE, EDGE_LEARNED_COLOR, NODE_KIND_COLORS } from "./constants";
+import {
+  CLUSTER_PALETTE,
+  EDGE_LEARNED_COLOR,
+  NODE_KIND_COLORS,
+} from "./constants";
 import { detectClusters } from "./detect-clusters";
+import { MemoryUpgradePrompt } from "./memory-upgrade-prompt";
 import { RecencyLens, type RecencyWindow } from "./recency-lens";
 import type { ConceptNodeKind, GraphLayoutNode } from "./types";
 import { useGraphIntroDismissed } from "./use-graph-intro-dismissed";
@@ -180,21 +186,6 @@ export interface ConceptGraphViewProps {
   handleRef?: React.Ref<ConceptGraphViewHandle>;
 }
 
-function CenteredMessage({ title, detail }: { title: string; detail?: string }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <p className="text-body-medium-default" style={{ color: "var(--content-default)" }}>
-        {title}
-      </p>
-      {detail ? (
-        <p className="max-w-sm text-body-small-default" style={{ color: "var(--content-tertiary)" }}>
-          {detail}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * A 2.5D "brain" of the assistant's memory concepts: nodes laid out in a 3D
  * volume, slowly auto-rotating (drag to orbit, scroll to zoom), drawn on canvas
@@ -297,7 +288,9 @@ export function ConceptGraphView({
   // Framed by the 92nd percentile of node distances so a few fringe/orphan
   // nodes can't shrink the whole mass into the middle of the viewport.
   const massRadius = useMemo(() => {
-    if (layout.nodes.length === 0) {return 1;}
+    if (layout.nodes.length === 0) {
+      return 1;
+    }
     const dists = layout.nodes
       .map((n) => {
         const dx = n.x - VIRTUAL_CENTER.x;
@@ -400,10 +393,14 @@ export function ConceptGraphView({
   const searchEmittedRef = useRef(false);
   const searchLower = search.trim().toLowerCase();
   const matchIds = useMemo(() => {
-    if (!searchLower) {return null;}
+    if (!searchLower) {
+      return null;
+    }
     const s = new Set<string>();
     for (const n of layout.nodes) {
-      if (n.label.toLowerCase().includes(searchLower)) {s.add(n.id);}
+      if (n.label.toLowerCase().includes(searchLower)) {
+        s.add(n.id);
+      }
     }
     return s;
   }, [searchLower, layout.nodes]);
@@ -444,7 +441,11 @@ export function ConceptGraphView({
   const recencyRef = useRef<number | null>(null);
   useEffect(() => {
     recencyRef.current =
-      recency === "week" ? 7 * DAY_MS : recency === "month" ? 30 * DAY_MS : null;
+      recency === "week"
+        ? 7 * DAY_MS
+        : recency === "month"
+          ? 30 * DAY_MS
+          : null;
     view.current.dirty = true;
   }, [recency]);
   // Whether any node carries a recency timestamp. Without one the lens has
@@ -642,12 +643,18 @@ export function ConceptGraphView({
   }, [openNode?.id, adjacency, layout.nodes, layout.edges]);
 
   useEffect(() => {
-    if (!ready) {return;}
+    if (!ready) {
+      return;
+    }
     const canvas = canvasRef.current;
     const container = containerRef.current;
-    if (!canvas || !container) {return;}
+    if (!canvas || !container) {
+      return;
+    }
     const ctx = canvas.getContext("2d");
-    if (!ctx) {return;}
+    if (!ctx) {
+      return;
+    }
 
     // Capture the current layout for the loop; the effect re-runs (cancelling
     // this loop) whenever the data changes, so these never go stale.
@@ -662,7 +669,9 @@ export function ConceptGraphView({
     const presentNodeIds = new Set(nodes.map((n) => n.id));
     const R = massRadius;
 
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     colorsRef.current = resolveColors(container);
 
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -810,8 +819,12 @@ export function ConceptGraphView({
       // selected ego-network overrides the recency window and edge-kind filter
       // so it always reads and stays interactive; search still narrows normally.
       const selectedId = selectedIdRef.current;
-      const selectionActive = selectedId != null && presentNodeIds.has(selectedId);
-      const inSelectedEgo = makeEgoTest(adj, selectionActive ? selectedId : null);
+      const selectionActive =
+        selectedId != null && presentNodeIds.has(selectedId);
+      const inSelectedEgo = makeEgoTest(
+        adj,
+        selectionActive ? selectedId : null,
+      );
 
       // Density fog: fade the resting learned-edge web as the corpus grows.
       const learnedFog =
@@ -852,9 +865,13 @@ export function ConceptGraphView({
         };
       }
       // Painter's order: far → near.
-      const order = proj.map((_, i) => i).sort((a, b) => proj[a].depth - proj[b].depth);
+      const order = proj
+        .map((_, i) => i)
+        .sort((a, b) => proj[a].depth - proj[b].depth);
       const posById = new Map<string, (typeof proj)[number]>();
-      for (const p of proj) {posById.set(p.node.id, p);}
+      for (const p of proj) {
+        posById.set(p.node.id, p);
+      }
 
       // Edges (behind nodes). Each drawn, non-ghosted segment is also collected
       // (screen-space endpoints) so the pointer can hit-test edges for hover.
@@ -863,7 +880,9 @@ export function ConceptGraphView({
       for (const e of edges) {
         const a = posById.get(e.fromId);
         const b = posById.get(e.toId);
-        if (!a || !b) {continue;}
+        if (!a || !b) {
+          continue;
+        }
         const learned = e.kind === "learned";
         // Spine of the focused ego-network: an edge touching the selected node
         // (selected ↔ neighbor). It overrides the edge-kind filter and the
@@ -882,7 +901,8 @@ export function ConceptGraphView({
         const ghost =
           (searchActive && (!isMatch(e.fromId) || !isMatch(e.toId))) ||
           (!egoEdge && (isRecencyGhost(a.node) || isRecencyGhost(b.node)));
-        const incident = activeId != null && (e.fromId === activeId || e.toId === activeId);
+        const incident =
+          activeId != null && (e.fromId === activeId || e.toId === activeId);
         const depth = (a.depth + b.depth) / 2;
         // Only offer hover on edges that read as present — skip faded ones. With
         // a selection, only the lit ego edges are hit-testable (the rest dim).
@@ -910,7 +930,11 @@ export function ConceptGraphView({
           // other edge fades to near-zero so the neighborhood reads.
           alpha = egoEdge ? 0.9 : SELECTION_DIM_EDGE;
         } else if (activeId != null) {
-          alpha = incident ? 0.9 : isLit(e.fromId) && isLit(e.toId) ? litAlpha : 0.05;
+          alpha = incident
+            ? 0.9
+            : isLit(e.fromId) && isLit(e.toId)
+              ? litAlpha
+              : 0.05;
         } else {
           alpha = restAlpha;
         }
@@ -935,7 +959,9 @@ export function ConceptGraphView({
         // node falls back to its per-kind color.
         const color =
           node.kind === "concept"
-            ? CLUSTER_PALETTE[(nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length]
+            ? CLUSTER_PALETTE[
+                (nodeClusters.get(node.id) ?? 0) % CLUSTER_PALETTE.length
+              ]
             : NODE_KIND_COLORS[node.kind];
         const searchGhost = searchActive && !isMatch(node.id);
         // Selection overrides the recency window for the focused ego-network so
@@ -958,7 +984,8 @@ export function ConceptGraphView({
                 ? depthA
                 : depthA * 0.18;
 
-        let glow = (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
+        let glow =
+          (isActive ? 16 : node.degree >= HUB_LABEL_DEGREE ? 8 : 4) * p.depth;
         // Recency: fresh concepts glow brighter; the very newest pulse. Static
         // (no pulse) under reduced motion, which only ever redraws on input.
         const updatedAtMs = node.updatedAtMs;
@@ -1055,12 +1082,15 @@ export function ConceptGraphView({
               ? isLit(node.id)
               : hubIds.has(node.id) ||
                 (node.degree >= HUB_LABEL_DEGREE && p.depth > 0.55);
-        if (!showLabel) {continue;}
+        if (!showLabel) {
+          continue;
+        }
         ctx.globalAlpha =
           (node.id === activeId || node.id === selectedId ? 1 : 0.85) *
           (0.4 + 0.6 * p.depth);
         ctx.fillStyle = colors.content;
-        const label = node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
+        const label =
+          node.label.length > 22 ? `${node.label.slice(0, 21)}…` : node.label;
         ctx.fillText(label, p.sx, p.sy + p.sr + 3);
       }
       ctx.globalAlpha = 1;
@@ -1092,32 +1122,40 @@ export function ConceptGraphView({
   // (a missing timestamp counts as stale). A selected concept's ego-network is
   // exempt from the recency skip so the focused neighborhood stays clickable.
   // Mirrors the render-loop ghosting.
-  const hitTest = useCallback((x: number, y: number): string | null => {
-    const filter = filterRef.current;
-    const recencyWindowMs = recencyRef.current;
-    // The focused ego-network stays clickable even when a recency window would
-    // otherwise skip it (selection overrides the filter); search still narrows.
-    const inSelectedEgo = makeEgoTest(adjacency, selectedIdRef.current);
-    const now = Date.now();
-    let best: string | null = null;
-    let bestDepth = -1;
-    for (const p of projectedRef.current) {
-      if (filter.active && !(filter.matches?.has(p.id) ?? false)) {continue;}
-      if (
-        !inSelectedEgo(p.id) &&
-        isStale(p.updatedAtMs, recencyWindowMs, now)
-      ) {
-        continue;
+  const hitTest = useCallback(
+    (x: number, y: number): string | null => {
+      const filter = filterRef.current;
+      const recencyWindowMs = recencyRef.current;
+      // The focused ego-network stays clickable even when a recency window would
+      // otherwise skip it (selection overrides the filter); search still narrows.
+      const inSelectedEgo = makeEgoTest(adjacency, selectedIdRef.current);
+      const now = Date.now();
+      let best: string | null = null;
+      let bestDepth = -1;
+      for (const p of projectedRef.current) {
+        if (filter.active && !(filter.matches?.has(p.id) ?? false)) {
+          continue;
+        }
+        if (
+          !inSelectedEgo(p.id) &&
+          isStale(p.updatedAtMs, recencyWindowMs, now)
+        ) {
+          continue;
+        }
+        const dx = x - p.sx;
+        const dy = y - p.sy;
+        if (
+          dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) &&
+          p.depth > bestDepth
+        ) {
+          best = p.id;
+          bestDepth = p.depth;
+        }
       }
-      const dx = x - p.sx;
-      const dy = y - p.sy;
-      if (dx * dx + dy * dy <= (p.sr + 5) * (p.sr + 5) && p.depth > bestDepth) {
-        best = p.id;
-        bestDepth = p.depth;
-      }
-    }
-    return best;
-  }, [adjacency]);
+      return best;
+    },
+    [adjacency],
+  );
 
   // Nearest EDGE segment under a screen point, within ~5px (point-to-segment
   // distance); on ties the one nearer the front (higher depth) wins. Only the
@@ -1159,8 +1197,12 @@ export function ConceptGraphView({
   };
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) {return;}
-    if ((e.target as HTMLElement).closest("[data-graph-control]")) {return;}
+    if (e.button !== 0) {
+      return;
+    }
+    if ((e.target as HTMLElement).closest("[data-graph-control]")) {
+      return;
+    }
     const v = view.current;
     // A user grab takes control immediately: cancel any in-flight search
     // jump-to ease so the drag isn't fighting the camera each frame.
@@ -1183,7 +1225,10 @@ export function ConceptGraphView({
           v.moved = true;
         }
         v.yaw += dx * DRAG_SENSITIVITY;
-        v.pitch = Math.max(-PITCH_CLAMP, Math.min(PITCH_CLAMP, v.pitch + dy * DRAG_SENSITIVITY));
+        v.pitch = Math.max(
+          -PITCH_CLAMP,
+          Math.min(PITCH_CLAMP, v.pitch + dy * DRAG_SENSITIVITY),
+        );
         v.lastX = e.clientX;
         v.lastY = e.clientY;
         v.lastInteractAt = performance.now();
@@ -1256,13 +1301,20 @@ export function ConceptGraphView({
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || !ready) {return;}
+    if (!el || !ready) {
+      return;
+    }
     const onWheel = (e: WheelEvent) => {
       // Let the detail drawer scroll natively instead of zooming the graph.
-      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) {return;}
+      if ((e.target as HTMLElement).closest?.("[data-graph-panel]")) {
+        return;
+      }
       e.preventDefault();
       const v = view.current;
-      v.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v.zoom * (1 - e.deltaY / 500)));
+      v.zoom = Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, v.zoom * (1 - e.deltaY / 500)),
+      );
       v.lastInteractAt = performance.now();
       v.dirty = true;
     };
@@ -1274,8 +1326,14 @@ export function ConceptGraphView({
     const kinds = new Set(layout.nodes.map((n) => n.kind));
     return NODE_KIND_ORDER.filter((k) => kinds.has(k));
   }, [layout.nodes]);
-  const hasLearned = useMemo(() => layout.edges.some((e) => e.kind === "learned"), [layout.edges]);
-  const hasLinks = useMemo(() => layout.edges.some((e) => e.kind !== "learned"), [layout.edges]);
+  const hasLearned = useMemo(
+    () => layout.edges.some((e) => e.kind === "learned"),
+    [layout.edges],
+  );
+  const hasLinks = useMemo(
+    () => layout.edges.some((e) => e.kind !== "learned"),
+    [layout.edges],
+  );
   // The Link/Learned toggles only render when both kinds are present. If a
   // refetch leaves only one kind, the controls disappear — so clear any active
   // filter, otherwise a previously-hidden kind stays hidden with no way to
@@ -1299,7 +1357,8 @@ export function ConceptGraphView({
   const neurons = layout.nodes.length;
   const synapses = layout.edges.length;
   const lobes = new Set(clusters.values()).size;
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const plural = (n: number, word: string) =>
+    `${n} ${word}${n === 1 ? "" : "s"}`;
 
   // Header slots. The hover pill (node/edge label) wins the center slot over
   // the stats, and both yield to the intro banner — the same precedence the
@@ -1317,7 +1376,10 @@ export function ConceptGraphView({
       <div className="flex h-full items-center justify-center">
         <div
           className="h-6 w-6 animate-spin rounded-full border-2"
-          style={{ borderColor: "var(--border-base)", borderTopColor: "var(--content-tertiary)" }}
+          style={{
+            borderColor: "var(--border-base)",
+            borderTopColor: "var(--content-tertiary)",
+          }}
         />
       </div>
     );
@@ -1329,10 +1391,12 @@ export function ConceptGraphView({
       />
     );
   } else if (query.data?.kind === "unsupported") {
+    // Not a dead end: the prompt reads the memory tier to say WHY there's no
+    // graph (Memory switched off vs. a pre-v3 engine) and offers the fix.
     body = (
-      <CenteredMessage
-        title="Memory graph isn't available"
-        detail="The active memory backend doesn't expose a concept graph."
+      <MemoryUpgradePrompt
+        assistantId={assistantId}
+        onOpenThread={onOpenThread}
       />
     );
   } else if (!ready) {
@@ -1388,7 +1452,8 @@ export function ConceptGraphView({
           <div
             className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[11px]"
             style={{
-              backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+              backgroundColor:
+                "color-mix(in srgb, var(--surface-base) 82%, transparent)",
               border: "1px solid var(--border-base)",
               color: "var(--content-tertiary)",
             }}
@@ -1397,7 +1462,10 @@ export function ConceptGraphView({
           </div>
         ) : null}
 
-        <div data-graph-control className="absolute right-4 top-4 flex flex-col gap-1">
+        <div
+          data-graph-control
+          className="absolute right-4 top-4 flex flex-col gap-1"
+        >
           <Button
             variant="ghost"
             iconOnly={<ZoomIn />}
@@ -1461,15 +1529,22 @@ export function ConceptGraphView({
                 tooltip="Search concepts"
                 className={searchOpen ? "hidden" : "@2xl:hidden"}
               />
-              <div className={`relative ${searchOpen ? "" : "hidden @2xl:block"}`}>
+              <div
+                className={`relative ${searchOpen ? "" : "hidden @2xl:block"}`}
+              >
                 <div
                   className="flex items-center gap-1.5 rounded-full px-2.5 py-1"
                   style={{
-                    backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                    backgroundColor:
+                      "color-mix(in srgb, var(--surface-base) 82%, transparent)",
                     border: "1px solid var(--border-base)",
                   }}
                 >
-                  <Search size={14} aria-hidden style={{ color: "var(--content-tertiary)" }} />
+                  <Search
+                    size={14}
+                    aria-hidden
+                    style={{ color: "var(--content-tertiary)" }}
+                  />
                   <input
                     ref={searchInputRef}
                     type="text"
@@ -1498,7 +1573,10 @@ export function ConceptGraphView({
                           setSearch("");
                           setSearchOpen(false);
                         }
-                      } else if (e.key === "Enter" && searchResults.length > 0) {
+                      } else if (
+                        e.key === "Enter" &&
+                        searchResults.length > 0
+                      ) {
                         e.preventDefault();
                         focusOn(searchResults[0].id);
                       }
@@ -1582,7 +1660,8 @@ export function ConceptGraphView({
               <div
                 className="truncate rounded-full px-3 py-1 text-[12px]"
                 style={{
-                  backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                  backgroundColor:
+                    "color-mix(in srgb, var(--surface-base) 82%, transparent)",
                   border: "1px solid var(--border-base)",
                   color: "var(--content-default)",
                 }}
@@ -1593,7 +1672,8 @@ export function ConceptGraphView({
               <div
                 className="rounded-full px-3 py-1 text-[11px] tabular-nums"
                 style={{
-                  backgroundColor: "color-mix(in srgb, var(--surface-base) 82%, transparent)",
+                  backgroundColor:
+                    "color-mix(in srgb, var(--surface-base) 82%, transparent)",
                   border: "1px solid var(--border-base)",
                   color: "var(--content-tertiary)",
                 }}
@@ -1609,7 +1689,9 @@ export function ConceptGraphView({
             ) : null}
           </div>
 
-          {headerAction ? <div className="flex-none">{headerAction}</div> : null}
+          {headerAction ? (
+            <div className="flex-none">{headerAction}</div>
+          ) : null}
         </div>
       ) : null}
 
@@ -1628,7 +1710,9 @@ export function ConceptGraphView({
         onPointerCancel={ready ? onPointerUp : undefined}
         onPointerLeave={ready ? onPointerLeave : undefined}
       >
-        {showIntro ? <ConceptGraphIntroBanner onDismiss={dismissIntro} /> : null}
+        {showIntro ? (
+          <ConceptGraphIntroBanner onDismiss={dismissIntro} />
+        ) : null}
 
         {body}
 

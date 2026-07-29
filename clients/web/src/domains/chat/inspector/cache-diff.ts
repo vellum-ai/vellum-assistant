@@ -46,8 +46,7 @@ export interface CacheDiffLine {
  * lines.
  */
 export type CollapsedDiffEntry =
-  | { type: "line"; line: CacheDiffLine }
-  | { type: "gap"; count: number };
+  { type: "line"; line: CacheDiffLine } | { type: "gap"; count: number };
 
 /** Per-group change flags, independent of which one is the headline cause. */
 export interface CacheDiffChangedGroups {
@@ -111,9 +110,15 @@ export const MAX_ON_DEMAND_DIFF_LINES = 4000;
 type GroupKind = "system" | "tools" | "settings" | "messages";
 
 function groupOf(section: LLMContextSection): GroupKind {
-  if (section.kind === "system") return "system";
-  if (section.kind === "tool_definitions") return "tools";
-  if (section.kind === "settings") return "settings";
+  if (section.kind === "system") {
+    return "system";
+  }
+  if (section.kind === "tool_definitions") {
+    return "tools";
+  }
+  if (section.kind === "settings") {
+    return "settings";
+  }
   return "messages";
 }
 
@@ -123,7 +128,9 @@ function groupOf(section: LLMContextSection): GroupKind {
  * false-positive diffs from key reordering.
  */
 function sortKeysDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (Array.isArray(value)) {
+    return value.map(sortKeysDeep);
+  }
   if (value !== null && typeof value === "object") {
     const entries = Object.entries(value).sort(([a], [b]) =>
       a < b ? -1 : a > b ? 1 : 0,
@@ -155,7 +162,9 @@ function joinSignatures(sections: LLMContextSection[]): string {
 }
 
 function describeSection(section: LLMContextSection): string {
-  if (section.role) return `${section.role} message`;
+  if (section.role) {
+    return `${section.role} message`;
+  }
   return section.kind.replace(/_/g, " ");
 }
 
@@ -171,7 +180,9 @@ export function diffLines(
   currentText: string,
   maxLines = MAX_DIFF_LINES,
 ): { lines: CacheDiffLine[]; truncated: boolean } | null {
-  if (previousText === currentText) return null;
+  if (previousText === currentText) {
+    return null;
+  }
 
   const a = previousText.split("\n");
   const b = currentText.split("\n");
@@ -208,8 +219,12 @@ export function diffLines(
       j++;
     }
   }
-  while (i < m) lines.push({ type: "removed", text: a[i++] });
-  while (j < n) lines.push({ type: "added", text: b[j++] });
+  while (i < m) {
+    lines.push({ type: "removed", text: a[i++] });
+  }
+  while (j < n) {
+    lines.push({ type: "added", text: b[j++] });
+  }
   return { lines, truncated: false };
 }
 
@@ -290,7 +305,8 @@ export function computeCacheDiff(
     prevMessages.length - curMessages.length,
     0,
   );
-  const messagesChanged = firstChangedMessageIndex >= 0 || removedMessageCount > 0;
+  const messagesChanged =
+    firstChangedMessageIndex >= 0 || removedMessageCount > 0;
 
   const changedGroups: CacheDiffChangedGroups = {
     model: modelChanged,
@@ -301,11 +317,17 @@ export function computeCacheDiff(
   };
 
   let cause: CacheDiffCause = "none";
-  if (modelChanged) cause = "model";
-  else if (toolsChanged) cause = "tools";
-  else if (systemChanged) cause = "system";
-  else if (messagesChanged) cause = "messages";
-  else if (settingsChanged) cause = "settings";
+  if (modelChanged) {
+    cause = "model";
+  } else if (toolsChanged) {
+    cause = "tools";
+  } else if (systemChanged) {
+    cause = "system";
+  } else if (messagesChanged) {
+    cause = "messages";
+  } else if (settingsChanged) {
+    cause = "settings";
+  }
 
   let changedMessageLabel: string | null = null;
   let lineDiff: CacheDiffLine[] | null = null;
@@ -338,7 +360,10 @@ export function computeCacheDiff(
         lineDiff = result.lines;
         lineDiffTruncated = result.truncated;
         lineDiffLabel = describeSection(changed);
-        lineDiffSource = { previousText: prior.text, currentText: changed.text };
+        lineDiffSource = {
+          previousText: prior.text,
+          currentText: changed.text,
+        };
       }
     }
   }
@@ -372,10 +397,14 @@ export function collapseDiffContext(
 ): CollapsedDiffEntry[] {
   const keep: boolean[] = new Array<boolean>(lines.length).fill(false);
   lines.forEach((line, index) => {
-    if (line.type === "context") return;
+    if (line.type === "context") {
+      return;
+    }
     const start = Math.max(0, index - padding);
     const end = Math.min(lines.length - 1, index + padding);
-    for (let j = start; j <= end; j++) keep[j] = true;
+    for (let j = start; j <= end; j++) {
+      keep[j] = true;
+    }
   });
 
   const entries: CollapsedDiffEntry[] = [];
@@ -391,6 +420,8 @@ export function collapseDiffContext(
       gap++;
     }
   }
-  if (gap > 0) entries.push({ type: "gap", count: gap });
+  if (gap > 0) {
+    entries.push({ type: "gap", count: gap });
+  }
   return entries;
 }

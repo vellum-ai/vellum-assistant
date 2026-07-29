@@ -1,11 +1,11 @@
 import {
-    AlertTriangle,
-    Bell,
-    BellOff,
-    Check,
-    CheckCheck,
-    Loader2,
-    Moon,
+  AlertTriangle,
+  Bell,
+  BellOff,
+  Check,
+  CheckCheck,
+  Loader2,
+  Moon,
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Navigate } from "react-router";
@@ -14,27 +14,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-    SNOOZE_OPTIONS,
-    formatRelativeDate,
-    invalidateNotificationQueries,
-    isSnoozed,
+  SNOOZE_OPTIONS,
+  formatRelativeDate,
+  invalidateNotificationQueries,
+  isSnoozed,
 } from "@/domains/settings/utils/notification";
 import {
-    organizationsNotificationsAcknowledgeCreateMutation,
-    organizationsNotificationsListOptions,
-    organizationsNotificationsPauseRulesCreateMutation,
-    organizationsNotificationsPauseRulesDestroyMutation,
-    organizationsNotificationsSnoozeCreateMutation,
+  organizationsNotificationsAcknowledgeCreateMutation,
+  organizationsNotificationsListOptions,
+  organizationsNotificationsPauseRulesCreateMutation,
+  organizationsNotificationsPauseRulesDestroyMutation,
+  organizationsNotificationsSnoozeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-    NotificationList,
-    PauseRuleRead,
+  NotificationList,
+  PauseRuleRead,
 } from "@/generated/api/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-    useActiveAssistantIsPlatformHosted,
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { toastOnError } from "@/utils/mutation-error";
 import { routes } from "@/utils/routes";
@@ -110,7 +110,9 @@ function SnoozeMenu({
                 key={label}
                 label={label}
                 onSelect={() => {
-                  if (snoozeMutation.isPending) return;
+                  if (snoozeMutation.isPending) {
+                    return;
+                  }
                   setOpen(false);
                   handleSnooze(hours);
                 }}
@@ -120,7 +122,9 @@ function SnoozeMenu({
               <PanelItem
                 label="Clear snooze"
                 onSelect={() => {
-                  if (snoozeMutation.isPending) return;
+                  if (snoozeMutation.isPending) {
+                    return;
+                  }
                   setOpen(false);
                   handleUnsnooze();
                 }}
@@ -517,9 +521,7 @@ export function NotificationsPage() {
   // `isPlatformHosted &&` checks across the render tree.
   const isError = isPlatformHosted ? queryIsError : false;
   const notifications = isPlatformHosted ? (data?.results ?? []) : [];
-  const unreadOpen = notifications.filter(
-    (n) => !n.is_read && !n.is_resolved,
-  );
+  const unreadOpen = notifications.filter((n) => !n.is_read && !n.is_resolved);
 
   const ackMutation = useMutation(
     organizationsNotificationsAcknowledgeCreateMutation(),
@@ -554,7 +556,9 @@ export function NotificationsPage() {
   };
 
   const handleMarkAllRead = async () => {
-    if (unreadOpen.length === 0 || markingAll) return;
+    if (unreadOpen.length === 0 || markingAll) {
+      return;
+    }
     setMarkingAll(true);
     try {
       await Promise.allSettled(
@@ -653,8 +657,8 @@ export function NotificationsPage() {
           user loaded notifications while hosted then transitioned to a
           resolved non-hosted state in the same session.)
         */}
-        {isPlatformHosted && (
-          isMobile ? (
+        {isPlatformHosted &&
+          (isMobile ? (
             <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
               <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
               <BottomSheet.Content>
@@ -685,8 +689,7 @@ export function NotificationsPage() {
                 {pauseContent}
               </Popover.Content>
             </Popover.Root>
-          )
-        )}
+          ))}
       </div>
 
       <div className="flex items-center gap-2">
@@ -704,9 +707,7 @@ export function NotificationsPage() {
                   color: active
                     ? "var(--content-default)"
                     : "var(--content-secondary)",
-                  boxShadow: active
-                    ? "0 1px 2px rgba(0,0,0,0.08)"
-                    : undefined,
+                  boxShadow: active ? "0 1px 2px rgba(0,0,0,0.08)" : undefined,
                 }}
               >
                 {f}

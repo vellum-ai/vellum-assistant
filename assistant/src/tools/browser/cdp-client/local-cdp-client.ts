@@ -60,7 +60,9 @@ export class LocalCdpClient implements ScopedCdpClient {
     if (this.disposed) {
       throw new CdpError("disposed", "LocalCdpClient already disposed");
     }
-    if (this.sessionPromise) return this.sessionPromise;
+    if (this.sessionPromise) {
+      return this.sessionPromise;
+    }
     const created = this.createSession();
     this.sessionPromise = created;
     // Clear the cached promise on rejection so the next call retries
@@ -166,23 +168,36 @@ export class LocalCdpClient implements ScopedCdpClient {
   }
 
   async listTabs(): Promise<never> {
-    throw new CdpError("transport_error", "listTabs is not supported by the local backend (extension backend required)");
+    throw new CdpError(
+      "transport_error",
+      "listTabs is not supported by the local backend (extension backend required)",
+    );
   }
 
   async selectTab(_tabId: number): Promise<never> {
-    throw new CdpError("transport_error", "selectTab is not supported by the local backend (extension backend required)");
+    throw new CdpError(
+      "transport_error",
+      "selectTab is not supported by the local backend (extension backend required)",
+    );
   }
 
   async closeTab(_tabId: number): Promise<never> {
-    throw new CdpError("transport_error", "closeTab is not supported by the local backend (extension backend required)");
+    throw new CdpError(
+      "transport_error",
+      "closeTab is not supported by the local backend (extension backend required)",
+    );
   }
 
   dispose(): void {
-    if (this.disposed) return;
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
     const pending = this.sessionPromise;
     this.sessionPromise = null;
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     pending
       .then(async (session) => {
         try {

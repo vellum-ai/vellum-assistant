@@ -21,7 +21,9 @@ interface GatewayGuardian {
 let gatewayGuardians: GatewayGuardian[] = [];
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
-    if (!input?.channelTypes) return gatewayGuardians;
+    if (!input?.channelTypes) {
+      return gatewayGuardians;
+    }
     return gatewayGuardians.filter((g) =>
       input.channelTypes!.includes(g.channelType),
     );

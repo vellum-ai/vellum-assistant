@@ -55,7 +55,9 @@ export const DoctorEventSchema = z.discriminatedUnion("type", [
     type: z.literal("feedback_prompt"),
     summary: z.string().optional(),
     reason: z.enum(["bug_report", "feature_request", "other"]).optional(),
-    classification: z.enum(["bug_report", "feature_request", "other"]).optional(),
+    classification: z
+      .enum(["bug_report", "feature_request", "other"])
+      .optional(),
   }),
   z.object({
     ...DoctorSourceEventFields,
@@ -84,9 +86,12 @@ export type DoctorEvent = z.infer<typeof DoctorEventSchema>;
  * the payload is invalid or represents an unknown event type (forward
  * compatibility — new event types are silently dropped).
  */
-export function parseDoctorEvent(payload: Record<string, unknown> | string): DoctorEvent | null {
+export function parseDoctorEvent(
+  payload: Record<string, unknown> | string,
+): DoctorEvent | null {
   try {
-    const obj: unknown = typeof payload === "string" ? JSON.parse(payload) : payload;
+    const obj: unknown =
+      typeof payload === "string" ? JSON.parse(payload) : payload;
     const result = DoctorEventSchema.safeParse(obj);
     return result.success ? result.data : null;
   } catch {

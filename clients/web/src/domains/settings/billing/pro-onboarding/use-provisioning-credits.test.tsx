@@ -19,9 +19,8 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
-const { useProvisioningCredits, useCreditTierLabel } = await import(
-  "./use-provisioning-credits"
-);
+const { useProvisioningCredits, useCreditTierLabel } =
+  await import("./use-provisioning-credits");
 
 /** A pro-plan catalog with a `credits_50` tier and a Mighty package on it. */
 function plansResponse(): PlanListResponse {

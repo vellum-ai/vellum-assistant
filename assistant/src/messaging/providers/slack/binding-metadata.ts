@@ -16,8 +16,8 @@ import {
  * (`ChannelBindingMetadata`) — the single source of truth that also drives
  * `openapi.yaml` and the web client's generated types — so this builder cannot
  * drift from the wire contract. Slack is the only channel that can currently
- * produce message-level deep links, because the link inputs (workspace team
- * id/url + a stable per-message timestamp) only exist for Slack.
+ * produce message-level deep links, because the link inputs (a channel id and
+ * a stable per-message timestamp) only exist for Slack.
  */
 export function buildSlackBindingMetadata(
   binding: ExternalConversationBinding,
@@ -26,15 +26,18 @@ export function buildSlackBindingMetadata(
     binding.externalChatName?.trim() || binding.externalChatId;
   const slackConfig = getConfig().slack;
 
-  const threadLink =
-    slackConfig && binding.externalThreadId
-      ? buildSlackMessageDeepLinks({
-          teamId: slackConfig.teamId,
-          teamUrl: slackConfig.teamUrl,
-          channelId: binding.externalChatId,
-          messageTs: binding.externalThreadId,
-        })
-      : undefined;
+  // The deep-link builders fall back to workspace-agnostic slack.com URLs
+  // when the workspace identity (teamId/teamUrl) is not configured — e.g.
+  // installs whose Slack connection came through the gateway and never ran
+  // the local bot-token setup — so links are always produced.
+  const threadLink = binding.externalThreadId
+    ? buildSlackMessageDeepLinks({
+        teamId: slackConfig?.teamId,
+        teamUrl: slackConfig?.teamUrl,
+        channelId: binding.externalChatId,
+        messageTs: binding.externalThreadId,
+      })
+    : undefined;
   const slackThread = binding.externalThreadId
     ? {
         channelId: binding.externalChatId,
@@ -43,17 +46,14 @@ export function buildSlackBindingMetadata(
       }
     : undefined;
 
-  const channelWebUrl = slackConfig
-    ? buildSlackWebChannelUrl({
-        teamUrl: slackConfig.teamUrl,
-        channelId: binding.externalChatId,
-      })
-    : undefined;
+  const channelWebUrl = buildSlackWebChannelUrl({
+    teamUrl: slackConfig?.teamUrl,
+    channelId: binding.externalChatId,
+  });
 
   // Channel-neutral source link: prefer the bound thread, fall back to the
   // channel, so clients land on the most specific source available.
-  const sourceLink =
-    threadLink ?? (channelWebUrl ? { webUrl: channelWebUrl } : undefined);
+  const sourceLink = threadLink ?? { webUrl: channelWebUrl };
 
   return {
     externalChatName,
@@ -61,8 +61,8 @@ export function buildSlackBindingMetadata(
     slackChannel: {
       channelId: binding.externalChatId,
       name: externalChatName,
-      ...(channelWebUrl ? { link: { webUrl: channelWebUrl } } : {}),
+      link: { webUrl: channelWebUrl },
     },
-    ...(sourceLink ? { sourceLink } : {}),
+    sourceLink,
   };
 }

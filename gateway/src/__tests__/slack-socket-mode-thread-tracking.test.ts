@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import * as schema from "../db/schema.js";
@@ -98,7 +99,6 @@ type SocketModeHarness = {
 function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "ast-default",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -122,7 +122,6 @@ function makeConfig(): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "reject",
     trustProxy: false,
   };
 }
@@ -639,7 +638,7 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
-  test("does not pre-track unrouted app mention threads during slow mentioned-user lookup", async () => {
+  test("arms the thread for an app mention even while a mentioned-user lookup is still pending", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -698,13 +697,20 @@ describe("SlackSocketModeClient thread tracking", () => {
       );
       await flushAsyncEventEmission();
 
+      // Nothing emits while the mentioned-user lookup is still in flight —
+      // the queue preserves ordering rather than letting the reply overtake
+      // the mention that armed the thread.
       expect(emitted).toHaveLength(0);
 
       expect(resolveDelayedMention).toBeDefined();
       resolveDelayedMention!(makeSlackUserResponse());
       await flushAsyncEventEmission();
 
-      expect(emitted).toHaveLength(0);
+      // Once the lookup resolves both drain, in order. The channel has no
+      // routing entry, so both carry the local assistant.
+      expect(emitted).toHaveLength(2);
+      expect(emitted[0].event.source.updateId).toBe("Ev-unrouted-mention");
+      expect(emitted[1].event.source.updateId).toBe("Ev-unrouted-reply");
     } finally {
       rawDb.close();
     }
@@ -787,8 +793,8 @@ describe("SlackSocketModeClient thread tracking", () => {
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
     // Workspace routes by actor, not by channel: no conversation_id entry
-    // exists for any channel, and unmappedPolicy stays "reject". The key
-    // must look like a real Slack user ID (uppercase, U-prefixed) — that's
+    // exists for any channel. The key must look like a real Slack user ID
+    // (uppercase, U-prefixed) — that's
     // how the tracking check tells Slack actor routes apart from other
     // channels' actor keys in the shared routingEntries list.
     client.config.gatewayConfig.routingEntries = [
@@ -858,8 +864,9 @@ describe("SlackSocketModeClient thread tracking", () => {
         routeSource: "actor_id",
       });
 
-      // An unrouted human's reply in the armed thread is still dropped at
-      // normalize time — arming the thread must not loosen forwarding.
+      // A human with no explicit actor route replying in the armed thread is
+      // forwarded on the local assistant. Routing no longer gates on whether
+      // a route entry exists; the admission floor decides admittance.
       client.handleMessage(
         JSON.stringify({
           envelope_id: "env-unrouted-actor-followup",
@@ -881,54 +888,20 @@ describe("SlackSocketModeClient thread tracking", () => {
       );
       await flushAsyncEventEmission();
 
-      expect(emitted).toHaveLength(1);
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].routing).toEqual({
+        assistantId: LOCAL_ASSISTANT_ID,
+        routeSource: "default",
+      });
     } finally {
       rawDb.close();
     }
   });
 
-  test("does not track bot replies when the only actor routes belong to other channels (non-Slack keys)", async () => {
-    const { rawDb, store } = createSlackStore();
-    const emitted: NormalizedSlackEvent[] = [];
-    const client = createHarness(store, (event) => emitted.push(event));
-    const ws = makeOpenSocket();
-    // routingEntries is shared across channels; a Telegram-style numeric
-    // actor key must not make Slack channels eligible for thread tracking.
-    client.config.gatewayConfig.routingEntries = [
-      { type: "actor_id", key: "123456789", assistantId: "ast-telegram" },
-    ];
-    const threadTs = "1700000001.000500";
-
-    try {
-      client.handleMessage(
-        JSON.stringify({
-          envelope_id: "env-bot-nonslack-actor-reply",
-          type: "events_api",
-          payload: {
-            event_id: "Ev-bot-nonslack-actor-reply",
-            event: {
-              type: "message",
-              user: "UBOT",
-              text: "bot reply with only non-Slack actor routes configured",
-              ts: "1700000001.000600",
-              channel: "C-unrouted",
-              channel_type: "channel",
-              thread_ts: threadTs,
-            },
-          },
-        }),
-        ws,
-      );
-      await flushAsyncEventEmission();
-
-      expect(emitted).toHaveLength(0);
-      expect(store.hasThread(threadTs)).toBe(false);
-    } finally {
-      rawDb.close();
-    }
-  });
-
-  test("does not track bot replies in unrouted channels", async () => {
+  test("tracks bot replies in channels with no routing entry, without forwarding the echo", async () => {
+    // Channels without a routing entry used to be ineligible for thread
+    // tracking. Every channel is routable now, so the thread is armed — but
+    // the bot's own echo is still never forwarded.
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -958,7 +931,7 @@ describe("SlackSocketModeClient thread tracking", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(0);
-      expect(store.hasThread(threadTs)).toBe(false);
+      expect(store.hasThread(threadTs)).toBe(true);
     } finally {
       rawDb.close();
     }
@@ -1421,9 +1394,9 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.message.conversationExternalId).toBe("D-direct");
       expect(emitted[0].threadTs).toBe("1700000000.000500");
       expect(emitted[0].event.source.threadId).toBe("1700000000.000500");
-      // DMs route to the default assistant even when the channel is unmapped.
+      // DMs resolve to the local assistant like any other channel.
       expect(emitted[0].routing).toEqual({
-        assistantId: "ast-default",
+        assistantId: LOCAL_ASSISTANT_ID,
         routeSource: "default",
       });
     } finally {
@@ -2030,13 +2003,13 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
     }
   });
 
-  test("admits a reaction in a DM channel via the default assistant", async () => {
+  test("admits a reaction in a DM channel via the local assistant", async () => {
     const { rawDb, store } = createSlackStore();
     try {
       const { emitted, run } = emitFor(store, reaction("D-direct"), "Ev-rx-dm");
       await run();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].routing.assistantId).toBe("ast-default");
+      expect(emitted[0].routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     } finally {
       rawDb.close();
     }

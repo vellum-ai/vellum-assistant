@@ -518,4 +518,24 @@ describe("formatAuthChallenge", () => {
     const output = formatAuthChallenge(challenge);
     expect(output).not.toContain("Fields:");
   });
+
+  it("bounds page-authored service names, labels and field count", () => {
+    // Service name and labels are read from the DOM, so a hostile login
+    // page would otherwise make the formatted challenge arbitrarily long.
+    const challenge: AuthChallenge = {
+      type: "login",
+      service: "S".repeat(10_000),
+      fields: Array.from({ length: 500 }, () => ({
+        type: "password" as const,
+        selector: "input",
+        label: "L".repeat(10_000),
+      })),
+      url: "https://example.com/login",
+    };
+
+    const output = formatAuthChallenge(challenge);
+
+    expect(output.length).toBeLessThan(2_000);
+    expect(output).toContain("(+488 more)");
+  });
 });

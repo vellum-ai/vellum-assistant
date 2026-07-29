@@ -37,7 +37,9 @@ function useActiveIds(): string[] {
  */
 function useCardSummary(id: string): CardSummary | null {
   const data = useAcpRunCardData(id);
-  if (!data) return null;
+  if (!data) {
+    return null;
+  }
   return {
     state: data.state,
     title: data.currentStepTitle,

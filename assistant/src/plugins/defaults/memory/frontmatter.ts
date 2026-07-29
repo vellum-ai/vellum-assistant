@@ -32,7 +32,9 @@ export function parseFrontmatterFields(
   content: string,
 ): FrontmatterParseResult | null {
   const match = content.match(FRONTMATTER_REGEX);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   const frontmatter = match[1];
   const body = content.slice(match[0].length);

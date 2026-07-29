@@ -93,16 +93,17 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const { GlobalPushToTalkBridge } = await import("./global-push-to-talk-bridge");
 const { formatVoiceError } = await import("@/domains/chat/utils/chat");
 const { useComposerStore } = await import("@/domains/chat/composer-store");
-const { useVoiceRecordingStore } = await import(
-  "@/domains/chat/voice/voice-recording-store"
-);
+const { useVoiceRecordingStore } =
+  await import("@/domains/chat/voice/voice-recording-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 const renderBridge = (assistantId: string | null = "assistant-1") => {
   render(<GlobalPushToTalkBridge assistantId={assistantId} />);
   if (!latestVoiceInputProps) {
-    throw new Error("Expected GlobalPushToTalkBridge to mount VoiceInputButton");
+    throw new Error(
+      "Expected GlobalPushToTalkBridge to mount VoiceInputButton",
+    );
   }
   return latestVoiceInputProps;
 };

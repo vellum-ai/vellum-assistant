@@ -82,7 +82,9 @@ mock.module("../runtime/channel-verification-service.js", () => ({
 // ── Guardian delivery reader mock ──
 mock.module("../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
-    if (!mockGuardianDelivery) return [];
+    if (!mockGuardianDelivery) {
+      return [];
+    }
     const channelType = input?.channelTypes?.[0] ?? "telegram";
     return [{ channelType, status: "active", ...mockGuardianDelivery }];
   },
@@ -121,7 +123,9 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveGuardianName: (guardianDisplayName?: string | null): string => {
     // Mirror the real implementation: guardian persona name (from users/<slug>.md) > guardianDisplayName > default
     const userRef = "my human"; // In tests, resolveUserReference() returns this
-    if (userRef !== "my human") return userRef;
+    if (userRef !== "my human") {
+      return userRef;
+    }
     if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
       return guardianDisplayName.trim();
     }

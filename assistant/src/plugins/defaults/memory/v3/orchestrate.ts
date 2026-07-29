@@ -444,7 +444,9 @@ export async function orchestrate(
     if (section && !matchedSections.has(slug)) {
       matchedSections.set(slug, section);
     }
-    if (finderSeen.has(slug)) return;
+    if (finderSeen.has(slug)) {
+      return;
+    }
     finderSeen.add(slug);
     finder.push({
       slug,
@@ -496,7 +498,9 @@ export async function orchestrate(
     addFinder(hit.article, sections[hit.section], undefined, "reply");
   }
   for (const hit of replyDensed) {
-    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
+    if (!deps.sectionIndex.byArticle.has(hit.article)) {
+      continue;
+    }
     addFinder(
       hit.article,
       sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
@@ -577,7 +581,9 @@ export async function orchestrate(
       if (section) {
         matchedSections.set(hit.article, section);
         const existing = finder.find((c) => c.slug === hit.article);
-        if (existing) existing.descriptor = section.text;
+        if (existing) {
+          existing.descriptor = section.text;
+        }
       }
       addFinder(hit.article, section, undefined, "entity");
     }
@@ -882,10 +888,14 @@ export function sectionByOrdinal(
   ordinal: number,
 ): Section | undefined {
   const indices = index.byArticle.get(article);
-  if (!indices) return undefined;
+  if (!indices) {
+    return undefined;
+  }
   for (const i of indices) {
     const section = index.sections[i];
-    if (section && section.ordinal === ordinal) return section;
+    if (section && section.ordinal === ordinal) {
+      return section;
+    }
   }
   return undefined;
 }

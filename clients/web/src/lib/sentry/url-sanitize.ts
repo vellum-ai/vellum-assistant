@@ -44,8 +44,12 @@ const SENSITIVE_PARAM_KEYS = new Set([
 const REDACTED = "[REDACTED]";
 
 function scrubSearchParams(search: string): string {
-  if (!search || search === "?") return search;
-  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  if (!search || search === "?") {
+    return search;
+  }
+  const params = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  );
   let changed = false;
   for (const key of [...params.keys()]) {
     if (SENSITIVE_PARAM_KEYS.has(key.toLowerCase())) {
@@ -53,26 +57,36 @@ function scrubSearchParams(search: string): string {
       changed = true;
     }
   }
-  if (!changed) return search;
+  if (!changed) {
+    return search;
+  }
   const out = params.toString();
   return out ? `?${out}` : "";
 }
 
 function scrubHash(hash: string): string {
-  if (!hash || hash === "#") return hash;
+  if (!hash || hash === "#") {
+    return hash;
+  }
   // Parametric hashes (OAuth implicit flow: #access_token=…&token_type=…)
   // are redacted wholesale rather than parsed — any `=` in the fragment
   // indicates structured data rather than a route anchor.
-  if (hash.includes("=")) return `#${REDACTED}`;
+  if (hash.includes("=")) {
+    return `#${REDACTED}`;
+  }
   return hash;
 }
 
 export function sanitizeUrl(url: string): string {
-  if (!url) return url;
+  if (!url) {
+    return url;
+  }
   // Fast path — nothing to scrub when the string has neither query nor
   // fragment. Also avoids `new URL("not a url", base)` succeeding and
   // turning plain strings into percent-encoded paths.
-  if (!url.includes("?") && !url.includes("#")) return url;
+  if (!url.includes("?") && !url.includes("#")) {
+    return url;
+  }
   try {
     // Relative and protocol-relative URLs are valid breadcrumb inputs
     // (`/path?x=y`, `//host/path?x=y`), so resolve against a dummy base
@@ -83,7 +97,9 @@ export function sanitizeUrl(url: string): string {
     const parsed = new URL(url, base);
     parsed.search = scrubSearchParams(parsed.search);
     parsed.hash = scrubHash(parsed.hash);
-    if (hasScheme) return parsed.toString();
+    if (hasScheme) {
+      return parsed.toString();
+    }
     if (isProtocolRelative) {
       return `//${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }

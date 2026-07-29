@@ -21,6 +21,7 @@ import {
   fireEvent,
   render,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -45,6 +46,7 @@ import {
   makeSuperPackage,
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import * as takeoverAvatarStash from "@/lib/billing/takeover-avatar-stash";
 import { routes } from "@/utils/routes";
 
 // Capture navigate() targets so the action-button wiring can be asserted
@@ -155,6 +157,16 @@ mock.module("@/runtime/browser", () => ({
     return Promise.resolve();
   },
   openUrlFinishedListener: () => () => {},
+}));
+
+// Count the avatar snapshot the checkout redirect takes; the real capture reads
+// the resolved-assistants store, which these DOM tests never drive.
+let captureStashCalls = 0;
+mock.module("@/lib/billing/takeover-avatar-stash", () => ({
+  ...takeoverAvatarStash,
+  captureTakeoverAvatarStash: () => {
+    captureStashCalls += 1;
+  },
 }));
 
 const { PlanCard } = await import("./plan-card");
@@ -383,6 +395,43 @@ function renderCard(
   );
 }
 
+/**
+ * The static markup parsed into a detached DOM node, so an assertion can be
+ * scoped to one card. Both cards render spec chips, so a whole-document text
+ * match cannot tell the current card's chips from the promo card's.
+ */
+function renderCardDom(
+  subscription: SubscriptionResponse,
+  plans: PlanListResponse,
+): HTMLElement {
+  const host = document.createElement("div");
+  host.innerHTML = renderCard(subscription, plans);
+  return host;
+}
+
+/** The current-plan card: PlanSpecCard's forced light scope. */
+function currentCard(host: HTMLElement): HTMLElement {
+  const card = host.querySelector<HTMLElement>('[data-theme="light"]');
+  if (!card) {
+    throw new Error("expected a current-plan card");
+  }
+  return card;
+}
+
+/** The recommended card: PlanPromoCard's forced dark scope. */
+function promoCard(host: HTMLElement): HTMLElement {
+  const card = host.querySelector<HTMLElement>('[data-theme="dark"]');
+  if (!card) {
+    throw new Error("expected a recommended promo card");
+  }
+  return card;
+}
+
+/** `packageSpecs` chip labels for the free baseline and each fixture package. */
+const FREE_BASELINE_CHIPS = ["Small Machine", "$0 credits", "4 GB"];
+const MIGHTY_CHIPS = ["Small Machine", "$25 credits", "10 GB"];
+const SUPER_CHIPS = ["Medium Machine", "$45 credits", "30 GB"];
+
 function renderCardInteractive(
   subscription: SubscriptionResponse,
   plans: PlanListResponse,
@@ -457,6 +506,7 @@ beforeEach(() => {
   changeStorageTierCall = null;
   onboardingResponse = {};
   toastSuccessCalls = [];
+  captureStashCalls = 0;
 });
 
 afterEach(() => {
@@ -498,40 +548,50 @@ describe("PlanCard", () => {
     expect(html).not.toContain("recommended-upgrade-button");
   });
 
-  test("Free current card is chip-less; recommended shows the promo blurb", () => {
-    const html = renderCard(baseSubscription(), basePlansResponse());
-    // The current (Free) card is now a minimal centered card with NO spec chips:
-    // none of the free-baseline chip labels appear.
-    expect(html).not.toContain("$0 credits");
-    expect(html).not.toContain("4 GB");
-    expect(html).not.toContain("Small Machine");
+  test("Free current card is chip-less; recommended shows the package chips", () => {
+    const host = renderCardDom(baseSubscription(), basePlansResponse());
+    // The current (Free) card is a minimal centered card with NO spec chips:
+    // none of the free-baseline chip labels appear inside it.
+    const current = within(currentCard(host));
+    for (const label of FREE_BASELINE_CHIPS) {
+      expect(current.queryByText(label)).toBeNull();
+    }
     // The recommended (Mighty) promo card shows "Upgrade to Mighty" plus the
-    // per-tier blurb, replacing the old summary chip — and carries no tag/chips.
-    expect(html).toContain("Upgrade to Mighty");
-    expect(html).toContain(PLAN_TIER_COPY.mighty.upgradeBlurb!);
-    expect(html).not.toContain("more credits and storage");
-    expect(html).not.toContain("Recommended");
+    // package's spec chips, and carries no tag.
+    const promo = within(promoCard(host));
+    expect(promo.getByText("Upgrade to Mighty")).toBeTruthy();
+    for (const label of MIGHTY_CHIPS) {
+      expect(promo.getByText(label)).toBeTruthy();
+    }
+    expect(promoCard(host).textContent).not.toContain(
+      "more credits and storage",
+    );
+    expect(host.innerHTML).not.toContain("Recommended");
     // The centered free card still shows its "Current Plan" tag.
-    expect(html).toContain("Current Plan");
+    expect(current.getByText("Current Plan")).toBeTruthy();
   });
 
   test("Mighty → Super: current keeps its chips, recommended shows the promo card", () => {
-    const html = renderCard(proMightySubscription(), plansWithSuper());
+    const host = renderCardDom(proMightySubscription(), plansWithSuper());
     // On Mighty, the recommended upgrade is the next catalog package, Super.
-    expect(html).toContain("recommended-upgrade-button");
-    expect(html).toContain("Upgrade to Super");
-    expect(html).toContain(PLAN_TIER_COPY.super.upgradeBlurb!);
+    expect(host.innerHTML).toContain("recommended-upgrade-button");
+    const promo = within(promoCard(host));
+    expect(promo.getByText("Upgrade to Super")).toBeTruthy();
+    for (const label of SUPER_CHIPS) {
+      expect(promo.getByText(label)).toBeTruthy();
+    }
     // The promo card carries no "Recommended" tag and no summary chip.
-    expect(html).not.toContain("Recommended");
-    expect(html).not.toContain("more credits, storage, and a stronger machine");
-    // The current (Mighty) card keeps its absolute chips.
-    expect(html).toContain("$25 credits");
-    expect(html).toContain("10 GB");
-    expect(html).toContain("Small Machine");
-    // The current-plan card shows the actual package name "Mighty" (not the
-    // generic plan name "Pro").
-    expect(html).toContain("plan-card-name");
-    expect(html).toContain("Mighty");
+    expect(host.innerHTML).not.toContain("Recommended");
+    expect(promoCard(host).textContent).not.toContain(
+      "more credits, storage, and a stronger machine",
+    );
+    // The current (Mighty) card keeps its own absolute chips, and names the
+    // actual package ("Mighty"), not the generic plan name "Pro".
+    const current = within(currentCard(host));
+    for (const label of MIGHTY_CHIPS) {
+      expect(current.getByText(label)).toBeTruthy();
+    }
+    expect(current.getByTestId("plan-card-name").textContent).toBe("Mighty");
   });
 
   test("an unpinned Custom sub gets the customize promo card", () => {
@@ -632,19 +692,23 @@ describe("PlanCard", () => {
   });
 
   test("a free user's current card is centered and chip-less", () => {
-    const html = renderCard(baseSubscription(), basePlansResponse());
+    const host = renderCardDom(baseSubscription(), basePlansResponse());
     // The free current card is a minimal centered card: centering classes on the
     // card and its "Current Plan" tag, but NO chips.
-    expect(html).toContain("justify-center");
-    expect(html).toContain("Current Plan");
-    expect(html).not.toContain("$0 credits");
-    expect(html).not.toContain("4 GB");
-    expect(html).not.toContain("Small Machine");
-    // The recommended (Mighty) promo card shows the per-tier blurb, not a chip.
-    expect(html).toContain("Upgrade to Mighty");
-    expect(html).toContain(PLAN_TIER_COPY.mighty.upgradeBlurb!);
-    expect(html).not.toContain("more credits and storage");
-    expect(html).not.toContain("stronger machine");
+    const current = currentCard(host);
+    expect(current.className).toContain("justify-center");
+    expect(within(current).getByText("Current Plan")).toBeTruthy();
+    for (const label of FREE_BASELINE_CHIPS) {
+      expect(within(current).queryByText(label)).toBeNull();
+    }
+    // The recommended (Mighty) promo card shows the package's spec chips.
+    const promo = promoCard(host);
+    expect(within(promo).getByText("Upgrade to Mighty")).toBeTruthy();
+    for (const label of MIGHTY_CHIPS) {
+      expect(within(promo).getByText(label)).toBeTruthy();
+    }
+    expect(promo.textContent).not.toContain("more credits and storage");
+    expect(promo.textContent).not.toContain("stronger machine");
   });
 });
 
@@ -1297,6 +1361,8 @@ describe("PlanCard recommended upgrade — change-package", () => {
       }
     });
     expect(openedUrl).toBe("https://checkout.example.com/session");
+    // The redirect snapshots the avatar so the takeover can draw it on return.
+    expect(captureStashCalls).toBe(1);
     expect(upgradeCall?.body).toMatchObject({
       target_plan_id: "pro",
       package: "mighty",

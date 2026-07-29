@@ -8,7 +8,9 @@ let diskSampleError: unknown = null;
 
 mock.module("../util/disk-usage.js", () => ({
   getDiskUsageInfo: () => {
-    if (diskSampleError) throw diskSampleError;
+    if (diskSampleError) {
+      throw diskSampleError;
+    }
     return diskSample;
   },
 }));

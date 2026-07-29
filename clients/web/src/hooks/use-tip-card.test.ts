@@ -49,7 +49,9 @@ const UNGATED_TIPS = TIPS_CATALOG.filter((tip) => !tip.gates);
 const SECOND_UNGATED_TIP_ID = UNGATED_TIPS[1].id;
 
 function setFlag(value: "on" | "off") {
-  useClientFeatureFlagStore.getState().setStringFlags({ proactiveTips: value });
+  useClientFeatureFlagStore
+    .getState()
+    .setStringFlags({ proactiveTips: value }, null);
 }
 
 /** Stamp first-seen far enough in the past that the new-user grace has run. */
@@ -351,7 +353,7 @@ describe("useTipCard carousel", () => {
     expect(result.current.carouselIndex).toBe(0);
   });
 
-  test("clamps at the catalog edges instead of wrapping", () => {
+  test("clamps prev at the start and wraps next past the end", () => {
     openAllGates();
 
     const { result } = renderHook(() => useTipCard());
@@ -360,13 +362,19 @@ describe("useTipCard carousel", () => {
     });
     expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
 
-    for (let click = 0; click < UNGATED_TIPS.length + 3; click++) {
+    for (let click = 0; click < UNGATED_TIPS.length - 1; click++) {
       act(() => {
         result.current.onNextTip();
       });
     }
     expect(result.current.tip?.id).toBe(UNGATED_TIPS.at(-1)?.id);
     expect(result.current.carouselIndex).toBe(UNGATED_TIPS.length - 1);
+
+    act(() => {
+      result.current.onNextTip();
+    });
+    expect(result.current.tip?.id).toBe(FIRST_TIP_ID);
+    expect(result.current.carouselIndex).toBe(0);
   });
 
   test("browsing includes previously dismissed tips", () => {

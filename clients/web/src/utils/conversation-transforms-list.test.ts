@@ -196,8 +196,7 @@ describe("toConversation — Slack channel binding", () => {
             channelId: "C0123ABCDEF",
             name: "product",
             link: {
-              webUrl:
-                "https://example.slack.com/archives/C0123ABCDEF",
+              webUrl: "https://example.slack.com/archives/C0123ABCDEF",
             },
           },
           slackThread: {
@@ -323,22 +322,18 @@ describe("listConversations — pagination", () => {
       query: Record<string, unknown> | undefined;
     }> = [];
     const foregroundQueue = [...pages.foreground];
-    const backgroundQueue = [
-      ...(pages.background ?? [{ conversations: [] }]),
-    ];
-    daemonClient.get = mock(
-      async (options: GetOptions & { url?: unknown }) => {
-        calls.push({ url: options.url, query: options.query });
-        const isBackground = options.query?.conversationType === "background";
-        const queue = isBackground ? backgroundQueue : foregroundQueue;
-        const next = queue.shift() ?? { conversations: [], hasMore: false };
-        return {
-          data: next,
-          error: null,
-          response: new Response(null, { status: 200 }),
-        };
-      },
-    ) as typeof daemonClient.get;
+    const backgroundQueue = [...(pages.background ?? [{ conversations: [] }])];
+    daemonClient.get = mock(async (options: GetOptions & { url?: unknown }) => {
+      calls.push({ url: options.url, query: options.query });
+      const isBackground = options.query?.conversationType === "background";
+      const queue = isBackground ? backgroundQueue : foregroundQueue;
+      const next = queue.shift() ?? { conversations: [], hasMore: false };
+      return {
+        data: next,
+        error: null,
+        response: new Response(null, { status: 200 }),
+      };
+    }) as typeof daemonClient.get;
     return { calls };
   }
 
@@ -382,9 +377,7 @@ describe("listConversations — pagination", () => {
 
   test("stops on the first page when hasMore is false or absent", async () => {
     const { calls } = setupPagedResponses({
-      foreground: [
-        { conversations: [makeConversationRow("only-one")] },
-      ],
+      foreground: [{ conversations: [makeConversationRow("only-one")] }],
     });
 
     const result = await listConversations("assistant-1");
@@ -479,9 +472,9 @@ describe("listBackgroundConversations — pagination", () => {
     expect(result.map((c) => c.conversationId)).toEqual(["bg-0", "bg-1"]);
     // AND every request targets the background bucket
     expect(calls).toHaveLength(2);
-    expect(
-      calls.every((c) => c.query?.conversationType === "background"),
-    ).toBe(true);
+    expect(calls.every((c) => c.query?.conversationType === "background")).toBe(
+      true,
+    );
   });
 });
 

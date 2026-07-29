@@ -28,12 +28,16 @@ export const ttsProviderUnificationMigration: WorkspaceMigration = {
     "Backfill services.tts.provider and services.tts.providers.* from legacy TTS config keys, then remove legacy keys",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return; // Malformed config — skip
@@ -47,7 +51,9 @@ export const ttsProviderUnificationMigration: WorkspaceMigration = {
     const legacyFishAudio = extractLegacyFishAudio(config);
 
     // If no legacy data exists, nothing to migrate
-    if (!legacyProvider && !legacyElevenlabs && !legacyFishAudio) return;
+    if (!legacyProvider && !legacyElevenlabs && !legacyFishAudio) {
+      return;
+    }
 
     // Ensure services.tts exists
     const services = ensureObj(config, "services");
@@ -96,12 +102,16 @@ export const ttsProviderUnificationMigration: WorkspaceMigration = {
   },
   down(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
@@ -181,11 +191,15 @@ function ensureObj(
 /** Extract legacy provider selection from calls.voice.ttsProvider. */
 function resolveLegacyProvider(config: Record<string, unknown>): string | null {
   const calls = config.calls;
-  if (!calls || typeof calls !== "object" || Array.isArray(calls)) return null;
+  if (!calls || typeof calls !== "object" || Array.isArray(calls)) {
+    return null;
+  }
   const callsObj = calls as Record<string, unknown>;
 
   const voice = callsObj.voice;
-  if (!voice || typeof voice !== "object" || Array.isArray(voice)) return null;
+  if (!voice || typeof voice !== "object" || Array.isArray(voice)) {
+    return null;
+  }
   const voiceObj = voice as Record<string, unknown>;
 
   const provider = voiceObj.ttsProvider;
@@ -195,11 +209,15 @@ function resolveLegacyProvider(config: Record<string, unknown>): string | null {
 /** Remove calls.voice.ttsProvider from config while preserving other voice fields. */
 function removeLegacyTtsProvider(config: Record<string, unknown>): void {
   const calls = config.calls;
-  if (!calls || typeof calls !== "object" || Array.isArray(calls)) return;
+  if (!calls || typeof calls !== "object" || Array.isArray(calls)) {
+    return;
+  }
   const callsObj = calls as Record<string, unknown>;
 
   const voice = callsObj.voice;
-  if (!voice || typeof voice !== "object" || Array.isArray(voice)) return;
+  if (!voice || typeof voice !== "object" || Array.isArray(voice)) {
+    return;
+  }
   const voiceObj = voice as Record<string, unknown>;
 
   delete voiceObj.ttsProvider;
@@ -210,7 +228,9 @@ function extractLegacyElevenlabs(
   config: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const el = config.elevenlabs;
-  if (!el || typeof el !== "object" || Array.isArray(el)) return null;
+  if (!el || typeof el !== "object" || Array.isArray(el)) {
+    return null;
+  }
   const obj = el as Record<string, unknown>;
   // Only return if there are non-empty keys
   return Object.keys(obj).length > 0 ? { ...obj } : null;
@@ -221,7 +241,9 @@ function extractLegacyFishAudio(
   config: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const fa = config.fishAudio;
-  if (!fa || typeof fa !== "object" || Array.isArray(fa)) return null;
+  if (!fa || typeof fa !== "object" || Array.isArray(fa)) {
+    return null;
+  }
   const obj = fa as Record<string, unknown>;
   return Object.keys(obj).length > 0 ? { ...obj } : null;
 }

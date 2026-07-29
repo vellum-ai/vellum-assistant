@@ -16,13 +16,7 @@
  * loading / empty presentation while the turn is still streaming.
  */
 
-import {
-  Fragment,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -81,7 +75,9 @@ export function MiniAssistant({
   isAssistantBusy?: boolean;
 }) {
   const { components, chosen } = useChosenAvatar();
-  if (!components || !chosen) return <div style={{ width: size, height: size }} />;
+  if (!components || !chosen) {
+    return <div style={{ width: size, height: size }} />;
+  }
   return (
     <div className="shrink-0" style={{ width: size, height: size }}>
       <AnimatedAvatar
@@ -165,7 +161,9 @@ export function MeetingCreatedStep({
   useLayoutEffect(() => {
     const measure = () => {
       const r = slotRef.current?.getBoundingClientRect();
-      if (r) setSlot({ cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+      if (r) {
+        setSlot({ cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+      }
     };
     measure();
     window.addEventListener("resize", measure);
@@ -187,12 +185,18 @@ export function MeetingCreatedStep({
       {/* Same column layout as the looking-you-up / result steps so the avatar
           lands exactly where the next step renders it. */}
       <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
-        <div ref={slotRef} className="relative shrink-0" style={{ width: MINI, height: MINI }}>
+        <div
+          ref={slotRef}
+          className="relative shrink-0"
+          style={{ width: MINI, height: MINI }}
+        >
           {components && chosen && slot && (
             <motion.div
               className="absolute inset-0"
               style={{ transformOrigin: "center" }}
-              initial={reduce ? false : { scale: bigScale, x: startX, y: startY }}
+              initial={
+                reduce ? false : { scale: bigScale, x: startX, y: startY }
+              }
               animate={{
                 x: [startX, startX, 0, 0],
                 y: [startY, startY + dip, 0, 0],
@@ -208,7 +212,11 @@ export function MeetingCreatedStep({
                     }
               }
             >
-              <AnimatedAvatar components={components} traits={chosen} size={MINI} />
+              <AnimatedAvatar
+                components={components}
+                traits={chosen}
+                size={MINI}
+              />
             </motion.div>
           )}
         </div>
@@ -451,7 +459,10 @@ export function ResearchResultsStep({
         <div className="flex min-h-0 flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
           <div className="flex items-center gap-3">
             <MiniAssistant />
-            <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+            <h1
+              className="text-[2.2rem] leading-none"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
               This is what I found about you
             </h1>
           </div>
@@ -635,8 +646,8 @@ function PluginSetupNote({
         animate={{ opacity: revealed ? 1 : 0, x: revealed ? 0 : -6 }}
         transition={reduce ? { duration: 0 } : { duration: 0.35 }}
       >
-        Already set up the {joinPills(pluginLabels, pillTone)} plugin{plural ? "s" : ""}{" "}
-        to help with your work
+        Already set up the {joinPills(pluginLabels, pillTone)} plugin
+        {plural ? "s" : ""} to help with your work
       </motion.p>
     </div>
   );
@@ -664,7 +675,9 @@ function FlyingHeadingAvatar({
   onLanded: () => void;
 }) {
   const { components, chosen } = useChosenAvatar();
-  if (!components || !chosen) return null;
+  if (!components || !chosen) {
+    return null;
+  }
 
   const half = HEADING_AVATAR / 2;
   const landing = flyToNote && note ? note : head;
@@ -678,7 +691,11 @@ function FlyingHeadingAvatar({
   return (
     <motion.div
       className="pointer-events-none absolute left-0 top-0"
-      style={{ width: HEADING_AVATAR, height: HEADING_AVATAR, transformOrigin: "center" }}
+      style={{
+        width: HEADING_AVATAR,
+        height: HEADING_AVATAR,
+        transformOrigin: "center",
+      }}
       initial={false}
       animate={animate}
       transition={
@@ -689,10 +706,16 @@ function FlyingHeadingAvatar({
             : { duration: 0.4 }
       }
       onAnimationComplete={() => {
-        if (flyToNote && note) onLanded();
+        if (flyToNote && note) {
+          onLanded();
+        }
       }}
     >
-      <AnimatedAvatar components={components} traits={chosen} size={HEADING_AVATAR} />
+      <AnimatedAvatar
+        components={components}
+        traits={chosen}
+        size={HEADING_AVATAR}
+      />
     </motion.div>
   );
 }
@@ -731,11 +754,7 @@ export function SuggestionsStep({
   // Show real suggestions as they arrive; only fall back once the turn settles
   // with nothing, so we never flash generic prompts over an in-flight result.
   const items =
-    suggestions.length > 0
-      ? suggestions
-      : loading
-        ? []
-        : FALLBACK_SUGGESTIONS;
+    suggestions.length > 0 ? suggestions : loading ? [] : FALLBACK_SUGGESTIONS;
 
   const pluginLabels = installedPlugins
     .map(pluginDisplayName)
@@ -748,9 +767,10 @@ export function SuggestionsStep({
   const columnRef = useRef<HTMLDivElement>(null);
   const headSlotRef = useRef<HTMLDivElement>(null);
   const noteSlotRef = useRef<HTMLDivElement>(null);
-  const [anchors, setAnchors] = useState<{ head: Anchor; note?: Anchor } | null>(
-    null,
-  );
+  const [anchors, setAnchors] = useState<{
+    head: Anchor;
+    note?: Anchor;
+  } | null>(null);
   const [flown, setFlown] = useState(false);
   const [landed, setLanded] = useState(false);
 
@@ -758,7 +778,9 @@ export function SuggestionsStep({
     const measure = () => {
       const col = columnRef.current;
       const head = headSlotRef.current;
-      if (!col || !head) return;
+      if (!col || !head) {
+        return;
+      }
       const c = col.getBoundingClientRect();
       const center = (r: DOMRect): Anchor => ({
         x: r.left - c.left + r.width / 2,
@@ -780,7 +802,9 @@ export function SuggestionsStep({
   // Fly down the moment we have the data: as soon as the note slot is measured.
   const noteY = anchors?.note?.y;
   useEffect(() => {
-    if (!hasNote || noteY === undefined || flown) return;
+    if (!hasNote || noteY === undefined || flown) {
+      return;
+    }
     setFlown(true);
   }, [hasNote, noteY, flown]);
 
@@ -808,9 +832,14 @@ export function SuggestionsStep({
                 ? { width: 0, marginRight: 0 }
                 : { width: HEADING_AVATAR, marginRight: 12 }
             }
-            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+            transition={
+              reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }
+            }
           />
-          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+          <h1
+            className="text-[2.2rem] leading-none"
+            style={{ fontFamily: "var(--font-serif)" }}
+          >
             Here&rsquo;s what we could do first
           </h1>
         </div>
@@ -924,9 +953,10 @@ export function LetsChatReadyStep({
   /** Redo into this step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
-   * Externally hold the "Let's chat" CTA (e.g. a resumed completed journey
-   * still waiting on the established-assistant guard). Disables the button and
-   * no-ops the handoff until cleared, so the CTA can't fire before the verdict.
+   * Externally hold the "Let's chat" CTA (a resumed completed journey still
+   * waiting on the established-assistant guard, or a dead hatch with no
+   * assistant to hand off to). Disables the button and no-ops the handoff until
+   * cleared. Back-navigation stays interactive.
    */
   disabled?: boolean;
 }) {
@@ -958,9 +988,10 @@ export function LetsChatReadyStep({
   const columnRef = useRef<HTMLDivElement>(null);
   const headSlotRef = useRef<HTMLDivElement>(null);
   const noteSlotRef = useRef<HTMLDivElement>(null);
-  const [anchors, setAnchors] = useState<{ head: Anchor; note?: Anchor } | null>(
-    null,
-  );
+  const [anchors, setAnchors] = useState<{
+    head: Anchor;
+    note?: Anchor;
+  } | null>(null);
   const [flown, setFlown] = useState(false);
   const [landed, setLanded] = useState(false);
   // Mirrors `flown` for the measure() closure below without needing it in the
@@ -974,13 +1005,17 @@ export function LetsChatReadyStep({
   useLayoutEffect(() => {
     const col = columnRef.current;
     const head = headSlotRef.current;
-    if (!col || !head) return;
+    if (!col || !head) {
+      return;
+    }
 
     const measure = () => {
       // Skip while the head slot is mid/post-collapse (`flown`): re-measuring
       // then would capture its collapsed width-0 position instead of the
       // pre-collapse anchor the flight already launched from.
-      if (flownRef.current) return;
+      if (flownRef.current) {
+        return;
+      }
       const c = col.getBoundingClientRect();
       const center = (r: DOMRect): Anchor => ({
         x: r.left - c.left + r.width / 2,
@@ -1006,7 +1041,9 @@ export function LetsChatReadyStep({
   // Fly down the moment the note slot is measured (the note always renders).
   const noteY = anchors?.note?.y;
   useEffect(() => {
-    if (noteY === undefined || flown) return;
+    if (noteY === undefined || flown) {
+      return;
+    }
     setFlown(true);
   }, [noteY, flown]);
 
@@ -1045,9 +1082,14 @@ export function LetsChatReadyStep({
                 ? { width: 0, marginRight: 0 }
                 : { width: HEADING_AVATAR, marginRight: 12 }
             }
-            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+            transition={
+              reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }
+            }
           />
-          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+          <h1
+            className="text-[2.2rem] leading-none"
+            style={{ fontFamily: "var(--font-serif)" }}
+          >
             You&rsquo;re all set
           </h1>
         </div>
@@ -1063,7 +1105,11 @@ export function LetsChatReadyStep({
               measured pixel coordinates to exactly match afterward. */}
           {landed && components && chosen ? (
             <div className="shrink-0">
-              <AnimatedAvatar components={components} traits={chosen} size={NOTE_AVATAR} />
+              <AnimatedAvatar
+                components={components}
+                traits={chosen}
+                size={NOTE_AVATAR}
+              />
             </div>
           ) : (
             <div
@@ -1088,7 +1134,10 @@ export function LetsChatReadyStep({
             flown 64px avatar overflows the note row above (~22px), so the
             visual gap still matches the title→note gap. */}
         {hasPlugins && (
-          <div className="flex flex-col gap-3" style={{ marginTop: Math.round(64 - vh * 0.02) }}>
+          <div
+            className="flex flex-col gap-3"
+            style={{ marginTop: Math.round(64 - vh * 0.02) }}
+          >
             {plugins.map((p, i) => (
               <motion.div
                 key={p.name}

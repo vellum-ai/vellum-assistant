@@ -82,7 +82,9 @@ export function SuggestionDetailPanel({
       <footer className="flex justify-end gap-2 border-t border-[var(--surface-base)] p-4">
         <Button
           variant="primary"
-          leftIcon={<Play aria-hidden className="h-3.5 w-3.5" fill="currentColor" />}
+          leftIcon={
+            <Play aria-hidden className="h-3.5 w-3.5" fill="currentColor" />
+          }
           onClick={() => onConfirm(suggestion)}
         >
           Let&apos;s do it!

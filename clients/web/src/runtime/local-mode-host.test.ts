@@ -60,7 +60,7 @@ describe("hatchLocalAssistant", () => {
     expect(JSON.parse(init.body as string)).toEqual({ species: "openclaw" });
   });
 
-  test("defaults the species to \"vellum\" when the caller passes none", async () => {
+  test('defaults the species to "vellum" when the caller passes none', async () => {
     const fetchMock = mock(async () => ({ json: async () => ({ ok: true }) }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
@@ -85,7 +85,10 @@ describe("hatchLocalAssistant", () => {
       string,
       RequestInit,
     ];
-    expect(JSON.parse(init.body as string)).toEqual({ species: "vellum", remote: "docker" });
+    expect(JSON.parse(init.body as string)).toEqual({
+      species: "vellum",
+      remote: "docker",
+    });
   });
 
   test("Electron host routes to the main-process bridge and never touches fetch", async () => {
@@ -95,8 +98,9 @@ describe("hatchLocalAssistant", () => {
       throw new Error("fetch must not run on the Electron branch");
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    (window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }).vellum =
-      { localMode: { hatch } };
+    (
+      window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }
+    ).vellum = { localMode: { hatch } };
 
     const result = await hatchLocalAssistant("vellum");
 
@@ -107,13 +111,17 @@ describe("hatchLocalAssistant", () => {
 
   test("Electron host forwards remote to the bridge", async () => {
     runningInElectron = true;
-    const hatch = mock(async () => ({ ok: true, assistantId: "electron-docker-1" }));
+    const hatch = mock(async () => ({
+      ok: true,
+      assistantId: "electron-docker-1",
+    }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    (window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }).vellum =
-      { localMode: { hatch } };
+    (
+      window as unknown as { vellum: { localMode: { hatch: typeof hatch } } }
+    ).vellum = { localMode: { hatch } };
 
     const result = await hatchLocalAssistant("vellum", "docker");
 
@@ -125,14 +133,18 @@ describe("hatchLocalAssistant", () => {
 
 const setElectronBridge = (localMode: Record<string, unknown>): void => {
   runningInElectron = true;
-  (window as unknown as { vellum: { localMode: Record<string, unknown> } }).vellum =
-    { localMode };
+  (
+    window as unknown as { vellum: { localMode: Record<string, unknown> } }
+  ).vellum = { localMode };
 };
 
 describe("loadLockfileHost", () => {
   test("web/dev host GETs the lockfile middleware and returns its JSON", async () => {
     const lockfile = { assistants: [], activeAssistant: null };
-    const fetchMock = mock(async () => ({ ok: true, json: async () => lockfile }));
+    const fetchMock = mock(async () => ({
+      ok: true,
+      json: async () => lockfile,
+    }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     expect(await loadLockfileHost()).toEqual(lockfile);
@@ -173,7 +185,10 @@ describe("saveLockfileAssistantHost", () => {
 
     await saveLockfileAssistantHost({ assistantId: "a-1" }, "a-1");
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/lockfile");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({
@@ -183,7 +198,10 @@ describe("saveLockfileAssistantHost", () => {
   });
 
   test("Electron host writes through the bridge and never touches fetch", async () => {
-    const saveLockfileAssistant = mock(async () => ({ ok: true, lockfile: {} }));
+    const saveLockfileAssistant = mock(async () => ({
+      ok: true,
+      lockfile: {},
+    }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
     });
@@ -192,7 +210,10 @@ describe("saveLockfileAssistantHost", () => {
 
     await saveLockfileAssistantHost({ assistantId: "a-1" }, "a-1");
 
-    expect(saveLockfileAssistant).toHaveBeenCalledWith({ assistantId: "a-1" }, "a-1");
+    expect(saveLockfileAssistant).toHaveBeenCalledWith(
+      { assistantId: "a-1" },
+      "a-1",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -206,7 +227,10 @@ describe("replacePlatformAssistantsHost", () => {
 
     await replacePlatformAssistantsHost([{ assistantId: "p-1" }], "org-1");
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/lockfile");
     expect(JSON.parse(init.body as string)).toEqual({
       syncPlatform: true,
@@ -216,7 +240,10 @@ describe("replacePlatformAssistantsHost", () => {
   });
 
   test("Electron host replaces through the bridge with the active org and never touches fetch", async () => {
-    const replacePlatformAssistants = mock(async () => ({ ok: true, lockfile: {} }));
+    const replacePlatformAssistants = mock(async () => ({
+      ok: true,
+      lockfile: {},
+    }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
     });
@@ -240,7 +267,10 @@ describe("retireLocalAssistantHost", () => {
 
     await retireLocalAssistantHost("a-1");
 
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/retire");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
@@ -266,7 +296,10 @@ describe("wakeLocalAssistantHost", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     expect(await wakeLocalAssistantHost("a-1")).toEqual({ ok: true });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/assistant/__local/wake");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
@@ -278,7 +311,10 @@ describe("wakeLocalAssistantHost", () => {
 
     await wakeLocalAssistantHost("a-1", { repairGuardian: true });
 
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
     expect(JSON.parse(init.body as string)).toEqual({
       assistantId: "a-1",
       repairGuardian: true,
@@ -330,9 +366,10 @@ describe("upgradeLocalAssistantHost", () => {
     }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    expect(
-      await upgradeLocalAssistantHost("a-1", { latest: true }),
-    ).toEqual({ ok: true, version: "v1.2.3" });
+    expect(await upgradeLocalAssistantHost("a-1", { latest: true })).toEqual({
+      ok: true,
+      version: "v1.2.3",
+    });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [
       string,
       RequestInit,

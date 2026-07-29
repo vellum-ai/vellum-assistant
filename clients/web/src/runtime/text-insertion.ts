@@ -5,8 +5,7 @@ import {
 import { openSystemPermissionSettings } from "@/runtime/system-permissions";
 
 export type TextInsertionResult =
-  | ElectronTextInsertionResult
-  | { status: "unavailable" };
+  ElectronTextInsertionResult | { status: "unavailable" };
 
 export async function insertTextIntoFrontApp(
   text: string,
@@ -25,11 +24,15 @@ export async function insertTextIntoFrontApp(
 
 export async function openTextInsertionSettings(): Promise<void> {
   try {
-    if (await openSystemPermissionSettings("automation")) return;
+    if (await openSystemPermissionSettings("automation")) {
+      return;
+    }
   } catch {
     // Fall through to the legacy bridge below.
   }
-  if (!isElectron() || !window.vellum?.text?.openAutomationSettings) return;
+  if (!isElectron() || !window.vellum?.text?.openAutomationSettings) {
+    return;
+  }
   try {
     await window.vellum.text.openAutomationSettings();
   } catch (err) {

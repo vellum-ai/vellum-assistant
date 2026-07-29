@@ -216,8 +216,12 @@ describe("getEnvFlagOverridesForScope", () => {
     resetEnvOverridesCache();
 
     const result = getEnvFlagOverridesForScope("client");
-    expect(result.str).not.toHaveProperty("preChatOnboardingExperiment20260606");
-    expect(result.bool).not.toHaveProperty("preChatOnboardingExperiment20260606");
+    expect(result.str).not.toHaveProperty(
+      "preChatOnboardingExperiment20260606",
+    );
+    expect(result.bool).not.toHaveProperty(
+      "preChatOnboardingExperiment20260606",
+    );
   });
 
   test("flags with scope 'both' appear for both client and assistant scopes", () => {

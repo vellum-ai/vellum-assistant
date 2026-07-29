@@ -12,13 +12,43 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
-  { name: "commands", description: "List all available commands", selectionBehavior: "autoSend" },
-  { name: "compact", description: "Force context compaction immediately", selectionBehavior: "autoSend" },
-  { name: "clean", description: "Strip injected runtime context and reset memory injection state", selectionBehavior: "autoSend" },
-  { name: "models", description: "List all available models", selectionBehavior: "autoSend" },
-  { name: "status", description: "Show conversation status and context usage", selectionBehavior: "autoSend" },
-  { name: "doctor", description: "Open the Doctor with a first message (e.g. /doctor fix my profiles)", selectionBehavior: "insertTrailingSpace" },
-  { name: "btw", description: "Ask a side question while the assistant is working", selectionBehavior: "insertTrailingSpace" },
+  {
+    name: "commands",
+    description: "List all available commands",
+    selectionBehavior: "autoSend",
+  },
+  {
+    name: "compact",
+    description: "Force context compaction immediately",
+    selectionBehavior: "autoSend",
+  },
+  {
+    name: "clean",
+    description:
+      "Strip injected runtime context and reset memory injection state",
+    selectionBehavior: "autoSend",
+  },
+  {
+    name: "models",
+    description: "List all available models",
+    selectionBehavior: "autoSend",
+  },
+  {
+    name: "status",
+    description: "Show conversation status and context usage",
+    selectionBehavior: "autoSend",
+  },
+  {
+    name: "doctor",
+    description:
+      "Open the Doctor with a first message (e.g. /doctor fix my profiles)",
+    selectionBehavior: "insertTrailingSpace",
+  },
+  {
+    name: "btw",
+    description: "Ask a side question while the assistant is working",
+    selectionBehavior: "insertTrailingSpace",
+  },
 ];
 
 /**
@@ -62,7 +92,9 @@ export function isLocalMetaCommand(input: string): boolean {
 
 /** Returns commands whose name starts with `filter` (case-insensitive). Empty filter returns all. */
 export function filteredCommands(filter: string): SlashCommand[] {
-  if (!filter) return SLASH_COMMANDS;
+  if (!filter) {
+    return SLASH_COMMANDS;
+  }
   const lower = filter.toLowerCase();
   return SLASH_COMMANDS.filter((c) => c.name.startsWith(lower));
 }

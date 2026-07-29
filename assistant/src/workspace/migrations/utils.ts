@@ -15,7 +15,9 @@ export function getVellumRoot(): string {
   const workspaceDir = process.env.VELLUM_WORKSPACE_DIR?.trim();
   if (workspaceDir) {
     const parent = dirname(workspaceDir);
-    if (parent !== "/") return parent;
+    if (parent !== "/") {
+      return parent;
+    }
   }
   return join(homedir(), ".vellum");
 }

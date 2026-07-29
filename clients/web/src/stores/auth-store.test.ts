@@ -30,10 +30,14 @@ let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
-  if (mockPrimeError) throw mockPrimeError;
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
 });
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
-  if (mockPrimeError) throw mockPrimeError;
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
 });
 const ensureGatewayTokenMock = mock(async () => {});
 const refreshRemoteGatewaySessionMock = mock(async () => false);
@@ -110,7 +114,9 @@ const EMPTY_CONSENT = {
 let mockFetchConsentResult: unknown = EMPTY_CONSENT;
 let mockFetchConsentError: Error | null = null;
 const fetchConsentMock = mock(async () => {
-  if (mockFetchConsentError) throw mockFetchConsentError;
+  if (mockFetchConsentError) {
+    throw mockFetchConsentError;
+  }
   return mockFetchConsentResult;
 });
 const clearOrganizationMock = mock(() => {});

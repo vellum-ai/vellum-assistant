@@ -41,7 +41,11 @@ describe("BackgroundProcessDescriptor contract", () => {
       kind: "background-task",
       useActiveIds: () => [],
       // No `count` on the summary — valid for count-less kinds.
-      useCardSummary: () => ({ state: "complete", title: "Task", info: "Done" }),
+      useCardSummary: () => ({
+        state: "complete",
+        title: "Task",
+        info: "Done",
+      }),
       renderCardLeading: () => null,
       pill: { variant: "count", glyph: null },
       overlayTitle: (count) => `${count} tasks`,

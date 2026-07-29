@@ -93,7 +93,9 @@ mock.module("../oauth/oauth-store.js", () => ({
   getConnectionByProvider: (service: string) => mockConnections.get(service),
   getConnection: (id: string) => {
     for (const conn of mockConnections.values()) {
-      if (conn.id === id) return conn;
+      if (conn.id === id) {
+        return conn;
+      }
     }
     return undefined;
   },
@@ -221,7 +223,9 @@ describe("withValidToken refresh deduplication", () => {
     const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
     const callback = async (token: string) => {
-      if (token === "old-access-token") throw err401;
+      if (token === "old-access-token") {
+        throw err401;
+      }
       return `result-with-${token}`;
     };
 
@@ -281,18 +285,24 @@ describe("withValidToken refresh deduplication", () => {
       refreshCallCount++;
       // Both services use the same tokenExchangeUrl in this test, so we track by
       // call order to return the correct deferred promise.
-      if (refreshCallCount === 1) return gmailPromise;
+      if (refreshCallCount === 1) {
+        return gmailPromise;
+      }
       return slackPromise;
     });
 
     const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
     const gmailCallback = async (token: string) => {
-      if (token === "old-access-token") throw err401;
+      if (token === "old-access-token") {
+        throw err401;
+      }
       return `gmail-${token}`;
     };
     const slackCallback = async (token: string) => {
-      if (token === "old-access-token") throw err401;
+      if (token === "old-access-token") {
+        throw err401;
+      }
       return `slack-${token}`;
     };
 
@@ -330,7 +340,9 @@ describe("withValidToken refresh deduplication", () => {
 
     // First call triggers a refresh (old token → 401 → refresh → token-1)
     const r1 = await withValidToken("google", async (token: string) => {
-      if (token !== "token-1") throw err401;
+      if (token !== "token-1") {
+        throw err401;
+      }
       return token;
     });
     expect(r1).toBe("token-1");
@@ -339,7 +351,9 @@ describe("withValidToken refresh deduplication", () => {
     // Second call also triggers a 401 to verify dedup state was cleaned up
     // and a new refresh is allowed (not deduplicated with the first).
     const r2 = await withValidToken("google", async (token: string) => {
-      if (token !== "token-2") throw err401;
+      if (token !== "token-2") {
+        throw err401;
+      }
       return token;
     });
     expect(r2).toBe("token-2");
@@ -362,7 +376,9 @@ describe("withValidToken refresh deduplication", () => {
     const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
     const callback = async (token: string) => {
-      if (token === "old-access-token") throw err401;
+      if (token === "old-access-token") {
+        throw err401;
+      }
       return "should-not-reach";
     };
 
@@ -398,7 +414,9 @@ describe("withValidToken refresh deduplication", () => {
       const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
       const callback = async (token: string) => {
-        if (token === "old-access-token") throw err401;
+        if (token === "old-access-token") {
+          throw err401;
+        }
         return `result-with-${token}`;
       };
 
@@ -429,7 +447,9 @@ describe("withValidToken refresh deduplication", () => {
       const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
       const callback = async (token: string) => {
-        if (token === "old-access-token") throw err401;
+        if (token === "old-access-token") {
+          throw err401;
+        }
         return `result-with-${token}`;
       };
 
@@ -461,7 +481,9 @@ describe("withValidToken refresh deduplication", () => {
       const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
       const callback = async (token: string) => {
-        if (token === "old-access-token") throw err401;
+        if (token === "old-access-token") {
+          throw err401;
+        }
         return `result-with-${token}`;
       };
 
@@ -493,7 +515,9 @@ describe("withValidToken refresh deduplication", () => {
       const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
       const callback = async (token: string) => {
-        if (token === "old-access-token") throw err401;
+        if (token === "old-access-token") {
+          throw err401;
+        }
         return `result-with-${token}`;
       };
 

@@ -83,7 +83,9 @@ export function findBun(): string | undefined {
 
   // 2. Previously downloaded copy
   const downloaded = join(getBinDir(), "bun");
-  if (existsSync(downloaded)) return downloaded;
+  if (existsSync(downloaded)) {
+    return downloaded;
+  }
 
   // 3. Common install locations
   const home = homedir();
@@ -92,12 +94,16 @@ export function findBun(): string | undefined {
     "/opt/homebrew/bin/bun",
     "/usr/local/bin/bun",
   ]) {
-    if (existsSync(p)) return p;
+    if (existsSync(p)) {
+      return p;
+    }
   }
 
   // 4. PATH lookup
   const which = Bun.which("bun");
-  if (which) return which;
+  if (which) {
+    return which;
+  }
 
   return undefined;
 }

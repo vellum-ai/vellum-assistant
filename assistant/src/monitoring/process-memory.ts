@@ -107,7 +107,8 @@ export function topProcessesByMemory(limit: number): ProcessMemory[] {
     let command: string;
     try {
       const raw = readFileSync(`/proc/${pid}/cmdline`, "utf-8");
-      command = deriveName(raw.split("\0").filter(Boolean).join(" ")) || `pid ${pid}`;
+      command =
+        deriveName(raw.split("\0").filter(Boolean).join(" ")) || `pid ${pid}`;
     } catch {
       // Process exited between readdir and read — skip.
       continue;

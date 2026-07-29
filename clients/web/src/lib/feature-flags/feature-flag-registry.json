@@ -118,14 +118,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "voice-duplex-handoff",
-      "scope": "assistant",
-      "key": "voice-duplex-handoff",
-      "label": "Voice Duplex Handoff",
-      "description": "When a user barges in during live voice, keep the interrupted turn running as a background subagent instead of discarding it (true-duplex handoff)",
-      "defaultEnabled": false
-    },
-    {
       "id": "fast-mode",
       "scope": "assistant",
       "key": "fast-mode",
@@ -347,6 +339,14 @@
       "key": "composer-secret-guard",
       "label": "Composer Secret Guard",
       "description": "Detect API keys/secrets typed into the chat composer and offer secure credential storage before send",
+      "defaultEnabled": false
+    },
+    {
+      "id": "marketing-pricing-takeover",
+      "scope": "client",
+      "key": "marketing-pricing-takeover",
+      "label": "Marketing Pricing Takeover",
+      "description": "Gates the marketing pricing takeover page (www.vellum.ai/pricing) and the `/assistant/checkout?package=<slug>` deep link its package CTAs target. One flag covers both halves of the funnel so they can never be enabled independently and strand a CTA. When off, the checkout deep link redirects to the in-app plans takeover.",
       "defaultEnabled": false
     }
   ]

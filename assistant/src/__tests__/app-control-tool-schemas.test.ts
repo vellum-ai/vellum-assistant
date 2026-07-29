@@ -82,9 +82,13 @@ function validate(
     }
   }
   for (const [key, propSchema] of Object.entries(s.properties ?? {})) {
-    if (!(key in input)) continue;
+    if (!(key in input)) {
+      continue;
+    }
     const value = input[key];
-    if (!propSchema.type) continue;
+    if (!propSchema.type) {
+      continue;
+    }
     switch (propSchema.type) {
       case "string":
         if (typeof value !== "string") {

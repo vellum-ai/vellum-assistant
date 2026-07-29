@@ -55,6 +55,17 @@ const { useIsVoiceRoomVisible } = await import(
   "@/domains/chat/voice/voice-room/use-is-voice-room-visible"
 );
 
+/**
+ * Wrap a bare `start` spy in the full starter contract. Only `start` is ever
+ * asserted here — the deep-link path has no user gesture to prewarm from, so
+ * the other two are inert stubs.
+ */
+const asStarter = (start: (a: string, c: string | null) => void) => ({
+  prewarm: () => {},
+  cancelPrewarm: () => {},
+  start,
+});
+
 const resetStores = () => {
   useViewerStore.setState({ mainView: "chat" });
   useSubagentStore.getState().reset();
@@ -233,7 +244,7 @@ describe("deeplink.startVoice", () => {
   test("mode=new starts a session on the draft composer — no conversation, so the server assigns one", async () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
@@ -261,7 +272,7 @@ describe("deeplink.startVoice", () => {
 
     // What `useLiveVoiceSessionController` does when it mounts.
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     await act(async () => {
       await drainPendingVoiceStartDeepLink();
     });
@@ -276,7 +287,7 @@ describe("deeplink.startVoice", () => {
     // voice button.
     seedEligibleAssistant("0.10.11");
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
@@ -292,7 +303,7 @@ describe("deeplink.startVoice", () => {
   test("mode=resume returns to the running session's conversation instead of starting a second one", async () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
     renderHook(() => useGlobalDeepLinkConsumer());
@@ -317,7 +328,7 @@ describe("deeplink.startVoice", () => {
     // nothing at all, which reads as the command being broken.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
     renderHook(() => useGlobalDeepLinkConsumer());
@@ -338,7 +349,7 @@ describe("deeplink.startVoice", () => {
   test("mode=resume with nothing running falls through to a new session", async () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
@@ -366,7 +377,7 @@ describe("deeplink.startVoice", () => {
     // `startedConversationId` is the one still on screen.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "draft-1");
     useLiveVoiceStore.getState().setConversationId("conv-7");
@@ -389,7 +400,7 @@ describe("deeplink.startVoice", () => {
     // `ready` id is the only conversation there is.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", null);
     useLiveVoiceStore.getState().setConversationId("conv-7");
@@ -412,7 +423,7 @@ describe("deeplink.startVoice", () => {
     // `null`, so the draft composer — bound to no conversation — owns it.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("connecting");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", null);
     renderHook(() => useGlobalDeepLinkConsumer());
@@ -434,7 +445,7 @@ describe("deeplink.startVoice", () => {
     // landing — resuming would show a room with nothing behind it.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     renderHook(() => useGlobalDeepLinkConsumer());
 
     // Nothing survived the force-quit — the branch condition the tap hits.
@@ -457,7 +468,7 @@ describe("deeplink.startVoice", () => {
     // session starts exactly as a plain `mode=new` link starts it.
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
@@ -478,7 +489,7 @@ describe("deeplink.startVoice", () => {
   test("a null prompt behaves identically to a plain mode=new link", async () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
@@ -497,7 +508,7 @@ describe("deeplink.startVoice", () => {
   test("the prompt is delivered exactly once - re-rendering the hook does not replay it", async () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     const { rerender } = renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
@@ -522,7 +533,7 @@ describe("deeplink.startVoice", () => {
   test("a prompt on a resume link that rejoins a running session is still not dropped", async () => {
     seedEligibleAssistant();
     const starter = mock((_a: string, _c: string | null) => undefined);
-    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
     useLiveVoiceStore.getState().setState("listening");
     useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
     renderHook(() => useGlobalDeepLinkConsumer());

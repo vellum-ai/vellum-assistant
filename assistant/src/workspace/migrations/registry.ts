@@ -133,6 +133,7 @@ import { webSearchModeToProviderMigration } from "./132-web-search-mode-to-provi
 import { collapseProviderConnectionsMigration } from "./133-collapse-provider-connections.js";
 import { imageGenerationModeToProviderMigration } from "./134-image-generation-mode-to-provider.js";
 import { copySubstrateTunablesMigration } from "./135-copy-substrate-tunables.js";
+import { repairStaleFireworksKimiModelIdMigration } from "./136-repair-stale-fireworks-kimi-model-id.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -281,4 +282,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   collapseProviderConnectionsMigration,
   imageGenerationModeToProviderMigration,
   copySubstrateTunablesMigration,
+  repairStaleFireworksKimiModelIdMigration,
 ];

@@ -1,24 +1,31 @@
-
 import {
-    ArrowDownToLine,
-    ArrowLeft,
-    ArrowUpFromLine,
-    Bolt,
-    ChevronDown,
-    ChevronRight,
-    X,
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowUpFromLine,
+  Bolt,
+  ChevronDown,
+  ChevronRight,
+  X,
 } from "lucide-react";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import {
-    AnimatedMetricCard,
-    formatNumber,
+  AnimatedMetricCard,
+  formatNumber,
 } from "@/domains/chat/components/metric-card";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
+import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/subagent-status";
@@ -29,8 +36,8 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { DetailPanelStopButton } from "@/domains/chat/components/detail-panel-stop-button";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import {
-    deriveStepLabelFromName,
-    type IconName,
+  deriveStepLabelFromName,
+  type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
@@ -48,8 +55,12 @@ import type { ToolDetailPayload } from "@/stores/viewer-store";
  * bash). Resolved through the shared `ICON_MAP` so header and pills never drift.
  */
 function iconNameForDetail(detail: ToolDetailPayload): IconName {
-  if (detail.kind === "web_search") return "globe";
-  if (detail.kind === "thinking") return "brain";
+  if (detail.kind === "web_search") {
+    return "globe";
+  }
+  if (detail.kind === "thinking") {
+    return "brain";
+  }
   return deriveStepLabelFromName(detail.toolName, detail.input).iconName;
 }
 
@@ -102,7 +113,10 @@ export function SubagentDetailPanel({
   const components = useBundledAvatarComponents();
   // Compute the avatar traits once per subagent instead of hashing the id
   // three separate times in the JSX below.
-  const traits = useMemo(() => subagentTraits(entry.subagentId), [entry.subagentId]);
+  const traits = useMemo(
+    () => subagentTraits(entry.subagentId),
+    [entry.subagentId],
+  );
   // The panel re-renders when `entry` changes via the store subscription in
   // chat-content-layout.tsx. The store bumps `entry` identity on every
   // token/status/usage update but keeps `entry.events` reference-stable. Rather
@@ -151,7 +165,9 @@ export function SubagentDetailPanel({
   // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest map
   stepDetailsRef.current = stepDetails;
   const handleStepDetailClick = useCallback((key: string) => {
-    if (stepDetailsRef.current.has(key)) setSelectedDetailKey(key);
+    if (stepDetailsRef.current.has(key)) {
+      setSelectedDetailKey(key);
+    }
   }, []);
 
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
@@ -210,11 +226,18 @@ export function SubagentDetailPanel({
     setObjectiveOverflows(node.scrollHeight > node.clientHeight);
   }, [entry.subagentId, entry.objective, objectiveExpanded]);
 
+  // The panel is where a settled subagent's timeline is fetched: the
+  // conversation-load auto-fetch only covers live rows, so opening one of the
+  // many terminal rows reconcile materializes is what pays for its detail.
+  // Addressability goes through the shared predicate so a stub that knows only
+  // its parent conversation (0.11.0+ daemons resolve the child themselves)
+  // isn't skipped here while the auto-fetch happily fetches it.
+  const canFetchDetail = canAddressSubagentDetail(entry);
   useEffect(() => {
-    if (onRequestDetail && entry.conversationId && entry.events.length === 0) {
+    if (onRequestDetail && canFetchDetail && entry.events.length === 0) {
       onRequestDetail(entry.subagentId);
     }
-  }, [entry.subagentId, entry.conversationId, entry.events.length, onRequestDetail]);
+  }, [entry.subagentId, canFetchDetail, entry.events.length, onRequestDetail]);
 
   // The selected tool's nested payload, or `undefined` when nothing is selected
   // or the id has no payload (defensive — fall back to the timeline view).

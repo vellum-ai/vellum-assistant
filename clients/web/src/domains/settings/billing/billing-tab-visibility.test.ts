@@ -41,8 +41,12 @@ describe("shouldShowBillingTab", () => {
     expect(
       shouldShowBillingTab("disabled", params("session_id=cs_test_123")),
     ).toBe(true);
-    expect(shouldShowBillingTab("disabled", params("adjust_plan=1"))).toBe(true);
-    expect(shouldShowBillingTab("disabled", params("pro_onboarding"))).toBe(true);
+    expect(shouldShowBillingTab("disabled", params("adjust_plan=1"))).toBe(
+      true,
+    );
+    expect(shouldShowBillingTab("disabled", params("pro_onboarding"))).toBe(
+      true,
+    );
   });
 
   test("gated (no platform): never shown, even with billing intent", () => {

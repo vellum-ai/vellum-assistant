@@ -35,13 +35,14 @@ mock.module("@/domains/onboarding/onboarding-tone", () => ({
   }),
 }));
 
-const { LetsChatTomorrowStep } = await import(
-  "@/domains/onboarding/screens/lets-chat-tomorrow-step"
-);
+const { LetsChatTomorrowStep } =
+  await import("@/domains/onboarding/screens/lets-chat-tomorrow-step");
 
 const RE_PROMPT = /Access not enabled/;
 
-function renderStep(props: Partial<Parameters<typeof LetsChatTomorrowStep>[0]>) {
+function renderStep(
+  props: Partial<Parameters<typeof LetsChatTomorrowStep>[0]>,
+) {
   return render(
     <LetsChatTomorrowStep
       assistantId="asst-1"
@@ -102,9 +103,7 @@ describe("LetsChatTomorrowStep", () => {
     renderStep({ assistantReady: false });
 
     expect(screen.getByText("Waking up")).toBeDefined();
-    expect(
-      screen.getByText("Your assistant is getting ready"),
-    ).toBeDefined();
+    expect(screen.getByText("Your assistant is getting ready")).toBeDefined();
     const button = screen.getByRole("button", {
       name: /Starting assistant/,
     });

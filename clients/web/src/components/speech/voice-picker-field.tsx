@@ -41,7 +41,9 @@ export function VoicePickerField({
   // the provider is persisted.
   const { voices } = useManagedVoiceSelection(assistantId);
 
-  if (voices.length === 0) return null;
+  if (voices.length === 0) {
+    return null;
+  }
 
   const current = voices.find((v) => v.model === value) ?? voices[0];
 

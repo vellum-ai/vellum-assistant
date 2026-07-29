@@ -188,16 +188,18 @@ export interface LiveVoiceEntryOrigin {
 }
 
 /**
- * Starts a live-voice session for `assistantId`, attaching `conversationId`
- * when non-null. Registered into the store by the persistently mounted
- * session-controller hook (see `use-live-voice-session-controller.ts`) so any
- * surface — e.g. the composer's entry-point mic — can start a session without
- * owning the controller hook instance.
+ * Mount-scoped entry points for starting live voice. The composer prewarms
+ * playback synchronously from the user's gesture, before its async readiness
+ * preflight, then either starts with that player or cancels the reservation.
  */
-export type LiveVoiceSessionStarter = (
-  assistantId: string,
-  conversationId: string | null,
-) => void;
+export interface LiveVoiceSessionStarter {
+  /** Unlock playback while the initiating user gesture is still active. */
+  prewarm(): void;
+  /** Release playback reserved by a preflight that will not start a session. */
+  cancelPrewarm(): void;
+  /** Start a session, consuming the prewarmed player when one exists. */
+  start(assistantId: string, conversationId: string | null): void;
+}
 
 export interface LiveVoiceState {
   /** Current phase of the session lifecycle. */
@@ -519,7 +521,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   appendAssistantTranscript: (delta) =>
     set((s) => ({ assistantTranscript: s.assistantTranscript + delta })),
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
-  clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
+  clearUserTranscripts: () =>
+    set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
   setHandsFree: (handsFree) => set({ handsFree }),

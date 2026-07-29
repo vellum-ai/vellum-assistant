@@ -37,9 +37,15 @@ const INLINE_SCRIPT_RE =
   /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]{400,}?<\/script>/i;
 
 function isSelfContainedArtifactHtml(path: string, content: string): boolean {
-  if (!/\.html?$/i.test(path)) return false;
-  if (content.length < 3000) return false;
-  if (!STANDALONE_HTML_RE.test(content)) return false;
+  if (!/\.html?$/i.test(path)) {
+    return false;
+  }
+  if (content.length < 3000) {
+    return false;
+  }
+  if (!STANDALONE_HTML_RE.test(content)) {
+    return false;
+  }
   return INLINE_SCRIPT_RE.test(content);
 }
 
@@ -55,7 +61,9 @@ const ARTIFACT_REDIRECT_MESSAGE =
 function isInsidePkbRoot(absPath: string, pkbRoot: string): boolean {
   const normalizedRoot = resolve(pkbRoot);
   const normalized = resolve(absPath);
-  if (normalized === normalizedRoot) return false;
+  if (normalized === normalizedRoot) {
+    return false;
+  }
   const rootWithSep = normalizedRoot.endsWith(sep)
     ? normalizedRoot
     : normalizedRoot + sep;

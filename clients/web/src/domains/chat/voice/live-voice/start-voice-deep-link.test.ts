@@ -55,7 +55,11 @@ const starter = mock((_assistantId: string, _conversationId: string | null) =>
 );
 
 function registerStarter(): void {
-  useLiveVoiceStore.getState().setStarter(starter);
+  useLiveVoiceStore.getState().setStarter({
+    prewarm: () => {},
+    cancelPrewarm: () => {},
+    start: starter,
+  });
 }
 
 /** An assistant that is resolved, active, and new enough for live voice. */

@@ -59,19 +59,33 @@ function seedArchived(qc: QueryClient, conversations: Conversation[]) {
 }
 
 function getForeground(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
+  );
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(backgroundConversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(
+      backgroundConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
 }
 
 function getScheduled(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(scheduledConversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(
+      scheduledConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
 }
 
 function getArchived(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(archivedConversationsQueryKey(ASSISTANT_ID)) ?? [];
+  return (
+    qc.getQueryData<Conversation[]>(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -219,10 +233,18 @@ describe("updateArchivedConversationsCache", () => {
 
 describe("updateAllConversationCaches", () => {
   test("applies updater to all four caches", () => {
-    seedForeground(qc, [makeConversation({ conversationId: "c1", title: "old" })]);
-    seedBackground(qc, [makeConversation({ conversationId: "bg1", title: "old" })]);
-    seedScheduled(qc, [makeConversation({ conversationId: "s1", title: "old" })]);
-    seedArchived(qc, [makeConversation({ conversationId: "a1", title: "old" })]);
+    seedForeground(qc, [
+      makeConversation({ conversationId: "c1", title: "old" }),
+    ]);
+    seedBackground(qc, [
+      makeConversation({ conversationId: "bg1", title: "old" }),
+    ]);
+    seedScheduled(qc, [
+      makeConversation({ conversationId: "s1", title: "old" }),
+    ]);
+    seedArchived(qc, [
+      makeConversation({ conversationId: "a1", title: "old" }),
+    ]);
 
     updateAllConversationCaches(qc, ASSISTANT_ID, (list) =>
       list.map((c) => ({ ...c, title: "new" })),
@@ -241,7 +263,9 @@ describe("updateAllConversationCaches", () => {
 
 describe("findConversation", () => {
   test("finds conversation in foreground cache", () => {
-    seedForeground(qc, [makeConversation({ conversationId: "c1", title: "Found" })]);
+    seedForeground(qc, [
+      makeConversation({ conversationId: "c1", title: "Found" }),
+    ]);
 
     const result = findConversation(qc, ASSISTANT_ID, "c1");
     expect(result?.title).toBe("Found");
@@ -249,7 +273,9 @@ describe("findConversation", () => {
 
   test("finds conversation in background cache", () => {
     seedForeground(qc, []);
-    seedBackground(qc, [makeConversation({ conversationId: "bg1", title: "BG" })]);
+    seedBackground(qc, [
+      makeConversation({ conversationId: "bg1", title: "BG" }),
+    ]);
 
     const result = findConversation(qc, ASSISTANT_ID, "bg1");
     expect(result?.title).toBe("BG");
@@ -258,7 +284,9 @@ describe("findConversation", () => {
   test("finds conversation in scheduled cache", () => {
     seedForeground(qc, []);
     seedBackground(qc, []);
-    seedScheduled(qc, [makeConversation({ conversationId: "s1", title: "Sched" })]);
+    seedScheduled(qc, [
+      makeConversation({ conversationId: "s1", title: "Sched" }),
+    ]);
 
     const result = findConversation(qc, ASSISTANT_ID, "s1");
     expect(result?.title).toBe("Sched");
@@ -268,7 +296,9 @@ describe("findConversation", () => {
     seedForeground(qc, []);
     seedBackground(qc, []);
     seedScheduled(qc, []);
-    seedArchived(qc, [makeConversation({ conversationId: "a1", title: "Archived" })]);
+    seedArchived(qc, [
+      makeConversation({ conversationId: "a1", title: "Archived" }),
+    ]);
 
     const result = findConversation(qc, ASSISTANT_ID, "a1");
     expect(result?.title).toBe("Archived");
@@ -284,8 +314,12 @@ describe("findConversation", () => {
   });
 
   test("returns first match when duplicate exists across caches", () => {
-    seedForeground(qc, [makeConversation({ conversationId: "dup", title: "FG" })]);
-    seedBackground(qc, [makeConversation({ conversationId: "dup", title: "BG" })]);
+    seedForeground(qc, [
+      makeConversation({ conversationId: "dup", title: "FG" }),
+    ]);
+    seedBackground(qc, [
+      makeConversation({ conversationId: "dup", title: "BG" }),
+    ]);
 
     const result = findConversation(qc, ASSISTANT_ID, "dup");
     expect(result?.title).toBe("FG");
@@ -304,8 +338,12 @@ describe("mergeConversationLists", () => {
   });
 
   test("deduplicates by conversationId, primary wins", () => {
-    const primary = [makeConversation({ conversationId: "c1", title: "Primary" })];
-    const secondary = [makeConversation({ conversationId: "c1", title: "Secondary" })];
+    const primary = [
+      makeConversation({ conversationId: "c1", title: "Primary" }),
+    ];
+    const secondary = [
+      makeConversation({ conversationId: "c1", title: "Secondary" }),
+    ];
 
     const result = mergeConversationLists(primary, secondary);
     expect(result).toHaveLength(1);
@@ -358,7 +396,9 @@ describe("getConversations", () => {
 
 describe("patchConversation", () => {
   test("patches matching conversation in foreground", () => {
-    seedForeground(qc, [makeConversation({ conversationId: "c1", title: "Old" })]);
+    seedForeground(qc, [
+      makeConversation({ conversationId: "c1", title: "Old" }),
+    ]);
 
     patchConversation(qc, ASSISTANT_ID, "c1", { title: "New" });
 
@@ -367,7 +407,9 @@ describe("patchConversation", () => {
 
   test("patches matching conversation in background", () => {
     seedForeground(qc, []);
-    seedBackground(qc, [makeConversation({ conversationId: "bg1", title: "Old" })]);
+    seedBackground(qc, [
+      makeConversation({ conversationId: "bg1", title: "Old" }),
+    ]);
 
     patchConversation(qc, ASSISTANT_ID, "bg1", { title: "New" });
 
@@ -402,7 +444,9 @@ describe("patchConversation", () => {
 
 describe("cancelConversationQueries", () => {
   test("resolves without error on empty query client", async () => {
-    await expect(cancelConversationQueries(qc, ASSISTANT_ID)).resolves.toBeUndefined();
+    await expect(
+      cancelConversationQueries(qc, ASSISTANT_ID),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -412,6 +456,8 @@ describe("cancelConversationQueries", () => {
 
 describe("invalidateConversationQueries", () => {
   test("resolves without error on empty query client", async () => {
-    await expect(invalidateConversationQueries(qc, ASSISTANT_ID)).resolves.toBeUndefined();
+    await expect(
+      invalidateConversationQueries(qc, ASSISTANT_ID),
+    ).resolves.toBeUndefined();
   });
 });

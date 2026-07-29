@@ -15,7 +15,11 @@ import { httpStatusFromError, shouldRetryQuery } from "@/utils/query-retry";
 import type { WorkspaceTheme } from "@/domains/settings/utils/workspace-theme-tokens";
 
 const workspaceThemeGetMock = mock(
-  async (): Promise<{ data?: unknown; error?: unknown; response: unknown }> => ({
+  async (): Promise<{
+    data?: unknown;
+    error?: unknown;
+    response: unknown;
+  }> => ({
     data: { theme: null, source: "none", issues: [] },
     response: { ok: true, status: 200 },
   }),

@@ -90,7 +90,8 @@ export function useNativeQuoteReply(
     };
 
     const postCanReply = (canReply: boolean) => {
-      const handler = window.webkit?.messageHandlers?.[NATIVE_SELECTION_HANDLER];
+      const handler =
+        window.webkit?.messageHandlers?.[NATIVE_SELECTION_HANDLER];
       if (!handler) {
         return;
       }

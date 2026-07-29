@@ -7,14 +7,7 @@
  * listeners) live here so they don't execute during non-active states.
  */
 
-import {
-  lazy,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -83,6 +76,7 @@ const DeployDialogs = lazy(() =>
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
+import { useSubagentReconcile } from "@/domains/chat/hooks/use-subagent-reconcile";
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
@@ -97,7 +91,9 @@ import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-co
 export function ActiveChatView() {
   const showLlmInspector = useCanUseLlmInspector();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
+  const { conversationId: urlConversationId } = useParams<{
+    conversationId?: string;
+  }>();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const turnPhase = useTurnStore.use.phase();
@@ -131,12 +127,14 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
-  useActiveAppPinSync(useCallback((appId: string) => {
-    const didClose = useViewerStore.getState().handleAppUnpinned(appId);
-    if (didClose) {
-      useConversationStore.getState().setEditingConversationId(null);
-    }
-  }, []));
+  useActiveAppPinSync(
+    useCallback((appId: string) => {
+      const didClose = useViewerStore.getState().handleAppUnpinned(appId);
+      if (didClose) {
+        useConversationStore.getState().setEditingConversationId(null);
+      }
+    }, []),
+  );
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
@@ -169,7 +167,9 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const reachability = useAssistantReachability(assistantId);
   const reachabilityReadyEpoch = useMemo(() => {
-    if (reachability.state.phase === "ready") return refreshEpoch + 1;
+    if (reachability.state.phase === "ready") {
+      return refreshEpoch + 1;
+    }
     return 0;
   }, [reachability.state.phase, refreshEpoch]);
 
@@ -264,7 +264,8 @@ export function ActiveChatView() {
     assistantStateKind: assistantState.kind,
     activeConversationId,
     conversationExistsOnServer,
-    latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
+    latestPageOldestTimestamp:
+      historyResult.pagination.latestPageOldestTimestamp,
     reachability,
     setAssetsRefreshKey,
   });
@@ -301,7 +302,8 @@ export function ActiveChatView() {
     sendMessage,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
-    getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
+    getPendingInitialMessage: () =>
+      peekPendingPreChatContext()?.initialMessage ?? undefined,
     getPendingInitialMessageHidden: () =>
       peekPendingPreChatContext()?.initialMessageHidden === true,
   });
@@ -325,7 +327,9 @@ export function ActiveChatView() {
   });
 
   useEffect(() => {
-    if (reachability.state.phase !== "failed") return;
+    if (reachability.state.phase !== "failed") {
+      return;
+    }
     useChatSessionStore.getState().setError({
       message: "Connection lost. Please try again.",
     });
@@ -337,8 +341,12 @@ export function ActiveChatView() {
   const pendingFollowupMessage =
     useOnboardingFocusStore.use.pendingFollowupMessage();
   useEffect(() => {
-    if (!pendingFollowupMessage) return;
-    if (isSending(useTurnStore.getState().phase)) return;
+    if (!pendingFollowupMessage) {
+      return;
+    }
+    if (isSending(useTurnStore.getState().phase)) {
+      return;
+    }
     useOnboardingFocusStore.getState().clearFollowup();
     void sendMessage(pendingFollowupMessage);
   }, [pendingFollowupMessage, sendMessage]);
@@ -362,7 +370,9 @@ export function ActiveChatView() {
       lifecycleService.clearExpectingFirstMessage();
       return;
     }
-    if (isSending(useTurnStore.getState().phase)) return;
+    if (isSending(useTurnStore.getState().phase)) {
+      return;
+    }
     lifecycleService.markExpectingFirstMessage();
     void sendMessage(message);
   }, [sendMessage]);
@@ -373,6 +383,15 @@ export function ActiveChatView() {
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)
   useConversationChangeEffects(assistantId, activeConversationId);
+
+  // Resync subagent rows from the daemon on load and after an SSE reopen, so a
+  // run that streamed nothing this session still shows up (and a stuck-running
+  // entry the daemon has forgotten settles).
+  useSubagentReconcile(
+    assistantId,
+    activeConversationId,
+    conversationExistsOnServer,
+  );
 
   // Debug API — dev-facing surface for in-the-moment chat inspection.
   // Unconditionally attached; negligible production overhead.
@@ -421,14 +440,17 @@ export function ActiveChatView() {
   // `onSummarizeUpToHere`, so the hover button never renders and the dialog
   // is unreachable.
   const supportsSummarizeUpToHere = useSupportsSummarizeUpToHere();
-  const [pendingSummarizeMessageId, setPendingSummarizeMessageId] =
-    useState<string | null>(null);
+  const [pendingSummarizeMessageId, setPendingSummarizeMessageId] = useState<
+    string | null
+  >(null);
   const [summarizePending, setSummarizePending] = useState(false);
   const handleSummarizeUpToHere = useCallback((messageId: string) => {
     setPendingSummarizeMessageId(messageId);
   }, []);
   const handleConfirmSummarize = useCallback(() => {
-    if (!pendingSummarizeMessageId) return;
+    if (!pendingSummarizeMessageId) {
+      return;
+    }
     setSummarizePending(true);
     // Errors toast inside the handler; the dialog just closes.
     void handleSummarizeUpToMessage(pendingSummarizeMessageId).finally(() => {

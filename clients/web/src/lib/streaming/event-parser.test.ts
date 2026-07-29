@@ -3400,7 +3400,9 @@ describe("envelope format parsing", () => {
         title: "Connect Google",
       },
     });
-    if (event.type !== "open_url") throw new Error("expected open_url");
+    if (event.type !== "open_url") {
+      throw new Error("expected open_url");
+    }
     expect(event.url).toBe("https://example.com/oauth");
     expect(event.title).toBe("Connect Google");
     expect(event.conversationId).toBeUndefined();
@@ -3419,7 +3421,9 @@ describe("envelope format parsing", () => {
         conversationId: "inner-conv",
       },
     });
-    if (event.type !== "open_url") throw new Error("expected open_url");
+    if (event.type !== "open_url") {
+      throw new Error("expected open_url");
+    }
     expect(event.conversationId).toBe("inner-conv");
   });
 });

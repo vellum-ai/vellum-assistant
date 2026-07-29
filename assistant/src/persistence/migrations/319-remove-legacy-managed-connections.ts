@@ -35,7 +35,9 @@ export function migrateRemoveLegacyManagedConnections(
       `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_connections'`,
     )
     .get();
-  if (!tableExists) return;
+  if (!tableExists) {
+    return;
+  }
 
   const placeholders = LEGACY_MANAGED_CONNECTION_NAMES.map(() => "?").join(
     ", ",

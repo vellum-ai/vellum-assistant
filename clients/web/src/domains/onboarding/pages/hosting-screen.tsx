@@ -34,8 +34,8 @@ function useHostingOptions(): HostingOption[] {
   const assistants = useResolvedAssistantsStore.use.assistants();
   const hasPlatformAssistant = assistants.some((a) => a.isPlatformHosted);
 
-  const cloudDisabled = !hasPlatformSession
-    || (!multiPlatformAssistant && hasPlatformAssistant);
+  const cloudDisabled =
+    !hasPlatformSession || (!multiPlatformAssistant && hasPlatformAssistant);
 
   return [
     {
@@ -68,7 +68,9 @@ export function HostingScreen() {
   const hasPlatformSession = useHasPlatformSession();
   const electron = isElectron();
   const options = useHostingOptions();
-  const cloudDisabled = options.find((o) => o.mode === "vellum-cloud")?.disabled;
+  const cloudDisabled = options.find(
+    (o) => o.mode === "vellum-cloud",
+  )?.disabled;
   const [selected, setSelected] = useState<HostingMode>(
     hasPlatformSession && !cloudDisabled ? "vellum-cloud" : "local",
   );
@@ -84,9 +86,7 @@ export function HostingScreen() {
     error: loginError,
     login,
     cancel: cancelLogin,
-  } = useOnboardingLogin(
-    `${routes.onboarding.hosting}?from=select-assistant`,
-  );
+  } = useOnboardingLogin(`${routes.onboarding.hosting}?from=select-assistant`);
 
   // Electron mirrors the Swift client's Hosting step, which has no Log In
   // button — its login affordance lives on the wake-up step instead.
@@ -107,17 +107,21 @@ export function HostingScreen() {
 
   const onBack = () => {
     void navigate(
-      fromSelectAssistant
-        ? routes.selectAssistant
-        : routes.welcome,
+      fromSelectAssistant ? routes.selectAssistant : routes.welcome,
     );
   };
 
   return (
     <OnboardingLayout>
-      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-16"} text-[var(--content-default)]`}>
+      <div
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-16"} text-[var(--content-default)]`}
+      >
         <h1
-          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
+          className={
+            electron
+              ? "text-title-large"
+              : "text-3xl font-semibold tracking-tight"
+          }
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Hosting
@@ -145,7 +149,9 @@ export function HostingScreen() {
               option={opt}
               selected={selected === opt.mode}
               onSelect={() => {
-                if (!opt.disabled) setSelected(opt.mode);
+                if (!opt.disabled) {
+                  setSelected(opt.mode);
+                }
               }}
             />
           ))}
@@ -221,11 +227,11 @@ function HostingCard({
       onClick={onSelect}
       disabled={option.disabled}
       className={`flex w-full items-center border text-left transition-colors ${
-        electron ? "h-[72px] gap-3 rounded-lg p-3" : "gap-4 rounded-xl px-4 py-4"
+        electron
+          ? "h-[72px] gap-3 rounded-lg p-3"
+          : "gap-4 rounded-xl px-4 py-4"
       } ${
-        option.disabled
-          ? "cursor-not-allowed opacity-60"
-          : "cursor-pointer"
+        option.disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
       } ${
         selected && !option.disabled
           ? `${electron ? "border-[var(--primary-base)]/50" : "border-[var(--primary-base)]"} bg-[var(--primary-base)]/5`
@@ -239,12 +245,16 @@ function HostingCard({
             {option.label}
           </span>
           {option.badge && (
-            <span className={`rounded-full bg-[var(--surface-tertiary)] px-2 py-0.5 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}>
+            <span
+              className={`rounded-full bg-[var(--surface-tertiary)] px-2 py-0.5 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
+            >
               {option.badge}
             </span>
           )}
         </div>
-        <span className={`mt-0.5 line-clamp-2 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default leading-[14px]" : "text-body-small-default"}`}>
+        <span
+          className={`mt-0.5 line-clamp-2 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default leading-[14px]" : "text-body-small-default"}`}
+        >
           {option.subtitle}
         </span>
       </div>

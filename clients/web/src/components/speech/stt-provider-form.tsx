@@ -251,7 +251,8 @@ export function SttProviderForm({
       const leavingVellum =
         daemonSttProvider === "vellum" && draftProvider !== "vellum";
       const writeProvider =
-        (!!daemon && (draftProvider !== serverProvider || !daemonHasProvider)) ||
+        (!!daemon &&
+          (draftProvider !== serverProvider || !daemonHasProvider)) ||
         leavingVellum;
       if (writeProvider) {
         const providerValue = daemon?.provider ?? DEFAULT_PROVIDER_ID;

@@ -34,7 +34,9 @@ export function deriveGuardianDeliveries(filter?: {
 
   return gatewayAclRows()
     .filter((r) => {
-      if (r.role !== "guardian" || r.status !== "active") return false;
+      if (r.role !== "guardian" || r.status !== "active") {
+        return false;
+      }
       // Empty array => no filter (all types), matching production's
       // `channelTypes.length > 0` predicate guard.
       if (channelTypes && channelTypes.length > 0) {

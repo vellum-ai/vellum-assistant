@@ -23,12 +23,16 @@ function hasCascade(
   const row = raw
     .query(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`)
     .get(tableName) as { sql: string } | null;
-  if (!row) return true; // table doesn't exist yet — will be created with correct DDL
+  if (!row) {
+    return true;
+  } // table doesn't exist yet — will be created with correct DDL
   return row.sql.includes("ON DELETE CASCADE");
 }
 
 function rebuildMessages(raw: ReturnType<typeof getSqliteFrom>): void {
-  if (hasCascade(raw, "messages")) return;
+  if (hasCascade(raw, "messages")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -88,7 +92,9 @@ function rebuildMessages(raw: ReturnType<typeof getSqliteFrom>): void {
 }
 
 function rebuildTaskRuns(raw: ReturnType<typeof getSqliteFrom>): void {
-  if (hasCascade(raw, "task_runs")) return;
+  if (hasCascade(raw, "task_runs")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -131,7 +137,9 @@ function rebuildTaskRuns(raw: ReturnType<typeof getSqliteFrom>): void {
 function rebuildAssistantIngressMembers(
   raw: ReturnType<typeof getSqliteFrom>,
 ): void {
-  if (hasCascade(raw, "assistant_ingress_members")) return;
+  if (hasCascade(raw, "assistant_ingress_members")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

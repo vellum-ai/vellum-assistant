@@ -39,7 +39,10 @@ mock.module("@/domains/onboarding/prefs", () => ({
   useShareAnalytics: () => [shareAnalytics, setShareAnalytics],
   useShareDiagnostics: () => [shareDiagnostics, setShareDiagnostics],
   useAnalyticsConsentCurrent: () => [analyticsConsentCurrent, mock(() => {})],
-  useDiagnosticsConsentCurrent: () => [diagnosticsConsentCurrent, mock(() => {})],
+  useDiagnosticsConsentCurrent: () => [
+    diagnosticsConsentCurrent,
+    mock(() => {}),
+  ],
   useHasConsentRecord: () => hasConsentRecord,
 }));
 
@@ -55,7 +58,9 @@ mock.module("@/lib/auth/hard-navigate", () => ({
 }));
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 mock.module("@/stores/auth-store", () => ({
-  useAuthStore: { use: { user: () => ({ id: "user-1" }), logout: () => mock(async () => {}) } },
+  useAuthStore: {
+    use: { user: () => ({ id: "user-1" }), logout: () => mock(async () => {}) },
+  },
   useHasPlatformSession: () => true,
 }));
 
@@ -116,9 +121,8 @@ mock.module("@vellumai/design-library/components/toggle", () => ({
   ),
 }));
 
-const { ReviewTermsScreen } = await import(
-  "@/domains/onboarding/pages/review-terms-screen"
-);
+const { ReviewTermsScreen } =
+  await import("@/domains/onboarding/pages/review-terms-screen");
 
 const TOS_LABEL = "I agree to the Terms of Service";
 const PRIVACY_LABEL = "I agree to the Privacy and AI Data Sharing Policy";

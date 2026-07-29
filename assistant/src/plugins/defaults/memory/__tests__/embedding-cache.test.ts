@@ -35,7 +35,8 @@ afterAll(() => {
 });
 
 // Deferred so internal `getWorkspaceDir()` resolves to the tmpdir set above.
-const { getDb } = await import("../../../../persistence/db-connection.js");
+const { getMemoryDb } =
+  await import("../../../../persistence/db-connection.js");
 const { resetDbForTesting } =
   await import("../../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../../../persistence/db-init.js");
@@ -66,7 +67,7 @@ function seed(
     now: number;
   }> = {},
 ): void {
-  writeEmbeddingCache(getDb(), {
+  writeEmbeddingCache(getMemoryDb()!, {
     targetType: KEY.targetType,
     targetId: KEY.targetId,
     provider: KEY.provider,
@@ -79,13 +80,13 @@ function seed(
 
 describe("embedding-cache", () => {
   test("read returns null when nothing is cached", () => {
-    expect(readEmbeddingCache(getDb(), KEY)).toBeNull();
+    expect(readEmbeddingCache(getMemoryDb()!, KEY)).toBeNull();
   });
 
   test("write then read round-trips the vector and content hash", () => {
     seed({ dense: [1, 2, 3, 4], contentHash: "hash-a" });
 
-    const got = readEmbeddingCache(getDb(), KEY);
+    const got = readEmbeddingCache(getMemoryDb()!, KEY);
     expect(got).not.toBeNull();
     expect(got!.dense).toEqual([1, 2, 3, 4]);
     expect(got!.contentHash).toBe("hash-a");
@@ -93,12 +94,14 @@ describe("embedding-cache", () => {
 
   test("read misses when the configured dimension differs from the stored row", () => {
     seed();
-    expect(readEmbeddingCache(getDb(), { ...KEY, expectedDim: 8 })).toBeNull();
+    expect(
+      readEmbeddingCache(getMemoryDb()!, { ...KEY, expectedDim: 8 }),
+    ).toBeNull();
   });
 
   test("read is isolated by targetType / targetId / provider / model", () => {
     seed();
-    const db = getDb();
+    const db = getMemoryDb()!;
     expect(
       readEmbeddingCache(db, { ...KEY, targetType: "concept_page" }),
     ).toBeNull();
@@ -110,7 +113,7 @@ describe("embedding-cache", () => {
   });
 
   test("re-writing the same key upserts in place (one row, latest content)", () => {
-    const db = getDb();
+    const db = getMemoryDb()!;
     seed({ dense: [1, 2, 3, 4], contentHash: "hash-a", now: 1000 });
     seed({ dense: [5, 6, 7, 8], contentHash: "hash-b", now: 2000 });
 

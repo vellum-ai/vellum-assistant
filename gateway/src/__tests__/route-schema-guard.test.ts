@@ -21,6 +21,10 @@ const ROUTE_PATH_CONSTANTS: Record<string, string> = {
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
+  // A regex rather than a literal, shared with the WebSocket upgrade branch
+  // so the two halves of the plugin surface cannot disagree. Given here in
+  // the converted form the extractor would have produced from it inline.
+  PLUGIN_WEBHOOK_PATH_PATTERN: "/webhooks/plugins/{param1}/{param2}",
 };
 
 /**
@@ -211,6 +215,10 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // ingress path; not part of the public gateway API
   "/v1/speech/stt/stream",
   "/v1/speech/tts/stream",
+  // Plugin-declared webhooks — which paths exist is decided at runtime by the
+  // installed plugins and the guardian's approvals, so there is no fixed set
+  // to document. The declaration schema is the contract, not this path.
+  "/webhooks/plugins/{param1}/{param2}",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

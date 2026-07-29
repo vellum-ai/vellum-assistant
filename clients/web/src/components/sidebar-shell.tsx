@@ -130,10 +130,7 @@ export function SidebarShell({
       {electron ? (
         <div className="flex shrink-0 flex-col gap-2 pb-4 empty:hidden">
           <StatusBanner placement="electron" className="px-0 pt-0" />
-          <RuntimeUpgradeBanner
-            placement="electron"
-            className="px-0 pt-0"
-          />
+          <RuntimeUpgradeBanner placement="electron" className="px-0 pt-0" />
         </div>
       ) : null}
 

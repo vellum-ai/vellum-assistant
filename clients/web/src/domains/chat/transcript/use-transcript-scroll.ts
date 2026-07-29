@@ -312,8 +312,7 @@ export function useTranscriptScroll(
     const newAnchorKey = findLatestUserAnchorKey(items);
     const prevAnchorKey = previousAnchorKeyRef.current;
     previousAnchorKeyRef.current = newAnchorKey;
-    const isNewAnchor =
-      newAnchorKey !== null && newAnchorKey !== prevAnchorKey;
+    const isNewAnchor = newAnchorKey !== null && newAnchorKey !== prevAnchorKey;
     if (isNewAnchor) {
       engageAutoPin();
       transcriptRef.current?.scrollToLatest({ behavior: "auto" });
@@ -364,10 +363,7 @@ export function useTranscriptScroll(
       // Gate on the synchronous in-flight lock so a chain-load sequence
       // (response prepends → items change → effect re-runs near top) cannot
       // double-fire on a single render cycle.
-      if (
-        classification.shouldLoadOlder &&
-        !loadOlderInFlightRef.current
-      ) {
+      if (classification.shouldLoadOlder && !loadOlderInFlightRef.current) {
         if (!shouldAutoPinRef.current) {
           const firstItem = items[0];
           if (firstItem) {
@@ -408,10 +404,14 @@ export function useTranscriptScroll(
   const observedElRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
 
     const el = transcriptRef.current?.getScrollElement() ?? null;
-    if (el === observedElRef.current) return;
+    if (el === observedElRef.current) {
+      return;
+    }
 
     resizeObserverRef.current?.disconnect();
     observedElRef.current = el;
@@ -431,9 +431,12 @@ export function useTranscriptScroll(
   }, [conversationId, transcriptRef, hasItems]);
 
   // Disconnect observer on hook unmount.
-  useEffect(() => () => {
-    resizeObserverRef.current?.disconnect();
-  }, []);
+  useEffect(
+    () => () => {
+      resizeObserverRef.current?.disconnect();
+    },
+    [],
+  );
 
   // -----------------------------------------------------------------------
   // Content resize re-pin. The *content* element (inner wrapper around
@@ -452,10 +455,14 @@ export function useTranscriptScroll(
   const observedContentElRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (typeof ResizeObserver === "undefined") return;
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
 
     const el = transcriptRef.current?.getContentElement?.() ?? null;
-    if (el === observedContentElRef.current) return;
+    if (el === observedContentElRef.current) {
+      return;
+    }
 
     contentObserverRef.current?.disconnect();
     observedContentElRef.current = el;
@@ -474,9 +481,12 @@ export function useTranscriptScroll(
     contentObserverRef.current = observer;
   }, [conversationId, transcriptRef, hasItems]);
 
-  useEffect(() => () => {
-    contentObserverRef.current?.disconnect();
-  }, []);
+  useEffect(
+    () => () => {
+      contentObserverRef.current?.disconnect();
+    },
+    [],
+  );
 
   // -----------------------------------------------------------------------
   // User-input scroll cancels the auto-pin window. Any of these gestures
@@ -487,7 +497,9 @@ export function useTranscriptScroll(
   // -----------------------------------------------------------------------
   useEffect(() => {
     const el = transcriptRef.current?.getScrollElement() ?? null;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     el.addEventListener("wheel", disengageAutoPin, { passive: true });
     el.addEventListener("touchmove", disengageAutoPin, { passive: true });
     el.addEventListener("keydown", disengageAutoPin, { passive: true });
@@ -503,7 +515,9 @@ export function useTranscriptScroll(
   // -----------------------------------------------------------------------
   const handleScroll = useCallback((event: Event) => {
     const target = event.currentTarget as HTMLElement | null;
-    if (!target) return;
+    if (!target) {
+      return;
+    }
     const metrics: ScrollMetrics = {
       scrollTop: target.scrollTop,
       scrollHeight: target.scrollHeight,
@@ -575,7 +589,9 @@ export function useTranscriptScroll(
   // -----------------------------------------------------------------------
   useEffect(() => {
     const el = transcriptRef.current?.getScrollElement();
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     el.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
       el.removeEventListener("scroll", handleScroll);

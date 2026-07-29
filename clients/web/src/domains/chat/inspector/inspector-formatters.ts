@@ -31,12 +31,16 @@ const RESPONSE_PREVIEW_LIMIT = 240;
 const TOOL_NAME_MAX_VISIBLE = 3;
 
 export function formatCount(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return MISSING_VALUE;
+  if (value == null || !Number.isFinite(value)) {
+    return MISSING_VALUE;
+  }
   return numberFormatter.format(value);
 }
 
 export function formatCost(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return MISSING_VALUE;
+  if (value == null || !Number.isFinite(value)) {
+    return MISSING_VALUE;
+  }
   return costFormatter.format(value);
 }
 
@@ -45,7 +49,9 @@ export function formatCost(value: number | null | undefined): string {
  * Returns {@link MISSING_VALUE} when the ratio is absent or non-finite.
  */
 export function formatPercent(ratio: number | null | undefined): string {
-  if (ratio == null || !Number.isFinite(ratio)) return MISSING_VALUE;
+  if (ratio == null || !Number.isFinite(ratio)) {
+    return MISSING_VALUE;
+  }
   return `${Math.round(ratio * 100)}%`;
 }
 
@@ -64,7 +70,9 @@ export function formatCacheTokens(
 }
 
 export function displayText(value: string | null | undefined): string {
-  if (value == null) return MISSING_VALUE;
+  if (value == null) {
+    return MISSING_VALUE;
+  }
   const trimmed = value.trim();
   return trimmed.length ? trimmed : MISSING_VALUE;
 }
@@ -76,42 +84,60 @@ const KNOWN_PROVIDERS: Record<string, string> = {
 };
 
 export function displayProvider(value: string | null | undefined): string {
-  if (!value) return MISSING_VALUE;
+  if (!value) {
+    return MISSING_VALUE;
+  }
   const trimmed = value.trim();
-  if (!trimmed) return MISSING_VALUE;
+  if (!trimmed) {
+    return MISSING_VALUE;
+  }
   const lower = trimmed.toLowerCase();
   const known = KNOWN_PROVIDERS[lower];
-  if (known) return known;
+  if (known) {
+    return known;
+  }
   const parts = lower.split(/[-_]+/).filter(Boolean);
-  if (!parts.length) return trimmed;
+  if (!parts.length) {
+    return trimmed;
+  }
   return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
 }
 
-export function formattedCreatedAt(
-  epochMs: number | null | undefined,
-): string {
-  if (epochMs == null || !Number.isFinite(epochMs)) return MISSING_VALUE;
+export function formattedCreatedAt(epochMs: number | null | undefined): string {
+  if (epochMs == null || !Number.isFinite(epochMs)) {
+    return MISSING_VALUE;
+  }
   return dateTimeFormatter.format(new Date(epochMs));
 }
 
 export function truncatedResponsePreview(
   preview: string | null | undefined,
 ): string {
-  if (preview == null) return MISSING_VALUE;
+  if (preview == null) {
+    return MISSING_VALUE;
+  }
   const trimmed = preview.trim();
-  if (!trimmed) return MISSING_VALUE;
-  if (trimmed.length <= RESPONSE_PREVIEW_LIMIT) return trimmed;
+  if (!trimmed) {
+    return MISSING_VALUE;
+  }
+  if (trimmed.length <= RESPONSE_PREVIEW_LIMIT) {
+    return trimmed;
+  }
   const head = trimmed.slice(0, RESPONSE_PREVIEW_LIMIT).trim();
   return head ? `${head}…` : MISSING_VALUE;
 }
 
-export function compactToolNames(
-  names: string[] | null | undefined,
-): string {
-  if (!names) return MISSING_VALUE;
+export function compactToolNames(names: string[] | null | undefined): string {
+  if (!names) {
+    return MISSING_VALUE;
+  }
   const cleaned = names.map((n) => n.trim()).filter((n) => n.length > 0);
-  if (!cleaned.length) return MISSING_VALUE;
-  if (cleaned.length <= TOOL_NAME_MAX_VISIBLE) return cleaned.join(", ");
+  if (!cleaned.length) {
+    return MISSING_VALUE;
+  }
+  if (cleaned.length <= TOOL_NAME_MAX_VISIBLE) {
+    return cleaned.join(", ");
+  }
   const visible = cleaned.slice(0, TOOL_NAME_MAX_VISIBLE).join(", ");
   return `${visible} +${cleaned.length - TOOL_NAME_MAX_VISIBLE} more`;
 }
@@ -123,7 +149,9 @@ export function compactToolNames(
  * `isProviderOnlySummary`.
  */
 export function isProviderOnlySummary(summary: LLMCallSummary): boolean {
-  if (displayProvider(summary.provider) === MISSING_VALUE) return false;
+  if (displayProvider(summary.provider) === MISSING_VALUE) {
+    return false;
+  }
   return (
     summary.model == null &&
     summary.status == null &&

@@ -44,13 +44,17 @@ export function useStickToBottom(contentKey: unknown): UseStickToBottomReturn {
 
   const pinToBottom = useCallback(() => {
     const el = nodeRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     el.scrollTop = el.scrollHeight;
   }, []);
 
   const reclassify = useCallback(() => {
     const el = nodeRef.current;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const pinned = isNearBottom(el);
     pinnedRef.current = pinned;
     setShowScrollToLatest((prev) => (prev === !pinned ? prev : !pinned));
@@ -70,13 +74,20 @@ export function useStickToBottom(contentKey: unknown): UseStickToBottomReturn {
   const scrollRef = useCallback(
     (node: HTMLDivElement | null) => {
       const prev = nodeRef.current;
-      if (prev) prev.removeEventListener("scroll", reclassify);
+      if (prev) {
+        prev.removeEventListener("scroll", reclassify);
+      }
       nodeRef.current = node;
-      if (!node) return;
+      if (!node) {
+        return;
+      }
       node.addEventListener("scroll", reclassify, { passive: true });
       // Land at the latest (or surface the affordance) on (re)mount.
-      if (pinnedRef.current) node.scrollTop = node.scrollHeight;
-      else reclassify();
+      if (pinnedRef.current) {
+        node.scrollTop = node.scrollHeight;
+      } else {
+        reclassify();
+      }
     },
     [reclassify],
   );
@@ -84,8 +95,11 @@ export function useStickToBottom(contentKey: unknown): UseStickToBottomReturn {
   // Re-pin (or surface the affordance) whenever the content identity changes.
   // useLayoutEffect so the pin lands before paint and there's no visible jump.
   useLayoutEffect(() => {
-    if (pinnedRef.current) pinToBottom();
-    else reclassify();
+    if (pinnedRef.current) {
+      pinToBottom();
+    } else {
+      reclassify();
+    }
   }, [contentKey, pinToBottom, reclassify]);
 
   return { scrollRef, showScrollToLatest, scrollToLatest };

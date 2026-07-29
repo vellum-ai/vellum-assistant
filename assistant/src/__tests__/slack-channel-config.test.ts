@@ -74,7 +74,9 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   },
   syncManualTokenConnection: async (provider: string, accountInfo?: string) => {
     const { getSecureKeyAsync } = await import("../security/secure-keys.js");
-    if (provider !== "slack_channel") return;
+    if (provider !== "slack_channel") {
+      return;
+    }
     const hasBotToken = !!(await getSecureKeyAsync(
       credentialKey("slack_channel", "bot_token"),
     ));
@@ -661,7 +663,9 @@ describe("Slack channel config handler", () => {
     const userTokenKey = credentialKey("slack_channel", "user_token");
     const deleteSpy = spyOn(secureKeys, "deleteSecureKeyAsync");
     deleteSpy.mockImplementation(async (account: string) => {
-      if (account === userTokenKey) return "error";
+      if (account === userTokenKey) {
+        return "error";
+      }
       // Fall through to real implementation would require the original ref;
       // this test only triggers deletion of the user_token, so returning
       // "not-found" for any other key is safe (none are asserted on).

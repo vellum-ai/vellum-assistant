@@ -24,7 +24,9 @@ export class BrowserSessionManager {
   /** Pick an available backend or throw. */
   selectBackend(): BrowserBackend {
     const b = this.backends.find((x) => x.isAvailable());
-    if (!b) throw new Error("No available browser backend");
+    if (!b) {
+      throw new Error("No available browser backend");
+    }
     return b;
   }
 
@@ -153,7 +155,9 @@ export class BrowserSessionManager {
   }
 
   disposeAll(): void {
-    for (const b of this.backends) b.dispose();
+    for (const b of this.backends) {
+      b.dispose();
+    }
     this.sessions.clear();
   }
 }

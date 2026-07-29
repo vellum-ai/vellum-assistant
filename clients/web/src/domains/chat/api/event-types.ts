@@ -57,8 +57,7 @@ export type QuestionResponseEntry =
   | { questionId: string; kind: "skip" };
 
 export type QuestionSubmission =
-  | { kind: "submit"; responses: QuestionResponseEntry[] }
-  | { kind: "close" };
+  { kind: "submit"; responses: QuestionResponseEntry[] } | { kind: "close" };
 
 /**
  * Normalizes a `question_request` SSE event into the batched `QuestionEntry[]`

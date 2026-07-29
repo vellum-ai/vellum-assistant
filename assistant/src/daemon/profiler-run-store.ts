@@ -93,14 +93,18 @@ interface ProfilerSweepResult {
  */
 function computeDirBytes(dirPath: string): number {
   let total = 0;
-  if (!existsSync(dirPath)) return 0;
+  if (!existsSync(dirPath)) {
+    return 0;
+  }
 
   const names = readdirSync(dirPath);
   for (const name of names) {
     const entryPath = join(dirPath, name);
     try {
       const stat = lstatSync(entryPath);
-      if (stat.isSymbolicLink()) continue;
+      if (stat.isSymbolicLink()) {
+        continue;
+      }
       if (stat.isDirectory()) {
         total += computeDirBytes(entryPath);
       } else if (stat.isFile()) {
@@ -177,7 +181,9 @@ interface RescanRunsOptions {
 export function rescanRuns(options?: RescanRunsOptions): ProfilerRunManifest[] {
   const readOnly = options?.readOnly ?? false;
   const runsDir = getProfilerRunsDir();
-  if (!existsSync(runsDir)) return [];
+  if (!existsSync(runsDir)) {
+    return [];
+  }
 
   const activeRunId = getProfilerRunId();
   const manifests: ProfilerRunManifest[] = [];
@@ -193,7 +199,9 @@ export function rescanRuns(options?: RescanRunsOptions): ProfilerRunManifest[] {
   for (const runId of names) {
     const runDir = getProfilerRunDir(runId);
     try {
-      if (!statSync(runDir).isDirectory()) continue;
+      if (!statSync(runDir).isDirectory()) {
+        continue;
+      }
     } catch {
       continue;
     }
@@ -310,7 +318,9 @@ export function runProfilerSweep(): ProfilerSweepResult {
     const overRunCount = completedRuns.length > maxRuns;
     const overFreeSpace = getFreeDiskBytes(runsDir) < minFreeBytes;
 
-    if (!overBytesBudget && !overRunCount && !overFreeSpace) break;
+    if (!overBytesBudget && !overRunCount && !overFreeSpace) {
+      break;
+    }
 
     const oldest = completedRuns[0]!;
     const runDir = getProfilerRunDir(oldest.runId);
@@ -436,7 +446,9 @@ const PROFILER_SUMMARY_EXTENSIONS = [".md"];
  * Count profiler artifact files (raw profiles) in a run directory.
  */
 function countArtifacts(runDir: string): number {
-  if (!existsSync(runDir)) return 0;
+  if (!existsSync(runDir)) {
+    return 0;
+  }
   try {
     return readdirSync(runDir).filter((name) =>
       PROFILER_ARTIFACT_EXTENSIONS.some((ext) => name.endsWith(ext)),
@@ -451,7 +463,9 @@ function countArtifacts(runDir: string): number {
  * directory.
  */
 function hasSummaryFiles(runDir: string): boolean {
-  if (!existsSync(runDir)) return false;
+  if (!existsSync(runDir)) {
+    return false;
+  }
   try {
     return readdirSync(runDir).some((name) =>
       PROFILER_SUMMARY_EXTENSIONS.some((ext) => name.endsWith(ext)),

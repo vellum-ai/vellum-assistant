@@ -55,17 +55,25 @@ export function _resetRequestLoggingCountersForTests(): void {
  * the log line is actually emitted.
  */
 function shouldSuppressSuccess(meta: RequestLogMetadata | undefined): boolean {
-  if (!meta) return false;
+  if (!meta) {
+    return false;
+  }
   const threshold = meta.config.silenceSuccessAfter;
-  if (threshold === undefined || threshold <= 0) return false;
+  if (threshold === undefined || threshold <= 0) {
+    return false;
+  }
   const current = successCounters.get(meta.counterKey) ?? 0;
   return current >= threshold;
 }
 
 /** Record that we just emitted a success log line for this route. */
 function bumpSuccessCounter(meta: RequestLogMetadata | undefined): void {
-  if (!meta) return;
-  if (meta.config.silenceSuccessAfter === undefined) return;
+  if (!meta) {
+    return;
+  }
+  if (meta.config.silenceSuccessAfter === undefined) {
+    return;
+  }
   const current = successCounters.get(meta.counterKey) ?? 0;
   successCounters.set(meta.counterKey, current + 1);
 }

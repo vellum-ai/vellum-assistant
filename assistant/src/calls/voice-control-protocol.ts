@@ -81,11 +81,15 @@ export function extractBalancedJson(
   text: string,
 ): { json: string; fullMatch: string; startIndex: number } | null {
   const prefixMatch = ASK_GUARDIAN_APPROVAL_PREFIX_RE.exec(text);
-  if (!prefixMatch) return null;
+  if (!prefixMatch) {
+    return null;
+  }
 
   const prefixIdx = prefixMatch.index;
   const jsonStart = prefixIdx + prefixMatch[0].length;
-  if (jsonStart >= text.length || text[jsonStart] !== "{") return null;
+  if (jsonStart >= text.length || text[jsonStart] !== "{") {
+    return null;
+  }
 
   let depth = 0;
   let inString = false;
@@ -109,7 +113,9 @@ export function extractBalancedJson(
       continue;
     }
 
-    if (inString) continue;
+    if (inString) {
+      continue;
+    }
 
     if (ch === "{") {
       depth++;
@@ -154,7 +160,9 @@ function stripGuardianApprovalMarkers(text: string): string {
   let result = text;
   for (;;) {
     const match = extractBalancedJson(result);
-    if (!match) break;
+    if (!match) {
+      break;
+    }
     result =
       result.slice(0, match.startIndex) +
       result.slice(match.startIndex + match.fullMatch.length);

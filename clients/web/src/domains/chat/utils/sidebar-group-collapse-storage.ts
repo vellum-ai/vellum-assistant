@@ -18,10 +18,7 @@
 import { parseStringArray } from "@/domains/chat/utils/storage-validators";
 import { createKeyedStorageAccessor } from "@/utils/typed-storage";
 
-const OPEN_CATEGORY_KEYS = new Set([
-  "scheduled",
-  "background",
-]);
+const OPEN_CATEGORY_KEYS = new Set(["scheduled", "background"]);
 
 /**
  * The always-present primary sections (Pinned, Chats). Unlike the built-in

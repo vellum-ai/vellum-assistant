@@ -5,8 +5,7 @@ export interface CapacityBarProps {
 }
 
 export function CapacityBar({ value, max, caption }: CapacityBarProps) {
-  const percent =
-    max > 0 ? Math.max(0, Math.min((value / max) * 100, 100)) : 0;
+  const percent = max > 0 ? Math.max(0, Math.min((value / max) * 100, 100)) : 0;
   const isCritical = percent > 90;
 
   return (

@@ -41,7 +41,9 @@ function stripCommentLines(content: string): string {
         openFenceChar = null;
       }
     }
-    if (openFenceChar) return true;
+    if (openFenceChar) {
+      return true;
+    }
     return !line.trimStart().startsWith("_");
   });
   return filtered
@@ -97,12 +99,16 @@ Store details about your user here. Edit freely - build this over time as you le
 
 function isLegacyTemplateContent(raw: string): boolean {
   const stripped = stripCommentLines(raw);
-  if (stripped.length === 0) return true;
+  if (stripped.length === 0) {
+    return true;
+  }
   return stripped === LEGACY_USER_MD_TEMPLATE_STRIPPED;
 }
 
 function destFileIsMissingOrEmpty(destPath: string): boolean {
-  if (!existsSync(destPath)) return true;
+  if (!existsSync(destPath)) {
+    return true;
+  }
   try {
     const raw = readFileSync(destPath, "utf-8");
     return stripCommentLines(raw).length === 0;
@@ -168,19 +174,24 @@ function generateUserFileSlug(db: Database, displayName: string): string {
   const slug = computeUserFileBaseSlug(displayName);
 
   const rows = db
-    .query<{ user_file: string | null }, [string]>(
-      `SELECT user_file FROM contacts WHERE user_file LIKE ?`,
-    )
+    .query<
+      { user_file: string | null },
+      [string]
+    >(`SELECT user_file FROM contacts WHERE user_file LIKE ?`)
     .all(`${escapeLike(slug)}%`);
 
   const taken = new Set(rows.map((r) => r.user_file?.toLowerCase()));
 
   const base = `${slug}.md`;
-  if (!taken.has(base)) return base;
+  if (!taken.has(base)) {
+    return base;
+  }
 
   for (let i = 2; ; i++) {
     const candidate = `${slug}-${i}.md`;
-    if (!taken.has(candidate)) return candidate;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
   }
 }
 
@@ -214,7 +225,9 @@ export const dropUserMdMigration: WorkspaceMigration = {
     const userMdPath = join(workspaceDir, "USER.md");
 
     const dbPath = join(workspaceDir, "data", "db", "assistant.db");
-    if (!existsSync(dbPath)) return; // DB not created yet — defer cleanup.
+    if (!existsSync(dbPath)) {
+      return;
+    } // DB not created yet — defer cleanup.
 
     let db: Database;
     try {
@@ -225,7 +238,9 @@ export const dropUserMdMigration: WorkspaceMigration = {
     }
 
     try {
-      if (!aclColumnsPresent(db)) return; // ACL columns dropped — cleanup is a no-op.
+      if (!aclColumnsPresent(db)) {
+        return;
+      } // ACL columns dropped — cleanup is a no-op.
 
       // Resolve the guardian contact from the local DB. Prefer the
       // vellum-channel binding (the canonical native guardian); fall back to

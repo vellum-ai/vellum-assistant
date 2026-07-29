@@ -6,15 +6,15 @@ import { Card } from "@vellumai/design-library";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import type {
-    MemoryRouterSimulateRequest,
-    MemoryRouterSimulateResponse,
-    RecentTurnPair,
+  MemoryRouterSimulateRequest,
+  MemoryRouterSimulateResponse,
+  RecentTurnPair,
 } from "@/domains/chat/inspector/memory-router-simulator-api";
 import {
-    useCurrentNowText,
-    useDefaultRouterPromptTemplate,
-    useLlmProfiles,
-    useSimulateMemoryRouter,
+  useCurrentNowText,
+  useDefaultRouterPromptTemplate,
+  useLlmProfiles,
+  useSimulateMemoryRouter,
 } from "@/domains/chat/inspector/memory-router-simulator-api";
 import { useIsSessionInitializing } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -96,7 +96,9 @@ function PlaygroundView(): ReactNode {
   const [nowTextDirty, setNowTextDirty] = useState(false);
 
   useEffect(() => {
-    if (nowTextDirty) return;
+    if (nowTextDirty) {
+      return;
+    }
     const fetched = nowTextQuery.data?.nowText;
     if (typeof fetched === "string" && nowText === "") {
       setNowText(fetched);
@@ -252,8 +254,12 @@ function maybeOverride(
   raw: string,
 ): Record<string, number | null> {
   const trimmed = raw.trim();
-  if (trimmed === "") return {};
-  if (trimmed === "null") return { [fieldName]: null };
+  if (trimmed === "") {
+    return {};
+  }
+  if (trimmed === "null") {
+    return { [fieldName]: null };
+  }
   const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(
@@ -312,7 +318,9 @@ function ConversationContextSection({
   const removePair = (index: number) => {
     // Refuse to drop the most recent pair — its `userMessage` is the
     // just-arrived turn that the router is routing for.
-    if (index === pairs.length - 1) return;
+    if (index === pairs.length - 1) {
+      return;
+    }
     onPairsChange(pairs.filter((_, i) => i !== index));
   };
   return (
@@ -798,7 +806,9 @@ function RunBothButton({
 }
 
 function DiffLegend({ visible }: { visible: boolean }): ReactNode {
-  if (!visible) return null;
+  if (!visible) {
+    return null;
+  }
   return (
     <div
       className="flex flex-wrap items-center gap-4 rounded-md px-4 py-2 text-label-default"
@@ -1035,7 +1045,9 @@ function classifySlugs(
 ): Map<string, SlugDiff> {
   const out = new Map<string, SlugDiff>();
   if (other === undefined) {
-    for (const slug of own.selectedSlugs) out.set(slug, "both");
+    for (const slug of own.selectedSlugs) {
+      out.set(slug, "both");
+    }
     return out;
   }
   const otherSet = new Set(other.selectedSlugs);
@@ -1055,8 +1067,11 @@ function countDiff(diff: Map<string, SlugDiff>): DiffCounts {
   let shared = 0;
   let unique = 0;
   for (const cls of diff.values()) {
-    if (cls === "both") shared++;
-    else unique++;
+    if (cls === "both") {
+      shared++;
+    } else {
+      unique++;
+    }
   }
   return { total: diff.size, shared, unique };
 }
@@ -1161,7 +1176,9 @@ function groupSlugsBySource(
   const byKey = new Map<string, string[]>();
   for (const slug of result.selectedSlugs) {
     const source = result.sourceBySlug[slug];
-    if (source === undefined) continue;
+    if (source === undefined) {
+      continue;
+    }
     const bucket = byKey.get(source) ?? [];
     bucket.push(slug);
     byKey.set(source, bucket);
@@ -1176,8 +1193,12 @@ function groupSlugsBySource(
 }
 
 function sourceOrder(source: string): number {
-  if (source === "tier1") return 0;
-  if (source === "tier2") return 1;
+  if (source === "tier1") {
+    return 0;
+  }
+  if (source === "tier2") {
+    return 1;
+  }
   if (source.startsWith("tier3:")) {
     return 2 + Number(source.slice("tier3:".length));
   }
@@ -1185,8 +1206,12 @@ function sourceOrder(source: string): number {
 }
 
 function formatSourceLabel(source: string): string {
-  if (source === "tier1") return "tier 1";
-  if (source === "tier2") return "tier 2";
+  if (source === "tier1") {
+    return "tier 1";
+  }
+  if (source === "tier2") {
+    return "tier 2";
+  }
   if (source.startsWith("tier3:")) {
     return `tier 3 · b${source.slice("tier3:".length)}`;
   }

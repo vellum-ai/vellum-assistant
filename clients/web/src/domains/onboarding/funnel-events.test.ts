@@ -37,7 +37,9 @@ interface IngestPayload {
 function ingestPayload(callIndex: number): IngestPayload {
   const options = ingestMock.mock.calls[callIndex]?.[0] as
     { body: IngestPayload } | undefined;
-  if (!options) throw new Error(`No ingest call at index ${callIndex}`);
+  if (!options) {
+    throw new Error(`No ingest call at index ${callIndex}`);
+  }
   return options.body;
 }
 

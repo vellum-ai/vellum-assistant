@@ -103,7 +103,10 @@ const VELLUM_PLUGIN_OWNER = "vellum-ai";
  * by Vellum — including future persona plugins like a developer/PM kit — flows
  * through automatically.
  */
-const NON_RECOMMENDABLE_PLUGINS = new Set<string>(["simple-memory", "level-up"]);
+const NON_RECOMMENDABLE_PLUGINS = new Set<string>([
+  "simple-memory",
+  "level-up",
+]);
 
 type CatalogMatch = NonNullable<
   PluginsSearchGetResponses[200]["matches"]
@@ -117,7 +120,11 @@ export interface RecommendableCapabilities {
 
 /** Keep injected descriptions to one short clause so the prompt stays compact. */
 function compactDescription(raw: string): string {
-  const firstSentence = raw.trim().split(/(?<=\.)\s/)[0]?.trim() ?? raw.trim();
+  const firstSentence =
+    raw
+      .trim()
+      .split(/(?<=\.)\s/)[0]
+      ?.trim() ?? raw.trim();
   return firstSentence.length > 100
     ? `${firstSentence.slice(0, 97).trimEnd()}…`
     : firstSentence;
@@ -142,9 +149,15 @@ export function selectRecommendableCapabilities(
   for (const m of matches) {
     const name = m.name?.trim();
     const description = m.description?.trim();
-    if (!name || !description) continue;
-    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) continue;
-    if (NON_RECOMMENDABLE_PLUGINS.has(name)) continue;
+    if (!name || !description) {
+      continue;
+    }
+    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) {
+      continue;
+    }
+    if (NON_RECOMMENDABLE_PLUGINS.has(name)) {
+      continue;
+    }
     validNames.add(name);
     capabilities.push({ name, description: compactDescription(description) });
   }
@@ -326,6 +339,17 @@ export interface ResearchRunnerState {
   pluginCatalog: Record<string, string>;
 }
 
+function emptyResearchState(status: ResearchStatus): ResearchRunnerState {
+  return {
+    status,
+    claims: [],
+    droppedClaims: [],
+    suggestions: [],
+    installedPlugins: [],
+    pluginCatalog: {},
+  };
+}
+
 export interface StartResearchOptions {
   /** Resolves with the hatched assistant id once it's healthy. */
   awaitAssistantId: () => Promise<string>;
@@ -388,6 +412,26 @@ export interface UseResearchRunner extends ResearchRunnerState {
     results: ResearchRunnerState,
     awaitAssistantId?: () => Promise<string>,
   ) => void;
+  /**
+   * Re-enqueue installs for `names` against a fresh assistant promise, replacing
+   * whatever the run is tracking. For a settled run whose installs raced a hatch
+   * that then died: each one swallowed the rejection and resolved without
+   * installing anything while the run stayed `done`, so `awaitPluginInstalls`
+   * lets the handoff through on capabilities that aren't there. Idempotent and
+   * best-effort, like every other install path.
+   */
+  reinstallPlugins: (
+    names: string[],
+    awaitAssistantId: () => Promise<string>,
+  ) => void;
+  /**
+   * Drop the run's subject key and results so a following `start` with the SAME
+   * subject re-fires instead of deduping to a no-op. For restarting a turn that
+   * died with the dependency it was waiting on — a failed hatch rejects
+   * `awaitAssistantId` and settles the run "error" while it keeps holding the
+   * key — not for ordinary resubmits, which the key is there to collapse.
+   */
+  reset: () => void;
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -411,14 +455,9 @@ export function resolveOnboardingPluginInstalls({
 }
 
 export function useResearchRunner(): UseResearchRunner {
-  const [state, setState] = useState<ResearchRunnerState>({
-    status: "idle",
-    claims: [],
-    droppedClaims: [],
-    suggestions: [],
-    installedPlugins: [],
-    pluginCatalog: {},
-  });
+  const [state, setState] = useState<ResearchRunnerState>(() =>
+    emptyResearchState("idle"),
+  );
   // Monotonic run id: every fresh run claims the next id; in-flight loops bail
   // the moment a newer run supersedes them. Paired with the last subject key so
   // an identical resubmit is a no-op but an edited one restarts.
@@ -438,6 +477,30 @@ export function useResearchRunner(): UseResearchRunner {
   const pluginsReadyRef = useRef<Promise<void>>(Promise.resolve());
   const queryClient = useQueryClient();
 
+  // Track an install per name against a hatch promise, replacing the map. Used
+  // by both the resume hydrate and a post-retry re-enqueue, so the click gate
+  // always awaits installs bound to the CURRENT hatch attempt.
+  const enqueuePluginInstalls = useCallback(
+    (names: string[], awaitAssistantId: () => Promise<string>) => {
+      const installs = installPromisesRef.current;
+      installs.clear();
+      for (const name of names) {
+        installs.set(
+          name,
+          (async () => {
+            try {
+              const assistantId = await awaitAssistantId();
+              await installCapabilityBestEffort(assistantId, name);
+            } catch {
+              // Hatch never readied / install failed — don't block the click.
+            }
+          })(),
+        );
+      }
+    },
+    [],
+  );
+
   const start = useCallback(
     ({
       awaitAssistantId,
@@ -448,7 +511,9 @@ export function useResearchRunner(): UseResearchRunner {
       includeSuggestions = true,
     }: StartResearchOptions) => {
       const subjectKey = JSON.stringify(subject);
-      if (subjectKeyRef.current === subjectKey) return;
+      if (subjectKeyRef.current === subjectKey) {
+        return;
+      }
       subjectKeyRef.current = subjectKey;
       const runId = runIdRef.current + 1;
       runIdRef.current = runId;
@@ -461,14 +526,7 @@ export function useResearchRunner(): UseResearchRunner {
         resolvePluginsReady = res;
       });
       installPromisesRef.current.clear();
-      setState({
-        status: "running",
-        claims: [],
-        droppedClaims: [],
-        suggestions: [],
-        installedPlugins: [],
-        pluginCatalog: {},
-      });
+      setState(emptyResearchState("running"));
 
       void (async () => {
         let resolvedAssistantId: string | undefined;
@@ -477,7 +535,9 @@ export function useResearchRunner(): UseResearchRunner {
         try {
           const assistantId = await awaitAssistantId();
           resolvedAssistantId = assistantId;
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
 
           // Advertise the Vellum-owned marketplace capabilities to the research
           // turn so it can pick the ones that best fit the person (returned as a
@@ -486,7 +546,9 @@ export function useResearchRunner(): UseResearchRunner {
           // browsing/install surfaces remain independently feature-gated.
           const { capabilities, validNames } =
             await fetchAvailableCapabilities(assistantId);
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           // Name → description for the fetched catalog, so the UI can show each
           // installed plugin with its real name + description. Carried on every
           // state update below (the poll loop replaces state wholesale).
@@ -496,7 +558,9 @@ export function useResearchRunner(): UseResearchRunner {
           setState((s) => ({ ...s, pluginCatalog }));
           // Nothing installable (empty/unavailable catalog) — release the click
           // gate so suggestion clicks never wait on the research turn.
-          if (validNames.size === 0) resolvePluginsReady();
+          if (validNames.size === 0) {
+            resolvePluginsReady();
+          }
 
           // Tracks every install fired this run (deterministic floor + the model's
           // later picks), keyed by name so the suggestion click can await them and
@@ -516,7 +580,10 @@ export function useResearchRunner(): UseResearchRunner {
           );
           for (const name of deterministicPlugins) {
             if (!installs.has(name)) {
-              installs.set(name, installCapabilityBestEffort(assistantId, name));
+              installs.set(
+                name,
+                installCapabilityBestEffort(assistantId, name),
+              );
             }
           }
           if (deterministicPlugins.length > 0) {
@@ -544,7 +611,9 @@ export function useResearchRunner(): UseResearchRunner {
             // to the user's local clock. Mirrors `checkin-scheduler.ts`.
             try {
               const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-              if (tz) body.clientTimezone = tz;
+              if (tz) {
+                body.clientTimezone = tz;
+              }
             } catch {
               // Intl unavailable — daemon falls back to its own cascade.
             }
@@ -574,7 +643,9 @@ export function useResearchRunner(): UseResearchRunner {
             // once a complete payload settles.
             createdConversationId = conversation.data?.id;
             const id = conversation.data?.id;
-            if (!conversation.response?.ok || !id) return undefined;
+            if (!conversation.response?.ok || !id) {
+              return undefined;
+            }
             // Surface the new id immediately so the caller can persist it and
             // resume this exact thread across a refresh.
             onConversationCreated?.(id);
@@ -592,7 +663,9 @@ export function useResearchRunner(): UseResearchRunner {
               query: { conversationId: resumeConversationId },
               throwOnError: false,
             });
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             if (existing.response?.ok) {
               conversationId = resumeConversationId;
               createdConversationId = resumeConversationId;
@@ -604,7 +677,9 @@ export function useResearchRunner(): UseResearchRunner {
                   setState((s) => ({ ...s, status: "error" }));
                   return;
                 }
-                if (isStale()) return;
+                if (isStale()) {
+                  return;
+                }
               }
             }
             // Not ok → conversation gone (e.g. completed + archived); fall
@@ -613,7 +688,9 @@ export function useResearchRunner(): UseResearchRunner {
 
           if (!conversationId) {
             conversationId = await startFreshConversation();
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             if (!conversationId) {
               setState((s) => ({ ...s, status: "error" }));
               return;
@@ -622,7 +699,9 @@ export function useResearchRunner(): UseResearchRunner {
               setState((s) => ({ ...s, status: "error" }));
               return;
             }
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
           }
 
           // Poll the conversation, parsing the (possibly partial) reply each
@@ -652,13 +731,17 @@ export function useResearchRunner(): UseResearchRunner {
           // installing (see above); idempotent, so racing the same name is fine.
           while (Date.now() < deadline) {
             await sleep(POLL_INTERVAL_MS);
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             const listed = await messagesGet({
               path: { assistant_id: assistantId },
               query: { conversationId },
               throwOnError: false,
             });
-            if (isStale()) return;
+            if (isStale()) {
+              return;
+            }
             const messages = listed.data?.messages ?? [];
             const text = latestAssistantText(messages);
             if (text) {
@@ -672,7 +755,9 @@ export function useResearchRunner(): UseResearchRunner {
               } = parseResearchResultStreaming(text);
               // Narrow the model's picks to the catalog we actually fetched so a
               // hallucinated name never hits the install route; fire each new one.
-              const validPlugins = plugins.filter((name) => validNames.has(name));
+              const validPlugins = plugins.filter((name) =>
+                validNames.has(name),
+              );
               for (const name of validPlugins) {
                 if (!installs.has(name)) {
                   installs.set(
@@ -684,7 +769,9 @@ export function useResearchRunner(): UseResearchRunner {
               // Once the plugin decision is final (array closed, even if empty),
               // the install set is complete — release the click gate so it waits
               // only on the installs themselves, not the rest of the turn.
-              if (pluginsResolved) resolvePluginsReady();
+              if (pluginsResolved) {
+                resolvePluginsReady();
+              }
               // Surface the full set actually installing: the deterministic
               // floor plus the model's picks, deduped, baseline first. Shared
               // by the state update and the telemetry report below so it's
@@ -706,7 +793,9 @@ export function useResearchRunner(): UseResearchRunner {
               lastSuggestions = suggestions;
               lastPlugins = plugins;
               lastInstalledPlugins = installedPlugins;
-              if (complete) sawCompletePayload = true;
+              if (complete) {
+                sawCompletePayload = true;
+              }
               if (complete && !telemetrySent) {
                 telemetrySent = true;
                 void sendOnboardingResearchTelemetry({
@@ -731,7 +820,9 @@ export function useResearchRunner(): UseResearchRunner {
             }
           }
 
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           // The poll ceiling fired before a complete payload ever landed —
           // the in-loop send above never ran. Report the timeout with
           // whatever had been parsed so far rather than letting the turn go
@@ -754,7 +845,9 @@ export function useResearchRunner(): UseResearchRunner {
             status: resolveResearchCompletionStatus({ sawCompletePayload }),
           }));
         } catch (err) {
-          if (isStale()) return;
+          if (isStale()) {
+            return;
+          }
           captureError(err, { context: "research_onboarding_runner" });
           setState((s) => ({ ...s, status: "error" }));
         } finally {
@@ -776,13 +869,28 @@ export function useResearchRunner(): UseResearchRunner {
               resolvedAssistantId,
               createdConversationId,
             );
-            void invalidateConversationQueries(queryClient, resolvedAssistantId);
+            void invalidateConversationQueries(
+              queryClient,
+              resolvedAssistantId,
+            );
           }
         }
       })();
     },
     [queryClient],
   );
+
+  const reset = useCallback(() => {
+    // Supersede any in-flight loop, release the subject key so an identical
+    // resubmit is treated as a genuinely fresh run, and re-arm an already-
+    // resolved click gate so `awaitPluginInstalls` can't hang on a run that no
+    // longer exists.
+    runIdRef.current += 1;
+    subjectKeyRef.current = null;
+    installPromisesRef.current.clear();
+    pluginsReadyRef.current = Promise.resolve();
+    setState(emptyResearchState("idle"));
+  }, []);
 
   const awaitPluginInstalls = useCallback(async (): Promise<void> => {
     // Wait only for the plugin decision to be final (so a click that beats the
@@ -808,25 +916,18 @@ export function useResearchRunner(): UseResearchRunner {
       // suggestion click awaits real promises rather than an empty map. Idempotent
       // and best-effort: a failed hatch / install never blocks the click.
       if (awaitAssistantId && results.installedPlugins.length > 0) {
-        const installs = installPromisesRef.current;
-        installs.clear();
-        for (const name of results.installedPlugins) {
-          installs.set(
-            name,
-            (async () => {
-              try {
-                const assistantId = await awaitAssistantId();
-                await installCapabilityBestEffort(assistantId, name);
-              } catch {
-                // Hatch never readied / install failed — don't block the click.
-              }
-            })(),
-          );
-        }
+        enqueuePluginInstalls(results.installedPlugins, awaitAssistantId);
       }
     },
-    [],
+    [enqueuePluginInstalls],
   );
 
-  return { ...state, start, awaitPluginInstalls, hydrate };
+  return {
+    ...state,
+    start,
+    awaitPluginInstalls,
+    hydrate,
+    reinstallPlugins: enqueuePluginInstalls,
+    reset,
+  };
 }

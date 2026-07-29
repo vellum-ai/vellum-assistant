@@ -16,9 +16,8 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 // the effect's async pending-interaction restore makes no network call — the
 // synchronous `seedSnapshot` is all this test asserts on.
 // ---------------------------------------------------------------------------
-const realPaginationModule = await import(
-  "@/domains/chat/transcript/use-history-pagination"
-);
+const realPaginationModule =
+  await import("@/domains/chat/transcript/use-history-pagination");
 
 let currentProcessing: boolean | undefined;
 
@@ -65,9 +64,8 @@ mock.module("@/domains/chat/api/interactions", () => ({
   getPendingInteractions: async () => ({}),
 }));
 
-const { useConversationHistory } = await import(
-  "@/domains/chat/hooks/use-conversation-history"
-);
+const { useConversationHistory } =
+  await import("@/domains/chat/hooks/use-conversation-history");
 
 const queryClient = new QueryClient();
 

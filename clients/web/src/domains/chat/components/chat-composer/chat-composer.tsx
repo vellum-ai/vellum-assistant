@@ -40,7 +40,6 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
-  releaseLiveVoiceTurn,
   restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
   setLiveVoiceMuted,
@@ -150,6 +149,10 @@ export interface ChatComposerProps {
   // chrome surfacing existing buttons (rendered in the form's bottom-left row)
   thresholdPickerSlot?: ReactNode;
   contextWindowIndicatorSlot?: ReactNode;
+  // Model-profile picker rendered on the row's right end, beside the mic
+  // (Figma: New-App 7471-25234). The orchestrator passes a second
+  // `ComposerSettingsMenu` instance scoped to the profile segment.
+  modelPickerSlot?: ReactNode;
 
   // Slot rendered above the form (between the max-width wrapper and the form).
   // The main variant uses this for attachment-error / voice-error / disk-pressure
@@ -187,20 +190,28 @@ export interface ChatComposerProps {
  * then screen-center).
  */
 function measureVoiceOriginAvatar(): { x: number; y: number } | null {
-  if (typeof document === "undefined") return null;
+  if (typeof document === "undefined") {
+    return null;
+  }
   let best: DOMRect | null = null;
   for (const node of document.querySelectorAll("[data-voice-origin]")) {
     const rect = node.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) continue;
+    if (rect.width === 0 && rect.height === 0) {
+      continue;
+    }
     const onScreen =
       rect.bottom > 0 &&
       rect.top < window.innerHeight &&
       rect.right > 0 &&
       rect.left < window.innerWidth;
     // Keep the last on-screen one in DOM order (the most recent avatar).
-    if (onScreen) best = rect;
+    if (onScreen) {
+      best = rect;
+    }
   }
-  if (!best) return null;
+  if (!best) {
+    return null;
+  }
   return { x: best.left + best.width / 2, y: best.top + best.height / 2 };
 }
 
@@ -222,6 +233,7 @@ export function ChatComposer({
   assistantId,
   conversationId,
   thresholdPickerSlot,
+  modelPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
   hasBillingBanner = false,
@@ -259,7 +271,9 @@ export function ChatComposer({
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   useEffect(() => {
-    if (!voiceStream) return;
+    if (!voiceStream) {
+      return;
+    }
     setVoiceAudioLevel(amplitude);
   }, [amplitude, voiceStream, setVoiceAudioLevel]);
   const showVoiceInput =
@@ -350,8 +364,8 @@ export function ChatComposer({
     isLiveVoiceActive && hasLiveVoiceTranscript && showUserTranscriptPref;
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
-  // start, per-session `controls` to stop/release — the latter via the shared
-  // module-level `endLiveVoiceSession`/`releaseLiveVoiceTurn` helpers, which
+  // start, per-session `controls` to end/interrupt — the latter via the shared
+  // module-level `endLiveVoiceSession`/`stopLiveVoiceResponse` helpers, which
   // read the store with `getState()` per STATE_MANAGEMENT.md (no subscription
   // needed for callback-only reads).
   // First-run interception: the very first voice-mode entry opens a
@@ -396,6 +410,11 @@ export function ChatComposer({
     if (!assistantId || liveVoicePreflightPendingRef.current) {
       return;
     }
+    // WebKit's media-element playback permission is transient. Reserve and
+    // prewarm the controller-owned player synchronously from this gesture,
+    // before the readiness request yields to the event loop.
+    const starter = useLiveVoiceStore.getState().starter;
+    starter?.prewarm();
     // Gate the open on the daemon's readiness verdict BEFORE starting, so the
     // room never flashes open then immediately closes for a user with no
     // usable STT/TTS provider. The daemon runs managed-speech defaulting as
@@ -417,6 +436,13 @@ export function ChatComposer({
       latest.assistantId !== assistantId ||
       latest.conversationId !== conversationId
     ) {
+      starter?.cancelPrewarm();
+      return;
+    }
+    // The layout-owned controller may have unmounted while preflight was in
+    // flight. Do not invoke a stale starter captured from the old mount.
+    if (useLiveVoiceStore.getState().starter !== starter) {
+      starter?.cancelPrewarm();
       return;
     }
     // Fail OPEN on a null verdict (preflight network/daemon error): a preflight
@@ -424,6 +450,7 @@ export function ChatComposer({
     // WS-level start handshake surface any real credential problem via the
     // existing failure `Notice`. Only an explicit `not-ready` keeps us closed.
     if (verdict?.status === "not-ready") {
+      starter?.cancelPrewarm();
       setVoiceConfigNotice(
         verdict.userMessage ??
           "Voice isn't set up yet. Configure a voice provider to start talking.",
@@ -440,7 +467,7 @@ export function ChatComposer({
     // Publish the origin BEFORE starting; the controller carries it across its
     // start-time `reset()` (see the live-voice store's `entryOrigin`).
     setLiveVoiceEntryOrigin(origin);
-    useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
+    starter?.start(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
   const handleLiveVoiceStart = useCallback(
     (origin?: { x: number; y: number }) => {
@@ -489,8 +516,7 @@ export function ChatComposer({
 
   // The Doctor is platform-hosted only, so `/doctor` is not offered when the
   // active assistant is self-hosted (the Doctor tab doesn't exist there).
-  const doctorGated =
-    usePlatformGate({ platformHostedOnly: true }) === "gated";
+  const doctorGated = usePlatformGate({ platformHostedOnly: true }) === "gated";
   const searchSlashCommands = useCallback(
     (filter: string) => {
       const commands = filteredCommands(filter);
@@ -565,6 +591,14 @@ export function ChatComposer({
   const showInlineVoicePreview =
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
   const hideTextareaForVoice = isNative && showInlineVoicePreview;
+  // A live-voice session disables the textarea outright (see its `disabled`
+  // below), so its placeholder is dead chrome inviting an interaction that
+  // cannot happen — the voice bar is the only live control. Collapse the row
+  // away and let the bar stand alone. The user transcript, when the pref is
+  // on, occupies that same grid cell and is real content, so it keeps the row.
+  const hideTextareaForLiveVoice =
+    isLiveVoiceActive && !showLiveVoiceTranscript;
+  const hideTextareaRow = hideTextareaForVoice || hideTextareaForLiveVoice;
   const hasStagedQuotes = useQuoteReplyStore.use.stagedQuotes().length > 0;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
@@ -679,7 +713,7 @@ export function ChatComposer({
             This avoids the iOS WKWebView re-dispatch bug entirely: no DOM
             geometry mutation means no re-fired input events.
             Reference: https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/ */}
-            <div className={hideTextareaForVoice ? "hidden" : "grid"}>
+            <div className={hideTextareaRow ? "hidden" : "grid"}>
               <div
                 aria-hidden
                 className="pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3 pb-2 text-chat"
@@ -720,13 +754,17 @@ export function ChatComposer({
                 }}
                 onPaste={(e) => {
                   const items = e.clipboardData?.items;
-                  if (!items) return;
+                  if (!items) {
+                    return;
+                  }
                   const files: File[] = [];
                   for (let i = 0; i < items.length; i++) {
                     const item = items[i];
                     if (item?.kind === "file") {
                       const file = item.getAsFile();
-                      if (file) files.push(file);
+                      if (file) {
+                        files.push(file);
+                      }
                     }
                   }
                   if (files.length > 0) {
@@ -749,7 +787,9 @@ export function ChatComposer({
                     if (e.key === "Tab" || e.key === "Enter") {
                       e.preventDefault();
                       const cmd = slash.items[slash.selectedIndex];
-                      if (cmd) handleSlashCommandSelect(cmd);
+                      if (cmd) {
+                        handleSlashCommandSelect(cmd);
+                      }
                       return;
                     }
                     if (e.key === "Escape") {
@@ -774,7 +814,9 @@ export function ChatComposer({
                     if (e.key === "Tab" || e.key === "Enter") {
                       e.preventDefault();
                       const selected = emoji.items[emoji.selectedIndex];
-                      if (selected) insertEmoji(selected);
+                      if (selected) {
+                        insertEmoji(selected);
+                      }
                       return;
                     }
                     if (e.key === "Escape") {
@@ -921,15 +963,13 @@ export function ChatComposer({
               // Voice session bar (Light 53): the whole action row — slots,
               // attach, both mic buttons, and send — is replaced by the bar
               // for the duration of the session. ✕ ends the session (the
-              // normal row returns via `isLiveVoiceActive` flipping false);
-              // green ↑ manually releases the current turn while listening.
+              // normal row returns via `isLiveVoiceActive` flipping false).
               <VoiceComposerBar
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceInputAmplitude}
                 muted={liveVoiceMuted}
                 onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
                 onEnd={endLiveVoiceSession}
-                onSend={releaseLiveVoiceTurn}
                 // Turn-scoped stop is hands-free-only; a manual session's
                 // interrupt ends the whole session (✕ owns that).
                 onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
@@ -938,14 +978,30 @@ export function ChatComposer({
                 // is their only session surface).
                 onExpand={isPopout ? undefined : restoreVoiceRoom}
                 waveAccentHex={voiceWaveAccentHex}
+                standalone={hideTextareaForLiveVoice}
               />
             ) : (
+              // Action row per Figma 7471-25234: attach | divider | access
+              // on the left; model profile | divider | mic, send on the
+              // right.
               <div className="flex items-center justify-between gap-1 px-2 pb-2">
-                <div className="flex min-w-0 items-center gap-1">
+                <div className="flex min-w-0 items-center gap-2">
                   {contextWindowIndicatorSlot}
+                  {!isAssistantBusy && (
+                    <AttachFileButton
+                      disabled={typingDisabled || !assistantId}
+                      onFilesSelected={onAddAttachmentFiles}
+                    />
+                  )}
+                  {!isAssistantBusy && thresholdPickerSlot ? (
+                    <div
+                      aria-hidden="true"
+                      className="h-4 w-px shrink-0 bg-[var(--border-base)] touch-mobile:-mx-1"
+                    />
+                  ) : null}
                   {thresholdPickerSlot}
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="flex shrink-0 items-center gap-2">
                   {isAssistantBusy ? (
                     <>
                       {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
@@ -983,10 +1039,13 @@ export function ChatComposer({
                     </>
                   ) : (
                     <>
-                      <AttachFileButton
-                        disabled={typingDisabled || !assistantId}
-                        onFilesSelected={onAddAttachmentFiles}
-                      />
+                      {modelPickerSlot}
+                      {modelPickerSlot && showVoiceInput ? (
+                        <div
+                          aria-hidden="true"
+                          className="h-4 w-px shrink-0 bg-[var(--border-base)] touch-mobile:-mx-1"
+                        />
+                      ) : null}
                       {showVoiceInput && (
                         <VoiceInputButton
                           ref={voiceInputRef}

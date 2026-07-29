@@ -292,7 +292,9 @@ describe("scheduler retry integration", () => {
     let callCount = 0;
     const processMessage = async () => {
       callCount++;
-      if (callCount === 1) throw new Error("transient failure");
+      if (callCount === 1) {
+        throw new Error("transient failure");
+      }
       // Second call succeeds
     };
 

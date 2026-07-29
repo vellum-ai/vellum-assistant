@@ -212,10 +212,14 @@ export function getBundledSkillsDir(): string {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(execDir, "..", "Resources", "bundled-skills");
-    if (existsSync(resourcesPath)) return resourcesPath;
+    if (existsSync(resourcesPath)) {
+      return resourcesPath;
+    }
     // Next to the binary itself (non-app-bundle deployments)
     const execDirPath = join(execDir, "bundled-skills");
-    if (existsSync(execDirPath)) return execDirPath;
+    if (existsSync(execDirPath)) {
+      return execDirPath;
+    }
   }
 
   return join(dir, "bundled-skills");
@@ -240,7 +244,9 @@ interface ParsedFrontmatter {
 }
 
 function normalizeStringArray(raw: unknown): string[] | undefined {
-  if (!Array.isArray(raw)) return undefined;
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
   const result = raw
     .filter((item): item is string => typeof item === "string")
     .map((s) => s.trim())
@@ -518,7 +524,9 @@ function readSkillFromDirectory(
 
     const content = readFileSync(skillFilePath, "utf-8");
     const parsed = parseFrontmatter(content, skillFilePath);
-    if (!parsed) return null;
+    if (!parsed) {
+      return null;
+    }
 
     return {
       id: basename(directoryPath),
@@ -571,7 +579,9 @@ function readBundledSkillFromDirectory(
 
     const content = readFileSync(skillFilePath, "utf-8");
     const parsed = parseFrontmatter(content, skillFilePath);
-    if (!parsed) return null;
+    if (!parsed) {
+      return null;
+    }
 
     return {
       id: basename(directoryPath),
@@ -605,13 +615,17 @@ function readBundledSkillFromDirectory(
 
 function discoverBundledSkillDirectories(): string[] {
   const bundledDir = getBundledSkillsDir();
-  if (!existsSync(bundledDir)) return [];
+  if (!existsSync(bundledDir)) {
+    return [];
+  }
 
   const dirs: string[] = [];
   try {
     const entries = readdirSync(bundledDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory()) {
+        continue;
+      }
       const directoryPath = join(bundledDir, entry.name);
       if (existsSync(join(directoryPath, "SKILL.md"))) {
         dirs.push(directoryPath);
@@ -634,7 +648,9 @@ function loadBundledSkills(): SkillSummary[] {
 
   for (const directory of directories) {
     const skill = readBundledSkillFromDirectory(directory);
-    if (!skill) continue;
+    if (!skill) {
+      continue;
+    }
 
     skills.push({
       id: skill.id,
@@ -663,13 +679,17 @@ function loadBundledSkills(): SkillSummary[] {
 }
 
 function discoverSkillDirectories(skillsDir: string): string[] {
-  if (!existsSync(skillsDir)) return [];
+  if (!existsSync(skillsDir)) {
+    return [];
+  }
 
   const dirs: string[] = [];
   try {
     const entries = readdirSync(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+        continue;
+      }
       const directoryPath = join(skillsDir, entry.name);
       if (existsSync(join(directoryPath, "SKILL.md"))) {
         dirs.push(directoryPath);
@@ -700,7 +720,9 @@ function discoverSkillDirectories(skillsDir: string): string[] {
  */
 function hasLoadablePluginManifest(pluginDir: string): boolean {
   const manifestPath = join(pluginDir, "package.json");
-  if (!existsSync(manifestPath)) return false;
+  if (!existsSync(manifestPath)) {
+    return false;
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
@@ -729,7 +751,9 @@ function hasLoadablePluginManifest(pluginDir: string): boolean {
  */
 function discoverPluginResidentSkills(): SkillSummary[] {
   const pluginsDir = getWorkspacePluginsDir();
-  if (!existsSync(pluginsDir)) return [];
+  if (!existsSync(pluginsDir)) {
+    return [];
+  }
 
   let entries: Dirent[];
   try {
@@ -744,7 +768,9 @@ function discoverPluginResidentSkills(): SkillSummary[] {
 
   const summaries: SkillSummary[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+      continue;
+    }
     const pluginDir = join(pluginsDir, entry.name);
 
     // A directory under `plugins/` with no `package.json` is not a plugin the
@@ -763,7 +789,9 @@ function discoverPluginResidentSkills(): SkillSummary[] {
     // Honor the `.disabled` sentinel the runtime plugin scan checks
     // (`plugins/mtime-cache.ts`): a disabled plugin contributes no hooks or
     // tools, so its resident skills must not be loadable either.
-    if (existsSync(join(pluginDir, ".disabled"))) continue;
+    if (existsSync(join(pluginDir, ".disabled"))) {
+      continue;
+    }
 
     // Mirror the plugin loader: a directory contributes its resident skills
     // when it carries a loadable manifest (parseable `package.json` with a
@@ -773,14 +801,20 @@ function discoverPluginResidentSkills(): SkillSummary[] {
     // `name` still surfaces its skills, matching the hooks and tools the
     // runtime already loads from it. A parseable manifest still rejects staging
     // dirs and malformed clones the loader would itself refuse.
-    if (!hasLoadablePluginManifest(pluginDir)) continue;
+    if (!hasLoadablePluginManifest(pluginDir)) {
+      continue;
+    }
 
     const skillsDir = join(pluginDir, "skills");
-    if (!existsSync(skillsDir)) continue;
+    if (!existsSync(skillsDir)) {
+      continue;
+    }
 
     for (const directory of discoverSkillDirectories(skillsDir)) {
       const skill = readSkillFromDirectory(directory, skillsDir, "plugin");
-      if (!skill) continue;
+      if (!skill) {
+        continue;
+      }
       summaries.push({
         ...skillSummaryFromDefinition(skill, "plugin"),
         owner: { kind: "plugin", id: entry.name },
@@ -811,10 +845,14 @@ export function filterSkillsByEnabledPlugins(
   skills: SkillSummary[],
   effectiveEnabledPluginSet: Set<string> | null,
 ): SkillSummary[] {
-  if (effectiveEnabledPluginSet === null) return skills;
+  if (effectiveEnabledPluginSet === null) {
+    return skills;
+  }
   return skills.filter((skill) => {
     const owner = skill.owner;
-    if (owner?.kind !== "plugin") return true;
+    if (owner?.kind !== "plugin") {
+      return true;
+    }
     return effectiveEnabledPluginSet.has(owner.id);
   });
 }
@@ -855,19 +893,27 @@ export function loadSkillCatalog(
   // Load extra directories first (lowest precedence, before bundled)
   if (extraDirs) {
     for (const dir of extraDirs) {
-      if (!existsSync(dir)) continue;
+      if (!existsSync(dir)) {
+        continue;
+      }
       const dirs = discoverSkillDirectories(dir);
       for (const directory of dirs) {
         const skillFilePath = join(directory, "SKILL.md");
-        if (!existsSync(skillFilePath)) continue;
+        if (!existsSync(skillFilePath)) {
+          continue;
+        }
 
         try {
           const stat = statSync(skillFilePath);
-          if (!stat.isFile()) continue;
+          if (!stat.isFile()) {
+            continue;
+          }
 
           const content = readFileSync(skillFilePath, "utf-8");
           const parsed = parseFrontmatter(content, skillFilePath);
-          if (!parsed) continue;
+          if (!parsed) {
+            continue;
+          }
 
           const id = basename(directory);
           if (seenIds.has(id)) {
@@ -965,7 +1011,9 @@ export function loadSkillCatalog(
 
   for (const directory of directories) {
     const skill = readSkillFromDirectory(directory, skillsDir, "managed");
-    if (!skill) continue;
+    if (!skill) {
+      continue;
+    }
 
     if (seenIds.has(skill.id)) {
       // If the existing entry is bundled, extra, or plugin-contributed, the
@@ -1004,15 +1052,21 @@ export function loadSkillCatalog(
 
     for (const directory of workspaceDirs) {
       const skillFilePath = join(directory, "SKILL.md");
-      if (!existsSync(skillFilePath)) continue;
+      if (!existsSync(skillFilePath)) {
+        continue;
+      }
 
       try {
         const stat = statSync(skillFilePath);
-        if (!stat.isFile()) continue;
+        if (!stat.isFile()) {
+          continue;
+        }
 
         const content = readFileSync(skillFilePath, "utf-8");
         const parsed = parseFrontmatter(content, skillFilePath);
-        if (!parsed) continue;
+        if (!parsed) {
+          continue;
+        }
 
         const id = basename(directory);
         const workspaceSkill: SkillSummary = {
@@ -1098,7 +1152,9 @@ function applyFeatureGatedSections(body: string): string {
  */
 function isEscapingSymlink(filePath: string, rootDir: string): boolean {
   try {
-    if (!lstatSync(filePath).isSymbolicLink()) return false;
+    if (!lstatSync(filePath).isSymbolicLink()) {
+      return false;
+    }
     const real = realpathSync(filePath);
     const normalizedRoot = getCanonicalPath(rootDir);
     return (
@@ -1136,19 +1192,25 @@ export function listReferenceFiles(directoryPath: string): string | null {
       .filter((f) => f.toLowerCase().endsWith(".md"))
       .filter((f) => {
         // Check the file itself
-        if (isEscapingSymlink(join(refsDir, f), directoryPath)) return false;
+        if (isEscapingSymlink(join(refsDir, f), directoryPath)) {
+          return false;
+        }
         // Check all intermediate directory components (e.g. for "sub/dir/file.md"
         // check "sub" and "sub/dir") to prevent traversal through symlinked dirs.
         const parts = f.split("/");
         for (let i = 1; i < parts.length; i++) {
           const ancestor = join(refsDir, ...parts.slice(0, i));
-          if (isEscapingSymlink(ancestor, directoryPath)) return false;
+          if (isEscapingSymlink(ancestor, directoryPath)) {
+            return false;
+          }
         }
         return true;
       })
       .sort((a, b) => a.localeCompare(b));
 
-    if (mdFiles.length === 0) return null;
+    if (mdFiles.length === 0) {
+      return null;
+    }
 
     const lines = [
       "## Reference Files",

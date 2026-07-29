@@ -71,7 +71,9 @@ function makeContext(overrides: Partial<TurnContext> = {}): TurnContext {
 
 function tailTexts(messages: Message[]): string[] {
   const tail = messages[messages.length - 1];
-  if (!tail || tail.role !== "user") return [];
+  if (!tail || tail.role !== "user") {
+    return [];
+  }
   return tail.content
     .filter((block): block is { type: "text"; text: string } => {
       return block.type === "text";

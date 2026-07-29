@@ -64,11 +64,10 @@ interface CapabilityTierMeta {
   /** Preset name, straight from the matching global Assistant Access preset. */
   label: string;
   /**
-   * Short qualifier shown beside the label in the picker and the legend key.
-   * Frames how much the assistant does on its own before checking with the
-   * owner — reads/answers only, since writes/sends/spends always escalate. The
-   * full per-tier sentence lives in the legend (`SlackChannelTierLegend`); it
-   * interpolates the assistant name, so it can't be a static string here.
+   * Short qualifier shown as the picker option's tooltip. Frames how much the
+   * assistant does on its own before checking with the owner: reads/answers
+   * only, since writes/sends/spends always escalate. The slightly fuller
+   * per-tier line lives in the legend (`SlackChannelTierLegend`).
    */
   sublabel: string;
   tone: TagTone;

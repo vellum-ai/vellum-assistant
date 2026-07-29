@@ -19,13 +19,32 @@ import { Card } from "@vellumai/design-library/components/card";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string; className: string }> = {
-  connected: { icon: CheckCircle2, label: "Connected", className: "text-[var(--system-positive-strong)]" },
-  "needs-auth": { icon: KeyRound, label: "Needs Auth", className: "text-[var(--system-warning-strong)]" },
-  disabled: { icon: Power, label: "Disabled", className: "text-[var(--content-tertiary)]" },
+const STATUS_CONFIG: Record<
+  string,
+  { icon: typeof CheckCircle2; label: string; className: string }
+> = {
+  connected: {
+    icon: CheckCircle2,
+    label: "Connected",
+    className: "text-[var(--system-positive-strong)]",
+  },
+  "needs-auth": {
+    icon: KeyRound,
+    label: "Needs Auth",
+    className: "text-[var(--system-warning-strong)]",
+  },
+  disabled: {
+    icon: Power,
+    label: "Disabled",
+    className: "text-[var(--content-tertiary)]",
+  },
 };
 
-const DEFAULT_STATUS = { icon: AlertCircle, label: "Error", className: "text-[var(--system-negative-strong)]" };
+const DEFAULT_STATUS = {
+  icon: AlertCircle,
+  label: "Error",
+  className: "text-[var(--system-negative-strong)]",
+};
 
 interface McpServerCardProps {
   server: McpServerEntry;
@@ -96,7 +115,9 @@ export function McpServerCard({
                 <span className="truncate text-body-medium-default text-[var(--content-default)]">
                   {server.id}
                 </span>
-                <span className={`flex items-center gap-1 text-label-medium-default ${statusInfo.className}`}>
+                <span
+                  className={`flex items-center gap-1 text-label-medium-default ${statusInfo.className}`}
+                >
                   <StatusIcon className="h-3.5 w-3.5" />
                   {statusInfo.label}
                 </span>
@@ -112,10 +133,13 @@ export function McpServerCard({
                   <>
                     <span aria-hidden="true">&middot;</span>
                     <span>
-                      {toolsSummary.toolCount} {toolsSummary.toolCount === 1 ? "tool" : "tools"}
+                      {toolsSummary.toolCount}{" "}
+                      {toolsSummary.toolCount === 1 ? "tool" : "tools"}
                     </span>
                     <span aria-hidden="true">&middot;</span>
-                    <span>~{toolsSummary.estimatedTokens.toLocaleString()} tokens</span>
+                    <span>
+                      ~{toolsSummary.estimatedTokens.toLocaleString()} tokens
+                    </span>
                   </>
                 ) : null}
               </div>
@@ -126,7 +150,9 @@ export function McpServerCard({
             {isUpdating || isAuthenticating ? (
               <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
             ) : null}
-            {server.status === "needs-auth" && server.transport.type !== "stdio" && !server.hasOAuth ? (
+            {server.status === "needs-auth" &&
+            server.transport.type !== "stdio" &&
+            !server.hasOAuth ? (
               <Button
                 variant="ghost"
                 size="compact"
@@ -198,7 +224,8 @@ export function McpServerCard({
               ) : (
                 <ChevronRight className="h-3.5 w-3.5" />
               )}
-              {toolsSummary.toolCount} registered {toolsSummary.toolCount === 1 ? "tool" : "tools"}
+              {toolsSummary.toolCount} registered{" "}
+              {toolsSummary.toolCount === 1 ? "tool" : "tools"}
             </button>
 
             {toolsExpanded ? (

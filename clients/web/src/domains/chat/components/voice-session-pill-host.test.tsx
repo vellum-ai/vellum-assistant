@@ -22,7 +22,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { MainView } from "@/stores/viewer-store";
-import type { Conversation } from "@/types/conversation-types";
 import { routes } from "@/utils/routes";
 
 import {
@@ -50,14 +49,9 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateFn,
 }));
 
-let mockOwningConversation: Conversation | undefined;
-const useActiveConversationSpy = mock(
-  (_assistantId: string | null, _conversationId: string | null | undefined, _enabled: boolean) =>
-    mockOwningConversation,
-);
-mock.module("@/domains/chat/hooks/use-active-conversation", () => ({
-  useActiveConversation: useActiveConversationSpy,
-}));
+// No `use-active-conversation` mock: the pill is textless, so the host
+// resolves no owning row. Only `conversationId` matters, and only to decide
+// whether the waves navigate.
 
 let mockMainView: MainView = "chat";
 mock.module("@/stores/viewer-store", () => ({
@@ -94,9 +88,8 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 }));
 
 // Imported after the mocks so the host picks up the mocked modules.
-const { VoiceSessionPillHost } = await import(
-  "@/domains/chat/components/voice-session-pill-host"
-);
+const { VoiceSessionPillHost } =
+  await import("@/domains/chat/components/voice-session-pill-host");
 
 const controls = makeControlsSpies();
 
@@ -117,13 +110,8 @@ beforeEach(() => {
   mockSearch = "";
   mockMainView = "chat";
   mockIsMobile = false;
-  mockOwningConversation = {
-    conversationId: OWNING_CONVERSATION_ID,
-    title: "Owning thread",
-  };
   navigateFn.mockClear();
   navigateToConversationSpy.mockClear();
-  useActiveConversationSpy.mockClear();
   controls.stop.mockClear();
   controls.release.mockClear();
   controls.interrupt.mockClear();
@@ -152,7 +140,6 @@ describe("VoiceSessionPillHost — visibility", () => {
     render(<VoiceSessionPillHost />);
     expect(pill()).not.toBeNull();
     expect(screen.getByText("Listening…")).toBeTruthy();
-    expect(screen.getByText("Owning thread")).toBeTruthy();
   });
 
   test("hides the pill while viewing the owning conversation's composer", () => {
@@ -364,30 +351,19 @@ describe("VoiceSessionPillHost — standalone variant (headerless pop-outs)", ()
   });
 });
 
-describe("VoiceSessionPillHost — labels", () => {
-  test("omits the thread name while the owning row is still loading", () => {
-    mockOwningConversation = undefined;
+describe("VoiceSessionPillHost — state announcement", () => {
+  test("passes the session state through as the pill's announced label", () => {
     startSession("thinking");
     render(<VoiceSessionPillHost />);
     expect(screen.getByText("Thinking…")).toBeTruthy();
+  });
+
+  test("renders no thread title — the pill is textless", () => {
+    // The host fetches no owning row, so no thread name can reach the header.
+    startSession("listening");
+    render(<VoiceSessionPillHost />);
     expect(screen.queryByText("Owning thread")).toBeNull();
-  });
-
-  test("falls back to Untitled for an owning row without a title", () => {
-    mockOwningConversation = { conversationId: OWNING_CONVERSATION_ID };
-    startSession("listening");
-    render(<VoiceSessionPillHost />);
-    expect(screen.getByText("Untitled")).toBeTruthy();
-  });
-
-  test("resolves the owning row only while visible", () => {
-    startSession("listening");
-    render(<VoiceSessionPillHost />);
-    expect(useActiveConversationSpy).toHaveBeenCalledWith(
-      ASSISTANT_ID,
-      OWNING_CONVERSATION_ID,
-      true,
-    );
+    expect(screen.queryByText("Untitled")).toBeNull();
   });
 });
 
@@ -401,12 +377,11 @@ describe("VoiceSessionPillHost — controls", () => {
     expect(controls.interrupt).not.toHaveBeenCalled();
   });
 
-  test("↑ releases the current turn via controls.release", () => {
+  test("offers no manual send — turns release themselves", () => {
     startSession("listening");
     render(<VoiceSessionPillHost />);
-    fireEvent.click(screen.getByRole("button", { name: "Send now" }));
-    expect(controls.release).toHaveBeenCalledTimes(1);
-    expect(controls.stop).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
+    expect(controls.release).not.toHaveBeenCalled();
   });
 
   test("■ stop-response control is not offered — V1 interrupt would end the whole session", () => {

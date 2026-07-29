@@ -11,7 +11,10 @@
  * overview's Personality card can plot them as a radar.
  */
 
-import { workspaceFileGet, workspaceWritePost } from "@/generated/daemon/sdk.gen";
+import {
+  workspaceFileGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 
 import { PERSONALITY_AXIS_IDS } from "./personality-rewrite";

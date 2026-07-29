@@ -23,8 +23,12 @@ describe("ChatMarkdownMessage (OAuth link handling)", () => {
       "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=client-1&redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fcallback";
 
     expect(shouldOpenMarkdownLinkInOAuthPopup(oauthUrl)).toBe(true);
-    expect(shouldOpenMarkdownLinkInOAuthPopup("https://example.com/docs")).toBe(false);
-    expect(shouldOpenMarkdownLinkInOAuthPopup("mailto:support@example.com")).toBe(false);
+    expect(shouldOpenMarkdownLinkInOAuthPopup("https://example.com/docs")).toBe(
+      false,
+    );
+    expect(
+      shouldOpenMarkdownLinkInOAuthPopup("mailto:support@example.com"),
+    ).toBe(false);
   });
 
   test("normal links include noopener noreferrer", () => {

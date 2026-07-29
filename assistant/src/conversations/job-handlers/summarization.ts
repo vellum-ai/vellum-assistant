@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
-import { getDb } from "../../persistence/db-connection.js";
+import { getMemoryDb } from "../../persistence/db-connection.js";
 import { asString, truncate } from "../../persistence/job-utils.js";
 import {
   enqueueMemoryJob,
@@ -50,8 +50,13 @@ export async function buildConversationSummaryJob(
   config: AssistantConfig,
 ): Promise<void> {
   const conversationId = asString(job.payload.conversationId);
-  if (!conversationId) return;
-  const db = getDb();
+  if (!conversationId) {
+    return;
+  }
+  const db = getMemoryDb();
+  if (!db) {
+    return;
+  }
 
   const existing = db
     .select()
@@ -75,13 +80,16 @@ export async function buildConversationSummaryJob(
     conditions.push(gt(memorySegments.createdAt, lastCoveredAt));
   }
 
+  // memory_segments and memory_summaries both live on the memory connection.
   const rows = db
     .select()
     .from(memorySegments)
     .where(and(...conditions))
     .orderBy(asc(memorySegments.createdAt))
     .all();
-  if (rows.length === 0) return;
+  if (rows.length === 0) {
+    return;
+  }
 
   // Build segment text for LLM input (already in chronological order)
   const segmentTexts = rows
@@ -235,13 +243,17 @@ function buildFallbackSummary(
   label: string,
 ): string {
   const lines = newContent.split("\n").filter((l) => l.trim().length > 0);
-  if (lines.length === 0) return existingSummary ?? `${label} (no content)`;
+  if (lines.length === 0) {
+    return existingSummary ?? `${label} (no content)`;
+  }
   const head = lines.slice(0, 3).map((l) => `- ${truncate(l.trim(), 200)}`);
   const tail =
     lines.length > 6
       ? lines.slice(-3).map((l) => `- ${truncate(l.trim(), 200)}`)
       : [];
   const parts = [`${label} summary`, "", ...head];
-  if (tail.length > 0) parts.push("", "...", "", ...tail);
+  if (tail.length > 0) {
+    parts.push("", "...", "", ...tail);
+  }
   return parts.join("\n");
 }

@@ -10,7 +10,7 @@ import type {
 // network boundary. The mock is reassigned per-test via `journalImpl`.
 let journalImpl: (
   assistantId: string,
-  runId: string
+  runId: string,
 ) => Promise<WorkflowJournalResponse | null> = async () => null;
 
 mock.module("@/domains/chat/fetch-workflow-journal", () => ({
@@ -22,7 +22,7 @@ mock.module("@/domains/chat/fetch-workflow-journal", () => ({
 // without a network boundary.
 let runImpl: (
   assistantId: string,
-  runId: string
+  runId: string,
 ) => Promise<FetchWorkflowRunResult> = async () => null;
 
 mock.module("@/domains/chat/fetch-workflow-run", () => ({
@@ -463,7 +463,7 @@ describe("completeRun", () => {
       expect(leaves.get(0)!.status).toBe("cancelled");
       expect(leaves.get(1)!.status).toBe("completed");
       expect(leaves.get(2)!.status).toBe("failed");
-    }
+    },
   );
 
   it("preserves leaf fields when sweeping it to cancelled", () => {
@@ -627,7 +627,7 @@ describe("backfillFromJournal", () => {
       outputTokens: 0,
     });
     expect(getState().byId["wf-repair"]!.leaves.get(0)!.status).toBe(
-      "cancelled"
+      "cancelled",
     );
 
     // The journal holds the authoritative completed row → it repairs the placeholder.
@@ -664,7 +664,7 @@ describe("backfillFromJournal", () => {
       outputTokens: 0,
     });
     expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe(
-      "cancelled"
+      "cancelled",
     );
 
     // The journal has no row for this leaf (it never finished) → it stays cancelled.
@@ -674,7 +674,7 @@ describe("backfillFromJournal", () => {
     });
 
     expect(getState().byId["wf-genuine"]!.leaves.get(0)!.status).toBe(
-      "cancelled"
+      "cancelled",
     );
   });
 

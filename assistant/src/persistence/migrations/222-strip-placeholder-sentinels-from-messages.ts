@@ -148,7 +148,9 @@ export async function migrateStripPlaceholderSentinelsFromMessages(
       m: number | null;
     }
   ).m;
-  if (maxRow == null) return; // empty table — nothing to sweep
+  if (maxRow == null) {
+    return;
+  } // empty table — nothing to sweep
 
   for (let lo = 0; lo < maxRow; lo += ROWID_WINDOW) {
     const hi = Math.min(lo + ROWID_WINDOW, maxRow);

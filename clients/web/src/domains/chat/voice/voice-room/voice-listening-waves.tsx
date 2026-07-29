@@ -27,7 +27,11 @@ const VIEW_W = 1200;
 const VIEW_H = 200;
 
 /** Sample points along a sine wave spanning two viewBox widths. */
-function wavePoints(amplitude: number, cyclesOverDoubleWidth: number, phase: number): string {
+function wavePoints(
+  amplitude: number,
+  cyclesOverDoubleWidth: number,
+  phase: number,
+): string {
   const width = VIEW_W * 2;
   const steps = 120;
   const baseline = VIEW_H - amplitude - 4;
@@ -36,19 +40,28 @@ function wavePoints(amplitude: number, cyclesOverDoubleWidth: number, phase: num
     const x = (i / steps) * width;
     const y =
       baseline -
-      amplitude * Math.sin((i / steps) * cyclesOverDoubleWidth * 2 * Math.PI + phase);
+      amplitude *
+        Math.sin((i / steps) * cyclesOverDoubleWidth * 2 * Math.PI + phase);
     d += `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)} `;
   }
   return d;
 }
 
 /** Filled variant: the sine curve closed down to the bottom edge (a water fill). */
-function wavePathFill(amplitude: number, cycles: number, phase: number): string {
+function wavePathFill(
+  amplitude: number,
+  cycles: number,
+  phase: number,
+): string {
   return `${wavePoints(amplitude, cycles, phase)}L${VIEW_W * 2},${VIEW_H} L0,${VIEW_H} Z`;
 }
 
 /** Line variant: just the open sine curve, stroked (a luminous ribbon). */
-function wavePathLine(amplitude: number, cycles: number, phase: number): string {
+function wavePathLine(
+  amplitude: number,
+  cycles: number,
+  phase: number,
+): string {
   return wavePoints(amplitude, cycles, phase).trimEnd();
 }
 
@@ -91,6 +104,20 @@ export type VoiceWavePalette = "aurora" | "accent" | "tone";
  * wave geometry so the ripple stays legible at strip height.
  */
 export type VoiceWavePlacement = "bottom" | "top" | "center" | "inline";
+
+/**
+ * Edge fade for the inline wave strips (composer bar, title-bar pill).
+ *
+ * Those strips clip the drifting layers with `overflow-hidden`, which ends
+ * the band on a hard vertical edge mid-wave. Masking the container instead
+ * lets the band dissolve into the surface at both ends, so the strip reads as
+ * a window onto a continuous wave rather than a cropped rectangle.
+ *
+ * `-webkit-mask-image` is not optional: the iOS client is a WKWebView, which
+ * still needs the prefixed property.
+ */
+export const VOICE_WAVE_EDGE_FADE_CLASS =
+  "[mask-image:linear-gradient(to_right,transparent_0%,black_12%,black_88%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,black_12%,black_88%,transparent_100%)]";
 
 export function VoiceListeningWaves({
   getAmplitude,

@@ -336,11 +336,8 @@ subgraph "Text Q&A Session"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
-            DB_SEG["memory_segments"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
-            DB_SUM["memory_summaries"]
-            DB_EMB["memory_embeddings"]
             DB_JOBS["memory_jobs"]
             DB_ATTACH["attachments"]
             DB_CHAN["channel_inbound_events"]
@@ -351,6 +348,12 @@ subgraph "Text Q&A Session"
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
+        end
+
+        subgraph "SQLite Database ($VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db)"
+            DB_SEG["memory_segments"]
+            DB_SUM["memory_summaries"]
+            DB_EMB["memory_embeddings"]
         end
 
         subgraph "Skill Tool System"

@@ -15,21 +15,12 @@
  * over both HTTP and IPC.
  */
 
-import { postRouteConversationMessage } from "../../daemon/route-conversation-post.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
 
-const dispatcher = new UserRouteDispatcher({
-  context: {
-    assistantEventHub,
-    conversations: {
-      postMessage: postRouteConversationMessage,
-    },
-  },
-});
+const dispatcher = new UserRouteDispatcher();
 
 /**
  * Reconstruct a Web API `Request` from transport-agnostic handler args.

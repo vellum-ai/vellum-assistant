@@ -1197,6 +1197,59 @@ describe("code-owned default profiles — wire view and write normalization", ()
   });
 });
 
+describe("code-owned default profiles — BYO default provider wire view", () => {
+  // With llm.defaultProvider set, the wire view must show the column of the
+  // intent × provider matrix that actually dispatches — not the vellum
+  // column — and the write path must echo-strip against that same view or an
+  // honest GET → write round-trip is rejected.
+  test("GET materializes the default provider's column for default profiles", async () => {
+    seedRawConfig({
+      llm: { defaultProvider: { provider: "anthropic" }, profiles: {} },
+    });
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const wireBalanced = response.llm.profiles.balanced;
+    expect(wireBalanced.provider).toBe("anthropic");
+    expect(wireBalanced.model).toBe("claude-sonnet-4-6");
+    expect(wireBalanced.provider_connection).toBe("anthropic-personal");
+    expect(response.llm.profiles["quality-optimized"].provider).toBe(
+      "anthropic",
+    );
+  });
+
+  test("GET → PATCH round-trip of the BYO wire view is accepted and keeps disk stubs thin", async () => {
+    seedRawConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: { balanced: { source: "managed", status: "disabled" } },
+      },
+    });
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: response.llm.profiles } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    // Echoes of absent defaults reduce to a no-op managed stub.
+    expect(savedProfile("quality-optimized")).toEqual({ source: "managed" });
+  });
+
+  test("GET → SET llm round-trip of the BYO wire view is accepted", async () => {
+    seedRawConfig({
+      llm: { defaultProvider: { provider: "anthropic" }, profiles: {} },
+    });
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await setRoute.handler({
+      body: { path: "llm", value: response.llm },
+    });
+    expect(result).toHaveProperty("ok");
+    expect(savedProfile("balanced")).toEqual({ source: "managed" });
+  });
+});
+
 describe("code-owned default profiles — leaf SET source stamping", () => {
   test("a leaf SET creating a managed entry stamps the managed marker", async () => {
     seedRawConfig({ llm: { profiles: {} } });

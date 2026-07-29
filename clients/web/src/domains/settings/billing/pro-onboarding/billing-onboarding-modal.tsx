@@ -12,7 +12,7 @@ import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-q
 import type { CreditTierEnum } from "@/generated/api/types.gen";
 import {
   clearCheckoutIntent,
-  readCheckoutIntent,
+  readPurchasedCheckoutIntent,
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -31,6 +31,7 @@ import {
   TAKEOVER_SURFACE,
   TAKEOVER_SURFACE_VAR,
 } from "./provisioning-state";
+import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { TakeoverBackdrop } from "./takeover-backdrop";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
@@ -120,9 +121,17 @@ export function BillingOnboardingModal({
   // backgrounded resize still resolves while the user sets up their domain.
   const provisioning = useProProvisioning({ open });
 
+  // Whether this wizard has actually been opened, so the reset branch below can
+  // tell a close from the mount of an instance that is simply rendered closed
+  // (the billing page mounts two of these; only one opens). Its overlap with
+  // `domainsOpenedAt` is deliberate: tying the stash lifecycle to a
+  // domains-freshness fence would couple two unrelated concerns.
+  const hasOpenedRef = useRef(false);
+
   useEffect(() => {
     if (open) {
-      setIntent(isResize ? null : readCheckoutIntent());
+      hasOpenedRef.current = true;
+      setIntent(isResize ? null : readPurchasedCheckoutIntent());
       // Fence the domains freshness check to this open before any domains fetch
       // can land, so a pre-open cached list never reads as fresh.
       setDomainsOpenedAt((prev) => prev ?? Date.now());
@@ -137,6 +146,13 @@ export function BillingOnboardingModal({
     setDisplayedPhase(null);
     setDomainsOpenedAt(null);
     setBackgroundConfirmOpen(false);
+    if (hasOpenedRef.current) {
+      hasOpenedRef.current = false;
+      // On close, not at the complete step: the takeover's exit sheet still
+      // paints from this surface, so bumping the stash version mid-fade would
+      // slide an otherwise-empty avatar query's tint to bundled green.
+      clearTakeoverAvatarStash();
+    }
   }, [open, isResize]);
 
   useEffect(
@@ -147,7 +163,9 @@ export function BillingOnboardingModal({
   );
 
   useEffect(() => {
-    if (step === "complete") clearCheckoutIntent();
+    if (step === "complete") {
+      clearCheckoutIntent();
+    }
   }, [step]);
 
   // Domain/email/guardian registration must run while the assistant's machine
@@ -165,7 +183,7 @@ export function BillingOnboardingModal({
   const onScreenPhase = displayedPhase ?? provisioning.state;
   const onScreenSettled = isSettled(onScreenPhase);
 
-  const { targets, assistantId, domainSetupAvailable, onboardingSettled } =
+  const { targets, assistantId, domainStepAvailable, onboardingSettled } =
     provisioning;
 
   // The takeover and the sheet that covers it on the way out paint from one
@@ -176,9 +194,10 @@ export function BillingOnboardingModal({
 
   // Resize-mode routing needs "is a domain already registered?", which
   // checkout mode never consults — DomainStep owns its own fetch there. The
-  // enabled gate keeps this query fully off in checkout mode and in fee-less
-  // resize flows (domainSetupAvailable false for Mighty-tier packages).
-  const domainAnswerNeeded = isResize && domainSetupAvailable === true;
+  // enabled gate keeps this query fully off in checkout mode and in resize
+  // flows with no domain step to offer — a fee-less Mighty-tier package, or no
+  // assistant to attach a domain to.
+  const domainAnswerNeeded = isResize && domainStepAvailable === true;
   const {
     domains,
     domainsError,
@@ -243,7 +262,7 @@ export function BillingOnboardingModal({
     domainsErrorUpdatedAt >= domainsOpenedAt;
   const domainsKnown =
     !domainsFetching && (domainsFreshData || domainsFreshError);
-  // Routing must never use a stale domain_setup_available: until the first
+  // Routing must never use a stale `domainStepAvailable`: until the first
   // post-confirm fetch settles, TanStack may still serve pre-checkout cached
   // data. The celebration dwell and the DONE advance wait on this; the escape
   // CTA does not — it gates only on the machine being busy and the escape
@@ -264,13 +283,13 @@ export function BillingOnboardingModal({
 
   const advanceFromProvisioning = useCallback(() => {
     // Checkout treats unknown availability optimistically (`undefined` → domain
-    // step); resize requires affirmative `domainSetupAvailable === true` AND no
+    // step); resize requires affirmative `domainStepAvailable === true` AND no
     // existing domain before it surfaces the newly-usable domain step.
     const next = isResize
-      ? domainSetupAvailable === true && !hasExistingDomain
+      ? domainStepAvailable === true && !hasExistingDomain
         ? "domain"
         : "complete"
-      : domainSetupAvailable === false
+      : domainStepAvailable === false
         ? "complete"
         : "domain";
     if (prefersReducedMotion()) {
@@ -288,7 +307,7 @@ export function BillingOnboardingModal({
         );
       }, TAKEOVER_COVER_MS),
     );
-  }, [domainSetupAvailable, isResize, hasExistingDomain]);
+  }, [domainStepAvailable, isResize, hasExistingDomain]);
 
   // "Continue in the background" opens a confirm that warns chatting stays
   // unavailable until the upgrade finishes, so the user chooses to keep waiting

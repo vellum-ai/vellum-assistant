@@ -45,13 +45,20 @@ interface GitHubNotification {
 
 /** Map a GitHub notification reason to a watcher event type. */
 function reasonToEventType(reason: string, subjectType: string): string {
-  if (reason === "review_requested") return "github_review_requested";
-  if (reason === "assign")
+  if (reason === "review_requested") {
+    return "github_review_requested";
+  }
+  if (reason === "assign") {
     return subjectType === "Issue"
       ? "github_issue_assigned"
       : "github_pr_assigned";
-  if (reason === "mention") return "github_mention";
-  if (subjectType === "PullRequest") return "github_pr_activity";
+  }
+  if (reason === "mention") {
+    return "github_mention";
+  }
+  if (subjectType === "PullRequest") {
+    return "github_pr_activity";
+  }
   return "github_notification";
 }
 
@@ -150,12 +157,16 @@ export const githubProvider: WatcherProvider = {
           "review_requested",
           "team_mention",
         ]);
-        if (!relevantReasons.has(n.reason)) continue;
+        if (!relevantReasons.has(n.reason)) {
+          continue;
+        }
 
         items.push(notificationToItem(n));
       }
 
-      if (!hasMore) break;
+      if (!hasMore) {
+        break;
+      }
       page++;
     }
 

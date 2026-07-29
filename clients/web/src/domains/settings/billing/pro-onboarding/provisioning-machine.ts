@@ -9,10 +9,16 @@
  * pure function over polled inputs so every transition is unit-testable.
  */
 
-import type { MachineSizeEnum } from "@/generated/api/types.gen";
-import { machineSizeRank } from "@/lib/billing/machine-sizes";
+import {
+  type ProvisioningDimensions,
+  targetsMet,
+} from "@/lib/billing/provisioning-targets";
 
 import { PROVISION_STALL_MS, PROVISION_WAIT_GRACE_MS } from "./utils";
+
+// The provisioning-target primitives live in lib/billing (shared across
+// domains); this module re-exports them as the pro-onboarding entrypoint.
+export { targetsMet, type ProvisioningDimensions };
 
 export type ProvisioningStateKind =
   | "CONFIRMING"
@@ -31,15 +37,7 @@ export type ProvisioningStateKind =
  * is still rolling out.
  */
 export type ProvisioningServerVerdict =
-  | "already_done"
-  | "in_progress"
-  | "started"
-  | "not_applicable";
-
-export interface ProvisioningDimensions {
-  machineSize: MachineSizeEnum | null;
-  storageGib: number | null;
-}
+  "already_done" | "in_progress" | "started" | "not_applicable";
 
 export interface DeriveProvisioningInput {
   planId: string | null | undefined;
@@ -75,27 +73,6 @@ export interface ProvisioningSnapshot {
   state: ProvisioningStateKind;
   /** Still WAITING past the grace window — the UI softens its copy. */
   softWaiting: boolean;
-}
-
-/**
- * A dimension with a null target is satisfied (e.g. the Mighty package has no
- * machine tier); a non-null target needs a known actual at or above it.
- * Machine sizes compare by rank, storage by GiB.
- */
-export function targetsMet(
-  targets: ProvisioningDimensions | null,
-  actuals: ProvisioningDimensions | null,
-): boolean {
-  if (!targets) return false;
-  const machineMet =
-    targets.machineSize == null ||
-    (actuals?.machineSize != null &&
-      machineSizeRank(actuals.machineSize) >=
-        machineSizeRank(targets.machineSize));
-  const storageMet =
-    targets.storageGib == null ||
-    (actuals?.storageGib != null && actuals.storageGib >= targets.storageGib);
-  return machineMet && storageMet;
 }
 
 export function deriveProvisioningState(

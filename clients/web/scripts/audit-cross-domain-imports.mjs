@@ -58,11 +58,15 @@ async function* walk(dir) {
 async function violationsForFile(filePath) {
   const src = await fs.readFile(filePath, "utf8");
   const owner = ownDomainFor(filePath);
-  if (!owner) return [];
+  if (!owner) {
+    return [];
+  }
   const found = new Set();
   for (const match of src.matchAll(IMPORT_SOURCE_RE)) {
     const target = targetDomainFor(match[1], filePath);
-    if (target && target !== owner) found.add(target);
+    if (target && target !== owner) {
+      found.add(target);
+    }
   }
   return [...found].sort();
 }

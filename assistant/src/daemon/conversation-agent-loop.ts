@@ -9,6 +9,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { repairHistoryForRun } from "../agent/history-repair/history-repair.js";
 import type {
   AgentEvent,
   AgentLoopExitReason,
@@ -984,7 +985,15 @@ export async function runAgentLoopImpl(
       () => runHook(HOOKS.USER_PROMPT_SUBMIT, userPromptCtx),
     );
     latencyTracker.mark("prompt_hook_end");
-    const runMessages = finalUserPromptCtx.latestMessages;
+    // Built-in history repair: normalize the working history to satisfy the
+    // provider's tool-use/tool-result pairing and role-alternation rules
+    // immediately before the call, after every hook (memory injection, title,
+    // user plugins) has settled its shape. Runs unconditionally — a malformed
+    // history is a hard provider rejection, never a per-conversation opt-in.
+    const runMessages = repairHistoryForRun(
+      finalUserPromptCtx.latestMessages,
+      ctx.conversationId,
+    );
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
     // boundary so a new turn starts the ladder fresh from the emergency rung.

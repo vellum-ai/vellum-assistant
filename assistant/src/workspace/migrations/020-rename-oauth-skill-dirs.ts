@@ -53,7 +53,9 @@ export const renameOauthSkillDirsMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const skillsDir = join(workspaceDir, "skills");
-    if (!existsSync(skillsDir)) return;
+    if (!existsSync(skillsDir)) {
+      return;
+    }
 
     // 1. Rename skill directories
     for (const [oldName, newName] of RENAMES) {
@@ -92,7 +94,9 @@ export const renameOauthSkillDirsMigration: WorkspaceMigration = {
 
   down(workspaceDir: string): void {
     const skillsDir = join(workspaceDir, "skills");
-    if (!existsSync(skillsDir)) return;
+    if (!existsSync(skillsDir)) {
+      return;
+    }
 
     // Reverse renames
     for (const [oldName, newName] of RENAMES) {

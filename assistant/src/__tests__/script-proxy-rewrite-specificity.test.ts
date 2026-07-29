@@ -26,11 +26,15 @@ function selectRewriteCandidate(
     let bestCandidates: CredentialInjectionTemplate[] = [];
 
     for (const tpl of tpls) {
-      if (tpl.injectionType === "query") continue;
+      if (tpl.injectionType === "query") {
+        continue;
+      }
       const match = matchHostPattern(hostname, tpl.hostPattern, {
         includeApexForWildcard: true,
       });
-      if (match === "none") continue;
+      if (match === "none") {
+        continue;
+      }
 
       const cmp = compareMatchSpecificity(match, bestMatch);
       if (cmp < 0) {
@@ -48,8 +52,12 @@ function selectRewriteCandidate(
     }
   }
 
-  if (perCredentialBest.length === 0) return "none";
-  if (perCredentialBest.length > 1) return "ambiguous";
+  if (perCredentialBest.length === 0) {
+    return "none";
+  }
+  if (perCredentialBest.length > 1) {
+    return "ambiguous";
+  }
   return perCredentialBest[0];
 }
 

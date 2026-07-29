@@ -17,9 +17,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
   referralCodesMeRetrieve: () => new Promise(() => {}),
 }));
 
-const { referralCodesMeRetrieveQueryKey } = await import(
-  "@/generated/api/@tanstack/react-query.gen"
-);
+const { referralCodesMeRetrieveQueryKey } =
+  await import("@/generated/api/@tanstack/react-query.gen");
 const { ReferralModal } = await import("./referral-modal");
 
 function referralData(): MyReferralCodeResponse {

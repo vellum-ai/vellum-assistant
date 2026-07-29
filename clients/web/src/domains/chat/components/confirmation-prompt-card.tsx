@@ -1,10 +1,13 @@
-
 import { ChevronDown, ChevronRight, Loader2, Shield } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getRiskBadgeStyle } from "@/domains/chat/utils/risk";
 import type { ConfirmationDecision } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  ScopeOption,
+} from "@/types/interaction-ui-types";
 import { Card } from "@vellumai/design-library";
 
 export interface ConfirmationPromptCardProps {
@@ -40,9 +43,14 @@ export function ConfirmationPromptCard({
 
   // Close split menu when clicking outside
   useEffect(() => {
-    if (!showSplitMenu) return;
+    if (!showSplitMenu) {
+      return;
+    }
     const handleClickOutside = (e: MouseEvent) => {
-      if (splitMenuRef.current && !splitMenuRef.current.contains(e.target as Node)) {
+      if (
+        splitMenuRef.current &&
+        !splitMenuRef.current.contains(e.target as Node)
+      ) {
         setShowSplitMenu(false);
       }
     };
@@ -50,8 +58,13 @@ export function ConfirmationPromptCard({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showSplitMenu]);
 
-  const hasDetails = !!confirmation.toolName || !!confirmation.description || !!confirmation.input;
-  const riskBadge = confirmation.riskLevel ? getRiskBadgeStyle(confirmation.riskLevel) : null;
+  const hasDetails =
+    !!confirmation.toolName ||
+    !!confirmation.description ||
+    !!confirmation.input;
+  const riskBadge = confirmation.riskLevel
+    ? getRiskBadgeStyle(confirmation.riskLevel)
+    : null;
   const hasAllowlistOptions = (confirmation.allowlistOptions?.length ?? 0) > 0;
 
   return (
@@ -66,7 +79,7 @@ export function ConfirmationPromptCard({
             {riskBadge && (
               <span
                 // typography: off-scale — compact risk badge pill
-                 
+
                 className={`ml-1 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${riskBadge.bg} ${riskBadge.text}`}
               >
                 {riskBadge.label}

@@ -107,9 +107,9 @@ describe("handleConfirmationRequest", () => {
       ctx,
     );
 
-    expect(
-      useInteractionStore.getState().inlineConfirmationToolCallId,
-    ).toBe("tc-1");
+    expect(useInteractionStore.getState().inlineConfirmationToolCallId).toBe(
+      "tc-1",
+    );
     expect(ctx.setConfirmationToolCall).toHaveBeenCalledWith("cr-1", "tc-1");
   });
 });
@@ -160,9 +160,9 @@ describe("handleInteractionResolved", () => {
       state: "cancelled",
     });
 
-    expect(
-      useInteractionStore.getState().pendingConfirmation?.requestId,
-    ).toBe("cr-1");
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-1",
+    );
   });
 
   it("ignores non-confirmation interaction kinds", () => {
@@ -182,9 +182,9 @@ describe("handleInteractionResolved", () => {
     });
 
     // Host-proxy steps own their own lifecycle and must not clear the card.
-    expect(
-      useInteractionStore.getState().pendingConfirmation?.requestId,
-    ).toBe("cr-1");
+    expect(useInteractionStore.getState().pendingConfirmation?.requestId).toBe(
+      "cr-1",
+    );
   });
 });
 

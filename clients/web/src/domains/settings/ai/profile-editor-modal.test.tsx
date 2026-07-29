@@ -37,7 +37,7 @@ const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 // Spy on the design-library toast so we can assert the shared ProfileEditorModal
 // does NOT fire a profile-create success toast itself — that toast belongs to
-// the surrounding surface (Settings via ManageProfilesModal, composer via its
+// the surrounding surface (Settings via ProfileDetailPanel, composer via its
 // own quick-add), preventing a double-fire.
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
@@ -135,7 +135,9 @@ function getSaveBtn(): HTMLButtonElement {
   const btn = document.querySelector<HTMLButtonElement>(
     '[data-testid="modal-save-btn"]',
   );
-  if (!btn) throw new Error("expected a modal-save-btn");
+  if (!btn) {
+    throw new Error("expected a modal-save-btn");
+  }
   return btn;
 }
 
@@ -178,7 +180,9 @@ function providerTrigger(): HTMLButtonElement {
   const trigger = document.querySelector<HTMLButtonElement>(
     'button[role="combobox"][aria-labelledby="profile-editor-provider-label"]',
   );
-  if (!trigger) throw new Error("expected the Provider dropdown trigger");
+  if (!trigger) {
+    throw new Error("expected the Provider dropdown trigger");
+  }
   return trigger;
 }
 
@@ -194,7 +198,9 @@ function selectModel(label: string): void {
   // helper robust to the optional Connection dropdown appearing alongside it.
   const provTrigger = providerTrigger();
   for (const trigger of dropdownTriggers()) {
-    if (trigger === provTrigger) continue;
+    if (trigger === provTrigger) {
+      continue;
+    }
     fireEvent.click(trigger);
     const option = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
@@ -294,7 +300,9 @@ function findSwitchByLabel(label: string): HTMLButtonElement | null {
 /** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
 function topPSwitch(): HTMLButtonElement {
   const sw = findSwitchByLabel("Top P");
-  if (!sw) throw new Error("expected a Top P switch");
+  if (!sw) {
+    throw new Error("expected a Top P switch");
+  }
   return sw;
 }
 
@@ -313,7 +321,9 @@ function findTopPSlider(): HTMLElement | null {
 
 function topPSlider(): HTMLElement {
   const slider = findTopPSlider();
-  if (!slider) throw new Error("expected a Top P slider (aria-valuemax=1)");
+  if (!slider) {
+    throw new Error("expected a Top P slider (aria-valuemax=1)");
+  }
   return slider;
 }
 
@@ -351,22 +361,23 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal create mode — provider-first", () => {
-  test("keeps Name and Key inside Advanced in create mode", () => {
+  test("Name is top-level in create mode; Key stays inside Advanced (LUM-2881)", () => {
     renderCreate([makeConnection("anthropic-personal")]);
+
+    // The Name field renders before any provider/model is picked - it is
+    // top-level, never inside the Advanced disclosure.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
 
-    expect(
-      document.querySelector('input[placeholder="e.g. Fast & Cheap"]'),
-    ).toBeNull();
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
     expect(
       document.querySelector('input[placeholder="e.g. fast-cheap"]'),
     ).toBeNull();
 
     fireEvent.click(getButton("Advanced"));
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
     expect(getInputByPlaceholder("e.g. fast-cheap")).toBeDefined();
   });
 

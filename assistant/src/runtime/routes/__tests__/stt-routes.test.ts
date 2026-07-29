@@ -17,7 +17,9 @@ let mockResolveError: Error | null = null;
 
 mock.module("../../../providers/speech-to-text/resolve.js", () => ({
   resolveBatchTranscriber: async () => {
-    if (mockResolveError) throw mockResolveError;
+    if (mockResolveError) {
+      throw mockResolveError;
+    }
     return mockTranscriber;
   },
 }));
@@ -65,7 +67,9 @@ import type { RouteHandlerArgs } from "../types.js";
 
 function getRoute(endpoint: string) {
   const route = ROUTES.find((r) => r.endpoint === endpoint);
-  if (!route) throw new Error(`Route ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -93,7 +97,9 @@ async function expectRouteError(
     expect(err).toBeInstanceOf(RouteError);
     const re = err as InstanceType<typeof RouteError>;
     expect(re.statusCode).toBe(statusCode);
-    if (code) expect(re.code).toBe(code);
+    if (code) {
+      expect(re.code).toBe(code);
+    }
     return re;
   }
 }

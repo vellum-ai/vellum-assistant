@@ -760,9 +760,9 @@ async function deliverRequesterNotice(params: {
 }
 
 /**
- * Emit the guardian-facing denial lifecycle signals and, unless suppressed,
+ * Emit the guardian-facing denial lifecycle signal and, unless suppressed,
  * deliver the "declined" notice to the requester. Both the `leave_unverified`
- * and `block` outcomes call this for the lifecycle signals, but the requester
+ * and `block` outcomes call this for the lifecycle signal, but the requester
  * notice is delivered only for `block` (in denied mode) — `leave_unverified`
  * always passes `suppressRequesterNotice: true`, staying a silent park at
  * `unverified`. The notice text is a plain decline that does not reveal whether
@@ -814,6 +814,12 @@ async function notifyRequesterOfDenial(params: {
     });
   }
 
+  // Exactly one signal per denial: the payload's `decision: "denied"`
+  // carries the verdict, and the pipeline can only dedupe within a single
+  // event stream — a second event name would materialize a second
+  // conversation for the same decision. The approve path holds the same
+  // one-signal invariant via `verification_sent` standing in for
+  // `guardian_decision`.
   if (channelDeliveryContext) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
@@ -827,20 +833,6 @@ async function notifyRequesterOfDenial(params: {
       },
       contextPayload: deniedPayload,
       dedupeKey: `trusted-contact:guardian-decision:${requestId}`,
-    });
-
-    void emitNotificationSignal({
-      sourceEventName: "ingress.trusted_contact.denied",
-      sourceChannel: channel,
-      sourceContextId: conversationId ?? "",
-      attentionHints: {
-        requiresAction: false,
-        urgency: "low",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-      contextPayload: deniedPayload,
-      dedupeKey: `trusted-contact:denied:${requestId}`,
     });
   }
 }

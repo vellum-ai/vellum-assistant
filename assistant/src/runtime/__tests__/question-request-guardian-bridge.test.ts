@@ -35,6 +35,11 @@ mock.module("../../notifications/guardian-delivery-recorder.js", () => ({
 mock.module("../channel-verification-service.js", () => ({
   getGuardianBinding: () => Promise.resolve(binding),
 }));
+// The vellum-card pin mirrors the target conversation's source; no DB here,
+// so resolve "conversation not found" and let the helper fall back to "user".
+mock.module("../../persistence/conversation-crud.js", () => ({
+  getConversation: () => null,
+}));
 
 const { bridgeQuestionRequestToGuardian } =
   await import("../question-request-guardian-bridge.js");
@@ -115,7 +120,11 @@ describe("bridgeQuestionRequestToGuardian", () => {
     const signal = emitSignalMock.mock.calls[0]?.[0] as {
       attentionHints: Record<string, unknown>;
       contextPayload: Record<string, unknown>;
+      conversationAffinityHint?: Record<string, string>;
     };
+    // The in-app card is pinned to the conversation the question was asked
+    // in — never left to LLM conversation routing.
+    expect(signal.conversationAffinityHint).toEqual({ vellum: "conv-1" });
     // REGRESSION PIN: visibleInSourceNow is a hard suppression pre-gate in
     // emitNotificationSignal. The question card is the channel's ONLY way to
     // display the parked prompt — a true here silently suppresses every

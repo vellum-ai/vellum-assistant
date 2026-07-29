@@ -7,34 +7,40 @@ let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
 let mockSecureKeys: Record<string, string> = {};
 
+// Bun shares mocked modules across test files in a combined run, so each mock
+// spreads the real module and overrides only what this file drives. Replacing
+// a module wholesale drops the exports peer tests import from it and breaks
+// their ESM named-import validation whenever this mock wins evaluation.
+const actualEnvRegistry = await import("../config/env-registry.js");
 mock.module("../config/env-registry.js", () => ({
+  ...actualEnvRegistry,
   getIsPlatform: () => mockIsPlatform,
-  // Not called by this test, but the real util/logger.js + util/platform.js
-  // (loaded now that the logger is silent under test instead of mocked)
-  // import these names, and ESM named-import validation requires them.
-  getWorkspaceDirOverride: () => process.env.VELLUM_WORKSPACE_DIR,
-  getDebugStdoutLogs: () => false,
-  getIsContainerized: () => false,
 }));
 
+const actualEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
+  ...actualEnv,
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
   getPlatformAssistantId: () => mockPlatformAssistantId,
 }));
 
+const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
+  ...actualSecureKeys,
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? undefined,
-  // Bun shares mocked modules across test files in a combined run; peer
-  // tests import this name from the same module, so stub it to keep their
-  // ESM named-import validation satisfied when this mock wins evaluation.
-  deleteSecureKeyAsync: async () => ({ deleted: false }),
 }));
 
 const originalFetch = globalThis.fetch;
 const originalEnvCredential = process.env.ASSISTANT_API_KEY;
 
-const { registerCallbackRoute, resolvePlatformCallbackRegistrationContext } =
-  await import("../inbound/platform-callback-registration.js");
+const {
+  registerCallbackRoute,
+  resolveCallbackUrl,
+  resolvePlatformCallbackRegistrationContext,
+} = await import("../inbound/platform-callback-registration.js");
+
+const { PublicIngressDisabledError } =
+  await import("../inbound/public-ingress-urls.js");
 
 describe("platform callback registration", () => {
   beforeEach(() => {
@@ -148,5 +154,129 @@ describe("platform callback registration", () => {
     await expect(
       registerCallbackRoute("webhooks/telegram", "telegram"),
     ).resolves.toBe("https://platform.example.com/v1/gateway/callbacks/x/");
+  });
+});
+
+/**
+ * `resolveCallbackUrl` drives Twilio voice/status callbacks and OAuth redirect
+ * URIs. Its tier order has to match `handleWebhooksRegister` in
+ * `runtime/routes/webhook-routes.ts` and `hasWebhookRoutingConfigured` in
+ * `config/webhook-routing.ts` (LUM-2882).
+ */
+describe("resolveCallbackUrl resolution order", () => {
+  const PLATFORM_URL = "https://platform.example.com/v1/gateway/callbacks/x/";
+
+  /** Stand in for a URL builder that cannot resolve a public ingress URL. */
+  function noIngress(): string {
+    throw new Error(
+      "No public base URL configured. Set ingress.publicBaseUrl in config.",
+    );
+  }
+
+  /** Stand in for a URL builder reached while ingress is switched off. */
+  function ingressDisabled(): string {
+    throw new PublicIngressDisabledError();
+  }
+
+  function seedPlatformCredentials(): void {
+    mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
+      "https://platform.example.com";
+    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
+      "11111111-2222-4333-8444-555555555555";
+    mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
+      "ast-managed-key";
+  }
+
+  let registerCalls: number;
+
+  beforeEach(() => {
+    mockIsPlatform = false;
+    mockPlatformBaseUrl = "";
+    mockPlatformAssistantId = "";
+    mockSecureKeys = {};
+    delete process.env.ASSISTANT_API_KEY;
+    registerCalls = 0;
+    globalThis.fetch = mock(async () => {
+      registerCalls++;
+      return new Response(
+        JSON.stringify({
+          callback_url: PLATFORM_URL,
+          callback_path: "webhooks/twilio/voice",
+          type: "twilio_voice",
+          assistant_id: "11111111-2222-4333-8444-555555555555",
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("platform pods register with the platform gateway", async () => {
+    mockIsPlatform = true;
+    seedPlatformCredentials();
+
+    // The direct supplier is never evaluated on a pod: there is no ingress of
+    // its own to advertise, and evaluating it would throw.
+    await expect(
+      resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
+    ).resolves.toBe(PLATFORM_URL);
+    expect(registerCalls).toBe(1);
+  });
+
+  test("a configured ingress wins over platform connectivity", async () => {
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        () => "https://tunnel.example.com/webhooks/twilio/voice",
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).resolves.toBe("https://tunnel.example.com/webhooks/twilio/voice");
+    expect(registerCalls).toBe(0);
+  });
+
+  test("a platform-connected assistant with no ingress registers with the platform", async () => {
+    // LUM-2882: this used to return the direct builder's throw because the
+    // platform branch was gated on IS_PLATFORM, which is only true on a pod.
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
+    ).resolves.toBe(PLATFORM_URL);
+    expect(registerCalls).toBe(1);
+  });
+
+  test("query parameters are appended to the platform URL", async () => {
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice", {
+        callSessionId: "conv-xyz",
+      }),
+    ).resolves.toBe(`${PLATFORM_URL}?callSessionId=conv-xyz`);
+  });
+
+  test("an explicit ingress opt-out is not routed around", async () => {
+    seedPlatformCredentials();
+
+    await expect(
+      resolveCallbackUrl(
+        ingressDisabled,
+        "webhooks/twilio/voice",
+        "twilio_voice",
+      ),
+    ).rejects.toThrow("Public ingress is disabled");
+    expect(registerCalls).toBe(0);
+  });
+
+  test("without platform credentials the ingress error surfaces unchanged", async () => {
+    await expect(
+      resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
+    ).rejects.toThrow("No public base URL configured");
+    expect(registerCalls).toBe(0);
   });
 });

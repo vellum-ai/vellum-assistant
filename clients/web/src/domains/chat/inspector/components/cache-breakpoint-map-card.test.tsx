@@ -11,7 +11,10 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { CacheBreakpointMapCard } from "./cache-breakpoint-map-card";
-import type { LLMCallSummary, LLMRequestLogEntry } from "@vellumai/assistant-api";
+import type {
+  LLMCallSummary,
+  LLMRequestLogEntry,
+} from "@vellumai/assistant-api";
 
 const ASSISTANT_ID = "assistant-1";
 
@@ -46,7 +49,10 @@ function cachedRequest() {
   };
 }
 
-function entry(id: string, overrides: Partial<LLMCallSummary>): LLMRequestLogEntry {
+function entry(
+  id: string,
+  overrides: Partial<LLMCallSummary>,
+): LLMRequestLogEntry {
   return {
     id,
     createdAt: Date.parse("2026-06-13T13:30:00Z"),

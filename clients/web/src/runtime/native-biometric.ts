@@ -33,7 +33,8 @@ interface NativeBiometricPlugin {
   deleteToken(opts: { server: string }): Promise<void>;
 }
 
-const NativeBiometric = registerPlugin<NativeBiometricPlugin>("NativeBiometric");
+const NativeBiometric =
+  registerPlugin<NativeBiometricPlugin>("NativeBiometric");
 
 const BIOMETRIC_SERVER = "vellum.ai";
 
@@ -42,7 +43,9 @@ const BIOMETRIC_SERVER = "vellum.ai";
  * Returns `false` on non-native platforms without throwing.
  */
 export async function isBiometricAvailable(): Promise<boolean> {
-  if (!isNativePlatform()) return false;
+  if (!isNativePlatform()) {
+    return false;
+  }
   try {
     const { available } = await NativeBiometric.isAvailable();
     return available;
@@ -58,7 +61,9 @@ export async function isBiometricAvailable(): Promise<boolean> {
  * preference when this returns `true`.
  */
 export async function storeBiometricToken(token: string): Promise<boolean> {
-  if (!(await isBiometricAvailable())) return false;
+  if (!(await isBiometricAvailable())) {
+    return false;
+  }
   try {
     await NativeBiometric.storeToken({ token, server: BIOMETRIC_SERVER });
     return true;
@@ -79,8 +84,12 @@ export async function storeBiometricToken(token: string): Promise<boolean> {
 let pendingRetrieval: Promise<string | null> | null = null;
 
 export async function retrieveBiometricToken(): Promise<string | null> {
-  if (!isNativePlatform()) return null;
-  if (pendingRetrieval) return pendingRetrieval;
+  if (!isNativePlatform()) {
+    return null;
+  }
+  if (pendingRetrieval) {
+    return pendingRetrieval;
+  }
 
   pendingRetrieval = (async () => {
     try {
@@ -104,7 +113,9 @@ export async function retrieveBiometricToken(): Promise<string | null> {
  * the next app launch requires a fresh WorkOS login.
  */
 export async function deleteBiometricToken(): Promise<void> {
-  if (!isNativePlatform()) return;
+  if (!isNativePlatform()) {
+    return;
+  }
   try {
     await NativeBiometric.deleteToken({ server: BIOMETRIC_SERVER });
   } catch {
@@ -131,7 +142,9 @@ export function setBiometricEnabled(enabled: boolean): void {
 
 /** Returns the biometric type label (e.g. "Face ID", "Touch ID"). */
 export async function getBiometricTypeLabel(): Promise<string> {
-  if (!isNativePlatform()) return "Biometrics";
+  if (!isNativePlatform()) {
+    return "Biometrics";
+  }
   try {
     const { biometryType } = await NativeBiometric.isAvailable();
     switch (biometryType) {

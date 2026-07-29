@@ -24,10 +24,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import {
-  getActiveOrganizationIdForRequests,
-  useOrganizationStore,
-} from "@/stores/organization-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 
 interface UseAssistantLifecycleOptions {
   sessionStatus: SessionStatus;
@@ -41,8 +38,6 @@ export function useAssistantLifecycle({
   const queryClient = useQueryClient();
 
   const isOrgReady = useIsOrgReady();
-  const currentOrganizationId =
-    useOrganizationStore.use.currentOrganizationId();
 
   // Whether to query the server-side status at all. Gateway-auth
   // mode and "local mode without platform session" short-circuit
@@ -68,12 +63,11 @@ export function useAssistantLifecycle({
   // Subscribe so the hook re-renders (and the lockfile-local check below
   // re-evaluates) when the resolved list / lockfile change.
   useResolvedAssistantsStore.use.assistants();
-  // Resolve the org id from the same source as the `shouldQueryServer` gate
-  // (hydrated store, then sessionStorage fallback): when the gate opens via
-  // the fallback while the store fetch failed, resolving from the store alone
-  // would drop the user's selection and project the default assistant.
-  const activeOrganizationId =
-    currentOrganizationId ?? getActiveOrganizationIdForRequests();
+  // Resolve the org id from the same source as the `shouldQueryServer` gate:
+  // when the gate opens off the persisted id because the store fetch failed,
+  // resolving from the fetched selection alone would drop the user's choice
+  // and project the default assistant.
+  const activeOrganizationId = useRequestOrganizationId();
   const resolvedSelectionId =
     multiAssistantEnabled && !isGatewayAuthMode() && activeOrganizationId
       ? resolveSelectedAssistantId(activeOrganizationId)
@@ -118,7 +112,9 @@ export function useAssistantLifecycle({
   // Hand poll results to the service — it decides whether to
   // project them (only while the lifecycle is transient).
   useEffect(() => {
-    if (!assistantResult) return;
+    if (!assistantResult) {
+      return;
+    }
     void lifecycleService.applyServerResult(assistantResult);
   }, [assistantResult]);
 }

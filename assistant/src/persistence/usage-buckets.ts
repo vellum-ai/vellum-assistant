@@ -102,7 +102,9 @@ function getLocalParts(epochMillis: number, tz: string): LocalParts {
  */
 function parseShortOffset(value: string): number {
   const match = value.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
-  if (!match) return 0;
+  if (!match) {
+    return 0;
+  }
   const sign = match[1] === "-" ? -1 : 1;
   const hours = Number(match[2]);
   const minutes = match[3] ? Number(match[3]) : 0;
@@ -175,8 +177,12 @@ function alignToLocalHourStart(epochMillis: number, tz: string): number {
   let minute = 0;
   let second = 0;
   for (const part of parts) {
-    if (part.type === "minute") minute = Number(part.value);
-    if (part.type === "second") second = Number(part.value);
+    if (part.type === "minute") {
+      minute = Number(part.value);
+    }
+    if (part.type === "second") {
+      second = Number(part.value);
+    }
   }
   return epochMillis - (minute * 60 + second) * 1000;
 }

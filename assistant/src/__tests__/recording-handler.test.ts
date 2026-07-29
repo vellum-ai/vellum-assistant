@@ -111,12 +111,15 @@ mock.module("node:fs", () => {
     ...realFs,
     existsSync: (p: string) => {
       // Intercept paths that look like recording files (allowed dir or /tmp/)
-      if (p.includes("recording") || p.includes("/tmp/")) return mockFileExists;
+      if (p.includes("recording") || p.includes("/tmp/")) {
+        return mockFileExists;
+      }
       return realFs.existsSync(p);
     },
     statSync: (p: string, opts?: any) => {
-      if (p.includes("recording") || p.includes("/tmp/"))
+      if (p.includes("recording") || p.includes("/tmp/")) {
         return { size: mockFileSize };
+      }
       return realFs.statSync(p, opts);
     },
     realpathSync: (p: string) => {
@@ -126,8 +129,9 @@ mock.module("node:fs", () => {
         p.includes("recording") ||
         p.includes("/tmp/") ||
         p.includes("vellum-assistant")
-      )
+      ) {
         return p;
+      }
       return realFs.realpathSync(p);
     },
     readFileSync: realFs.readFileSync,

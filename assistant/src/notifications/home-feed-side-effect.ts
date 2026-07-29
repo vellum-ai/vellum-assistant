@@ -52,7 +52,9 @@ export async function writeHomeFeedItemForSignal(
 ): Promise<FeedItem | null> {
   const { mirror, sourceConversationId, sourceScheduleJobId } =
     resolveHomeFeedMirror(signal, fallbackConversationId);
-  if (!mirror) return null;
+  if (!mirror) {
+    return null;
+  }
 
   const renderedCopy =
     decision.renderedCopy.vellum ??
@@ -253,7 +255,9 @@ function firstSelectedRenderedCopy(
 ): RenderedChannelCopy | undefined {
   for (const channel of selectedChannels) {
     const copy = renderedCopy[channel];
-    if (copy && (copy.title?.trim() || copy.body?.trim())) return copy;
+    if (copy && (copy.title?.trim() || copy.body?.trim())) {
+      return copy;
+    }
   }
   return undefined;
 }
@@ -284,7 +288,11 @@ function deriveNoteworthy(signal: NotificationSignal): boolean {
   if (signal.sourceEventName === "activity.failed") {
     return signal.attentionHints.urgency === "critical";
   }
-  if (signal.sourceChannel === "assistant_tool") return true;
-  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) return true;
+  if (signal.sourceChannel === "assistant_tool") {
+    return true;
+  }
+  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) {
+    return true;
+  }
   return false;
 }

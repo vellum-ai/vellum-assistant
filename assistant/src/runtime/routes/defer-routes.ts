@@ -162,7 +162,9 @@ async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
     let count = 0;
     for (const j of jobs) {
       if (j.status === "active" || j.status === "firing") {
-        if (await cancelSchedule(j.id)) count++;
+        if (await cancelSchedule(j.id)) {
+          count++;
+        }
       }
     }
     return { cancelled: count };

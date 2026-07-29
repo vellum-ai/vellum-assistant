@@ -16,10 +16,16 @@ describe("resolveQdrantUrl", () => {
   });
 
   afterEach(() => {
-    if (savedPort === undefined) delete process.env.QDRANT_HTTP_PORT;
-    else process.env.QDRANT_HTTP_PORT = savedPort;
-    if (savedUrl === undefined) delete process.env.QDRANT_URL;
-    else process.env.QDRANT_URL = savedUrl;
+    if (savedPort === undefined) {
+      delete process.env.QDRANT_HTTP_PORT;
+    } else {
+      process.env.QDRANT_HTTP_PORT = savedPort;
+    }
+    if (savedUrl === undefined) {
+      delete process.env.QDRANT_URL;
+    } else {
+      process.env.QDRANT_URL = savedUrl;
+    }
   });
 
   test("falls back to config when no env vars are set", () => {

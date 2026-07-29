@@ -190,10 +190,18 @@ describe("useConversationStarters — polling decision", () => {
     runHook("asst-1");
     const ri = lastCapturedOptions!.refetchInterval;
 
-    expect(ri({ state: { data: { starters: [], total: 0, status: "generating" } } })).toBe(3000);
-    expect(ri({ state: { data: { starters: [], total: 0, status: "refreshing" } } })).toBe(3000);
-    expect(ri({ state: { data: { starters: [], total: 0, status: "ready" } } })).toBe(false);
-    expect(ri({ state: { data: { starters: [], total: 0, status: "empty" } } })).toBe(false);
+    expect(
+      ri({ state: { data: { starters: [], total: 0, status: "generating" } } }),
+    ).toBe(3000);
+    expect(
+      ri({ state: { data: { starters: [], total: 0, status: "refreshing" } } }),
+    ).toBe(3000);
+    expect(
+      ri({ state: { data: { starters: [], total: 0, status: "ready" } } }),
+    ).toBe(false);
+    expect(
+      ri({ state: { data: { starters: [], total: 0, status: "empty" } } }),
+    ).toBe(false);
     expect(ri({ state: { data: undefined } })).toBe(false);
   });
 });

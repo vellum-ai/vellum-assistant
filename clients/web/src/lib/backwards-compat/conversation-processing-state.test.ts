@@ -19,7 +19,11 @@ function setVersion(version: string | null) {
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(QueryClientProvider, { client: queryClient }, children);
+    return createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      children,
+    );
   };
 }
 
@@ -42,12 +46,15 @@ async function isProcessing(inputs: {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  queryClient.setQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID), [
-    {
-      conversationId: CONVERSATION_ID,
-      isProcessing: inputs.serverIsProcessing,
-    } as Conversation,
-  ]);
+  queryClient.setQueryData<Conversation[]>(
+    conversationsQueryKey(ASSISTANT_ID),
+    [
+      {
+        conversationId: CONVERSATION_ID,
+        isProcessing: inputs.serverIsProcessing,
+      } as Conversation,
+    ],
+  );
 
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   useConversationStore.getState().setActiveConversationId(CONVERSATION_ID);

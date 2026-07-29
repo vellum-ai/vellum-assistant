@@ -61,7 +61,11 @@ export async function readInboundTrust(input: {
     // Single choke point: warm the member-verdict cache so sync call-path
     // readers (access-request callback handoff) can resolve the member later
     // without a gateway read.
-    setMemberVerdict(input.channelType, input.actorExternalId, parsed.data.verdict);
+    setMemberVerdict(
+      input.channelType,
+      input.actorExternalId,
+      parsed.data.verdict,
+    );
 
     // ABSENT envelope key (pre-envelope gateway): keep the verdict and read
     // the policy standalone. Distinct from an explicit `null`, which is the

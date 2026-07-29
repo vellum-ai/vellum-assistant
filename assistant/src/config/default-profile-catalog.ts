@@ -96,7 +96,10 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
     provider: "vellum",
     source: "managed",
     label: "Speed",
-    description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
+    // Tier intent only - never name the concrete model here. Clients
+    // surface the live model beside the description, so a model name in
+    // this copy would go stale the moment the pin moves.
+    description: "Fastest responses at lower cost",
     maxTokens: 8192,
     // Explicit reasoning opt-out. OpenAI-compat APIs default reasoning to
     // "medium" when the field is omitted, and effort-driven providers encode

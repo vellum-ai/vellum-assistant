@@ -78,7 +78,6 @@ const { createWhatsAppWebhookHandler } = await import("./whatsapp-webhook.js");
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://localhost:7821",
-  defaultAssistantId: "ast-default",
   gatewayInternalBaseUrl: "http://127.0.0.1:7830",
   logFile: { dir: undefined, retentionDays: 30 },
   maxAttachmentBytes: {
@@ -96,7 +95,6 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  unmappedPolicy: "default",
   trustProxy: false,
 };
 

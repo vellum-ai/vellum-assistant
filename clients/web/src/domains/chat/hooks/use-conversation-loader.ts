@@ -1,23 +1,22 @@
-
 import { captureError } from "@/lib/sentry/capture-error";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import {
-    type MutableRefObject,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useMemo,
-    useRef,
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
 } from "react";
 
 import {
-    createDraftConversationId,
-    resolveBootstrappedConversationId,
+  createDraftConversationId,
+  resolveBootstrappedConversationId,
 } from "@/domains/chat/utils/conversation-selection";
 import {
-    loadLastViewedConversationId,
-    saveLastViewedConversationId,
+  loadLastViewedConversationId,
+  saveLastViewedConversationId,
 } from "@/utils/last-viewed-conversation-storage";
 import { toast } from "@vellumai/design-library";
 
@@ -120,7 +119,9 @@ export function useConversationLoader({
   // refetch through the same `listConversations` queryFn used at boot.
   // -------------------------------------------------------------------------
   const refreshConversations = useCallback(async () => {
-    if (!assistantId) return;
+    if (!assistantId) {
+      return;
+    }
     try {
       await invalidateConversationQueries(queryClient, assistantId);
     } catch (err) {
@@ -185,7 +186,9 @@ export function useConversationLoader({
       firstRefreshTickRef.current = false;
       return;
     }
-    if (assistantStateKind !== "active" || !assistantId) return;
+    if (assistantStateKind !== "active" || !assistantId) {
+      return;
+    }
     void invalidateConversationQueries(queryClient, assistantId);
   }, [
     refreshEpoch,
@@ -203,7 +206,10 @@ export function useConversationLoader({
   // because this toast already surfaces the right message.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (conversationListError instanceof ApiError && conversationListError.status === 401) {
+    if (
+      conversationListError instanceof ApiError &&
+      conversationListError.status === 401
+    ) {
       toast.error("Failed to authenticate user.");
     }
   }, [conversationListError]);
@@ -221,9 +227,12 @@ export function useConversationLoader({
   // banner. Other error codes are left untouched.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (assistantStateKind !== "active") return;
+    if (assistantStateKind !== "active") {
+      return;
+    }
     const isAuthFail =
-      conversationListError instanceof ApiError && conversationListError.status === 401;
+      conversationListError instanceof ApiError &&
+      conversationListError.status === 401;
     const hasUsableData = queryConversations.length > 0;
 
     if (conversationListIsError && !hasUsableData && !isAuthFail) {
@@ -232,9 +241,13 @@ export function useConversationLoader({
         level: "warning",
       });
       useChatSessionStore.getState().setError((prev) => {
-        if (shouldSuppressGenericChatErrorNotice(prev)) return prev;
+        if (shouldSuppressGenericChatErrorNotice(prev)) {
+          return prev;
+        }
         const status =
-          conversationListError instanceof ApiError ? conversationListError.status : 0;
+          conversationListError instanceof ApiError
+            ? conversationListError.status
+            : 0;
         return {
           code: CONVERSATION_LIST_LOAD_FAILED_CODE,
           message:
@@ -246,9 +259,11 @@ export function useConversationLoader({
       return;
     }
     if (hasUsableData) {
-      useChatSessionStore.getState().setError((prev) =>
-        prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
-      );
+      useChatSessionStore
+        .getState()
+        .setError((prev) =>
+          prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
+        );
     }
   }, [
     assistantStateKind,
@@ -276,8 +291,12 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (assistantStateKind !== "active") return;
-    if (!assistantId) return;
+    if (assistantStateKind !== "active") {
+      return;
+    }
+    if (!assistantId) {
+      return;
+    }
 
     const explicitConversationId = urlConversationId;
 
@@ -327,7 +346,8 @@ export function useConversationLoader({
     const key = resolveBootstrappedConversationId({
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
-      currentConversationId: useConversationStore.getState().activeConversationId,
+      currentConversationId:
+        useConversationStore.getState().activeConversationId,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: assistantId,
       storedConversationId: loadLastViewedConversationId(assistantId),
@@ -363,7 +383,9 @@ export function useConversationLoader({
   // Save last-viewed conversation per assistant
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!assistantId || !activeConversationId) return;
+    if (!assistantId || !activeConversationId) {
+      return;
+    }
     saveLastViewedConversationId(assistantId, activeConversationId);
   }, [assistantId, activeConversationId]);
 
@@ -381,10 +403,16 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const switchConversation = useCallback(
     (key: string) => {
+      useViewerStore.getState().setMainView("chat");
+      // Same-conversation reselect: return to the chat view but keep the
+      // per-conversation process stores — wiping them kills the inline
+      // cards of still-running subagents, which only repopulate from live
+      // SSE events (LUM-2875).
+      if (key === useConversationStore.getState().activeConversationId) {
+        return;
+      }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
-      useViewerStore.getState().setMainView("chat");
-      if (key === useConversationStore.getState().activeConversationId) return;
       void navigate(routes.conversation(key));
     },
     [navigate],
@@ -395,12 +423,16 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   const startNewConversation = useCallback(
     ({ silent }: { silent?: boolean } = {}) => {
-      if (!silent) haptic.light();
+      if (!silent) {
+        haptic.light();
+      }
       useSubagentStore.getState().reset();
       useWorkflowStore.getState().reset();
       useViewerStore.getState().setMainView("chat");
       const draftConversationId = createDraftConversationId();
-      useConversationStore.getState().setActiveConversationId(draftConversationId);
+      useConversationStore
+        .getState()
+        .setActiveConversationId(draftConversationId);
       void navigate(routes.conversation(draftConversationId));
       requestComposerFocus();
     },

@@ -174,7 +174,7 @@ declare -a SAFE_LINE_PATTERNS=(
     # `$ref:`, `description:`, etc.). Without that context, an indented bare
     # `clientSecret:` line would whitelist any structurally-similar line in
     # any file type, weakening secret scanning outside schema files.
-    "^[[:space:]]+[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$"
+    "^[[:space:]]+[a-zA-Z0-9_-]*[Cc]lient[_-]?[Ss]ecret:[[:space:]]*$"
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
     # Also covers union types like `clientSecret: string | undefined;`.

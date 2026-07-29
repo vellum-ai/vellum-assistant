@@ -1,6 +1,12 @@
 import { Button } from "@vellumai/design-library";
 import { Send } from "lucide-react";
-import { useCallback, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 export interface DocumentCommentFormProps {
   onSubmit: (content: string) => Promise<void>;
@@ -26,7 +32,9 @@ export function DocumentCommentForm({
     async (event: FormEvent) => {
       event.preventDefault();
       const trimmed = content.trim();
-      if (!trimmed || submitting) return;
+      if (!trimmed || submitting) {
+        return;
+      }
 
       setSubmitting(true);
       try {

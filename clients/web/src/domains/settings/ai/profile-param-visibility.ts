@@ -3,7 +3,10 @@
  * based on the selected provider and model.
  */
 
-import { getModelsForProvider, type LlmCatalogModel } from "@/assistant/llm-model-catalog";
+import {
+  getModelsForProvider,
+  type LlmCatalogModel,
+} from "@/assistant/llm-model-catalog";
 
 export interface ProfileParamVisibility {
   maxTokens: boolean;
@@ -32,7 +35,11 @@ export const VISIBILITY_NONE: ProfileParamVisibility = {
 };
 
 function isOpenAIGPT5Family(modelId: string): boolean {
-  return modelId === "gpt-5" || modelId.startsWith("gpt-5.") || modelId.startsWith("gpt-5-");
+  return (
+    modelId === "gpt-5" ||
+    modelId.startsWith("gpt-5.") ||
+    modelId.startsWith("gpt-5-")
+  );
 }
 
 /** OpenRouter and Vercel AI Gateway both vendor-prefix Anthropic models. */
@@ -46,7 +53,10 @@ function isVendorPrefixedAnthropicModel(modelId: string): boolean {
  * ids can be mixed-case (e.g. minimax's "MiniMax-M3"), so an exact `===`
  * find would never match those entries.
  */
-function findCatalogModel(provider: string, modelId: string): LlmCatalogModel | undefined {
+function findCatalogModel(
+  provider: string,
+  modelId: string,
+): LlmCatalogModel | undefined {
   const id = modelId.toLowerCase();
   return getModelsForProvider(provider).find((m) => m.id.toLowerCase() === id);
 }
@@ -58,7 +68,10 @@ function findCatalogModel(provider: string, modelId: string): LlmCatalogModel | 
  * adjustable. Mirrors the daemon's `isAdaptiveThinkingOnlyModel` in
  * `assistant/src/providers/model-catalog.ts`.
  */
-function isAdaptiveThinkingOnlyModel(provider: string, modelId: string): boolean {
+function isAdaptiveThinkingOnlyModel(
+  provider: string,
+  modelId: string,
+): boolean {
   return findCatalogModel(provider, modelId)?.adaptiveThinkingOnly === true;
 }
 
@@ -73,7 +86,12 @@ function knownOpenRouterReasoningModel(modelId: string): boolean {
   );
 }
 
-const GEMINI_THINKING_LEVELS_FULL = ["minimal", "low", "medium", "high"] as const;
+const GEMINI_THINKING_LEVELS_FULL = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+] as const;
 const GEMINI_THINKING_LEVELS_PRO = ["low", "medium", "high"] as const;
 
 /**
@@ -92,13 +110,17 @@ function isGeminiProModel(modelId: string): boolean {
  */
 export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS_FULL)[number];
 
-const GEMINI_THINKING_LEVELS_SET: ReadonlySet<string> = new Set(GEMINI_THINKING_LEVELS_FULL);
+const GEMINI_THINKING_LEVELS_SET: ReadonlySet<string> = new Set(
+  GEMINI_THINKING_LEVELS_FULL,
+);
 
 export function isGeminiThinkingLevel(v: unknown): v is GeminiThinkingLevel {
   return typeof v === "string" && GEMINI_THINKING_LEVELS_SET.has(v);
 }
 
-export function geminiThinkingLevels(modelId: string): readonly GeminiThinkingLevel[] {
+export function geminiThinkingLevels(
+  modelId: string,
+): readonly GeminiThinkingLevel[] {
   return isGeminiProModel(modelId.toLowerCase())
     ? GEMINI_THINKING_LEVELS_PRO
     : GEMINI_THINKING_LEVELS_FULL;
@@ -109,17 +131,32 @@ export function geminiThinkingLevels(modelId: string): readonly GeminiThinkingLe
  * `supportsThinking` flag over per-provider heuristics. `provider` must be a
  * lowercase provider id. Exported for tests.
  */
-export function modelSupportsThinking(provider: string, modelId: string): boolean {
+export function modelSupportsThinking(
+  provider: string,
+  modelId: string,
+): boolean {
   const entry = findCatalogModel(provider, modelId);
-  if (entry?.supportsThinking !== undefined) return entry.supportsThinking;
+  if (entry?.supportsThinking !== undefined) {
+    return entry.supportsThinking;
+  }
 
-  if (provider === "anthropic") return true;
-  if (provider === "openrouter") return knownOpenRouterReasoningModel(modelId);
-  if (provider === "vercel-ai-gateway") return isVendorPrefixedAnthropicModel(modelId);
+  if (provider === "anthropic") {
+    return true;
+  }
+  if (provider === "openrouter") {
+    return knownOpenRouterReasoningModel(modelId);
+  }
+  if (provider === "vercel-ai-gateway") {
+    return isVendorPrefixedAnthropicModel(modelId);
+  }
   return false;
 }
 
-function supportsEffort(provider: string, modelId: string, supportsThinking: boolean): boolean {
+function supportsEffort(
+  provider: string,
+  modelId: string,
+  supportsThinking: boolean,
+): boolean {
   if (provider === "anthropic") {
     return !modelId.includes("haiku") && supportsThinking;
   }
@@ -132,7 +169,11 @@ function supportsEffort(provider: string, modelId: string, supportsThinking: boo
     }
     return supportsThinking;
   }
-  if (provider === "fireworks" || provider === "together" || provider === "baseten") {
+  if (
+    provider === "fireworks" ||
+    provider === "together" ||
+    provider === "baseten"
+  ) {
     return supportsThinking;
   }
   return false;
@@ -170,7 +211,9 @@ export function resolveProfileParamVisibility(
   provider: string,
   model: string,
 ): ProfileParamVisibility {
-  if (!provider || !model) return VISIBILITY_NONE;
+  if (!provider || !model) {
+    return VISIBILITY_NONE;
+  }
 
   const providerId = provider.toLowerCase();
   const modelId = model.toLowerCase();
@@ -193,7 +236,8 @@ export function resolveProfileParamVisibility(
     thinking:
       (providerId === "anthropic" ||
         providerId === "openrouter" ||
-        (providerId === "vercel-ai-gateway" && isVendorPrefixedAnthropicModel(modelId))) &&
+        (providerId === "vercel-ai-gateway" &&
+          isVendorPrefixedAnthropicModel(modelId))) &&
       supportsThinkingResult &&
       !isAdaptiveThinkingOnlyModel(providerId, modelId),
     thinkingLevel: providerId === "gemini" && supportsThinkingResult,

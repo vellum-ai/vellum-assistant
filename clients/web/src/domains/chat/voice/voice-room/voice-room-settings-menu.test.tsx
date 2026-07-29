@@ -43,7 +43,9 @@ afterEach(() => cleanup());
 
 /** Render the menu and open the gear popover. */
 function openMenu() {
-  render(<VoiceRoomSettingsMenu triggerClassName="ctrl" assistantId="asst_test" />);
+  render(
+    <VoiceRoomSettingsMenu triggerClassName="ctrl" assistantId="asst_test" />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Voice settings" }));
 }
 

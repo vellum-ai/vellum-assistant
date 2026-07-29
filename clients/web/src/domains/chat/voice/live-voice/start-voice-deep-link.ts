@@ -109,5 +109,10 @@ export async function drainPendingVoiceStartDeepLink(): Promise<void> {
   }
   // `null` conversation is the supported "new conversation" start: the server
   // assigns one and echoes it on the `ready` frame (`LiveVoiceState.conversationId`).
-  starter(assistantId, null);
+  //
+  // No `prewarm()` here, unlike the composer: prewarming exists to unlock
+  // playback while a user gesture is still active, and this path has no gesture
+  // to borrow (Siri, the Action Button, a Live Activity tap). `start()` creates
+  // its own player when none was reserved.
+  starter.start(assistantId, null);
 }

@@ -33,12 +33,16 @@ export function whenStoreState<T>(
   return new Promise((resolve) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = () => {
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       unsubscribe();
       resolve();
     };
     const unsubscribe = store.subscribe((state) => {
-      if (predicate(state)) finish();
+      if (predicate(state)) {
+        finish();
+      }
     });
     if (options.timeoutMs !== undefined) {
       timer = setTimeout(finish, options.timeoutMs);
