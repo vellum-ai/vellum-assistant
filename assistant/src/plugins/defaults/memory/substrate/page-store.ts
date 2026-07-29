@@ -202,39 +202,41 @@ const UNTERMINATED_FENCE_WARNING =
   "whole file is treated as body and its frontmatter fields are ignored";
 
 /**
- * Split raw file contents into (frontmatter, body). If no frontmatter block
- * is present the entire input is treated as body and an empty frontmatter
- * block is returned (validated by `ConceptPageFrontmatterSchema` so a bad
- * type on a declared field surfaces as a parse error to the caller, not
- * silently dropped data). The schema is `.passthrough()`, so unknown keys are
- * kept rather than rejected — migrated corpora carry leaked source-page fields.
+ * Parse full page content (frontmatter + body) into a `ConceptPage`. If no
+ * frontmatter block is present the entire input is treated as body and an
+ * empty frontmatter block is returned (validated by
+ * `ConceptPageFrontmatterSchema` so a bad type on a declared field surfaces
+ * as a parse error to the caller, not silently dropped data). The schema is
+ * `.passthrough()`, so unknown keys are kept rather than rejected: migrated
+ * corpora carry leaked source-page fields.
  *
- * A file that OPENS a frontmatter fence without ever closing it also parses
+ * Content that OPENS a frontmatter fence without ever closing it also parses
  * as body-only (a partially-visible page beats an invisible one), but carries
- * a `parseWarning` so index-level consumers can surface it for repair.
+ * a `parseWarning` so consumers can surface it for repair.
  *
  * The schema's defaults guarantee `edges` and `ref_files` are always arrays
  * even on freshly created pages with empty frontmatter.
+ *
+ * Shared by `readPage` (which supplies raw file contents) and callers holding
+ * page content that has not touched disk yet (e.g. batch ingest validation).
  */
-function parsePageContent(raw: string): {
-  frontmatter: ConceptPage["frontmatter"];
-  body: string;
-  parseWarning?: string;
-} {
-  const match = raw.match(FRONTMATTER_REGEX);
+export function parsePageContent(slug: string, content: string): ConceptPage {
+  const match = content.match(FRONTMATTER_REGEX);
   if (!match) {
     return {
+      slug,
       frontmatter: ConceptPageFrontmatterSchema.parse({}),
-      body: raw,
-      ...(FRONTMATTER_OPENER_REGEX.test(raw)
+      body: content,
+      ...(FRONTMATTER_OPENER_REGEX.test(content)
         ? { parseWarning: UNTERMINATED_FENCE_WARNING }
         : {}),
     };
   }
   const yamlBlock = match[1];
-  const body = raw.slice(match[0].length);
+  const body = content.slice(match[0].length);
   const parsed = parseYaml(yamlBlock) ?? {};
   return {
+    slug,
     frontmatter: ConceptPageFrontmatterSchema.parse(parsed),
     body,
   };
@@ -277,13 +279,7 @@ export async function readPage(
     }
     throw err;
   }
-  const { frontmatter, body, parseWarning } = parsePageContent(raw);
-  return {
-    slug,
-    frontmatter,
-    body,
-    ...(parseWarning !== undefined ? { parseWarning } : {}),
-  };
+  return parsePageContent(slug, raw);
 }
 
 /**
