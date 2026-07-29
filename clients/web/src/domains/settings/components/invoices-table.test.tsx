@@ -13,7 +13,7 @@ import * as sdkGen from "@/generated/api/sdk.gen";
 import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
 
 let listRetrieveCalls = 0;
-let listResult: InvoiceListResponse = { invoices: [] };
+let listResult: InvoiceListResponse = { invoices: [], has_more: false };
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -56,7 +56,7 @@ function renderTable(): ReturnType<typeof render> {
 
 beforeEach(() => {
   listRetrieveCalls = 0;
-  listResult = { invoices: [makeInvoice("1"), makeInvoice("2")] };
+  listResult = { invoices: [makeInvoice("1"), makeInvoice("2")], has_more: false };
 });
 
 afterEach(() => {
@@ -99,7 +99,7 @@ describe("InvoicesTable collapse", () => {
   });
 
   test("empty billing history shows the empty state only once expanded", async () => {
-    listResult = { invoices: [] };
+    listResult = { invoices: [], has_more: false };
     const { getByTestId, queryByTestId } = renderTable();
 
     expect(queryByTestId("invoices-empty")).toBeNull();

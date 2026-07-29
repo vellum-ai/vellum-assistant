@@ -24,7 +24,7 @@ import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [] };
+const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };
 
 const INITIAL_VISIBLE = 4;
 
