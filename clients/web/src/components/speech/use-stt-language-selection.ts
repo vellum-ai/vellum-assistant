@@ -67,6 +67,14 @@ export interface UseSttLanguageSelection {
    */
   currentCode: string;
   /**
+   * The daemon provider id a language pick steers: the configured STT
+   * provider, with the legacy managed-mode config reading as `"vellum"` and
+   * an unset provider as the daemon schema default (`"deepgram"`). Surfaces
+   * that build their option list with `sttLanguageOptionsFor` pass this so
+   * the config narrowing lives here once.
+   */
+  configuredProviderId: string;
+  /**
    * Whether the daemon probe reports the given daemon provider id as
    * manually language-selectable. `available` describes the CONFIGURED
    * provider; a form whose dropdown holds an unsaved DRAFT choice gates its
@@ -151,6 +159,7 @@ export function useSttLanguageSelection(
   return {
     available,
     currentCode,
+    configuredProviderId: configuredProvider,
     isLanguageSelectable,
     selectLanguage,
     selecting,
