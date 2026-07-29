@@ -24,6 +24,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { isNativeIOS } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -290,6 +291,7 @@ export function useConversationLoader({
   // recent* fetch failed (we still have last-known-good data to land on).
   // -------------------------------------------------------------------------
   const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
+  const newChatDraftConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (assistantStateKind !== "active") {
       return;
@@ -300,16 +302,25 @@ export function useConversationLoader({
 
     const explicitConversationId = urlConversationId;
 
+    // The Capacitor iOS shell cold-launches into a fresh draft instead of
+    // resuming a conversation. Held in a ref so effect re-runs reuse the key.
+    let newChatDraftConversationId: string | null = null;
+    if (isNativeIOS()) {
+      newChatDraftConversationIdRef.current ??= createDraftConversationId();
+      newChatDraftConversationId = newChatDraftConversationIdRef.current;
+    }
+
     // Only the "resume last-viewed" / "land on latest foreground" fallbacks
-    // read the fetched list. An explicit URL key, an onboarding draft, or the
-    // existing in-memory selection all resolve without it — so the chat
-    // transcript the user opened renders immediately instead of blocking on
-    // the sidebar's conversation-list API.
+    // read the fetched list. An explicit URL key, an onboarding draft, the
+    // existing in-memory selection, or a new-chat draft all resolve without
+    // it, so the chat transcript the user opened renders immediately instead
+    // of blocking on the sidebar's conversation-list API.
     const needsConversationList = !(
       explicitConversationId != null ||
       searchParams.get("onboarding") === "1" ||
       (assistantIdRef.current === assistantId &&
-        useConversationStore.getState().activeConversationId != null)
+        useConversationStore.getState().activeConversationId != null) ||
+      newChatDraftConversationId != null
     );
     if (needsConversationList && conversationListIsPending) {
       return;
@@ -346,6 +357,7 @@ export function useConversationLoader({
     const key = resolveBootstrappedConversationId({
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
+      newChatDraftConversationId,
       currentConversationId:
         useConversationStore.getState().activeConversationId,
       currentAssistantId: assistantIdRef.current,

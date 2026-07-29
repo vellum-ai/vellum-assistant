@@ -3,6 +3,11 @@ import type { Conversation } from "@/types/conversation-types";
 interface ResolveBootstrappedConversationIdArgs {
   queryParamKey: string | null;
   onboardingDraftConversationId?: string | null;
+  /**
+   * Client-minted draft key for platforms that cold-launch into a new chat
+   * (the Capacitor iOS shell). Absent everywhere else.
+   */
+  newChatDraftConversationId?: string | null;
   currentConversationId: string | null;
   currentAssistantId: string | null;
   nextAssistantId: string;
@@ -60,11 +65,22 @@ function isStoredConversationSelectable(
  * the in-memory selection so manual refresh does not jump to whatever
  * conversation is newest. On a cold load, resume the last persisted key only if
  * the server still lists it as a foreground conversation; background/scheduled
- * conversations require an explicit URL selection.
+ * conversations require an explicit URL selection. A new-chat draft key, when
+ * supplied, replaces both resume fallbacks so the platform lands on an empty
+ * composer instead.
+ *
+ * Precedence, highest first:
+ *   1. `queryParamKey` (explicit URL selection)
+ *   2. `onboardingDraftConversationId`
+ *   3. `currentConversationId` (same-assistant in-memory selection)
+ *   4. `newChatDraftConversationId`
+ *   5. `storedConversationId` (last viewed, if still selectable)
+ *   6. `defaultConversationId`
  */
 export function resolveBootstrappedConversationId({
   queryParamKey,
   onboardingDraftConversationId,
+  newChatDraftConversationId,
   currentConversationId,
   currentAssistantId,
   nextAssistantId,
@@ -82,6 +98,10 @@ export function resolveBootstrappedConversationId({
 
   if (currentAssistantId === nextAssistantId && currentConversationId) {
     return currentConversationId;
+  }
+
+  if (newChatDraftConversationId) {
+    return newChatDraftConversationId;
   }
 
   if (
