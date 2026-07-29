@@ -409,6 +409,22 @@ describe("getPageIndex", () => {
     expect(entry.freshAt).not.toBe(entry.modifiedAt);
   });
 
+  test("freshAt reads an offset-less ISO datetime as UTC", async () => {
+    await writePage(
+      workspaceDir,
+      makePage("meeting", {
+        summary: "M",
+        originDate: "2019-06-10T14:23:00",
+      }),
+    );
+
+    const idx = await getPageIndex(workspaceDir);
+    const entry = idx.bySlug.get("meeting")!;
+    // Deterministic across host timezones: the offset-less datetime is
+    // normalized to UTC before parsing.
+    expect(entry.freshAt).toBe(Date.parse("2019-06-10T14:23:00Z"));
+  });
+
   test("freshAt falls back to file mtime when origin_date is absent", async () => {
     await writePage(workspaceDir, makePage("alice", { summary: "A" }));
 

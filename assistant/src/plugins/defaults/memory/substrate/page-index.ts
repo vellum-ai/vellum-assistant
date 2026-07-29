@@ -306,10 +306,13 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
 /**
  * Effective recency for a real concept page: the parsed `origin_date`
  * frontmatter (ISO 8601 date or datetime) when present and parseable, else
- * the file mtime. Any finite parse result is accepted — dates at or before
+ * the file mtime. Any finite parse result is accepted; dates at or before
  * 1970-01-01 yield zero or negative epoch ms and are valid chronology. An
- * unparseable value degrades to mtime rather than dropping the page from
- * recency ranking.
+ * offset-less ISO datetime (e.g. `2026-06-10T14:23:00`) is read as UTC so
+ * identical pages rank at the same instant on hosts in different timezones
+ * (bare `Date.parse` would apply the host's local offset). An unparseable
+ * value degrades to mtime rather than dropping the page from recency
+ * ranking.
  */
 function resolveFreshAt(
   originDate: string | undefined,
@@ -318,8 +321,25 @@ function resolveFreshAt(
   if (originDate === undefined) {
     return mtimeMs;
   }
-  const parsed = Date.parse(originDate);
+  const parsed = Date.parse(normalizeOffsetlessIsoToUtc(originDate));
   return Number.isFinite(parsed) ? parsed : mtimeMs;
+}
+
+/**
+ * Matches an ISO 8601 datetime with no timezone designator (no trailing `Z`
+ * or numeric offset). Date-only strings are excluded: the spec already
+ * assigns them UTC and `Date.parse` honors that.
+ */
+const OFFSETLESS_ISO_DATETIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/**
+ * Append `Z` to an offset-less ISO datetime so `Date.parse` reads it as UTC.
+ * Strings with an explicit offset, date-only strings, and non-ISO shapes
+ * pass through unchanged for `Date.parse` to accept or reject as before.
+ */
+function normalizeOffsetlessIsoToUtc(value: string): string {
+  return OFFSETLESS_ISO_DATETIME.test(value) ? `${value}Z` : value;
 }
 
 /** First line of an error's message — parse errors (YAML) are multi-line with
