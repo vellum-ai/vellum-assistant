@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
@@ -167,6 +168,39 @@ describe("VoiceRoomSettingsMenu", () => {
     expect(
       screen.queryByRole("listbox", { name: "Listening language" }),
     ).toBeNull();
+  });
+
+  test("arrow keys walk the language options and Enter picks the focused one", async () => {
+    languageSelection = { ...languageSelection, available: true };
+    const user = userEvent.setup();
+    openMenu();
+    fireEvent.click(screen.getByText("Listening language"));
+    // The options are buttons, so Tab reaches them; arrows then rove focus.
+    const options = screen.getAllByRole("option");
+    options[0].focus();
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(options[1]);
+    // Enter activates the focused option like a click: the pick lands and the
+    // picker closes. Option 1 is Multilingual ("multi") for the vellum
+    // provider with no language set.
+    await user.keyboard("{Enter}");
+    expect(languagePicks).toEqual(["multi"]);
+    expect(
+      screen.queryByRole("listbox", { name: "Listening language" }),
+    ).toBeNull();
+  });
+
+  test("Home and End jump focus to the first and last language option", async () => {
+    languageSelection = { ...languageSelection, available: true };
+    const user = userEvent.setup();
+    openMenu();
+    fireEvent.click(screen.getByText("Listening language"));
+    const options = screen.getAllByRole("option");
+    options[0].focus();
+    await user.keyboard("{End}");
+    expect(document.activeElement).toBe(options[options.length - 1]);
+    await user.keyboard("{Home}");
+    expect(document.activeElement).toBe(options[0]);
   });
 
   test("language row leaves the Captions toggle and Voice row intact", () => {
