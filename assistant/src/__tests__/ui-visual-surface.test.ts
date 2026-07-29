@@ -90,7 +90,7 @@ describe("ui_show advertises visual", () => {
 
   test("the description points at the visualize skill in one index line", () => {
     expect(uiShowTool.description).toContain(
-      "visual (polished custom HTML/SVG visual rendered inline; load the `visualize` skill first and follow it)",
+      "visual (polished inline diagram/chart/explainer — PREFER this when explaining how something works or compares; load the `visualize` skill first)",
     );
   });
 
@@ -230,6 +230,100 @@ describe("ui_show visual fragment guards", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("#fff");
     expect(proxied).toBe(false);
+  });
+
+  test("rejects dark ramp text with no light fill of the same palette", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          '<svg role="img" viewBox="0 0 680 80"><title>t</title><desc>d</desc>' +
+          "<style>.th{font-size:14px;fill:var(--color-forest-900)}</style>" +
+          '<text class="th" x="10" y="40">Gateway</text>' +
+          '<text x="10" y="60" fill="var(--color-forest-800)">Routes traffic</text></svg>',
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("--color-forest-900");
+    expect(result.content).toContain("--color-forest-800");
+    expect(result.content).toContain("invisible in dark mode");
+    expect(result.content).toContain("--content-*");
+    expect(proxied).toBe(false);
+  });
+
+  test("accepts dark ramp text once a matched light fill is present", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          '<svg role="img" viewBox="0 0 680 80"><title>t</title><desc>d</desc>' +
+          "<style>.th{font-size:14px;fill:var(--color-forest-900)}</style>" +
+          '<rect x="0" y="0" width="200" height="60" fill="var(--color-forest-100)"/>' +
+          '<text class="th" x="10" y="30">Gateway</text></svg>',
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("accepts a matched triple written in CSS on an HTML card", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          "<style>.c{background:var(--color-amber-100);border:1px solid var(--color-amber-600);" +
+          "color:var(--color-amber-900)}</style>" +
+          '<div class="c">Warm path</div>',
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("leaves theme-aware content tokens alone", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          '<svg role="img" viewBox="0 0 680 80"><title>t</title><desc>d</desc>' +
+          "<style>.th{font-size:14px;fill:var(--content-strong)}</style>" +
+          '<text class="th" x="10" y="40">Gateway</text></svg>',
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("rejects light ramp text with no dark fill of the same palette", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html: '<div style="color:var(--color-stone-100)">Quiet label</div>',
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("--color-stone-100");
+    expect(result.content).toContain("invisible in light mode");
+    expect(proxied).toBe(false);
+  });
+
+  test("does not mistake background-color for a text colour", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: {
+        html:
+          '<div style="background-color:var(--color-danger-900);' +
+          'color:var(--content-inset)">Failed</div>',
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
   });
 
   test("the app-substitute guard does not fire for visual", async () => {

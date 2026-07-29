@@ -79,6 +79,15 @@ export function skillSlugFor(id: string): string {
  * successful re-seed so callers always see a consistent snapshot.
  */
 let entries: Map<string, SkillEntry> | null = null;
+
+/**
+ * Ids of the enabled skills that declared `always-candidate` in their
+ * frontmatter, captured from the same enumeration that builds {@link entries}
+ * and replaced with it. Reading it here rather than re-enumerating the catalog
+ * keeps the injection engines off the per-turn filesystem scan
+ * `listInstalledSkills` performs.
+ */
+let alwaysCandidateIds: ReadonlySet<string> = new Set<string>();
 let requestedSeedGeneration = 0;
 let processedSeedGeneration = 0;
 let activeSeedDrain: Promise<void> | null = null;
@@ -189,6 +198,7 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     // Flag-gated skills arrive as `state: "unavailable"` and are excluded by
     // the enabled filter.
     const seeds: SkillEntry[] = [];
+    const nextAlwaysCandidateIds = new Set<string>();
     for (const skill of enabled) {
       const augmented = augmentMcpSetupDescription(skill);
       // Always-candidate skills are pinned into the selector pool every turn, so
@@ -197,6 +207,9 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
         augmented,
         skill.alwaysCandidate ? ALWAYS_CANDIDATE_CARD_CHARS : undefined,
       );
+      if (skill.alwaysCandidate) {
+        nextAlwaysCandidateIds.add(skill.id);
+      }
       seeds.push({ id: skill.id, content });
     }
 
@@ -366,6 +379,7 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     // observes the new skill set (skill entries share the unified concept-page
     // collection and surface in the same index).
     entries = nextEntries;
+    alwaysCandidateIds = nextAlwaysCandidateIds;
     invalidatePageIndex();
 
     // Surface a dense-embed failure to `throwOnError` callers (the managed-
@@ -423,9 +437,27 @@ export function listSkillEntries(): SkillEntry[] {
     .map((entry) => Object.freeze({ ...entry }));
 }
 
+/**
+ * Slugs of the enabled skills marked `always-candidate`, restricted to those
+ * whose card is in the cache and therefore renderable.
+ *
+ * Retrieval scores a skill by how closely the turn resembles its card, so a
+ * cross-cutting capability the user never names by hand never wins a candidate
+ * slot. These skills opt out of that: whether they apply is a judgment for the
+ * model, so the injection engines pin their cards instead of waiting for a
+ * similarity hit.
+ */
+export function listAlwaysCandidateSkillSlugs(): string[] {
+  return [...alwaysCandidateIds]
+    .filter((id) => entries?.has(id) === true)
+    .sort()
+    .map((id) => skillSlugFor(id));
+}
+
 /** @internal Test-only: clear the module-level cache. */
 export function _resetSkillStoreForTests(): void {
   entries = null;
+  alwaysCandidateIds = new Set<string>();
   requestedSeedGeneration = 0;
   processedSeedGeneration = 0;
   activeSeedDrain = null;

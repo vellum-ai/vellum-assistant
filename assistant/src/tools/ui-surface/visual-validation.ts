@@ -159,6 +159,153 @@ const FUNCTIONAL_COLOR_PATTERN =
 /** How many offending values a teaching error quotes back. */
 const MAX_QUOTED_PROBLEMS = 5;
 
+/** Every ramp-token reference, with the palette and stop split out. */
+const RAMP_TOKEN_PATTERN = new RegExp(
+  `--color-(${[...NEUTRAL_PALETTES, ...ACCENT_PALETTES].join("|")})-(50|${RAMP_STEPS.join("|")})\\b`,
+  "g",
+);
+
+/**
+ * Stops dark enough that text painted with them disappears against the dark
+ * theme's background, and light enough to disappear against the light one.
+ */
+const DARK_RAMP_STOPS: ReadonlySet<string> = new Set([
+  "700",
+  "800",
+  "900",
+  "950",
+]);
+const LIGHT_RAMP_STOPS: ReadonlySet<string> = new Set(["50", "100", "200"]);
+/** Fill stops light enough to carry dark ramp text. */
+const LIGHT_FILL_STOPS: ReadonlySet<string> = new Set([
+  "50",
+  "100",
+  "200",
+  "300",
+]);
+
+/** `color:` declarations, excluding `background-color:`, `stop-color:`, etc. */
+const TEXT_COLOR_DECLARATION_PATTERN = /(?<![-\w])color\s*:\s*[^;}"'>]*/gi;
+
+/** Open tags of the two SVG elements that paint glyphs. */
+const SVG_TEXT_TAG_PATTERN = /<(?:text|tspan)\b[^>]*>/gi;
+
+/**
+ * Style rules, used to spot the ones that paint text via `fill:`. The selector
+ * is bounded by `<`, `>`, `;` and `}` so it cannot swallow preceding markup.
+ */
+const CSS_RULE_PATTERN = /[^{};<>]*\{[^{}]*\}/g;
+const FILL_DECLARATION_PATTERN = /\bfill\s*:/i;
+const FONT_DECLARATION_PATTERN = /\bfont(?:-[a-z]+)?\s*:/i;
+const TEXT_SELECTOR_PATTERN = /(?:^|[\s,>+~])(?:text|tspan)\b/i;
+
+type SourceRange = { start: number; end: number };
+
+/**
+ * Spans of the fragment that paint text: `color:` declarations, `<text>` and
+ * `<tspan>` open tags, and style rules whose `fill:` lands on glyphs — either
+ * because the rule also sets a font property or because its selector names a
+ * text element. A ramp token inside one of these is a text colour.
+ */
+function collectTextColorRanges(html: string): SourceRange[] {
+  const ranges: SourceRange[] = [];
+  for (const match of html.matchAll(TEXT_COLOR_DECLARATION_PATTERN)) {
+    const start = match.index ?? 0;
+    ranges.push({ start, end: start + match[0].length });
+  }
+  for (const match of html.matchAll(SVG_TEXT_TAG_PATTERN)) {
+    const start = match.index ?? 0;
+    ranges.push({ start, end: start + match[0].length });
+  }
+  for (const match of html.matchAll(CSS_RULE_PATTERN)) {
+    const rule = match[0];
+    const selector = rule.slice(0, rule.indexOf("{"));
+    if (
+      FILL_DECLARATION_PATTERN.test(rule) &&
+      (FONT_DECLARATION_PATTERN.test(rule) ||
+        TEXT_SELECTOR_PATTERN.test(selector))
+    ) {
+      const start = match.index ?? 0;
+      ranges.push({ start, end: start + rule.length });
+    }
+  }
+  return ranges;
+}
+
+function isInsideRange(index: number, ranges: SourceRange[]): boolean {
+  return ranges.some((range) => index >= range.start && index < range.end);
+}
+
+/**
+ * Ramp stops are theme-invariant, so ramp-coloured text only reads when it sits
+ * on a matching ramp fill. Text painted with a dark stop and no light fill of
+ * the same palette anywhere in the fragment is sitting on the transparent
+ * widget background, where it vanishes in dark mode (and the mirror case
+ * vanishes in light mode).
+ *
+ * The check is deliberately loose about placement: any counterpart fill of the
+ * same palette clears the palette, so a correct matched triple never trips it.
+ */
+function collectRampContrastProblems(html: string): string[] {
+  const textRanges = collectTextColorRanges(html);
+  const darkText = new Map<string, Set<string>>();
+  const lightText = new Map<string, Set<string>>();
+  const fillStops = new Map<string, Set<string>>();
+
+  for (const match of html.matchAll(RAMP_TOKEN_PATTERN)) {
+    const token = match[0];
+    const palette = match[1];
+    const stop = match[2];
+    if (!isInsideRange(match.index ?? 0, textRanges)) {
+      const stops = fillStops.get(palette) ?? new Set<string>();
+      stops.add(stop);
+      fillStops.set(palette, stops);
+      continue;
+    }
+    const bucket = DARK_RAMP_STOPS.has(stop)
+      ? darkText
+      : LIGHT_RAMP_STOPS.has(stop)
+        ? lightText
+        : undefined;
+    if (bucket) {
+      const tokens = bucket.get(palette) ?? new Set<string>();
+      tokens.add(token);
+      bucket.set(palette, tokens);
+    }
+  }
+
+  const hasStopIn = (palette: string, allowed: ReadonlySet<string>): boolean =>
+    [...(fillStops.get(palette) ?? [])].some((stop) => allowed.has(stop));
+
+  const problems: string[] = [];
+  const unbacked = [...darkText]
+    .filter(([palette]) => !hasStopIn(palette, LIGHT_FILL_STOPS))
+    .flatMap(([, tokens]) => [...tokens]);
+  if (unbacked.length > 0) {
+    problems.push(
+      `Dark ramp stops used as text colour with no matching light fill: ${quote(unbacked)}. ` +
+        "Ramp stops are the same colour in both themes, so dark ramp text on the transparent widget " +
+        "background is invisible in dark mode. Put ramp-coloured text only on a matching light ramp " +
+        "fill (a 50–300 stop of the same palette), or use a --content-* token for text that sits on " +
+        "the page background.",
+    );
+  }
+
+  const unbackedLight = [...lightText]
+    .filter(([palette]) => !hasStopIn(palette, DARK_RAMP_STOPS))
+    .flatMap(([, tokens]) => [...tokens]);
+  if (unbackedLight.length > 0) {
+    problems.push(
+      `Light ramp stops used as text colour with no matching dark fill: ${quote(unbackedLight)}. ` +
+        "Ramp stops are the same colour in both themes, so light ramp text on the transparent widget " +
+        "background is invisible in light mode. Put it on a matching dark ramp fill (a 700–950 stop of " +
+        "the same palette), or use a --content-* token for text that sits on the page background.",
+    );
+  }
+
+  return problems;
+}
+
 function collectDeclaredProperties(html: string): Set<string> {
   const declared = new Set<string>();
   for (const match of html.matchAll(CUSTOM_PROPERTY_DECLARATION_PATTERN)) {
@@ -247,6 +394,8 @@ export function validateVisualHtml(html: string): string[] {
         `Replace each literal with a token from ${TOKEN_FAMILY_SUMMARY}.`,
     );
   }
+
+  problems.push(...collectRampContrastProblems(html));
 
   return problems;
 }

@@ -197,7 +197,7 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
   },
   visual: {
     purpose:
-      "polished custom HTML/SVG visual rendered inline; load the `visualize` skill first and follow it",
+      "polished inline diagram/chart/explainer — PREFER this when explaining how something works or compares; load the `visualize` skill first",
     shape:
       "{ html, height? } — one self-contained HTML/SVG fragment (no DOCTYPE/html/head/body, no external resources); every colour comes from the injected design-token CSS variables, so hex/rgb literals and invented `var()` names are rejected. Load the `visualize` skill with `skill_load` for the full contract and the token vocabulary",
   },

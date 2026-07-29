@@ -38,6 +38,8 @@ ui_show {
 
 Prose goes in your reply, the visual goes in the tool: no titles, headings, intros, captions, or explanatory paragraphs inside the fragment. The chat message around it carries all of that.
 
+Pick the form and sketch the structure in a sentence or two of thought, then write the fragment. Do not deliberate at length and do not draft competing versions in your head — the validator catches mistakes and another call is cheap, so a thought budget spent weighing options is a budget that produces nothing on screen.
+
 ## Not this skill
 
 Durable things the user reopens — a dashboard they check weekly, a tracker, a calculator they keep — are apps: use the `app-builder` skill. A visual is part of one answer. It lives in the transcript, holds no storage, and has no route.
@@ -120,6 +122,8 @@ background: var(--color-forest-100); border-color: var(--color-forest-600); colo
 ```
 
 Title text on a tinted fill uses the 900 stop; secondary text on that fill uses 800. Never put --content-default (which flips) on a ramp fill (which does not) — it vanishes in one of the two modes.
+
+The reverse is the more common mistake and is rejected outright: text sitting directly on the page background — every SVG label, axis tick, node title, and paragraph outside a tinted fill — uses --content-* and never a ramp stop. A ramp stop is one constant colour, so --color-forest-900 text on the transparent background is invisible in dark mode and --color-forest-100 text is invisible in light mode. The validator flags a dark ramp stop used as a text colour when no light stop of that palette is used as a fill anywhere in the fragment, and the mirror case.
 
 Never hardcode a colour for text, background, border, or SVG fill or stroke. Every colour comes from a variable above — hex literals (#2563eb), rgb(), rgba(), hsl(), and oklch() are rejected outright. Only transparent and currentColor are allowed as literal colour keywords.
 

@@ -187,6 +187,7 @@ mock.module("../../../../../skills/catalog-cache.js", () => ({
 const {
   seedV2SkillEntries,
   getSkillCapability,
+  listAlwaysCandidateSkillSlugs,
   listSkillEntries,
   _resetSkillStoreForTests,
 } = await import("../skill-store.js");
@@ -284,6 +285,34 @@ describe("seedV2SkillEntries", () => {
 
     expect(state.upsertCalls).toHaveLength(1);
     expect(state.upsertCalls[0].slug).toBe("skills/example-skill-a");
+  });
+
+  test("reports enabled always-candidate skills and excludes disabled ones", async () => {
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      alwaysCandidate: true,
+    });
+    const pinnedButDisabled = makeSummary({
+      id: "example-skill-b",
+      alwaysCandidate: true,
+    });
+    const ordinary = makeSummary({ id: "example-skill-c" });
+    state.catalog = [pinned, pinnedButDisabled, ordinary];
+    state.resolved = [
+      { summary: pinned, state: "enabled" },
+      { summary: pinnedButDisabled, state: "disabled" },
+      { summary: ordinary, state: "enabled" },
+    ];
+    state.embedReturn = [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+    ];
+
+    expect(listAlwaysCandidateSkillSlugs()).toEqual([]);
+
+    await seedV2SkillEntries();
+
+    expect(listAlwaysCandidateSkillSlugs()).toEqual(["skills/example-skill-a"]);
   });
 
   test("does not re-seed an installed-but-disabled skill from the remote catalog", async () => {
