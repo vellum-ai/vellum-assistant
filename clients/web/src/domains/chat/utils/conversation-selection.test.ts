@@ -149,4 +149,86 @@ describe("resolveBootstrappedConversationId", () => {
       }),
     ).toBe("new-latest");
   });
+
+  describe("newChatDraftConversationId", () => {
+    test("replaces both resume fallbacks on cold load", () => {
+      expect(
+        resolveBootstrappedConversationId({
+          queryParamKey: null,
+          newChatDraftConversationId: "new-chat-draft",
+          currentConversationId: null,
+          currentAssistantId: null,
+          nextAssistantId: "asst-1",
+          storedConversationId: "old-visible",
+          defaultConversationId: "new-latest",
+          conversations,
+        }),
+      ).toBe("new-chat-draft");
+    });
+
+    test("loses to an explicit URL conversation key", () => {
+      expect(
+        resolveBootstrappedConversationId({
+          queryParamKey: "from-url",
+          newChatDraftConversationId: "new-chat-draft",
+          currentConversationId: null,
+          currentAssistantId: null,
+          nextAssistantId: "asst-1",
+          storedConversationId: "old-visible",
+          defaultConversationId: "new-latest",
+          conversations,
+        }),
+      ).toBe("from-url");
+    });
+
+    test("loses to the onboarding draft", () => {
+      expect(
+        resolveBootstrappedConversationId({
+          queryParamKey: null,
+          onboardingDraftConversationId: "onboarding-draft",
+          newChatDraftConversationId: "new-chat-draft",
+          currentConversationId: null,
+          currentAssistantId: null,
+          nextAssistantId: "asst-1",
+          storedConversationId: "old-visible",
+          defaultConversationId: "new-latest",
+          conversations,
+        }),
+      ).toBe("onboarding-draft");
+    });
+
+    test("loses to an existing same-assistant in-memory selection", () => {
+      expect(
+        resolveBootstrappedConversationId({
+          queryParamKey: null,
+          newChatDraftConversationId: "new-chat-draft",
+          currentConversationId: "old-visible",
+          currentAssistantId: "asst-1",
+          nextAssistantId: "asst-1",
+          storedConversationId: "old-visible",
+          defaultConversationId: "new-latest",
+          conversations,
+        }),
+      ).toBe("old-visible");
+    });
+
+    test("leaves cold-load resume unchanged when absent or null", () => {
+      const args = {
+        queryParamKey: null,
+        currentConversationId: null,
+        currentAssistantId: null,
+        nextAssistantId: "asst-1",
+        storedConversationId: "old-visible",
+        defaultConversationId: "new-latest",
+        conversations,
+      };
+      expect(resolveBootstrappedConversationId(args)).toBe("old-visible");
+      expect(
+        resolveBootstrappedConversationId({
+          ...args,
+          newChatDraftConversationId: null,
+        }),
+      ).toBe("old-visible");
+    });
+  });
 });
