@@ -3,8 +3,10 @@ import { describe, expect, test } from "bun:test";
 import type { OperationalStatus } from "@/generated/api/types.gen";
 
 import {
+  dimensionTargetsMet,
   isEntitlementRaceVerdict,
   isResizeOperationInFlight,
+  resizeDimensionsInFlight,
   targetsMet,
 } from "./provisioning-targets";
 
@@ -125,6 +127,173 @@ describe("targetsMet", () => {
   });
 });
 
+describe("dimensionTargetsMet", () => {
+  test("null targets leave both dimensions unmet", () => {
+    expect(
+      dimensionTargetsMet(null, { machineSize: "large", storageGib: 50 }),
+    ).toEqual({ machine: false, storage: false });
+  });
+
+  test("a null target dimension is satisfied on its own", () => {
+    expect(
+      dimensionTargetsMet(
+        { machineSize: null, storageGib: 50 },
+        { machineSize: null, storageGib: 10 },
+      ),
+    ).toEqual({ machine: true, storage: false });
+  });
+
+  test("null actuals cannot meet non-null targets", () => {
+    expect(
+      dimensionTargetsMet({ machineSize: "large", storageGib: 50 }, null),
+    ).toEqual({ machine: false, storage: false });
+  });
+
+  test("machine compares by rank, so a larger actual counts", () => {
+    expect(
+      dimensionTargetsMet(
+        { machineSize: "large", storageGib: null },
+        { machineSize: "extra_large", storageGib: null },
+      ).machine,
+    ).toBe(true);
+    expect(
+      dimensionTargetsMet(
+        { machineSize: "large", storageGib: null },
+        { machineSize: "small", storageGib: null },
+      ).machine,
+    ).toBe(false);
+  });
+
+  test("the dimensions are independent: storage can land while machine lags", () => {
+    expect(
+      dimensionTargetsMet(
+        { machineSize: "large", storageGib: 50 },
+        { machineSize: "small", storageGib: 100 },
+      ),
+    ).toEqual({ machine: false, storage: true });
+  });
+
+  test("machine can land while storage lags", () => {
+    expect(
+      dimensionTargetsMet(
+        { machineSize: "large", storageGib: 50 },
+        { machineSize: "large", storageGib: 25 },
+      ),
+    ).toEqual({ machine: true, storage: false });
+  });
+
+  test("targetsMet is the conjunction of the per-dimension flags", () => {
+    const cases: [
+      Parameters<typeof targetsMet>[0],
+      Parameters<typeof targetsMet>[1],
+    ][] = [
+      [null, { machineSize: "large", storageGib: 50 }],
+      [
+        { machineSize: "large", storageGib: 50 },
+        { machineSize: "large", storageGib: 50 },
+      ],
+      [
+        { machineSize: "large", storageGib: 50 },
+        { machineSize: "small", storageGib: 100 },
+      ],
+      [{ machineSize: null, storageGib: null }, null],
+      [{ machineSize: "medium", storageGib: null }, null],
+    ];
+    for (const [targets, actuals] of cases) {
+      const met = dimensionTargetsMet(targets, actuals);
+      expect(targetsMet(targets, actuals)).toBe(
+        targets != null && met.machine && met.storage,
+      );
+    }
+  });
+});
+
+describe("resizeDimensionsInFlight", () => {
+  test("null / undefined status flags nothing", () => {
+    expect(resizeDimensionsInFlight(null)).toEqual({
+      machine: false,
+      storage: false,
+    });
+    expect(resizeDimensionsInFlight(undefined)).toEqual({
+      machine: false,
+      storage: false,
+    });
+  });
+
+  test("a resizing_machine state flags machine only", () => {
+    expect(
+      resizeDimensionsInFlight(opStatus({ state: "resizing_machine" })),
+    ).toEqual({ machine: true, storage: false });
+  });
+
+  test("a resizing_storage state flags storage only", () => {
+    expect(
+      resizeDimensionsInFlight(opStatus({ state: "resizing_storage" })),
+    ).toEqual({ machine: false, storage: true });
+  });
+
+  test("a resize_machine operation flags machine while the state is active", () => {
+    expect(
+      resizeDimensionsInFlight(
+        opStatus({
+          state: "active",
+          active_operation: {
+            operation: "resize_machine",
+            operation_id: "op-1",
+            phase: "WAITING_FOR_READY",
+            started_at: "",
+            updated_at: "",
+            target: {},
+          },
+        }),
+      ),
+    ).toEqual({ machine: true, storage: false });
+  });
+
+  test("a resize_storage operation flags storage while the state is active", () => {
+    expect(
+      resizeDimensionsInFlight(
+        opStatus({
+          state: "active",
+          active_operation: {
+            operation: "resize_storage",
+            operation_id: "op-2",
+            phase: "WAITING_FOR_PVC",
+            started_at: "",
+            updated_at: "",
+            target: {},
+          },
+        }),
+      ),
+    ).toEqual({ machine: false, storage: true });
+  });
+
+  test("an unattributable resize operation flags neither dimension", () => {
+    expect(
+      resizeDimensionsInFlight(
+        opStatus({
+          state: "active",
+          active_operation: {
+            operation: "resize_something_new",
+            operation_id: "op-3",
+            phase: "",
+            started_at: "",
+            updated_at: "",
+            target: {},
+          },
+        }),
+      ),
+    ).toEqual({ machine: false, storage: false });
+  });
+
+  test("an active state with no operation flags neither dimension", () => {
+    expect(resizeDimensionsInFlight(opStatus({ state: "active" }))).toEqual({
+      machine: false,
+      storage: false,
+    });
+  });
+});
+
 describe("isResizeOperationInFlight", () => {
   test("null / undefined status is not in flight", () => {
     expect(isResizeOperationInFlight(null)).toBe(false);
@@ -152,6 +321,24 @@ describe("isResizeOperationInFlight", () => {
             operation: "resize_machine",
             operation_id: "op-1",
             phase: "WAITING_FOR_PVC",
+            started_at: "",
+            updated_at: "",
+            target: {},
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("an unknown resize operation still guards completion globally", () => {
+    expect(
+      isResizeOperationInFlight(
+        opStatus({
+          state: "active",
+          active_operation: {
+            operation: "resize_something_new",
+            operation_id: "op-3",
+            phase: "",
             started_at: "",
             updated_at: "",
             target: {},
