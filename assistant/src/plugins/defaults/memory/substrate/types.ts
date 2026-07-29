@@ -68,6 +68,18 @@ export const ConceptPageFrontmatterSchema = z
     // card surface so state-shaped questions can select the page. Distinct
     // from `status:` (the article-model draft marker, e.g. "cc-draft").
     current: z.string().optional(),
+    // Page-level provenance tag for pages not authored by consolidation;
+    // convention `import:<provider>` (e.g. `import:chatgpt`, `import:fathom`).
+    // Absent on organically consolidated pages. Distinct from the leaked
+    // `sources` (plural) passthrough key seen in migrated corpora.
+    source: z.string().optional(),
+    // ISO 8601 date (or datetime) the page's content originally dates from,
+    // for imported/backfilled material. Consumed by the page index as the
+    // page's *effective recency* (`freshAt`); does NOT affect the maintain
+    // job's mtime-based re-embed delta. Migrated corpora already carry leaked
+    // passthrough keys like `date`/`as_of`: `origin_date` is the declared,
+    // consumed field; the leaked keys stay inert.
+    origin_date: z.string().optional(),
   })
   // `.passthrough()`, NOT `.strict()`: tolerate unknown frontmatter keys instead
   // of throwing. Migrated/converted corpora carry leaked source-page fields the
