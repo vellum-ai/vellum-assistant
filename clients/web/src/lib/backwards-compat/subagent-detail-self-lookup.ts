@@ -1,10 +1,17 @@
 /**
  * Backwards-compat gate: subagent detail self-lookup.
  *
- * From assistant 0.11.0, `GET /subagents/:id` resolves the subagent's own
- * conversation id from the daemon's live/rehydrated manager state and treats
- * the `conversationId` query parameter as a fallback only (it also returns
- * `label` / `parentToolUseId` so a recovering client can rebuild identity).
+ * From assistant 0.11.1, `GET /subagents/:id` resolves the subagent's own
+ * conversation id from the daemon's live/rehydrated manager state or its
+ * durable row, and treats the `conversationId` query parameter as a fallback
+ * only (it also returns `label` / `parentToolUseId` so a recovering client can
+ * rebuild identity).
+ *
+ * 0.11.0 is deliberately excluded even though it self-resolves: it consults
+ * live manager state only (`state?.conversationId ?? queryParams`), so a
+ * subagent the retention sweep already evicted still falls through to the
+ * caller's id. The durable-record fallback that closes that hole ships in
+ * 0.11.1.
  *
  * Older assistants trust the query parameter verbatim and parse whatever
  * conversation it names. A client recovering from a missed
@@ -19,7 +26,7 @@
  */
 import { assistantSupports } from "@/lib/backwards-compat/utils";
 
-const MIN_VERSION = "0.11.0";
+const MIN_VERSION = "0.11.1";
 
 /**
  * Snapshot check (safe outside React, stream handlers, store actions):
