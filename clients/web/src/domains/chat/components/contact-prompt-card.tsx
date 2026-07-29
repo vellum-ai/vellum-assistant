@@ -1,13 +1,14 @@
 import { CheckCircle, Loader2, X } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
-import { Card, Input, Typography } from "@vellumai/design-library";
+import { Button, Card, Input, Typography } from "@vellumai/design-library";
 
 export interface ContactPromptCardProps {
   contactRequest: {
     requestId: string;
     channel?: string;
     placeholder?: string;
+    defaultValue?: string;
     label?: string;
     description?: string;
     role?: string;
@@ -25,7 +26,14 @@ export function ContactPromptCard({
   onSubmit,
   onCancel,
 }: ContactPromptCardProps) {
-  const [address, setAddress] = useState("");
+  const [address, setAddress] = useState(() => contactRequest.defaultValue ?? "");
+
+  // Reset the address when a new contact_request replaces the previous one
+  // while this component stays mounted (lazy initializer only runs once).
+  useEffect(() => {
+    setAddress(contactRequest.defaultValue ?? "");
+  }, [contactRequest.requestId, contactRequest.defaultValue]);
+
   const canSubmit = address.trim().length > 0 && !isSubmitting && !accepted;
 
   // Derive a sensible channelType from the hint (free text → normalised key).
@@ -91,32 +99,26 @@ export function ContactPromptCard({
             autoFocus
           />
           <div className="flex justify-end gap-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="compact"
               onClick={onCancel}
               disabled={isSubmitting}
-              // typography: off-scale — inline form button, not prose
-
-              className="rounded px-3 py-1.5 text-sm text-[var(--content-secondary)] hover:bg-[var(--surface-secondary)]"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="primary"
+              size="compact"
               disabled={!canSubmit}
-              // typography: off-scale — inline form button, not prose
-
-              className="flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              leftIcon={
+                isSubmitting ? <Loader2 className="animate-spin" /> : undefined
+              }
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                "Save"
-              )}
-            </button>
+              {isSubmitting ? "Saving…" : "Save"}
+            </Button>
           </div>
         </form>
       )}
