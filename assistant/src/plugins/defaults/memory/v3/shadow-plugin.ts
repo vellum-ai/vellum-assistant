@@ -342,7 +342,10 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
       .toISOString()
       .slice(0, 16)
       .replace("T", " ");
-    return `[lane: fresh · updated ${stamp} UTC]`;
+    // "dated", not "updated": for origin-dated imports the stamp is the
+    // content's original chronology, not a last-modified time, and claiming
+    // an update would feed the selector false temporal metadata.
+    return `[lane: fresh · dated ${stamp} UTC]`;
   };
   const prefixCards = new Map<Slug, string>();
   for (const [lane, slugs] of [
