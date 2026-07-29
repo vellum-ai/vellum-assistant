@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   isLiveVoiceSessionActive,
+  restoreVoiceRoom,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { requestVoiceStartFromDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
@@ -129,6 +130,14 @@ export function useGlobalDeepLinkConsumer(): void {
     // user is already in is the honest behavior: nothing is lost and the
     // command visibly did something.
     if (isLiveVoiceSessionActive(session.state)) {
+      // Un-minimize first. The room is what the user tapped the island *for*,
+      // and `useIsVoiceRoomVisible` gates on `!roomMinimized` — so without this
+      // a session minimized before the phone was locked lands back on the
+      // composer's voice bar and the tap reads as doing nothing at all (worse
+      // on the same-conversation path, where the navigation below is a no-op
+      // and nothing on screen changes). Tapping the island is an explicit
+      // "show me the call", which outranks a minimize from before the lock.
+      restoreVoiceRoom();
       // `startedConversationId` first — ownership is a *composer binding*, not
       // wire identity, and this is the id the owning composer is bound to. A
       // composer that started the session on a client-side draft id keeps that

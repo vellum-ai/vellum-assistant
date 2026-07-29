@@ -135,7 +135,7 @@ The shell registers **four** Capacitor plugins in [`MyViewController.capacitorDi
 | --- | --- | --- |
 | `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
 | `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
-| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | `.playAndRecord` / `.voiceChat` session + interruption events |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | `.playAndRecord` / `.voiceChat` session + interruption events. **Gated off** by `ios-voice-audio-session`; see the background-audio contract below |
 | `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | The one ActivityKit activity mirroring a session |
 
 The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
@@ -158,17 +158,25 @@ Three things follow from the rule:
 
 ### The background-audio contract
 
-`UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, buys:
+**`VoiceAudioSession` is gated off.** The `ios-voice-audio-session` client flag defaults to `false`, so on a stock install the shell never touches the shared `AVAudioSession` and the section below describes a capability that is *dormant*, not one that is live. Read § "Full-duplex TTS must render through a MediaStream track" before you touch this: that section forbids reconfiguring the session around microphone capture, and this plugin is the thing it is forbidding. The two coexist only because the plugin is inert by default.
+
+This is not caution for its own sake — the exact pattern shipped in #39331 and produced **no capture at all** on device, reverted in #39345.
+
+**Echo cancellation does not depend on this.** It used to be the argument for `.voiceChat`; since #39347 it comes from WebKit's own voice-processing unit, reached by routing TTS through a `MediaStreamAudioDestinationNode`. Nothing about turning this flag off costs you AEC.
+
+What is genuinely still open is **background audio**. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, would buy:
 
 - audio keeps playing while the app is backgrounded or the screen is locked;
 - the mic route survives backgrounding;
 - output goes to the loudspeaker rather than the earpiece (`.defaultToSpeaker`);
-- hardware echo cancellation, AGC, and AirPods/Bluetooth-HFP routing (`.voiceChat`);
+- AirPods / Bluetooth-HFP routing (`.voiceChat`);
 - other apps' audio resumes on `deactivate` (`.notifyOthersOnDeactivation`).
 
 It does **not** buy a running web layer. WebKit throttles and eventually suspends JS timers and main-thread work in a backgrounded web process. The AudioWorklet runs on the audio render thread, but the socket send happens on the main JS thread — so "audio is allowed in the background" and "this voice session keeps working in the background" are different claims.
 
-**The second claim is unverified.** The device spike that was meant to measure whether a WKWebView voice session survives lock — does `getUserMedia` keep producing PCM, does the velay socket keep pumping, and for how long — was never run, and there is no findings document. The background/foreground hardening that was planned on top of it (`AudioContext.resume()` on `app.resume`, a socket-liveness probe, a bounded background grace period) was never implemented. **Do not assume coverage that does not exist**: if you are about to rely on a session surviving a lock, measure it on a physical device first.
+**Both claims are unverified, and the first one may not even need this plugin.** WebKit already holds a play-and-record session with voice processing for `getUserMedia`, so a locked session may survive on that alone — which is the first thing to measure, with the flag *off*. The device spike that was meant to answer any of this — does `getUserMedia` keep producing PCM, does the velay socket keep pumping, and for how long — was never run, and there is no findings document. The background/foreground hardening planned on top of it (`AudioContext.resume()` on `app.resume`, a socket-liveness probe, a bounded background grace period) was never implemented.
+
+**The Simulator cannot answer any of it.** It exposes a mock audio device — no mic, no speaker, no acoustic path — so it neither reproduces the capture regression nor exercises background audio. Every Simulator run passed while the device was dead in #39331. Measure on a physical handset or do not claim it.
 
 For the native side of all of this — the enum-parity rule, the deep-link contract, the App Intents availability duplication, the extension compilation condition, and the v1 scope decisions — see [`clients/ios/docs/NATIVE_VOICE.md`](../../../clients/ios/docs/NATIVE_VOICE.md).
 
@@ -216,6 +224,12 @@ and it creates a `VoiceProcessingIO` capture unit when echo cancellation is
 requested. Do not add a Capacitor plugin that reconfigures or reactivates that
 session around microphone capture. Changing the active session underneath
 WebKit can leave its live capture unit detached from the microphone.
+
+One such plugin exists — `VoiceAudioSession`, for background/lock-screen audio,
+which echo cancellation no longer needs. It is gated off by
+`ios-voice-audio-session` and stays off until a physical device says otherwise;
+see § "Native voice bridge" → "The background-audio contract". Treat that as the
+single exception under measurement, not as a precedent.
 
 Direct `AudioContext.destination` playback is not supplied to WebKit's capture
 unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route

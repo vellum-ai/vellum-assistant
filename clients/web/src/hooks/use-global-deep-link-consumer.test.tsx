@@ -320,6 +320,68 @@ describe("deeplink.startVoice", () => {
     expect(isVoiceRoomVisible()).toBe(true);
   });
 
+  test("mode=resume un-minimizes the room — the island tap is what the room exists to answer", async () => {
+    // The real Live Activity flow: minimize the room to keep browsing, lock the
+    // phone, tap the island. `useIsVoiceRoomVisible` gates on `!roomMinimized`,
+    // so without an explicit restore the tap lands on the composer's voice bar
+    // and visibly does nothing — and on this same-conversation path the
+    // navigation is a no-op, so *nothing* on screen changes.
+    seedEligibleAssistant();
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
+    useLiveVoiceStore.getState().setRoomMinimized(true);
+    mockPathname = routes.conversation("conv-9");
+    renderHook(() => useGlobalDeepLinkConsumer());
+    expect(isVoiceRoomVisible()).toBe(false);
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "resume", prompt: null });
+    });
+    await flush();
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+    expect(isVoiceRoomVisible()).toBe(true);
+    expect(starter).not.toHaveBeenCalled();
+  });
+
+  test("mode=new during a live call also un-minimizes — the Action Button mid-call surfaces the room too", async () => {
+    seedEligibleAssistant();
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
+    useLiveVoiceStore.getState().setRoomMinimized(true);
+    mockPathname = routes.conversation("conv-9");
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "new", prompt: null });
+    });
+    await flush();
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+    expect(isVoiceRoomVisible()).toBe(true);
+  });
+
+  test("a start-voice link with nothing running leaves the room flag alone — no session to restore", async () => {
+    seedEligibleAssistant();
+    const starter = mock((_a: string, _c: string | null) => undefined);
+    useLiveVoiceStore.getState().setStarter(asStarter(starter));
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.startVoice", { mode: "resume", prompt: null });
+    });
+    await flush();
+
+    // `restoreVoiceRoom` no-ops with no active session, so the fresh session
+    // the starter opens is not pre-emptively un-minimized by this path.
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+    expect(starter).toHaveBeenCalledWith("assistant-1", null);
+  });
+
   test("mode=new during a live call surfaces that call instead of navigating away and starting nothing", async () => {
     // The Action Button and the Control Center control both send `mode=new`,
     // and a user can press either mid-call. The starter returns early for any

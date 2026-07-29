@@ -45,6 +45,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { drainPendingVoiceStartDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
 import {
   activateVoiceAudioSession,
@@ -78,6 +79,18 @@ export type UseLiveVoiceSessionControllerOptions = Pick<
  *
  * Off the iOS shell every call is a no-op (see `runtime/native-audio-session`),
  * so this is inert in the browser and on Electron.
+ *
+ * **Gated on `ios-voice-audio-session`, default off, and it must stay off until
+ * a physical device says otherwise.** WebKit owns the shared `AVAudioSession`
+ * that backs `getUserMedia` in a `WKWebView`, and reconfiguring it around a live
+ * capture unit is exactly what `docs/CAPACITOR.md` § "Full-duplex TTS must
+ * render through a MediaStream track" forbids: that shipped once (#39331) and
+ * produced no capture at all, reverted in #39345. Echo cancellation no longer
+ * depends on this — #39347 gets it from WebKit's own voice-processing unit by
+ * routing TTS through a `MediaStreamAudioDestinationNode`. What is left
+ * unmeasured is whether a backgrounded/locked session needs the native session
+ * to keep its audio alive, and the Simulator cannot answer that (mock audio
+ * device: it has no acoustic path to break, so it passes either way).
  */
 function useNativeAudioSessionLifecycle(): void {
   useEffect(() => {
@@ -89,6 +102,17 @@ function useNativeAudioSessionLifecycle(): void {
     const sync = (state: LiveVoiceSessionState): void => {
       const active = isLiveVoiceSessionActive(state);
       if (active === holdingAudioSession) {
+        return;
+      }
+      // Read at transition time, not at mount: flags hydrate asynchronously and
+      // a `false` here is the safe answer either way. Deliberately gates only
+      // the *activate* — `holdingAudioSession` decides the release, so a flag
+      // flipped off mid-session still deactivates the session we actually hold
+      // instead of stranding it active.
+      if (
+        active &&
+        !useClientFeatureFlagStore.getState().iosVoiceAudioSession
+      ) {
         return;
       }
       holdingAudioSession = active;
