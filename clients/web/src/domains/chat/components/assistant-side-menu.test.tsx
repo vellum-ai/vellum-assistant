@@ -43,7 +43,10 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
-import type { Conversation } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,
@@ -59,6 +62,7 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
 
 function renderMenu(props: {
   conversations: Conversation[];
+  conversationGroups?: ConversationGroup[];
   activeConversationId?: string;
   collapsed?: boolean;
   variant?: "rail" | "overlay";
@@ -72,6 +76,7 @@ function renderMenu(props: {
       collapsed: props.collapsed ?? false,
       variant: props.variant ?? "rail",
       conversations: props.conversations,
+      conversationGroups: props.conversationGroups,
       activeConversationId: props.activeConversationId,
       onSelectConversation: () => {},
       footerAction: includeFooterAction
@@ -628,43 +633,258 @@ describe("AssistantSideMenu · section header menus", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Section layout (LUM-2909)
+// ---------------------------------------------------------------------------
+
+const LAYOUT_CONVERSATIONS = [
+  makeConversation({ conversationId: "p1", title: "Pin one", isPinned: true }),
+  makeConversation({ conversationId: "r1", title: "Recent one" }),
+  makeConversation({
+    conversationId: "s1",
+    title: "Slack one",
+    originChannel: "slack",
+    groupId: "system:all",
+  }),
+  makeConversation({ conversationId: "g1", title: "Group one", groupId: "grp-a" }),
+];
+
+const LAYOUT_GROUPS = [
+  { id: "grp-a", name: "Alpha", isSystemGroup: false },
+] as unknown as ConversationGroup[];
+
+/**
+ * Parse rendered markup into a detached node. Not a testing-library render:
+ * these assertions only inspect static markup, and mounting would leave
+ * React's cleanup with a tree it doesn't own.
+ */
+function parse(html: string): HTMLElement {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  return container;
+}
+
+function sectionElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      '[data-slot="collapsible-nav-section-section"]',
+    ),
+  );
+}
+
+function sectionLabels(container: HTMLElement): (string | undefined)[] {
+  return sectionElements(container).map((s) =>
+    s
+      .querySelector('[data-slot="collapsible-nav-section-header"]')
+      ?.textContent?.trim(),
+  );
+}
+
 describe("AssistantSideMenu · section spacing", () => {
   // One accordion root holds every section, so its gap is the only thing
-  // separating them — no boundary can pick up the Body's larger gap instead.
-  test("Pinned, Chats and channel sections share a single accordion root", () => {
-    const html = renderMenu({
-      conversations: [
-        makeConversation({ conversationId: "p1", isPinned: true }),
-        makeConversation({ conversationId: "r1", title: "Recent one" }),
-        makeConversation({
-          conversationId: "s1",
-          title: "Slack one",
-          originChannel: "slack",
-        }),
-      ],
-    });
-
-    // A detached node, not a testing-library render: this only inspects
-    // static markup, and mounting it would leave React's cleanup with a tree
-    // it doesn't own.
-    const container = document.createElement("div");
-    container.innerHTML = html;
-
-    const sections = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="collapsible-nav-section-section"]',
-      ),
+  // separating them — no boundary can pick up the Body's larger gap instead,
+  // and a custom group can sit between two built-in sections.
+  test("every section type shares a single accordion root", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
     );
-    const labels = sections.map((s) =>
-      s
-        .querySelector('[data-slot="collapsible-nav-section-header"]')
-        ?.textContent?.trim(),
-    );
-    expect(labels).toEqual(["Pinned", "Chats", "Slack"]);
 
-    // All three are siblings — one shared parent, so one shared gap.
+    const sections = sectionElements(container);
+    expect(sectionLabels(container)).toEqual([
+      "Pinned",
+      "Alpha",
+      "Chats",
+      "Slack",
+    ]);
+
+    // All four are siblings — one shared parent, so one shared gap.
     const parents = new Set(sections.map((s) => s.parentElement));
     expect(parents.size).toBe(1);
     expect([...parents][0]?.className).toContain("gap-3");
   });
+});
+
+describe("AssistantSideMenu · default section order", () => {
+  // The point of LUM-2909: groups are the deliberate organization layer, so
+  // they lead rather than sitting under channel sections that come and go.
+  test("custom groups render above Chats and the channel sections", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const labels = sectionLabels(container);
+    expect(labels.indexOf("Alpha")).toBeLessThan(labels.indexOf("Chats"));
+    expect(labels.indexOf("Alpha")).toBeLessThan(labels.indexOf("Slack"));
+  });
+
+  test("the collapsed rail lists the same sections in the same order", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        collapsed: true,
+      }),
+    );
+
+    // The rail renders icon tiles, so the section identity is in the label.
+    const railLabels = Array.from(
+      container.querySelectorAll<HTMLElement>("[aria-label]"),
+    )
+      .map((el) => el.getAttribute("aria-label"))
+      .filter((label): label is string =>
+        ["Pinned", "Alpha", "Chats", "Slack"].includes(label ?? ""),
+      );
+
+    expect(railLabels).toEqual(["Pinned", "Alpha", "Chats", "Slack"]);
+  });
+});
+
+describe("AssistantSideMenu · section dividers", () => {
+  function separators(container: HTMLElement): HTMLElement[] {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="side-menu-separator"]',
+      ),
+    );
+  }
+
+  test("a divider fences the custom-group run off from the built-in sections", () => {
+    const html = renderMenu({
+      conversations: LAYOUT_CONVERSATIONS,
+      conversationGroups: LAYOUT_GROUPS,
+    });
+    const container = parse(html);
+
+    // Default order is Pinned │ Alpha │ Chats, Slack — a divider on each side
+    // of the group run, none between Chats and Slack (both built-in).
+    const bodySeparators = separators(container).filter((hr) =>
+      hr.closest('[data-slot="collapsible"]'),
+    );
+    expect(bodySeparators).toHaveLength(2);
+
+    expect(html.indexOf(">Pinned<")).toBeLessThan(
+      html.indexOf('data-slot="side-menu-separator"'),
+    );
+    expect(html.indexOf('data-slot="side-menu-separator"')).toBeLessThan(
+      html.indexOf(">Alpha<"),
+    );
+  });
+
+  test("no divider renders when every section is built-in", () => {
+    const container = parse(
+      renderMenu({ conversations: LAYOUT_CONVERSATIONS }),
+    );
+    const bodySeparators = separators(container).filter((hr) =>
+      hr.closest('[data-slot="collapsible"]'),
+    );
+    expect(bodySeparators).toHaveLength(0);
+  });
+
+  // The divider was in the DOM before this change but drawn in
+  // `--border-base`, which is ~1.05:1 against the sidebar's
+  // `--surface-overlay` — visually absent, which is what the bug report saw.
+  test("the divider uses a visible border token", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+    const bodySeparator = separators(container).find((hr) =>
+      hr.closest('[data-slot="collapsible"]'),
+    );
+    expect(bodySeparator?.className).toContain("--border-element");
+    expect(bodySeparator?.className).not.toContain("--border-base");
+  });
+});
+
+describe("AssistantSideMenu · section reordering", () => {
+  test("section headers are drag handles", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const headers = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      ),
+    );
+    expect(headers).toHaveLength(4);
+    expect(headers.every((h) => h.getAttribute("draggable") === "true")).toBe(
+      true,
+    );
+  });
+
+  test("a lone section isn't draggable — there's nothing to reorder against", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+      }),
+    );
+
+    const headers = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      ),
+    );
+    expect(headers).toHaveLength(1);
+    expect(headers[0]?.getAttribute("draggable")).toBeNull();
+  });
+
+  // Drag events fire on neither touch nor the keyboard, so the header menu
+  // carries the same reordering.
+  test.each([
+    ["Alpha", ["Move Section Up", "Move Section Down"]],
+    // Pinned leads and Slack trails, so each offers only one direction.
+    ["Pinned", ["Move Section Down"]],
+    ["Slack", ["Move Section Up"]],
+  ])(
+    "%s offers the move actions its position allows",
+    async (label, expected) => {
+      const { container } = render(
+        createElement(AssistantSideMenu, {
+          assistantId: "asst-1",
+          collapsed: false,
+          variant: "rail" as const,
+          conversations: LAYOUT_CONVERSATIONS,
+          conversationGroups: LAYOUT_GROUPS,
+          onSelectConversation: () => {},
+        }),
+      );
+      try {
+        const header = Array.from(
+          container.querySelectorAll<HTMLElement>(
+            '[data-slot="collapsible-nav-section-header"]',
+          ),
+        ).find((h) => h.textContent?.includes(label));
+
+        act(() => {
+          header?.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+          );
+        });
+
+        await waitFor(() => {
+          const items = Array.from(
+            document.querySelectorAll('[role="menuitem"]'),
+          ).map((el) => el.textContent);
+          const moveItems = items.filter((text) =>
+            text?.startsWith("Move Section"),
+          );
+          expect(moveItems).toEqual(expected);
+        });
+      } finally {
+        cleanup();
+      }
+    },
+  );
 });

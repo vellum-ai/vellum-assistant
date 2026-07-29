@@ -1,5 +1,13 @@
-import { Clock, MessageSquare, Pin, Search, SquarePen, X } from "lucide-react";
 import {
+  MessageSquare,
+  Pin,
+  Search,
+  SquarePen,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  Fragment,
   useCallback,
   useLayoutEffect,
   useRef,
@@ -10,7 +18,10 @@ import {
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
-import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import {
+  CollapsibleNavSection,
+  type CollapsibleNavSectionDrag,
+} from "@/components/collapsible-nav-section";
 import {
   CollapsedGroupIcon,
   getGroupIndicatorState,
@@ -29,21 +40,32 @@ import {
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
-import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import {
+  SIDEBAR_CONVERSATION_LIMIT,
+  useSidebarState,
+  type SidebarSection,
+  type UseSidebarStateParams,
+} from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
-import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import {
   DEFAULT_GROUP_ICON,
   getGroupIcon,
 } from "@/domains/chat/utils/group-icon-registry";
-import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
+import { getChannelIcon } from "@/utils/channel-presentation";
 import { Button, SideMenu } from "@vellumai/design-library";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT =
   SIDEBAR_CONVERSATION_LIMIT;
+
+/**
+ * `useDragReorder` section key for the section-reordering controller. Drags
+ * only land within the key they started in, and sections form a single
+ * reorderable list, so one constant covers them all.
+ */
+const SECTION_DRAG_KEY = "sidebar-sections";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -125,20 +147,26 @@ function SearchButton() {
  *   Header
  *     • Your Assistant → Intelligence view
  *     • ───────────────
- *   Body · Pinned section (when non-empty)
- *     • pinned thread
- *   Body · Chats section
- *     • thread …       — recent conversations inline
- *     • …
- *     • Show more/less — page through recent conversations
- *     • Channel ▾      — one collapsible section per origin channel
- *                        (Slack, Telegram, WhatsApp, …)
+ *   Body · one section list, in the user's own order (default shown)
+ *     • Pinned ▾       — when non-empty
  *     • ───────────────
  *     • Group ▾        — one collapsible section per custom group
+ *     • ───────────────
+ *     • Chats ▾        — recent conversations, with Show more/less
+ *     • Channel ▾      — one collapsible section per origin channel
+ *                        (Slack, Telegram, WhatsApp, …)
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
  *     • caller-provided action (PreferencesMenu)
+ *
+ * This component does **not** know that order. `useSidebarState` hands it one
+ * flat `sections` array already sorted by the user's stored preference, and
+ * every section renders through the same path — which is what lets a custom
+ * group sit above Recents, and what keeps the spacing between any two
+ * sections identical. The separators are derived, not placed: one appears
+ * wherever a section's `kind` differs from its predecessor's, so the
+ * system/custom boundary survives any ordering the user picks (LUM-2909).
  *
  * The conversation rows, row lists, and collapsible sections are
  * components ({@link ConversationRow} / {@link ConversationRowList} /
@@ -240,6 +268,43 @@ export function AssistantSideMenu({
     onReorder: (_section, ordered) => onReorderConversations?.(ordered),
   });
 
+  // --- Drag-reorder (whole sections) ---
+  // A second, independent controller: rows reorder *within* a section, whole
+  // sections reorder among each other. Separate hook instances means separate
+  // active-drag refs, so a row drag can never be mistaken for a section drag
+  // even though both ride the same HTML5 drag events.
+  const sectionDragReorder = useDragReorder<SidebarSection>({
+    getId: (section) => section.key,
+    onReorder: (_key, ordered) =>
+      sidebar.onReorderSections(ordered.map((section) => section.key)),
+  });
+
+  const buildSectionDrag = (
+    section: SidebarSection,
+  ): CollapsibleNavSectionDrag | undefined => {
+    // Nothing to reorder against with a single section on screen.
+    if (sidebar.sections.length < 2) {
+      return undefined;
+    }
+    const { draggable, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop } =
+      sectionDragReorder.getItemProps(
+        SECTION_DRAG_KEY,
+        sidebar.sections,
+        section,
+      );
+    const indicator = sectionDragReorder.dropIndicator;
+    return {
+      handleProps: { draggable, onDragStart, onDragEnd },
+      targetProps: { onDragOver, onDragLeave, onDrop },
+      dragging: sectionDragReorder.draggingId === section.key,
+      dropEdge:
+        indicator?.section === SECTION_DRAG_KEY &&
+        indicator.itemId === section.key
+          ? indicator.edge
+          : null,
+    };
+  };
+
   // Header actions for a sidebar section. Every section gets the same shape —
   // Pinned, Chats, each channel section, and each custom group — so the bulk
   // actions are identical everywhere and the only per-section difference is
@@ -251,8 +316,12 @@ export function AssistantSideMenu({
       onRename?: () => void;
       onDelete?: () => void;
       onCopyGroupId?: () => void;
+      onMoveUp?: () => void;
+      onMoveDown?: () => void;
     },
   ): GroupMenuItemsProps => ({
+    onMoveUp: options?.onMoveUp,
+    onMoveDown: options?.onMoveDown,
     onMarkAllRead: onMarkAllReadInGroup
       ? () => onMarkAllReadInGroup(conversations)
       : undefined,
@@ -312,6 +381,92 @@ export function AssistantSideMenu({
     onRemoveFromGroup,
     dragReorder,
     canReorder: !!onReorderConversations,
+  };
+
+  // Every section type resolves to an icon, so the header treatment is
+  // identical across them: icon at rest, disclosure chevron on hover. Custom
+  // groups previously rendered bare (chevron only) even though the rail
+  // already drew their chosen icon.
+  const sectionIcon = (section: SidebarSection): LucideIcon => {
+    switch (section.type) {
+      case "pinned":
+        return Pin;
+      case "recents":
+        return MessageSquare;
+      case "channel":
+        return getChannelIcon(section.channelId);
+      case "group":
+        return getGroupIcon(section.group.icon) ?? DEFAULT_GROUP_ICON;
+    }
+  };
+
+  // One render path for every section. The type-specific differences are
+  // deliberately narrow — what the row list shows, whether the header owns
+  // rename/delete, and whether rows themselves drag — so no section type can
+  // quietly acquire different spacing or a different header treatment.
+  const renderSection = (section: SidebarSection, index: number) => {
+    const isFirst = index === 0;
+    const isLast = index === sidebar.sections.length - 1;
+    const moveOptions = {
+      onMoveUp: isFirst
+        ? undefined
+        : () => sidebar.onMoveSection(section.key, -1),
+      onMoveDown: isLast
+        ? undefined
+        : () => sidebar.onMoveSection(section.key, 1),
+    };
+
+    // Recents and channel sections paginate and stay recency-sorted; Pinned
+    // and custom groups show everything and honor `displayOrder`, so only
+    // those two offer row-level drag. Both branches carry the same keys so
+    // the spread stays a single object type.
+    const listProps =
+      section.type === "recents" || section.type === "channel"
+        ? {
+            items: section.pagination.items,
+            pagination: section.pagination,
+            dragSection: undefined,
+          }
+        : {
+            items: section.all,
+            pagination: undefined,
+            dragSection:
+              section.type === "pinned" ? "pinned" : `group:${section.key}`,
+          };
+
+    const groupMenu =
+      section.type === "group"
+        ? buildGroupMenu(section.label, section.all, {
+            ...moveOptions,
+            onRename: onRenameGroup
+              ? () => onRenameGroup(section.group.id)
+              : undefined,
+            onDelete: onDeleteGroup
+              ? () => onDeleteGroup(section.group.id)
+              : undefined,
+            onCopyGroupId: () =>
+              copyIdToClipboard(section.group.id, "Group ID"),
+          })
+        : buildGroupMenu(section.label, section.all, moveOptions);
+
+    return (
+      <ConversationNavSection
+        value={section.key}
+        icon={sectionIcon(section)}
+        label={section.label}
+        /* The "…" button and the header's right-click menu both render from
+           `groupMenu`; only custom groups carry the always-visible button. */
+        trailing={
+          section.type === "group" ? (
+            <GroupActionsMenu label={section.label} {...groupMenu} />
+          ) : undefined
+        }
+        groupMenu={groupMenu}
+        collapsedIndicator={collapsedActivityDot(section.all)}
+        drag={buildSectionDrag(section)}
+        {...listProps}
+      />
+    );
   };
 
   // --- Built-in navigation ---
@@ -443,50 +598,17 @@ export function AssistantSideMenu({
         >
           {variant === "overlay" ? builtInNav : null}
           {isCollapsedRail ? (
+            /* The rail shows the same sections in the same order, as icons.
+               Nothing here is type-aware — order and labels come straight
+               from `sidebar.sections`, so the rail can't drift from the
+               expanded list the way two hand-maintained orders would. */
             <div className="flex flex-col items-center gap-2">
-              {sidebar.pinned.length > 0 ? (
+              {sidebar.sections.map((section) => (
                 <CollapsedGroupIcon
-                  icon={Pin}
-                  label="Pinned"
-                  indicatorState={getGroupIndicatorState(
-                    sidebar.pinned,
-                    processingConversationIds,
-                    attentionConversationIds,
-                  )}
-                >
-                  {(close) => (
-                    <CollapsedGroupFlyout
-                      title="Pinned"
-                      conversations={sidebar.pinned}
-                      onClosePopover={close}
-                    />
-                  )}
-                </CollapsedGroupIcon>
-              ) : null}
-              <CollapsedGroupIcon
-                icon={Clock}
-                label="Recents"
-                disabled={sidebar.recents.all.length === 0}
-                indicatorState={getGroupIndicatorState(
-                  sidebar.recents.all,
-                  processingConversationIds,
-                  attentionConversationIds,
-                )}
-              >
-                {(close) => (
-                  <CollapsedGroupFlyout
-                    title="Recents"
-                    conversations={sidebar.recents.all}
-                    onClosePopover={close}
-                  />
-                )}
-              </CollapsedGroupIcon>
-              {sidebar.channelSections.map((section) => (
-                <CollapsedGroupIcon
-                  key={section.channelId}
-                  icon={getChannelIcon(section.channelId)}
-                  label={getChannelLabel(section.channelId)}
-                  disabled={section.totalCount === 0}
+                  key={section.key}
+                  icon={sectionIcon(section)}
+                  label={section.label}
+                  disabled={section.all.length === 0}
                   indicatorState={getGroupIndicatorState(
                     section.all,
                     processingConversationIds,
@@ -495,29 +617,8 @@ export function AssistantSideMenu({
                 >
                   {(close) => (
                     <CollapsedGroupFlyout
-                      title={getChannelLabel(section.channelId)}
+                      title={section.label}
                       conversations={section.all}
-                      onClosePopover={close}
-                    />
-                  )}
-                </CollapsedGroupIcon>
-              ))}
-              {sidebar.customGroups.map((group) => (
-                <CollapsedGroupIcon
-                  key={group.id}
-                  icon={getGroupIcon(group.icon) ?? DEFAULT_GROUP_ICON}
-                  label={group.name}
-                  disabled={group.conversations.length === 0}
-                  indicatorState={getGroupIndicatorState(
-                    group.conversations,
-                    processingConversationIds,
-                    attentionConversationIds,
-                  )}
-                >
-                  {(close) => (
-                    <CollapsedGroupFlyout
-                      title={group.name}
-                      conversations={group.conversations}
                       onClosePopover={close}
                     />
                   )}
@@ -525,106 +626,37 @@ export function AssistantSideMenu({
               ))}
             </div>
           ) : (
-            <>
-              {/* Pinned, Chats, and the channel sections share one accordion
-                  root, so its gap governs every section boundary uniformly.
-                  Their open state lives in two storage buckets (Pinned/Chats
-                  default open); `use-sidebar-state` merges and re-splits it.
-                  New Chat lives in the assistant cluster above, not as a
-                  section-header action. */}
-              <CollapsibleNavSection.Root
-                type="multiple"
-                className="gap-3"
-                value={sidebar.effectiveOpenSections}
-                onValueChange={sidebar.onOpenSectionsChange}
-              >
-                {sidebar.pinned.length > 0 ? (
-                  <ConversationNavSection
-                    value="pinned"
-                    icon={Pin}
-                    label="Pinned"
-                    groupMenu={buildGroupMenu("Pinned", sidebar.pinned)}
-                    items={sidebar.pinned}
-                    dragSection="pinned"
-                    collapsedIndicator={collapsedActivityDot(sidebar.pinned)}
-                  />
-                ) : null}
-
-                <ConversationNavSection
-                  value="recents"
-                  icon={MessageSquare}
-                  label="Chats"
-                  groupMenu={buildGroupMenu("Chats", sidebar.recents.all)}
-                  items={sidebar.recents.items}
-                  pagination={sidebar.recents}
-                  collapsedIndicator={collapsedActivityDot(sidebar.recents.all)}
-                />
-
-                {sidebar.channelSections.map((section) => {
-                  const label = getChannelLabel(section.channelId);
-                  return (
-                    <ConversationNavSection
-                      key={section.channelId}
-                      value={channelSectionKey(section.channelId)}
-                      icon={getChannelIcon(section.channelId)}
-                      label={label}
-                      groupMenu={buildGroupMenu(label, section.all)}
-                      items={section.items}
-                      pagination={section}
-                      collapsedIndicator={collapsedActivityDot(section.all)}
-                    />
-                  );
-                })}
-              </CollapsibleNavSection.Root>
-
-              {sidebar.customGroups.length > 0 ? (
-                <>
-                  <SideMenu.Separator />
-                  <CollapsibleNavSection.Root
-                    type="multiple"
-                    className="gap-3"
-                    value={sidebar.effectiveOpenCustomGroups}
-                    onValueChange={sidebar.onOpenCustomGroupsChange}
-                  >
-                    {sidebar.customGroups.map((group) => {
-                      const groupMenu = buildGroupMenu(
-                        group.name,
-                        group.conversations,
-                        {
-                          onRename: onRenameGroup
-                            ? () => onRenameGroup(group.id)
-                            : undefined,
-                          onDelete: onDeleteGroup
-                            ? () => onDeleteGroup(group.id)
-                            : undefined,
-                          onCopyGroupId: () =>
-                            copyIdToClipboard(group.id, "Group ID"),
-                        },
-                      );
-                      return (
-                        <ConversationNavSection
-                          key={group.id}
-                          value={group.id}
-                          label={group.name}
-                          /* The "…" button and the header's right-click menu
-                             both render from `groupMenu`. */
-                          trailing={
-                            <GroupActionsMenu
-                              label={group.name}
-                              {...groupMenu}
-                            />
-                          }
-                          groupMenu={groupMenu}
-                          items={group.conversations}
-                          dragSection={`group:${group.id}`}
-                          collapsedIndicator={collapsedActivityDot(group.conversations)}
-                        />
-                      );
-                    })}
-                  </CollapsibleNavSection.Root>
-                </>
-              ) : null}
-            </>
+            /* Every section — Pinned, Chats, channels, custom groups — shares
+               one accordion root, so its gap is the only thing between any
+               two of them and the spacing is uniform by construction. Their
+               open state lives in three storage buckets with different
+               defaults (Pinned/Chats open); `use-sidebar-state` merges and
+               re-splits it. New Chat lives in the assistant cluster above,
+               not as a section-header action. */
+            <CollapsibleNavSection.Root
+              type="multiple"
+              className="gap-3"
+              value={sidebar.effectiveOpenSections}
+              onValueChange={sidebar.onOpenSectionsChange}
+            >
+              {sidebar.sections.map((section, index) => {
+                const previous = sidebar.sections[index - 1];
+                return (
+                  <Fragment key={section.key}>
+                    {previous && previous.kind !== section.kind ? (
+                      /* `--border-element`, not the `SideMenu.Separator`
+                         default of `--border-base`: on the sidebar's
+                         `--surface-overlay` that token is a ~1.05:1 hairline,
+                         which is why this divider read as missing entirely.
+                         `my-0` leaves the accordion gap as the only spacing,
+                         so a divider costs no extra height. */
+                      <SideMenu.Separator className="my-0 bg-[var(--border-element)]" />
+                    ) : null}
+                    {renderSection(section, index)}
+                  </Fragment>
+                );
+              })}
+            </CollapsibleNavSection.Root>
           )}
         </SideMenu.Body>
 

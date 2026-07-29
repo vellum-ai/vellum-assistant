@@ -1,5 +1,5 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
-import { type ReactNode, type Ref } from "react";
+import { type DragEvent, type ReactNode, type Ref } from "react";
 
 import { BottomSheet, ContextMenu } from "@vellumai/design-library";
 import {
@@ -111,6 +111,33 @@ function LongPressHeaderMenu({
 // Section
 // ---------------------------------------------------------------------------
 
+/**
+ * Drag-to-reorder wiring for a whole section, split across two elements:
+ * the header is the *handle* (only it starts a drag, so dragging a
+ * conversation row inside an expanded section doesn't pick the section up),
+ * while the section root is the *target* (a tall expanded section stays
+ * droppable over its whole height, not just its header strip).
+ *
+ * Structural on purpose — this component sits in shared `components/` and
+ * shouldn't reach into the chat domain's drag hook for a type.
+ */
+export interface CollapsibleNavSectionDrag {
+  handleProps: {
+    draggable: true;
+    onDragStart: (event: DragEvent<HTMLElement>) => void;
+    onDragEnd: () => void;
+  };
+  targetProps: {
+    onDragOver: (event: DragEvent<HTMLElement>) => void;
+    onDragLeave: (event: DragEvent<HTMLElement>) => void;
+    onDrop: (event: DragEvent<HTMLElement>) => void;
+  };
+  /** True while this section is the one being dragged. */
+  dragging: boolean;
+  /** Edge to draw the insertion line on while hovered, else null. */
+  dropEdge: "before" | "after" | null;
+}
+
 export interface CollapsibleNavSectionSectionProps extends Omit<
   CollapsibleItemProps,
   "children"
@@ -132,6 +159,8 @@ export interface CollapsibleNavSectionSectionProps extends Omit<
    * indicators, so a header dot would be redundant.
    */
   collapsedIndicator?: ReactNode;
+  /** Drag-to-reorder wiring; omit to leave the section fixed in place. */
+  drag?: CollapsibleNavSectionDrag;
   children?: ReactNode;
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
@@ -145,6 +174,7 @@ function CollapsibleNavSectionSection({
   contextMenuContent,
   touchMenuContent,
   collapsedIndicator,
+  drag,
   children,
   className,
   contentClassName,
@@ -154,7 +184,11 @@ function CollapsibleNavSectionSection({
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
-      className="flex items-center justify-between"
+      className={cn(
+        "flex items-center justify-between",
+        drag && "cursor-grab active:cursor-grabbing",
+      )}
+      {...drag?.handleProps}
     >
       {/* The horizontal geometry (padding, chip width, gap) is inline from
           sidebar-nav-geometry at every breakpoint — the assistant cluster
@@ -247,7 +281,16 @@ function CollapsibleNavSectionSection({
       ref={ref}
       data-slot="collapsible-nav-section-section"
       value={value}
-      className={className}
+      className={cn(
+        drag?.dragging && "opacity-50",
+        // Insertion line, matching the conversation-row drop indicator.
+        drag?.dropEdge === "before" &&
+          "shadow-[inset_0_2px_0_0_var(--primary-base)]",
+        drag?.dropEdge === "after" &&
+          "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
+        className,
+      )}
+      {...drag?.targetProps}
       {...itemProps}
     >
       {header}

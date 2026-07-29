@@ -1,5 +1,6 @@
 /**
- * Zustand store for sidebar section collapse/expand state.
+ * Zustand store for the per-assistant sidebar section layout: which sections
+ * are expanded, and what order the user put them in.
  *
  * Replaces the two `useState` + `useEffect` + manual `localStorage`
  * read/write pairs that previously lived inside `AssistantSideMenu`.
@@ -10,10 +11,12 @@
  *   and custom groups are stored as two separate `string[]` values,
  *   keyed per assistant. This mirrors the Radix Accordion `value` prop
  *   for `type="multiple"`.
+ * - Section order is a third `string[]`, an advisory preference list over
+ *   the same key namespace — see `utils/sidebar-section-order.ts`.
  * - Reads happen synchronously from localStorage on `setAssistantId`;
  *   writes happen on every toggle via `persist` helpers.
- * - Defaults to no open built-in categories and no open custom groups
- *   when no stored state exists.
+ * - Defaults to no open built-in categories, no open custom groups, and the
+ *   built-in default section order when no stored state exists.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
  */
@@ -30,12 +33,16 @@ import {
   saveOpenCustomGroups,
   saveOpenPrimary,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
+import {
+  loadSectionOrder,
+  saveSectionOrder,
+} from "@/domains/chat/utils/sidebar-section-order";
 
 // ---------------------------------------------------------------------------
 // State + Actions
 // ---------------------------------------------------------------------------
 
-export interface SidebarCollapseState {
+export interface SidebarLayoutState {
   assistantId: string | null;
   openCategories: string[];
   openCustomGroups: string[];
@@ -44,6 +51,13 @@ export interface SidebarCollapseState {
    * Defaults to both open (see {@link loadOpenPrimary}).
    */
   openPrimary: string[];
+  /**
+   * The user's section order preference — a sparse, advisory list of section
+   * keys, not the set of sections that render. Empty means "no preference
+   * yet, use the default order". Resolved against the live sections by
+   * `mergeSectionOrder`.
+   */
+  sectionOrder: string[];
   /**
    * Whether the user has revealed the Background section this session —
    * either by expanding it in the full sidebar or opening its rail flyout.
@@ -61,29 +75,31 @@ export interface SidebarCollapseState {
   scheduledActivated: boolean;
 }
 
-export interface SidebarCollapseActions {
+export interface SidebarLayoutActions {
   setAssistantId: (assistantId: string) => void;
   setOpenCategories: (next: string[]) => void;
   setOpenCustomGroups: (next: string[]) => void;
   setOpenPrimary: (next: string[]) => void;
+  setSectionOrder: (next: string[]) => void;
   activateBackground: () => void;
   activateScheduled: () => void;
 }
 
-export type SidebarCollapseStore = SidebarCollapseState &
-  SidebarCollapseActions;
+export type SidebarLayoutStore = SidebarLayoutState &
+  SidebarLayoutActions;
 
 // ---------------------------------------------------------------------------
 // Initial state
 // ---------------------------------------------------------------------------
 
-const INITIAL_STATE: SidebarCollapseState = {
+const INITIAL_STATE: SidebarLayoutState = {
   assistantId: null,
   openCategories: [],
   openCustomGroups: [],
   // Pinned + Chats start open; the real per-assistant value loads on
   // setAssistantId.
   openPrimary: [...PRIMARY_SECTION_KEYS],
+  sectionOrder: [],
   backgroundActivated: false,
   scheduledActivated: false,
 };
@@ -92,7 +108,7 @@ const INITIAL_STATE: SidebarCollapseState = {
 // Store
 // ---------------------------------------------------------------------------
 
-const useSidebarCollapseStoreBase = create<SidebarCollapseStore>()(
+const useSidebarLayoutStoreBase = create<SidebarLayoutStore>()(
   (set, get) => ({
     ...INITIAL_STATE,
 
@@ -106,6 +122,7 @@ const useSidebarCollapseStoreBase = create<SidebarCollapseStore>()(
         openCategories,
         openCustomGroups: loadOpenCustomGroups(assistantId),
         openPrimary: loadOpenPrimary(assistantId),
+        sectionOrder: loadSectionOrder(assistantId),
         // A persisted expanded section counts as a reveal, so each lazy
         // fetch resumes for assistants the user already had that section
         // open on — tracked per section so they stay independent.
@@ -144,6 +161,14 @@ const useSidebarCollapseStoreBase = create<SidebarCollapseStore>()(
       }
     },
 
+    setSectionOrder: (next: string[]) => {
+      set({ sectionOrder: next });
+      const { assistantId } = get();
+      if (assistantId) {
+        saveSectionOrder(assistantId, next);
+      }
+    },
+
     activateBackground: () => {
       if (get().backgroundActivated) {
         return;
@@ -160,6 +185,6 @@ const useSidebarCollapseStoreBase = create<SidebarCollapseStore>()(
   }),
 );
 
-export const useSidebarCollapseStore = createSelectors(
-  useSidebarCollapseStoreBase,
+export const useSidebarLayoutStore = createSelectors(
+  useSidebarLayoutStoreBase,
 );
