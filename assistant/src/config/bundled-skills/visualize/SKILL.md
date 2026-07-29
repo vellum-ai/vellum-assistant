@@ -65,7 +65,7 @@ The frame has no network access. Anything external is blocked and fails silently
 - No charting library, no icon webfont, no diagram library. Charts and diagrams are hand-drawn in inline SVG.
 - Images: inline SVG only. Do not paste photo data URIs — they blow the size budget.
 - Fragment only: no DOCTYPE, no html, head, or body element.
-- Hard cap 48000 characters. Aim for well under 8000.
+- Hard cap 24000 characters, and aim for well under 8000. The cap is not a target: a fragment has to fit inside one response, and one that does not fit never renders at all. If the subject wants more, make two visuals with prose between them.
 - No comments of any kind. They cost tokens and buy nothing.
 - No emoji anywhere.
 - No position fixed or sticky — frame height is derived from in-flow content, so out-of-flow elements collapse it.

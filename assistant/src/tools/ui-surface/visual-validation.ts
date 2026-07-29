@@ -11,8 +11,12 @@
  * emitted.
  */
 
-/** Upper bound on fragment size. Well above any well-formed visual. */
-const MAX_HTML_CHARS = 48000;
+/**
+ * Upper bound on fragment size. Sized to what one model response can emit
+ * with room to spare: a fragment past this cannot be produced in a single
+ * ui_show call, so the turn burns its output budget and renders nothing.
+ */
+const MAX_HTML_CHARS = 24000;
 
 const RAMP_STEPS = [
   "100",
@@ -162,7 +166,9 @@ const MAX_QUOTED_PROBLEMS = 5;
 
 /** Every ramp-token reference, with the palette and stop split out. */
 const RAMP_TOKEN_PATTERN = new RegExp(
-  `--color-(${[...NEUTRAL_PALETTES, ...ACCENT_PALETTES].join("|")})-(50|${RAMP_STEPS.join("|")})\\b`,
+  `--color-(${[...NEUTRAL_PALETTES, ...ACCENT_PALETTES].join(
+    "|",
+  )})-(50|${RAMP_STEPS.join("|")})\\b`,
   "g",
 );
 
@@ -456,7 +462,9 @@ function collectRampContrastProblems(html: string): string[] {
   const problems: string[] = [];
   if (unpairedDark.size > 0) {
     problems.push(
-      `Dark ramp stops used as text colour with no matching light fill behind them: ${quote([...unpairedDark])}. ` +
+      `Dark ramp stops used as text colour with no matching light fill behind them: ${quote(
+        [...unpairedDark],
+      )}. ` +
         "Ramp stops mirror across their own ramp in dark mode, so a dark stop used as text flips to a " +
         "light tint there while the page background takes no part in that mirror — a ramp-coloured " +
         "label sitting on it has no reliable contrast in either theme. Ramp-coloured text has to sit " +
@@ -468,7 +476,9 @@ function collectRampContrastProblems(html: string): string[] {
   }
   if (unpairedLight.size > 0) {
     problems.push(
-      `Light ramp stops used as text colour with no matching dark fill behind them: ${quote([...unpairedLight])}. ` +
+      `Light ramp stops used as text colour with no matching dark fill behind them: ${quote(
+        [...unpairedLight],
+      )}. ` +
         "Light ramp text on the transparent widget background is invisible in light mode, and in dark " +
         "mode the stop mirrors to the darkest end of its own ramp — invisible there too. " +
         "Ramp-coloured text has to sit on a matching dark ramp " +
@@ -538,7 +548,7 @@ export function validateVisualHtml(html: string): string[] {
   if (html.length > MAX_HTML_CHARS) {
     problems.push(
       `The fragment is ${html.length} characters, over the ${MAX_HTML_CHARS} limit. ` +
-        "Simplify it: cut nodes, drop subtitles, remove decorative markup, or split the idea across two visuals with prose between them.",
+        "A fragment this size cannot be emitted in one call. Simplify it: cut nodes, drop subtitles, remove decorative markup, or split the idea across two visuals with prose between them.",
     );
   }
 
@@ -554,7 +564,9 @@ export function validateVisualHtml(html: string): string[] {
   const unknown = collectUnknownVariables(html);
   if (unknown.length > 0) {
     problems.push(
-      `Undefined CSS variables: ${quote(unknown)}. Only the injected design tokens exist inside the ` +
+      `Undefined CSS variables: ${quote(
+        unknown,
+      )}. Only the injected design tokens exist inside the ` +
         "frame — every other name resolves to nothing and the declaration is dropped. " +
         `The vocabulary is ${TOKEN_FAMILY_SUMMARY}. ` +
         "To use a variable of your own, declare it in the fragment's own style block first.",
@@ -564,7 +576,9 @@ export function validateVisualHtml(html: string): string[] {
   const literals = collectColorLiterals(html);
   if (literals.length > 0) {
     problems.push(
-      `Hardcoded colour values: ${quote(literals)}. Every colour — text, background, border, SVG ` +
+      `Hardcoded colour values: ${quote(
+        literals,
+      )}. Every colour — text, background, border, SVG ` +
         "fill and stroke — comes from an injected variable, so the visual follows the user's theme. " +
         `Replace each literal with a token from ${TOKEN_FAMILY_SUMMARY}.`,
     );
