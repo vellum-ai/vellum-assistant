@@ -1045,6 +1045,46 @@ describe("useProProvisioning", () => {
     expect(latest!.state).not.toBe("NOT_APPLICABLE");
   }, 20_000);
 
+  test("readings taken while closed do not qualify the next open", async () => {
+    // The cache subscription outlives the takeover and the lifecycle poller
+    // keeps this query warm, so readings can keep landing after a close. If
+    // those counted, the next open would treat a cached marker as watched.
+    const client = makeClient();
+    subscriptionPlanId = "pro";
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    const { setOpen } = renderProbe(client, true);
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+    await act(async () => setOpen(false));
+
+    // The takeover's own query is disabled while closed, but the lifecycle
+    // poller holds the same key and keeps reading. Model that other consumer
+    // directly: it catches a resize belonging to something else entirely and
+    // leaves the marker in the shared cache.
+    await act(async () => {
+      await client.fetchQuery({
+        queryKey: STATUS_QUERY_KEY,
+        queryFn: () => makeResizeOperationStatus("resize_machine"),
+      });
+    });
+
+    await act(async () => setOpen(true));
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+
+    // The reopened takeover has watched nothing yet, so the cached marker is
+    // not its evidence and it cannot complete off a later healthy reading.
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
   test("a marker watched on the fallback assistant is not evidence for the primary", async () => {
     // Under a change that can lower the ceilings, a watched marker is the only
     // evidence the completion gate accepts, so an unkeyed latch would let the

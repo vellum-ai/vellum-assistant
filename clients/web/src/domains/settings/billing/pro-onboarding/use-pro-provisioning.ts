@@ -265,11 +265,6 @@ export function useProProvisioning({
   const [sawOperationAssistantId, setSawOperationAssistantId] = useState<
     string | null
   >(null);
-  // How many operational-status readings have actually landed during this open.
-  // Cached data is served without a success event, so it never moves this,
-  // which is what separates a marker this takeover watched from one the cache
-  // was already holding. Read where the latch above is gated.
-  const [statusReadsThisOpen, setStatusReadsThisOpen] = useState(0);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
   // The assistant the frozen snapshot describes, so it can be re-captured when
@@ -296,7 +291,6 @@ export function useProProvisioning({
     setResumedAt(null);
     setSawOperation(false);
     setSawOperationAssistantId(null);
-    setStatusReadsThisOpen(0);
     setActualsSnapshot(null);
     setSnapshotAssistantId(null);
     setTracking(true);
@@ -592,36 +586,34 @@ export function useProProvisioning({
         // later one can move the count. Publishing it through the cache's own
         // notify queue lands it in the same React commit as the reading.
         const readStart = statusFetchStartsRef.current;
+        // A marker only counts as this takeover's evidence when it arrives in a
+        // reading that landed here: the query cache outlives the takeover and
+        // the lifecycle poller keeps it warm, so its stored value can be a
+        // marker from an earlier resize on this same assistant. Reading the
+        // marker off the delivered payload rather than off rendered state ties
+        // the evidence to the reading that carried it, so neither a cached
+        // value nor a later re-render can stand in for one.
+        const watchedMarker =
+          open && isResizeOperationInFlight(event.action.data);
         notifyManager.schedule(() => {
           setLastReadFetchStart(readStart);
-          setStatusReadsThisOpen((count) => count + 1);
+          if (watchedMarker) {
+            setSawOperation(true);
+            setSawOperationAssistantId(assistantId);
+          }
         });
       }
     });
-  }, [queryClient, statusQueryHash]);
+  }, [queryClient, statusQueryHash, open, assistantId]);
 
   const resizeOperationInFlight = isResizeOperationInFlight(
     operationalStatusQuery.data,
   );
 
-  // Only a reading that landed during this open can testify about this change.
-  // The status query is keyed the way the lifecycle poller keys it, so its
-  // cache can already hold a marker left by an earlier resize on this very
-  // assistant, and react-query serves that the moment the takeover mounts.
-  // Adopting it would let a finished resize vouch for one that has not started.
-  //
-  // Landed readings are counted rather than compared against a fetch-start
-  // floor, because the query subscribes ahead of the cache listener here and
-  // its first fetch start is never seen. Cached data arrives with no success
-  // event at all, which is exactly the distinction this needs.
-  const statusReadBelongsToThisOpen = statusReadsThisOpen > 0;
-
-  useEffect(() => {
-    if (resizeOperationInFlight && statusReadBelongsToThisOpen) {
-      setSawOperation(true);
-      setSawOperationAssistantId(assistantId);
-    }
-  }, [resizeOperationInFlight, statusReadBelongsToThisOpen, assistantId]);
+  // `sawOperation` is latched from the reading itself, in the cache listener
+  // above, so nothing here needs to re-observe it. It stays keyed to the
+  // assistant it was watched on, because the fallback-to-primary re-key can
+  // move the watch mid-open.
   const sawOperationMatchesAssistant = sawOperationAssistantId === assistantId;
 
   const onboarding = onboardingQuery.data;
