@@ -10,9 +10,10 @@ import {
 } from "./render-text.js";
 import { slackUserActorFields, slackBotSenderInfo } from "./actor.js";
 import { extractSlackAttachments, extractSlackFileMap } from "./attachments.js";
-import type { GatewayConfig } from "../config.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
-import type { RouteResult } from "../routing/types.js";
+import {
+  hasRoutableIdentity,
+  LOCAL_ROUTE,
+} from "../routing/resolve-assistant.js";
 
 /**
  * Normalize a Slack DM (`message` with `channel_type: "im"`) into the
@@ -37,7 +38,7 @@ type SlackMessageShape = {
 
 /**
  * Shared construction for the plain-message family (`app_mention` / DM /
- * channel). Each caller owns its own guards, routing, and identity extraction;
+ * channel). Each caller owns its own guards and identity extraction;
  * this builds the canonical normalized event they all produce, so the three
  * public normalizers stay thin variant wrappers.
  */
@@ -45,7 +46,6 @@ function buildNormalizedSlackMessage(
   event: SlackMessageEvent,
   rawEvent: Record<string, unknown>,
   eventId: string,
-  routing: RouteResult,
   channel: string,
   actorId: string,
   shape: SlackMessageShape,
@@ -120,7 +120,7 @@ function buildNormalizedSlackMessage(
       },
       raw: rawEvent,
     },
-    routing,
+    routing: LOCAL_ROUTE,
     ...(threadTs ? { threadTs } : {}),
     channel,
     ...(slackFiles ? { slackFiles } : {}),
@@ -131,7 +131,6 @@ function buildNormalizedSlackMessage(
 export function normalizeSlackDirectMessage(
   event: unknown,
   eventId: string,
-  config: GatewayConfig,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
@@ -144,14 +143,12 @@ export function normalizeSlackDirectMessage(
   if (msg.subtype && msg.subtype !== "file_share") return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
-  const routing = resolveAssistant(config, msg.channel, msg.user);
-  if (isRejection(routing)) return null;
+  if (!hasRoutableIdentity(msg.channel, msg.user)) return null;
 
   return buildNormalizedSlackMessage(
     msg,
     event as Record<string, unknown>,
     eventId,
-    routing,
     msg.channel,
     msg.user,
     { chatType: "im", stampTeam: false, fallbackThreadToTs: false },
@@ -173,7 +170,6 @@ export function normalizeSlackDirectMessage(
 export function normalizeSlackChannelMessage(
   event: unknown,
   eventId: string,
-  config: GatewayConfig,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
@@ -185,14 +181,12 @@ export function normalizeSlackChannelMessage(
   if (msg.subtype && msg.subtype !== "file_share") return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
-  const routing = resolveAssistant(config, msg.channel, msg.user);
-  if (isRejection(routing)) return null;
+  if (!hasRoutableIdentity(msg.channel, msg.user)) return null;
 
   return buildNormalizedSlackMessage(
     msg,
     event as Record<string, unknown>,
     eventId,
-    routing,
     msg.channel,
     msg.user,
     { chatType: "channel", stampTeam: true, fallbackThreadToTs: true },
@@ -210,7 +204,6 @@ export function normalizeSlackChannelMessage(
 export function normalizeSlackAppMention(
   event: unknown,
   eventId: string,
-  config: GatewayConfig,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
@@ -220,14 +213,12 @@ export function normalizeSlackAppMention(
 
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
-  const routing = resolveAssistant(config, msg.channel, msg.user);
-  if (isRejection(routing)) return null;
+  if (!hasRoutableIdentity(msg.channel, msg.user)) return null;
 
   return buildNormalizedSlackMessage(
     msg,
     event as Record<string, unknown>,
     eventId,
-    routing,
     msg.channel,
     msg.user,
     { stampTeam: true, fallbackThreadToTs: true },

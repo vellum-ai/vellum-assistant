@@ -435,17 +435,10 @@ describe("normalizeSlackAppMention with display name", () => {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     });
-
-    const config = makeConfig();
     const event = makeEvent({ user: "U_WITH_NAME" });
 
     // First call: cache miss, fires background fetch, no display name yet
-    const result1 = normalizeSlackAppMention(
-      event,
-      "evt-dn-1a",
-      config,
-      "xoxb-test",
-    );
+    const result1 = normalizeSlackAppMention(event, "evt-dn-1a", "xoxb-test");
     expect(result1).not.toBeNull();
     expect(result1!.event.actor.displayName).toBeUndefined();
 
@@ -453,12 +446,7 @@ describe("normalizeSlackAppMention with display name", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Second call: cache hit, display name populated
-    const result2 = normalizeSlackAppMention(
-      event,
-      "evt-dn-1b",
-      config,
-      "xoxb-test",
-    );
+    const result2 = normalizeSlackAppMention(event, "evt-dn-1b", "xoxb-test");
     expect(result2).not.toBeNull();
     expect(result2!.event.actor.displayName).toBe("Test U");
     expect(result2!.event.actor.username).toBe("testuser");
@@ -481,19 +469,12 @@ describe("normalizeSlackAppMention with display name", () => {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     });
-
-    const config = makeConfig();
     const event = makeEvent({ user: "U_PREWARM" });
 
     // Pre-warm the cache with an explicit async call
     await resolveSlackUser("U_PREWARM", "xoxb-test");
 
-    const result = normalizeSlackAppMention(
-      event,
-      "evt-dn-pw",
-      config,
-      "xoxb-test",
-    );
+    const result = normalizeSlackAppMention(event, "evt-dn-pw", "xoxb-test");
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBe("Test U");
     expect(result!.event.actor.username).toBe("testuser");
@@ -519,7 +500,6 @@ describe("normalizeSlackAppMention with display name", () => {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     });
-
     const config = makeConfig();
     const event = makeEvent({ user: "U_WITH_TZ" });
     await resolveSlackUser("U_WITH_TZ", "xoxb-test");
@@ -527,7 +507,6 @@ describe("normalizeSlackAppMention with display name", () => {
     const result = normalizeSlackAppMention(
       event,
       "evt-tz-forward",
-      config,
       "xoxb-test",
     );
     expect(result).not.toBeNull();
@@ -564,8 +543,6 @@ describe("normalizeSlackAppMention with display name", () => {
         { status: 200, headers: { "content-type": "application/json" } },
       );
     });
-
-    const config = makeConfig();
     const event = makeEvent({
       text: "<@U123BOT> <@ULEO> please look",
     });
@@ -574,7 +551,6 @@ describe("normalizeSlackAppMention with display name", () => {
     const result = normalizeSlackAppMention(
       event,
       "evt-mention-cache",
-      config,
       undefined,
       { userLabels: userInfo ? { ULEO: userInfo.displayName } : {} },
     );
@@ -591,8 +567,6 @@ describe("normalizeSlackAppMention with display name", () => {
     fetchMock = mock(async () => {
       return new Response("", { status: 500 });
     });
-
-    const config = makeConfig();
     const event = makeEvent({
       text: "<@U123BOT> <@UFAIL> please look",
     });
@@ -601,7 +575,6 @@ describe("normalizeSlackAppMention with display name", () => {
     const result = normalizeSlackAppMention(
       event,
       "evt-mention-fallback",
-      config,
       undefined,
       { userLabels: userInfo ? { UFAIL: userInfo.displayName } : {} },
     );
@@ -615,9 +588,8 @@ describe("normalizeSlackAppMention with display name", () => {
   });
 
   test("omits displayName when bot token is not configured", () => {
-    const config = makeConfig();
     const event = makeEvent();
-    const result = normalizeSlackAppMention(event, "evt-dn-2", config);
+    const result = normalizeSlackAppMention(event, "evt-dn-2");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBeUndefined();
@@ -628,15 +600,8 @@ describe("normalizeSlackAppMention with display name", () => {
     fetchMock = mock(async () => {
       return new Response("", { status: 500 });
     });
-
-    const config = makeConfig();
     const event = makeEvent();
-    const result = normalizeSlackAppMention(
-      event,
-      "evt-dn-3",
-      config,
-      "xoxb-test",
-    );
+    const result = normalizeSlackAppMention(event, "evt-dn-3", "xoxb-test");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBeUndefined();

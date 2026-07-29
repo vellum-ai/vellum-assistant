@@ -6,7 +6,7 @@ import { resolveCredentialWithRefresh } from "../credential-refresh.js";
 import { recordDenialReplyIfAllowed } from "../db/denial-reply-rate-limiter.js";
 import type { StringDedupCache } from "../dedup-cache.js";
 import { handleInbound } from "../handlers/handle-inbound.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import { hasRoutableIdentity } from "../routing/resolve-assistant.js";
 import {
   handleCircuitBreakerError,
   processInboundResult,
@@ -151,20 +151,15 @@ export async function runEmailInboundPipeline(
     `${label} webhook received`,
   );
 
-  const routing = resolveAssistant(
-    config,
-    gatewayEvent.message.conversationExternalId,
-    senderAddress,
-  );
-
-  if (isRejection(routing)) {
+  if (
+    !hasRoutableIdentity(
+      gatewayEvent.message.conversationExternalId,
+      senderAddress,
+    )
+  ) {
     log.warn(
-      {
-        from: senderAddress,
-        to: recipientAddress,
-        reason: routing.reason,
-      },
-      `Routing rejected inbound ${label} email`,
+      { from: senderAddress, to: recipientAddress },
+      `Dropped inbound ${label} email — no routable identity`,
     );
     mark();
     return Response.json({ ok: true });
@@ -194,7 +189,6 @@ export async function runEmailInboundPipeline(
       }),
       replyCallbackUrl: undefined,
       traceId,
-      routingOverride: routing,
       // Provider SPF/DKIM/DMARC verdict (from the normalizer). `false` collapses
       // a forged `From:` out of guardian/trusted_contact; `undefined` is a no-op.
       senderAuthenticated,

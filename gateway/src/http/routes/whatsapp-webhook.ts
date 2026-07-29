@@ -13,10 +13,7 @@ import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBody } from "../read-limited-body.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
-import {
-  resolveAssistant,
-  isRejection,
-} from "../../routing/resolve-assistant.js";
+import { hasRoutableIdentity } from "../../routing/resolve-assistant.js";
 import {
   AttachmentValidationError,
   uploadAttachment,
@@ -185,16 +182,14 @@ export function createWhatsAppWebhookHandler(
         );
       });
 
-      // Resolve routing once so we can gate further operations on it
-      const routing = resolveAssistant(config, from, from);
+      // `from` is both conversation and actor for WhatsApp, so a single
+      // identity check gates every downstream operation.
+      const routable = hasRoutableIdentity(from, from);
 
       // Handle /new command — reset conversation before it reaches the runtime
       if (isNewCommand(event.message.content)) {
-        if (isRejection(routing)) {
-          tlog.warn(
-            { from, reason: routing.reason },
-            "Routing rejected /new command",
-          );
+        if (!routable) {
+          tlog.warn({ from }, "Dropped /new command — no routable identity");
           sendWhatsAppReply(
             config,
             from,
@@ -223,10 +218,10 @@ export function createWhatsAppWebhookHandler(
         continue;
       }
 
-      if (isRejection(routing)) {
+      if (!routable) {
         tlog.warn(
-          { from, reason: routing.reason },
-          "Routing rejected inbound WhatsApp message",
+          { from },
+          "Dropped inbound WhatsApp message — no routable identity",
         );
         if (rejectionLimiter.shouldSend(from)) {
           sendWhatsAppReply(
@@ -378,7 +373,6 @@ export function createWhatsAppWebhookHandler(
           transportMetadata: buildWhatsAppTransportMetadata(),
           replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/whatsapp`,
           traceId,
-          routingOverride: routing,
         });
 
         const processed = processInboundResult(

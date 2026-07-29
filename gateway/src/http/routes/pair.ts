@@ -54,8 +54,6 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 /** Pair tokens are valid for 24 hours — covers extended sessions and SSE reconnects. */
 const PAIR_TOKEN_TTL_SECONDS = 86400;
 
-const DAEMON_INTERNAL_ASSISTANT_ID = LOCAL_ASSISTANT_ID;
-
 // ---------------------------------------------------------------------------
 // Rate limiter (dedicated, per-peer)
 // ---------------------------------------------------------------------------
@@ -169,9 +167,7 @@ function auditDeny(
 // ---------------------------------------------------------------------------
 
 function getExternalAssistantId(): string {
-  return (
-    process.env.VELLUM_ASSISTANT_NAME?.trim() || DAEMON_INTERNAL_ASSISTANT_ID
-  );
+  return process.env.VELLUM_ASSISTANT_NAME?.trim() || LOCAL_ASSISTANT_ID;
 }
 
 export async function handlePair(

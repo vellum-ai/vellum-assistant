@@ -17,10 +17,7 @@ import { verifyEmailWebhookSignature } from "../../email/verify.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBody } from "../read-limited-body.js";
-import {
-  resolveAssistant,
-  isRejection,
-} from "../../routing/resolve-assistant.js";
+import { hasRoutableIdentity } from "../../routing/resolve-assistant.js";
 import {
   handleCircuitBreakerError,
   interceptedReply,
@@ -129,23 +126,15 @@ export function createEmailWebhookHandler(
       "Email webhook received",
     );
 
-    // Resolve routing using the recipient address as both conversation
-    // and actor ID — the standard routing chain will check explicit
-    // routes first, then fall back to the default assistant.
-    const routing = resolveAssistant(
-      config,
-      event.message.conversationExternalId,
-      event.actor.actorExternalId,
-    );
-
-    if (isRejection(routing)) {
+    if (
+      !hasRoutableIdentity(
+        event.message.conversationExternalId,
+        event.actor.actorExternalId,
+      )
+    ) {
       tlog.warn(
-        {
-          from: event.actor.actorExternalId,
-          to: recipientAddress,
-          reason: routing.reason,
-        },
-        "Routing rejected inbound email",
+        { from: event.actor.actorExternalId, to: recipientAddress },
+        "Dropped inbound email — no routable identity",
       );
       // No way to reply to the sender for rejected emails — just log
       dedupCache.mark(eventId);
@@ -198,7 +187,6 @@ export function createEmailWebhookHandler(
         }),
         replyCallbackUrl: undefined, // Email replies use `assistant email send` tool (no /deliver/email)
         traceId,
-        routingOverride: routing,
         senderAuthenticated,
         sourceMetadata: {
           emailProvider: "platform",

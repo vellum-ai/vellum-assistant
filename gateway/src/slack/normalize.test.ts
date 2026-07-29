@@ -24,14 +24,6 @@ import type {
   SlackMessageDeletedEvent,
   SlackFile,
 } from "./message-schemas.js";
-import type { GatewayConfig } from "../config.js";
-
-function makeConfig(overrides?: Partial<GatewayConfig>): GatewayConfig {
-  return {
-    routingEntries: [],
-    ...overrides,
-  } as GatewayConfig;
-}
 
 function makeBlockActionsPayload(
   overrides?: Partial<{
@@ -106,9 +98,8 @@ function makeReactionRemovedEvent(
 
 describe("normalizeSlackBlockActions", () => {
   it("normalizes a block_actions payload with callbackData", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload();
-    const result = normalizeSlackBlockActions(payload, "env-1", config);
+    const result = normalizeSlackBlockActions(payload, "env-1");
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
@@ -128,7 +119,6 @@ describe("normalizeSlackBlockActions", () => {
   });
 
   it("uses thread root timestamp when message is a threaded reply", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload();
     // Simulate a button click on a message that lives inside a thread
     payload.message = {
@@ -136,7 +126,7 @@ describe("normalizeSlackBlockActions", () => {
       thread_ts: "1234567890.000001",
       text: "Choose an option",
     };
-    const result = normalizeSlackBlockActions(payload, "env-thread", config);
+    const result = normalizeSlackBlockActions(payload, "env-thread");
 
     expect(result).not.toBeNull();
     // threadTs should be the thread root, not the clicked message's ts
@@ -144,23 +134,21 @@ describe("normalizeSlackBlockActions", () => {
   });
 
   it("falls back to message ts when no thread_ts is present", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload();
-    const result = normalizeSlackBlockActions(payload, "env-no-thread", config);
+    const result = normalizeSlackBlockActions(payload, "env-no-thread");
 
     expect(result).not.toBeNull();
     expect(result!.threadTs).toBe("1234567890.123456");
   });
 
   it("generates unique externalMessageId per click via action_ts", () => {
-    const config = makeConfig();
     const payload1 = makeBlockActionsPayload();
     payload1.actions![0].action_ts = "1000000000.000001";
     const payload2 = makeBlockActionsPayload();
     payload2.actions![0].action_ts = "1000000000.000002";
 
-    const result1 = normalizeSlackBlockActions(payload1, "env-same", config);
-    const result2 = normalizeSlackBlockActions(payload2, "env-same", config);
+    const result1 = normalizeSlackBlockActions(payload1, "env-same");
+    const result2 = normalizeSlackBlockActions(payload2, "env-same");
 
     expect(result1).not.toBeNull();
     expect(result2).not.toBeNull();
@@ -170,12 +158,11 @@ describe("normalizeSlackBlockActions", () => {
   });
 
   it("falls back to action_id when value is undefined", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload({
       actionValue: undefined as unknown as string,
     });
     payload.actions![0].value = undefined;
-    const result = normalizeSlackBlockActions(payload, "env-2", config);
+    const result = normalizeSlackBlockActions(payload, "env-2");
 
     expect(result).not.toBeNull();
     expect(result!.event.message.callbackData).toBe("approve_btn");
@@ -183,28 +170,25 @@ describe("normalizeSlackBlockActions", () => {
   });
 
   it("returns null when actions array is empty", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload();
     payload.actions = [];
-    const result = normalizeSlackBlockActions(payload, "env-3", config);
+    const result = normalizeSlackBlockActions(payload, "env-3");
 
     expect(result).toBeNull();
   });
 
   it("returns null when user ID is missing", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload();
     payload.user = { id: "", username: "alice" };
-    const result = normalizeSlackBlockActions(payload, "env-4", config);
+    const result = normalizeSlackBlockActions(payload, "env-4");
 
     expect(result).toBeNull();
   });
 
   it("returns null when channel is missing", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload();
     payload.channel = undefined;
-    const result = normalizeSlackBlockActions(payload, "env-5", config);
+    const result = normalizeSlackBlockActions(payload, "env-5");
 
     expect(result).toBeNull();
   });
@@ -214,13 +198,8 @@ describe("normalizeSlackBlockActions", () => {
   // isn't in the routing table the click must still reach the assistant rather
   // than being silently dropped.
   it("resolves an unrouted DM channel to the local assistant", () => {
-    const config = makeConfig();
     const payload = makeBlockActionsPayload({ channelId: "D999" });
-    const result = normalizeSlackBlockActions(
-      payload,
-      "env-dm-fallback",
-      config,
-    );
+    const result = normalizeSlackBlockActions(payload, "env-dm-fallback");
 
     expect(result).not.toBeNull();
     expect(result!.channel).toBe("D999");
@@ -228,36 +207,22 @@ describe("normalizeSlackBlockActions", () => {
     expect(result!.routing.routeSource).toBe("default");
   });
 
-  it("uses explicit routing for a DM channel that is in the routing table", () => {
+  it("resolves a DM channel that is in the routing table to the local assistant", () => {
     // The DM fallback only fires when routing rejects; an explicit
     // conversation_id route for the DM channel must still win.
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "D789", assistantId: "explicit-ast" },
-      ],
-    });
     const payload = makeBlockActionsPayload({ channelId: "D789" });
-    const result = normalizeSlackBlockActions(
-      payload,
-      "env-dm-explicit",
-      config,
-    );
+    const result = normalizeSlackBlockActions(payload, "env-dm-explicit");
 
     expect(result).not.toBeNull();
-    expect(result!.routing.assistantId).toBe("explicit-ast");
-    expect(result!.routing.routeSource).toBe("conversation_id");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
+    expect(result!.routing.routeSource).toBe("default");
   });
 
   it("resolves an unrouted non-DM channel to the local assistant", () => {
     // Public channels used to keep strict routing and drop unrouted clicks.
     // They now normalize like DMs; the admission floor decides admittance.
-    const config = makeConfig();
     const payload = makeBlockActionsPayload({ channelId: "C456" });
-    const result = normalizeSlackBlockActions(
-      payload,
-      "env-non-dm-reject",
-      config,
-    );
+    const result = normalizeSlackBlockActions(payload, "env-non-dm-reject");
 
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
@@ -265,12 +230,10 @@ describe("normalizeSlackBlockActions", () => {
 });
 
 describe("block_actions tolerant validation", () => {
-  const config = makeConfig();
-
   it("drops a non-object payload instead of throwing", () => {
-    expect(normalizeSlackBlockActions("nope", "env-x1", config)).toBeNull();
-    expect(normalizeSlackBlockActions(null, "env-x2", config)).toBeNull();
-    expect(normalizeSlackBlockActions(42, "env-x3", config)).toBeNull();
+    expect(normalizeSlackBlockActions("nope", "env-x1")).toBeNull();
+    expect(normalizeSlackBlockActions(null, "env-x2")).toBeNull();
+    expect(normalizeSlackBlockActions(42, "env-x3")).toBeNull();
   });
 
   it("collapses a non-array actions field and drops the payload", () => {
@@ -283,7 +246,6 @@ describe("block_actions tolerant validation", () => {
         actions: "not-an-array",
       },
       "env-x4",
-      config,
     );
 
     expect(result).toBeNull();
@@ -299,7 +261,6 @@ describe("block_actions tolerant validation", () => {
         actions: [{ type: "button" }],
       },
       "env-x5",
-      config,
     );
 
     expect(result).toBeNull();
@@ -314,7 +275,6 @@ describe("block_actions tolerant validation", () => {
         actions: [{ action_id: "approve", type: "button" }],
       },
       "env-x6",
-      config,
     );
 
     expect(result).toBeNull();
@@ -329,7 +289,6 @@ describe("block_actions tolerant validation", () => {
         actions: [{ action_id: "approve", type: "button" }],
       },
       "env-x7",
-      config,
     );
 
     expect(result).toBeNull();
@@ -347,7 +306,6 @@ describe("block_actions tolerant validation", () => {
         ],
       },
       "env-x8",
-      config,
     );
 
     expect(result).not.toBeNull();
@@ -365,7 +323,7 @@ describe("block_actions tolerant validation", () => {
       ],
       unexpected_field: "surprise",
     };
-    const result = normalizeSlackBlockActions(payload, "env-x9", config);
+    const result = normalizeSlackBlockActions(payload, "env-x9");
 
     expect(result).not.toBeNull();
     expect(result!.event.raw).toEqual(payload);
@@ -374,9 +332,8 @@ describe("block_actions tolerant validation", () => {
 
 describe("normalizeSlackReactionAdded", () => {
   it("normalizes a reaction_added event with callbackData", () => {
-    const config = makeConfig();
     const event = makeReactionAddedEvent();
-    const result = normalizeSlackReactionAdded(event, "evt-1", config);
+    const result = normalizeSlackReactionAdded(event, "evt-1");
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
@@ -393,44 +350,39 @@ describe("normalizeSlackReactionAdded", () => {
   });
 
   it("returns null when user is missing", () => {
-    const config = makeConfig();
     const event = makeReactionAddedEvent({ user: "" });
-    const result = normalizeSlackReactionAdded(event, "evt-2", config);
+    const result = normalizeSlackReactionAdded(event, "evt-2");
 
     expect(result).toBeNull();
   });
 
   it("returns null when item channel is missing", () => {
-    const config = makeConfig();
     const event = makeReactionAddedEvent();
     event.item.channel = "";
-    const result = normalizeSlackReactionAdded(event, "evt-3", config);
+    const result = normalizeSlackReactionAdded(event, "evt-3");
 
     expect(result).toBeNull();
   });
 
   it("returns null when item ts is missing", () => {
-    const config = makeConfig();
     const event = makeReactionAddedEvent();
     event.item.ts = "";
-    const result = normalizeSlackReactionAdded(event, "evt-4", config);
+    const result = normalizeSlackReactionAdded(event, "evt-4");
 
     expect(result).toBeNull();
   });
 
   it("resolves an unrouted reaction to the local assistant", () => {
-    const config = makeConfig();
     const event = makeReactionAddedEvent();
-    const result = normalizeSlackReactionAdded(event, "evt-5", config);
+    const result = normalizeSlackReactionAdded(event, "evt-5");
 
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   it("uses the reaction name in callbackData", () => {
-    const config = makeConfig();
     const event = makeReactionAddedEvent({ reaction: "white_check_mark" });
-    const result = normalizeSlackReactionAdded(event, "evt-6", config);
+    const result = normalizeSlackReactionAdded(event, "evt-6");
 
     expect(result).not.toBeNull();
     expect(result!.event.message.callbackData).toBe(
@@ -444,22 +396,17 @@ describe("normalizeSlackReactionAdded", () => {
     // gate on thread tracking — that filter lives in socket-mode.ts.
     // Verify the normalizer happily produces a valid event for an arbitrary
     // public-channel message ts when routing matches the channel.
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "C500", assistantId: "ast-1" },
-      ],
-    });
     const event = makeReactionAddedEvent({
       channelId: "C500",
       messageTs: "1700000000.999999",
     });
-    const result = normalizeSlackReactionAdded(event, "evt-expand", config);
+    const result = normalizeSlackReactionAdded(event, "evt-expand");
 
     expect(result).not.toBeNull();
     expect(result!.event.message.callbackData).toBe("reaction:thumbsup");
     expect(result!.channel).toBe("C500");
     expect(result!.threadTs).toBe("1700000000.999999");
-    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     expect(result!.event.message.externalMessageId).toBe(
       "C500:1700000000.999999:thumbsup:U123",
     );
@@ -468,9 +415,8 @@ describe("normalizeSlackReactionAdded", () => {
 
 describe("normalizeSlackReactionRemoved", () => {
   it("normalizes a reaction_removed event with reaction_removed: prefix", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent();
-    const result = normalizeSlackReactionRemoved(event, "evt-r-1", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-1");
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
@@ -489,9 +435,8 @@ describe("normalizeSlackReactionRemoved", () => {
   });
 
   it("uses the reaction name in callbackData", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent({ reaction: "white_check_mark" });
-    const result = normalizeSlackReactionRemoved(event, "evt-r-2", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-2");
 
     expect(result).not.toBeNull();
     expect(result!.event.message.callbackData).toBe(
@@ -500,27 +445,24 @@ describe("normalizeSlackReactionRemoved", () => {
   });
 
   it("returns null when user is missing", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent({ user: "" });
-    const result = normalizeSlackReactionRemoved(event, "evt-r-3", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-3");
 
     expect(result).toBeNull();
   });
 
   it("returns null when item channel is missing", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent();
     event.item.channel = "";
-    const result = normalizeSlackReactionRemoved(event, "evt-r-4", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-4");
 
     expect(result).toBeNull();
   });
 
   it("returns null when item ts is missing", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent();
     event.item.ts = "";
-    const result = normalizeSlackReactionRemoved(event, "evt-r-5", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-5");
 
     expect(result).toBeNull();
   });
@@ -528,30 +470,27 @@ describe("normalizeSlackReactionRemoved", () => {
   // Self-authored reactions are now filtered upstream in processEventPayload,
   // not by the normalizer.
   it("does not filter reactions by bot user (handled upstream)", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent({ user: "UBOT" });
-    const result = normalizeSlackReactionRemoved(event, "evt-r-6", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-6");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("UBOT");
   });
 
   it("resolves an unrouted public-channel reaction removal to the local assistant", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent();
-    const result = normalizeSlackReactionRemoved(event, "evt-r-7", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-7");
 
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   it("resolves unrouted DM channels to the local assistant", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent({
       channelId: "D999",
       messageTs: "111.222",
     });
-    const result = normalizeSlackReactionRemoved(event, "evt-r-8", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-8");
 
     expect(result).not.toBeNull();
     expect(result!.channel).toBe("D999");
@@ -561,12 +500,11 @@ describe("normalizeSlackReactionRemoved", () => {
   });
 
   it("normalizes reaction_removed in a DM channel", () => {
-    const config = makeConfig();
     const event = makeReactionRemovedEvent({
       channelId: "D789",
       messageTs: "1700000000.000001",
     });
-    const result = normalizeSlackReactionRemoved(event, "evt-r-9", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-9");
 
     expect(result).not.toBeNull();
     expect(result!.channel).toBe("D789");
@@ -582,19 +520,14 @@ describe("normalizeSlackReactionRemoved", () => {
     // Filter expansion: PR 3 admits reactions on any subscribed channel,
     // not just tracked bot-thread messages. Verify the removed normalizer
     // produces a valid event for an arbitrary public-channel message ts.
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "C500", assistantId: "ast-1" },
-      ],
-    });
     const event = makeReactionRemovedEvent({
       channelId: "C500",
       messageTs: "1700000000.999999",
     });
-    const result = normalizeSlackReactionRemoved(event, "evt-r-10", config);
+    const result = normalizeSlackReactionRemoved(event, "evt-r-10");
 
     expect(result).not.toBeNull();
-    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     expect(result!.event.message.externalMessageId).toBe(
       "C500:1700000000.999999:thumbsup:U123:removed",
     );
@@ -603,7 +536,6 @@ describe("normalizeSlackReactionRemoved", () => {
   it("produces a different externalMessageId than reaction_added for the same emoji+user+message", () => {
     // Critical for dedup: an add followed by a remove of the same emoji by
     // the same user on the same message must not collide on externalMessageId.
-    const config = makeConfig();
     const addEvent = makeReactionAddedEvent({
       reaction: "fire",
       messageTs: "111.222",
@@ -612,11 +544,10 @@ describe("normalizeSlackReactionRemoved", () => {
       reaction: "fire",
       messageTs: "111.222",
     });
-    const addResult = normalizeSlackReactionAdded(addEvent, "evt-add", config);
+    const addResult = normalizeSlackReactionAdded(addEvent, "evt-add");
     const removeResult = normalizeSlackReactionRemoved(
       removeEvent,
       "evt-remove",
-      config,
     );
 
     expect(addResult).not.toBeNull();
@@ -628,16 +559,12 @@ describe("normalizeSlackReactionRemoved", () => {
 });
 
 describe("reaction event tolerant validation", () => {
-  const config = makeConfig();
-
   it("drops a non-object payload instead of throwing", () => {
     // The socket frame is unvalidated JSON.parse output; a scalar where an
     // object is expected must be dropped at the boundary, not crash the batch.
-    expect(
-      normalizeSlackReactionAdded("not-an-object", "evt-x1", config),
-    ).toBeNull();
-    expect(normalizeSlackReactionAdded(null, "evt-x2", config)).toBeNull();
-    expect(normalizeSlackReactionAdded(42, "evt-x3", config)).toBeNull();
+    expect(normalizeSlackReactionAdded("not-an-object", "evt-x1")).toBeNull();
+    expect(normalizeSlackReactionAdded(null, "evt-x2")).toBeNull();
+    expect(normalizeSlackReactionAdded(42, "evt-x3")).toBeNull();
   });
 
   it("collapses a non-object item to undefined and drops the event", () => {
@@ -652,7 +579,6 @@ describe("reaction event tolerant validation", () => {
         item: "bogus",
       },
       "evt-x4",
-      config,
     );
 
     expect(result).toBeNull();
@@ -667,7 +593,6 @@ describe("reaction event tolerant validation", () => {
         item: { type: "message", channel: "C456", ts: "1700000000.000100" },
       },
       "evt-x5",
-      config,
     );
 
     expect(result).toBeNull();
@@ -684,7 +609,6 @@ describe("reaction event tolerant validation", () => {
         item: { type: "message", channel: "C456", ts: "1700000000.000100" },
       },
       "evt-x5a",
-      config,
     );
 
     expect(result).toBeNull();
@@ -699,7 +623,6 @@ describe("reaction event tolerant validation", () => {
         item: { type: "message", channel: "C456", ts: "1700000000.000100" },
       },
       "evt-x5b",
-      config,
     );
 
     expect(result).toBeNull();
@@ -717,7 +640,6 @@ describe("reaction event tolerant validation", () => {
         item: { type: "message", channel: "C456", ts: { nested: true } },
       },
       "evt-x6",
-      config,
     );
 
     expect(result).toBeNull();
@@ -734,7 +656,7 @@ describe("reaction event tolerant validation", () => {
       unexpected_field: "surprise",
       nested_extra: { a: 1 },
     };
-    const result = normalizeSlackReactionAdded(payload, "evt-x7", config);
+    const result = normalizeSlackReactionAdded(payload, "evt-x7");
 
     expect(result).not.toBeNull();
     expect(result!.event.raw).toEqual(payload);
@@ -746,9 +668,8 @@ describe("reaction event tolerant validation", () => {
 
 describe("DM threading", () => {
   it("non-threaded DM has no threadTs", () => {
-    const config = makeConfig();
     const event = makeDmEvent();
-    const result = normalizeSlackDirectMessage(event, "evt-dm-1", config);
+    const result = normalizeSlackDirectMessage(event, "evt-dm-1");
 
     expect(result).not.toBeNull();
     expect(result!.event.source.chatType).toBe("im");
@@ -757,9 +678,8 @@ describe("DM threading", () => {
   });
 
   it("threaded DM preserves threadTs", () => {
-    const config = makeConfig();
     const event = makeDmEvent({ thread_ts: "1700000000.000050" });
-    const result = normalizeSlackDirectMessage(event, "evt-dm-2", config);
+    const result = normalizeSlackDirectMessage(event, "evt-dm-2");
 
     expect(result).not.toBeNull();
     expect(result!.event.source.chatType).toBe("im");
@@ -770,7 +690,6 @@ describe("DM threading", () => {
 
 describe("Slack text rendering in normalized message content", () => {
   it("renders channel refs from render context channel labels", () => {
-    const config = makeConfig();
     const event = makeAppMentionEvent({
       text: "<@UBOT> please continue in <#CFEEDBACK>",
     });
@@ -778,7 +697,6 @@ describe("Slack text rendering in normalized message content", () => {
     const result = normalizeSlackAppMention(
       event,
       "evt-channel-label",
-      config,
       undefined,
       {
         userLabels: { UBOT: "assistant" },
@@ -794,16 +712,11 @@ describe("Slack text rendering in normalized message content", () => {
   });
 
   it("falls back to unknown-channel when no channel label is available", () => {
-    const config = makeConfig();
     const event = makeChannelEvent({
       text: "please continue in <#CUNKNOWN>",
     });
 
-    const result = normalizeSlackChannelMessage(
-      event,
-      "evt-channel-fallback",
-      config,
-    );
+    const result = normalizeSlackChannelMessage(event, "evt-channel-fallback");
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBe(
@@ -871,7 +784,6 @@ function makeAppMentionEvent(
 describe("attachment extraction in normalize functions", () => {
   describe("normalizeSlackDirectMessage", () => {
     it("populates attachments with type 'image' for image files", () => {
-      const config = makeConfig();
       const event = makeDmEvent({
         files: [
           makeSlackFile({
@@ -886,7 +798,7 @@ describe("attachment extraction in normalize functions", () => {
           }),
         ],
       });
-      const result = normalizeSlackDirectMessage(event, "evt-1", config);
+      const result = normalizeSlackDirectMessage(event, "evt-1");
 
       expect(result).not.toBeNull();
       expect(result!.event.message.attachments).toHaveLength(2);
@@ -913,7 +825,6 @@ describe("attachment extraction in normalize functions", () => {
     });
 
     it("populates attachments with type 'document' for non-image files", () => {
-      const config = makeConfig();
       const event = makeDmEvent({
         files: [
           makeSlackFile({
@@ -924,7 +835,7 @@ describe("attachment extraction in normalize functions", () => {
           }),
         ],
       });
-      const result = normalizeSlackDirectMessage(event, "evt-2", config);
+      const result = normalizeSlackDirectMessage(event, "evt-2");
 
       expect(result).not.toBeNull();
       expect(result!.event.message.attachments).toHaveLength(1);
@@ -938,7 +849,6 @@ describe("attachment extraction in normalize functions", () => {
     });
 
     it("filters out files missing download URLs", () => {
-      const config = makeConfig();
       const event = makeDmEvent({
         files: [
           makeSlackFile({ id: "F004" }),
@@ -949,7 +859,7 @@ describe("attachment extraction in normalize functions", () => {
           }),
         ],
       });
-      const result = normalizeSlackDirectMessage(event, "evt-3", config);
+      const result = normalizeSlackDirectMessage(event, "evt-3");
 
       expect(result).not.toBeNull();
       // Only F004 has download URLs
@@ -960,9 +870,8 @@ describe("attachment extraction in normalize functions", () => {
     });
 
     it("omits attachments field when files is empty", () => {
-      const config = makeConfig();
       const event = makeDmEvent({ files: [] });
-      const result = normalizeSlackDirectMessage(event, "evt-4", config);
+      const result = normalizeSlackDirectMessage(event, "evt-4");
 
       expect(result).not.toBeNull();
       expect(result!.event.message.attachments).toBeUndefined();
@@ -970,9 +879,8 @@ describe("attachment extraction in normalize functions", () => {
     });
 
     it("omits attachments field when files is undefined", () => {
-      const config = makeConfig();
       const event = makeDmEvent();
-      const result = normalizeSlackDirectMessage(event, "evt-5", config);
+      const result = normalizeSlackDirectMessage(event, "evt-5");
 
       expect(result).not.toBeNull();
       expect(result!.event.message.attachments).toBeUndefined();
@@ -982,7 +890,6 @@ describe("attachment extraction in normalize functions", () => {
 
   describe("normalizeSlackChannelMessage", () => {
     it("populates attachments for channel messages with files", () => {
-      const config = makeConfig();
       const event = makeChannelEvent({
         files: [
           makeSlackFile({
@@ -992,7 +899,7 @@ describe("attachment extraction in normalize functions", () => {
           }),
         ],
       });
-      const result = normalizeSlackChannelMessage(event, "evt-ch-1", config);
+      const result = normalizeSlackChannelMessage(event, "evt-ch-1");
 
       expect(result).not.toBeNull();
       expect(result!.event.message.attachments).toHaveLength(1);
@@ -1011,7 +918,6 @@ describe("attachment extraction in normalize functions", () => {
   describe("file_share subtype handling", () => {
     describe("normalizeSlackDirectMessage", () => {
       it("normalizes DM with file_share subtype and files", () => {
-        const config = makeConfig();
         const event = makeDmEvent({
           subtype: "file_share",
           files: [
@@ -1022,7 +928,7 @@ describe("attachment extraction in normalize functions", () => {
             }),
           ],
         });
-        const result = normalizeSlackDirectMessage(event, "evt-fs-1", config);
+        const result = normalizeSlackDirectMessage(event, "evt-fs-1");
 
         expect(result).not.toBeNull();
         expect(result!.event.message.attachments).toHaveLength(1);
@@ -1033,7 +939,6 @@ describe("attachment extraction in normalize functions", () => {
       });
 
       it("normalizes DM file_share mentions without stripping the bot mention", () => {
-        const config = makeConfig();
         const event = makeDmEvent({
           subtype: "file_share",
           text: "<@UBOT> <@ULEO> shared this",
@@ -1048,7 +953,6 @@ describe("attachment extraction in normalize functions", () => {
         const result = normalizeSlackDirectMessage(
           event,
           "evt-fs-mentions-dm",
-          config,
           undefined,
           { userLabels: { UBOT: "assistant", ULEO: "leo" } },
         );
@@ -1065,9 +969,8 @@ describe("attachment extraction in normalize functions", () => {
       });
 
       it("normalizes DM with file_share subtype without files", () => {
-        const config = makeConfig();
         const event = makeDmEvent({ subtype: "file_share" });
-        const result = normalizeSlackDirectMessage(event, "evt-fs-2", config);
+        const result = normalizeSlackDirectMessage(event, "evt-fs-2");
 
         expect(result).not.toBeNull();
         expect(result!.event.message.content).toBe("hello");
@@ -1075,9 +978,8 @@ describe("attachment extraction in normalize functions", () => {
       });
 
       it("drops DM with bot_message subtype", () => {
-        const config = makeConfig();
         const event = makeDmEvent({ subtype: "bot_message" });
-        const result = normalizeSlackDirectMessage(event, "evt-fs-3", config);
+        const result = normalizeSlackDirectMessage(event, "evt-fs-3");
 
         expect(result).toBeNull();
       });
@@ -1085,7 +987,6 @@ describe("attachment extraction in normalize functions", () => {
 
     describe("normalizeSlackChannelMessage", () => {
       it("normalizes channel message with file_share subtype and files", () => {
-        const config = makeConfig();
         const event = makeChannelEvent({
           subtype: "file_share",
           files: [
@@ -1096,7 +997,7 @@ describe("attachment extraction in normalize functions", () => {
             }),
           ],
         });
-        const result = normalizeSlackChannelMessage(event, "evt-fs-4", config);
+        const result = normalizeSlackChannelMessage(event, "evt-fs-4");
 
         expect(result).not.toBeNull();
         expect(result!.event.message.attachments).toHaveLength(1);
@@ -1106,7 +1007,6 @@ describe("attachment extraction in normalize functions", () => {
       });
 
       it("normalizes channel file_share mentions and renders the bot mention", () => {
-        const config = makeConfig();
         const event = makeChannelEvent({
           subtype: "file_share",
           text: "<@UBOT> <@ULEO> shared this",
@@ -1121,7 +1021,6 @@ describe("attachment extraction in normalize functions", () => {
         const result = normalizeSlackChannelMessage(
           event,
           "evt-fs-mentions-channel",
-          config,
           undefined,
           { userLabels: { UBOT: "vex", ULEO: "leo" } },
         );
@@ -1142,9 +1041,8 @@ describe("attachment extraction in normalize functions", () => {
       });
 
       it("normalizes channel message with file_share subtype without files", () => {
-        const config = makeConfig();
         const event = makeChannelEvent({ subtype: "file_share" });
-        const result = normalizeSlackChannelMessage(event, "evt-fs-5", config);
+        const result = normalizeSlackChannelMessage(event, "evt-fs-5");
 
         expect(result).not.toBeNull();
         expect(result!.event.message.content).toBe("hello");
@@ -1152,9 +1050,8 @@ describe("attachment extraction in normalize functions", () => {
       });
 
       it("drops channel message with bot_message subtype", () => {
-        const config = makeConfig();
         const event = makeChannelEvent({ subtype: "bot_message" });
-        const result = normalizeSlackChannelMessage(event, "evt-fs-6", config);
+        const result = normalizeSlackChannelMessage(event, "evt-fs-6");
 
         expect(result).toBeNull();
       });
@@ -1163,7 +1060,6 @@ describe("attachment extraction in normalize functions", () => {
 
   describe("normalizeSlackAppMention", () => {
     it("populates attachments for app mention events with files", () => {
-      const config = makeConfig();
       const event = makeAppMentionEvent({
         files: [
           makeSlackFile({
@@ -1174,7 +1070,7 @@ describe("attachment extraction in normalize functions", () => {
           }),
         ],
       });
-      const result = normalizeSlackAppMention(event, "evt-am-1", config);
+      const result = normalizeSlackAppMention(event, "evt-am-1");
 
       expect(result).not.toBeNull();
       expect(result!.event.message.attachments).toHaveLength(1);
@@ -1230,13 +1126,11 @@ function makeMessageChangedEvent(
 }
 
 describe("message event tolerant validation", () => {
-  const config = makeConfig();
-
   it("drops non-object message payloads instead of throwing", () => {
-    expect(normalizeSlackDirectMessage("nope", "evt-t1", config)).toBeNull();
-    expect(normalizeSlackDirectMessage(null, "evt-t2", config)).toBeNull();
-    expect(normalizeSlackChannelMessage(42, "evt-t3", config)).toBeNull();
-    expect(normalizeSlackAppMention(null, "evt-t4", config)).toBeNull();
+    expect(normalizeSlackDirectMessage("nope", "evt-t1")).toBeNull();
+    expect(normalizeSlackDirectMessage(null, "evt-t2")).toBeNull();
+    expect(normalizeSlackChannelMessage(42, "evt-t3")).toBeNull();
+    expect(normalizeSlackAppMention(null, "evt-t4")).toBeNull();
   });
 
   it("renders empty content for a non-string DM text instead of crashing", () => {
@@ -1253,7 +1147,6 @@ describe("message event tolerant validation", () => {
         text: 12345,
       },
       "evt-t5",
-      config,
     );
 
     expect(result).not.toBeNull();
@@ -1270,7 +1163,6 @@ describe("message event tolerant validation", () => {
         text: { rich: "obj" },
       },
       "evt-t6",
-      config,
     );
 
     expect(result).not.toBeNull();
@@ -1287,7 +1179,6 @@ describe("message event tolerant validation", () => {
         text: "hi",
       },
       "evt-t7",
-      config,
     );
 
     expect(result).toBeNull();
@@ -1303,7 +1194,6 @@ describe("message event tolerant validation", () => {
         text: "hi",
       },
       "evt-t8",
-      config,
     );
 
     expect(result).toBeNull();
@@ -1321,7 +1211,6 @@ describe("message event tolerant validation", () => {
         files: "not-an-array",
       },
       "evt-t9",
-      config,
     );
 
     expect(result).not.toBeNull();
@@ -1338,7 +1227,7 @@ describe("message event tolerant validation", () => {
       text: "hi",
       unexpected_field: "surprise",
     };
-    const result = normalizeSlackChannelMessage(payload, "evt-t10", config);
+    const result = normalizeSlackChannelMessage(payload, "evt-t10");
 
     expect(result).not.toBeNull();
     expect(result!.event.raw).toEqual(payload);
@@ -1357,7 +1246,6 @@ describe("message event tolerant validation", () => {
         text: "hi",
       },
       "evt-t11",
-      config,
     );
 
     expect(result).toBeNull();
@@ -1368,11 +1256,6 @@ describe("normalizeSlackMessageEdit", () => {
   it("normalizes an edit in a subscribed channel (not DM, not bot thread)", () => {
     // Bot is subscribed to the channel via a conversation_id routing entry —
     // this is the case PR 4 expanded the gateway filter to admit.
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
-      ],
-    });
     const event = makeMessageChangedEvent({
       channel: "C456",
       channelType: "channel",
@@ -1382,15 +1265,15 @@ describe("normalizeSlackMessageEdit", () => {
     });
     const eventId = "Ev0XYZ";
 
-    const result = normalizeSlackMessageEdit(event, eventId, config);
+    const result = normalizeSlackMessageEdit(event, eventId);
 
     expect(result).not.toBeNull();
     expect(result!.event.message.isEdit).toBe(true);
     expect(result!.event.message.conversationExternalId).toBe("C456");
     expect(result!.event.actor.actorExternalId).toBe("U123");
     expect(result!.event.source.chatType).toBe("channel");
-    expect(result!.routing.assistantId).toBe("ast-2");
-    expect(result!.routing.routeSource).toBe("conversation_id");
+    expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
+    expect(result!.routing.routeSource).toBe("default");
 
     // PR 3 invariant: source.messageId is the original Slack ts (the lookup
     // key the daemon uses to find the prior message), and externalMessageId
@@ -1404,17 +1287,12 @@ describe("normalizeSlackMessageEdit", () => {
   });
 
   it("uses message ts as threadTs for top-level channel edits", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
-      ],
-    });
     const event = makeMessageChangedEvent({
       channel: "C456",
       channelType: "channel",
       messageTs: "1700000000.000100",
     });
-    const result = normalizeSlackMessageEdit(event, "Ev1", config);
+    const result = normalizeSlackMessageEdit(event, "Ev1");
 
     expect(result).not.toBeNull();
     // For channel edits without a thread_ts, fall back to the message ts so
@@ -1424,18 +1302,13 @@ describe("normalizeSlackMessageEdit", () => {
   });
 
   it("preserves thread_ts on a threaded channel edit", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
-      ],
-    });
     const event = makeMessageChangedEvent({
       channel: "C456",
       channelType: "channel",
       messageTs: "1700000000.000150",
       threadTs: "1700000000.000050",
     });
-    const result = normalizeSlackMessageEdit(event, "Ev2", config);
+    const result = normalizeSlackMessageEdit(event, "Ev2");
 
     expect(result).not.toBeNull();
     expect(result!.threadTs).toBe("1700000000.000050");
@@ -1445,14 +1318,11 @@ describe("normalizeSlackMessageEdit", () => {
   it("resolves an edit in an unrouted non-DM channel to the local assistant", () => {
     // Previously dropped as unroutable; the gateway now normalizes it and
     // leaves the admittance decision to the admission floor.
-    const config = makeConfig({
-      routingEntries: [],
-    });
     const event = makeMessageChangedEvent({
       channel: "C999",
       channelType: "channel",
     });
-    const result = normalizeSlackMessageEdit(event, "Ev3", config);
+    const result = normalizeSlackMessageEdit(event, "Ev3");
 
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
@@ -1460,20 +1330,14 @@ describe("normalizeSlackMessageEdit", () => {
 
   // Self-authored edits are now filtered upstream in processEventPayload.
   it("does not filter edits by bot user (handled upstream)", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
-      ],
-    });
     const event = makeMessageChangedEvent({ user: "UBOT" });
-    const result = normalizeSlackMessageEdit(event, "Ev4", config);
+    const result = normalizeSlackMessageEdit(event, "Ev4");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("UBOT");
   });
 
   it("infers DM from channel ID prefix when channel_type is absent", () => {
-    const config = makeConfig();
     // Build the event directly so `channel_type` is truly absent — the
     // makeMessageChangedEvent helper coalesces undefined back to "channel".
     const event: SlackMessageChangedEvent = {
@@ -1494,7 +1358,7 @@ describe("normalizeSlackMessageEdit", () => {
         ts: "1700000000.000100",
       },
     };
-    const result = normalizeSlackMessageEdit(event, "Ev5", config);
+    const result = normalizeSlackMessageEdit(event, "Ev5");
 
     // Previously this needed the DM-prefix fallback to survive the unmapped
     // reject policy; it now resolves locally like any other identified event.
@@ -1531,7 +1395,6 @@ function makeMessageDeletedEvent(
 
 describe("normalizeSlackMessageDelete", () => {
   it("normalizes a DM delete with the message_deleted sentinel", () => {
-    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
       channel_type: "im",
@@ -1541,7 +1404,7 @@ describe("normalizeSlackMessageDelete", () => {
         ts: "1700000000.000100",
       },
     });
-    const result = normalizeSlackMessageDelete(event, "evt-del-dm", config);
+    const result = normalizeSlackMessageDelete(event, "evt-del-dm");
 
     expect(result).not.toBeNull();
     expect(result!.event.sourceChannel).toBe("slack");
@@ -1560,9 +1423,8 @@ describe("normalizeSlackMessageDelete", () => {
   });
 
   it("normalizes a channel delete with the message_deleted sentinel", () => {
-    const config = makeConfig();
     const event = makeMessageDeletedEvent();
-    const result = normalizeSlackMessageDelete(event, "evt-del-ch", config);
+    const result = normalizeSlackMessageDelete(event, "evt-del-ch");
 
     expect(result).not.toBeNull();
     expect(result!.event.message.callbackData).toBe("message_deleted");
@@ -1577,7 +1439,6 @@ describe("normalizeSlackMessageDelete", () => {
   });
 
   it("preserves threadTs from the previous_message thread root", () => {
-    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       previous_message: {
         user: "U123",
@@ -1586,35 +1447,29 @@ describe("normalizeSlackMessageDelete", () => {
         thread_ts: "1700000000.000050",
       },
     });
-    const result = normalizeSlackMessageDelete(event, "evt-del-thr", config);
+    const result = normalizeSlackMessageDelete(event, "evt-del-thr");
 
     expect(result).not.toBeNull();
     expect(result!.threadTs).toBe("1700000000.000050");
   });
 
   it("returns null when deleted_ts is missing", () => {
-    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       deleted_ts: undefined as unknown as string,
     });
-    const result = normalizeSlackMessageDelete(event, "evt-del-bad", config);
+    const result = normalizeSlackMessageDelete(event, "evt-del-bad");
 
     expect(result).toBeNull();
   });
 
   it("falls back to a synthetic actor when previous_message.user is missing", () => {
-    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       previous_message: {
         text: "[no user]",
         ts: "1700000000.000100",
       },
     });
-    const result = normalizeSlackMessageDelete(
-      event,
-      "evt-del-no-user",
-      config,
-    );
+    const result = normalizeSlackMessageDelete(event, "evt-del-no-user");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("slack-system");
@@ -1623,45 +1478,30 @@ describe("normalizeSlackMessageDelete", () => {
   it("resolves an unrouted channel delete to the local assistant", () => {
     // Previously dropped by the unmapped reject policy. Admission, not
     // routing, now decides whether an unrouted channel is allowed through.
-    const config = makeConfig();
     const event = makeMessageDeletedEvent();
-    const result = normalizeSlackMessageDelete(
-      event,
-      "evt-del-noroute",
-      config,
-    );
+    const result = normalizeSlackMessageDelete(event, "evt-del-noroute");
 
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   it("resolves DM deletes to the local assistant when the channel is unrouted", () => {
-    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
       channel_type: "im",
     });
-    const result = normalizeSlackMessageDelete(
-      event,
-      "evt-del-dm-default",
-      config,
-    );
+    const result = normalizeSlackMessageDelete(event, "evt-del-dm-default");
 
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
   });
 
   it("infers DM from channel ID prefix when channel_type is absent", () => {
-    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
       channel_type: undefined,
     });
-    const result = normalizeSlackMessageDelete(
-      event,
-      "evt-del-dm-infer",
-      config,
-    );
+    const result = normalizeSlackMessageDelete(event, "evt-del-dm-infer");
 
     // Previously this needed the DM-prefix fallback to survive the unmapped
     // reject policy; it now resolves locally like any other identified event.
@@ -1674,7 +1514,6 @@ describe("normalizeSlackMessageDelete", () => {
   it("does not filter deletes by bot user (handled upstream)", () => {
     // Self-authored deletes are filtered in processEventPayload's single
     // self-filter, not in the normalizer.
-    const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
       channel_type: "im",
@@ -1685,7 +1524,7 @@ describe("normalizeSlackMessageDelete", () => {
       },
     });
     // Self-authored deletes are now filtered upstream in processEventPayload.
-    const result = normalizeSlackMessageDelete(event, "evt-del-self", config);
+    const result = normalizeSlackMessageDelete(event, "evt-del-self");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.actorExternalId).toBe("UBOT");
@@ -1693,15 +1532,13 @@ describe("normalizeSlackMessageDelete", () => {
 });
 
 describe("message edit/delete tolerant validation", () => {
-  const config = makeConfig();
-
   it("drops non-object edit/delete payloads instead of throwing", () => {
     // Socket frames are unvalidated JSON.parse output; a scalar where an object
     // is expected must be dropped at the boundary, not crash the batch.
-    expect(normalizeSlackMessageEdit("nope", "evt-me1", config)).toBeNull();
-    expect(normalizeSlackMessageEdit(null, "evt-me2", config)).toBeNull();
-    expect(normalizeSlackMessageDelete(42, "evt-md1", config)).toBeNull();
-    expect(normalizeSlackMessageDelete(null, "evt-md2", config)).toBeNull();
+    expect(normalizeSlackMessageEdit("nope", "evt-me1")).toBeNull();
+    expect(normalizeSlackMessageEdit(null, "evt-me2")).toBeNull();
+    expect(normalizeSlackMessageDelete(42, "evt-md1")).toBeNull();
+    expect(normalizeSlackMessageDelete(null, "evt-md2")).toBeNull();
   });
 
   it("collapses a non-object edit message to undefined and drops the event", () => {
@@ -1713,7 +1550,6 @@ describe("message edit/delete tolerant validation", () => {
         message: "not-an-object",
       },
       "evt-me3",
-      config,
     );
 
     expect(result).toBeNull();
@@ -1727,7 +1563,6 @@ describe("message edit/delete tolerant validation", () => {
         message: { user: "U123", text: "hi", ts: "1700000000.000100" },
       },
       "evt-me4",
-      config,
     );
 
     expect(result).toBeNull();
@@ -1742,7 +1577,6 @@ describe("message edit/delete tolerant validation", () => {
         message: { user: "U123", text: "hi", ts: { bogus: true } },
       },
       "evt-me5",
-      config,
     );
 
     expect(result).toBeNull();
@@ -1759,7 +1593,6 @@ describe("message edit/delete tolerant validation", () => {
         message: { user: "U123", ts: "1700000000.000100" },
       },
       "evt-me6",
-      config,
     );
 
     expect(result).not.toBeNull();
@@ -1775,7 +1608,7 @@ describe("message edit/delete tolerant validation", () => {
       message: { user: "U123", text: "hi", ts: "1700000000.000100" },
       unexpected_field: "surprise",
     };
-    const result = normalizeSlackMessageEdit(payload, "evt-me7", config);
+    const result = normalizeSlackMessageEdit(payload, "evt-me7");
 
     expect(result).not.toBeNull();
     expect(result!.event.raw).toEqual(payload);
@@ -1790,7 +1623,6 @@ describe("message edit/delete tolerant validation", () => {
         deleted_ts: "1700000000.000100",
       },
       "evt-md3",
-      config,
     );
 
     expect(result).toBeNull();
@@ -1805,7 +1637,7 @@ describe("message edit/delete tolerant validation", () => {
       previous_message: { user: "U123", text: "gone", ts: "1700000000.000100" },
       unexpected_field: "surprise",
     };
-    const result = normalizeSlackMessageDelete(payload, "evt-md4", config);
+    const result = normalizeSlackMessageDelete(payload, "evt-md4");
 
     expect(result).not.toBeNull();
     expect(result!.event.raw).toEqual(payload);
@@ -1821,18 +1653,16 @@ describe("message edit/delete tolerant validation", () => {
 describe("source.threadId propagation", () => {
   describe("normalizeSlackDirectMessage", () => {
     it("populates source.threadId when thread_ts is present", () => {
-      const config = makeConfig();
       const event = makeDmEvent({ thread_ts: "1700000000.111111" });
-      const result = normalizeSlackDirectMessage(event, "evt-tid-1", config);
+      const result = normalizeSlackDirectMessage(event, "evt-tid-1");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBe("1700000000.111111");
     });
 
     it("omits source.threadId when thread_ts is absent", () => {
-      const config = makeConfig();
       const event = makeDmEvent();
-      const result = normalizeSlackDirectMessage(event, "evt-tid-2", config);
+      const result = normalizeSlackDirectMessage(event, "evt-tid-2");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
@@ -1841,18 +1671,16 @@ describe("source.threadId propagation", () => {
 
   describe("normalizeSlackChannelMessage", () => {
     it("populates source.threadId when thread_ts is present", () => {
-      const config = makeConfig();
       const event = makeChannelEvent({ thread_ts: "1700000000.222222" });
-      const result = normalizeSlackChannelMessage(event, "evt-tid-3", config);
+      const result = normalizeSlackChannelMessage(event, "evt-tid-3");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBe("1700000000.222222");
     });
 
     it("omits source.threadId when thread_ts is absent (top-level channel message)", () => {
-      const config = makeConfig();
       const event = makeChannelEvent();
-      const result = normalizeSlackChannelMessage(event, "evt-tid-4", config);
+      const result = normalizeSlackChannelMessage(event, "evt-tid-4");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
@@ -1861,18 +1689,16 @@ describe("source.threadId propagation", () => {
 
   describe("normalizeSlackAppMention", () => {
     it("populates source.threadId when thread_ts is present", () => {
-      const config = makeConfig();
       const event = makeAppMentionEvent({ thread_ts: "1700000000.333333" });
-      const result = normalizeSlackAppMention(event, "evt-tid-5", config);
+      const result = normalizeSlackAppMention(event, "evt-tid-5");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBe("1700000000.333333");
     });
 
     it("omits source.threadId when thread_ts is absent", () => {
-      const config = makeConfig();
       const event = makeAppMentionEvent();
-      const result = normalizeSlackAppMention(event, "evt-tid-6", config);
+      const result = normalizeSlackAppMention(event, "evt-tid-6");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
@@ -1881,27 +1707,24 @@ describe("source.threadId propagation", () => {
 
   describe("actor team ID capture", () => {
     it("captures event.team as actor.teamId for channel messages", () => {
-      const config = makeConfig();
       const event = makeChannelEvent({ team: "T999" });
-      const result = normalizeSlackChannelMessage(event, "evt-team-1", config);
+      const result = normalizeSlackChannelMessage(event, "evt-team-1");
 
       expect(result).not.toBeNull();
       expect(result!.event.actor.teamId).toBe("T999");
     });
 
     it("captures event.team as actor.teamId for app mentions", () => {
-      const config = makeConfig();
       const event = makeAppMentionEvent({ team: "T999" });
-      const result = normalizeSlackAppMention(event, "evt-team-2", config);
+      const result = normalizeSlackAppMention(event, "evt-team-2");
 
       expect(result).not.toBeNull();
       expect(result!.event.actor.teamId).toBe("T999");
     });
 
     it("omits actor.teamId when the event carries no team", () => {
-      const config = makeConfig();
       const event = makeChannelEvent();
-      const result = normalizeSlackChannelMessage(event, "evt-team-3", config);
+      const result = normalizeSlackChannelMessage(event, "evt-team-3");
 
       expect(result).not.toBeNull();
       expect(result!.event.actor.teamId).toBeUndefined();
@@ -1910,11 +1733,10 @@ describe("source.threadId propagation", () => {
 
   describe("normalizeSlackReactionAdded", () => {
     it("populates source.threadId with the reacted message's ts", () => {
-      const config = makeConfig();
       const event = makeReactionAddedEvent({
         messageTs: "1700000000.444444",
       });
-      const result = normalizeSlackReactionAdded(event, "evt-tid-7", config);
+      const result = normalizeSlackReactionAdded(event, "evt-tid-7");
 
       expect(result).not.toBeNull();
       // Reactions route replies against the reacted message, so threadId
@@ -1926,40 +1748,29 @@ describe("source.threadId propagation", () => {
 
   describe("normalizeSlackMessageEdit", () => {
     it("populates source.threadId for channel edits inside a thread", () => {
-      const config = makeConfig({
-        routingEntries: [
-          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
-        ],
-      });
       const event = makeMessageChangedEvent({
         threadTs: "1700000000.555555",
       });
-      const result = normalizeSlackMessageEdit(event, "evt-tid-8", config);
+      const result = normalizeSlackMessageEdit(event, "evt-tid-8");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBe("1700000000.555555");
     });
 
     it("omits source.threadId for channel edits with no thread", () => {
-      const config = makeConfig({
-        routingEntries: [
-          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
-        ],
-      });
       const event = makeMessageChangedEvent();
-      const result = normalizeSlackMessageEdit(event, "evt-tid-9", config);
+      const result = normalizeSlackMessageEdit(event, "evt-tid-9");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
     });
 
     it("omits source.threadId for DM edits with no thread", () => {
-      const config = makeConfig();
       const event = makeMessageChangedEvent({
         channel: "D789",
         channelType: "im",
       });
-      const result = normalizeSlackMessageEdit(event, "evt-tid-10", config);
+      const result = normalizeSlackMessageEdit(event, "evt-tid-10");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
@@ -1968,23 +1779,21 @@ describe("source.threadId propagation", () => {
 
   describe("normalizeSlackBlockActions", () => {
     it("populates source.threadId when message.thread_ts is present", () => {
-      const config = makeConfig();
       const payload = makeBlockActionsPayload();
       payload.message = {
         ts: "1234567890.999999",
         thread_ts: "1234567890.000001",
         text: "Choose an option",
       };
-      const result = normalizeSlackBlockActions(payload, "env-tid-1", config);
+      const result = normalizeSlackBlockActions(payload, "env-tid-1");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBe("1234567890.000001");
     });
 
     it("omits source.threadId when message.thread_ts is absent", () => {
-      const config = makeConfig();
       const payload = makeBlockActionsPayload();
-      const result = normalizeSlackBlockActions(payload, "env-tid-2", config);
+      const result = normalizeSlackBlockActions(payload, "env-tid-2");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
@@ -1993,7 +1802,6 @@ describe("source.threadId propagation", () => {
 
   describe("normalizeSlackMessageDelete", () => {
     it("populates source.threadId for deletes of threaded messages", () => {
-      const config = makeConfig();
       const event = makeMessageDeletedEvent({
         previous_message: {
           user: "U123",
@@ -2002,16 +1810,15 @@ describe("source.threadId propagation", () => {
           thread_ts: "parent_ts",
         },
       });
-      const result = normalizeSlackMessageDelete(event, "evt-tid-11", config);
+      const result = normalizeSlackMessageDelete(event, "evt-tid-11");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBe("parent_ts");
     });
 
     it("omits source.threadId for deletes of top-level messages", () => {
-      const config = makeConfig();
       const event = makeMessageDeletedEvent();
-      const result = normalizeSlackMessageDelete(event, "evt-tid-12", config);
+      const result = normalizeSlackMessageDelete(event, "evt-tid-12");
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
@@ -2021,7 +1828,6 @@ describe("source.threadId propagation", () => {
 
 describe("bot sender classification", () => {
   it("marks a DM from another bot as a bot sender", () => {
-    const config = makeConfig();
     const event = makeDmEvent({
       user: "UBOT99",
       bot_id: "B0AGENT",
@@ -2032,7 +1838,7 @@ describe("bot sender classification", () => {
         team_id: "T0EXAMPLE",
       },
     });
-    const result = normalizeSlackDirectMessage(event, "evt-bot-1", config);
+    const result = normalizeSlackDirectMessage(event, "evt-bot-1");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.isBot).toBe(true);
@@ -2045,12 +1851,11 @@ describe("bot sender classification", () => {
   });
 
   it("marks a channel message from another bot as a bot sender", () => {
-    const config = makeConfig();
     const event = makeChannelEvent({
       user: "UBOT99",
       bot_id: "B0AGENT",
     });
-    const result = normalizeSlackChannelMessage(event, "evt-bot-2", config);
+    const result = normalizeSlackChannelMessage(event, "evt-bot-2");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.isBot).toBe(true);
@@ -2058,13 +1863,12 @@ describe("bot sender classification", () => {
   });
 
   it("marks an app_mention from another bot as a bot sender", () => {
-    const config = makeConfig();
     const event = makeAppMentionEvent({
       user: "UBOT99",
       bot_id: "B0AGENT",
       bot_profile: { name: "Peer Assistant" },
     });
-    const result = normalizeSlackAppMention(event, "evt-bot-3", config);
+    const result = normalizeSlackAppMention(event, "evt-bot-3");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.isBot).toBe(true);
@@ -2075,12 +1879,7 @@ describe("bot sender classification", () => {
   });
 
   it("does not mark a human sender as a bot", () => {
-    const config = makeConfig();
-    const result = normalizeSlackDirectMessage(
-      makeDmEvent(),
-      "evt-bot-4",
-      config,
-    );
+    const result = normalizeSlackDirectMessage(makeDmEvent(), "evt-bot-4");
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.isBot).toBeUndefined();
@@ -2111,13 +1910,11 @@ describe("slackBotContactNote", () => {
 
 describe("enrichNormalizedActor", () => {
   it("classifies an is_bot-only sender as a bot after profile resolution", () => {
-    const config = makeConfig();
     // No bot_id on the event and no cached profile — normalization alone
     // cannot detect the bot.
     const normalized = normalizeSlackDirectMessage(
       makeDmEvent({ user: "UBOT99" }),
       "evt-enrich-1",
-      config,
     );
     expect(normalized).not.toBeNull();
     expect(normalized!.botSender).toBeUndefined();
@@ -2134,11 +1931,9 @@ describe("enrichNormalizedActor", () => {
   });
 
   it("does not classify a human sender as a bot", () => {
-    const config = makeConfig();
     const normalized = normalizeSlackDirectMessage(
       makeDmEvent(),
       "evt-enrich-2",
-      config,
     );
     expect(normalized).not.toBeNull();
 
@@ -2153,7 +1948,6 @@ describe("enrichNormalizedActor", () => {
   });
 
   it("preserves an existing botSender derived from bot_id", () => {
-    const config = makeConfig();
     const normalized = normalizeSlackDirectMessage(
       makeDmEvent({
         user: "UBOT99",
@@ -2161,7 +1955,6 @@ describe("enrichNormalizedActor", () => {
         bot_profile: { name: "Peer Assistant", app_id: "A0EXAMPLE" },
       }),
       "evt-enrich-3",
-      config,
     );
     expect(normalized).not.toBeNull();
 
@@ -2194,9 +1987,8 @@ describe("DM app_context", () => {
   };
 
   it("carries the entities the sender had open", () => {
-    const config = makeConfig();
     const event = makeDmEvent({ app_context: { entities: [CHANNEL_ENTITY] } });
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-1", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-1");
 
     expect(result).not.toBeNull();
     expect(result!.event.source.appContext).toEqual({
@@ -2211,12 +2003,11 @@ describe("DM app_context", () => {
   });
 
   it("preserves entity order, which Slack sends by relevance", () => {
-    const config = makeConfig();
     const second = { type: "slack#/types/channel_id", value: "C0SECOND" };
     const event = makeDmEvent({
       app_context: { entities: [CHANNEL_ENTITY, second] },
     });
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-2", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-2");
 
     expect(
       result!.event.source.appContext?.entities.map((e) => e.value),
@@ -2224,33 +2015,26 @@ describe("DM app_context", () => {
   });
 
   it("omits appContext when the sender had nothing open", () => {
-    const config = makeConfig();
     // Slack sends an empty context object rather than dropping the field.
     const event = makeDmEvent({ app_context: {} });
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-3", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-3");
 
     expect(result!.event.source.appContext).toBeUndefined();
   });
 
   it("omits appContext when Slack sends no context at all", () => {
-    const config = makeConfig();
-    const result = normalizeSlackDirectMessage(
-      makeDmEvent(),
-      "evt-ctx-4",
-      config,
-    );
+    const result = normalizeSlackDirectMessage(makeDmEvent(), "evt-ctx-4");
 
     expect(result!.event.source.appContext).toBeUndefined();
   });
 
   it("drops a malformed context rather than failing the message", () => {
-    const config = makeConfig();
     // A DM whose context is garbage must still deliver — the message is the
     // payload, the context is an enrichment.
     const event = makeDmEvent({
       app_context: { entities: "not-an-array" },
     } as unknown as Partial<SlackDirectMessageEvent>);
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-5", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-5");
 
     expect(result).not.toBeNull();
     expect(result!.event.message.content).toBeTruthy();
@@ -2258,7 +2042,6 @@ describe("DM app_context", () => {
   });
 
   it("drops only the malformed entity, keeping its valid siblings", () => {
-    const config = makeConfig();
     // One bad entity must not take the usable ones with it: the message would
     // still deliver, but "summarize this" would go unresolved with the answer
     // sitting right there in the payload.
@@ -2271,7 +2054,7 @@ describe("DM app_context", () => {
         ],
       },
     } as unknown as Partial<SlackDirectMessageEvent>);
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-9", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-9");
 
     expect(result!.event.source.appContext?.entities).toEqual([
       {
@@ -2283,18 +2066,16 @@ describe("DM app_context", () => {
   });
 
   it("omits the context when every entity is malformed", () => {
-    const config = makeConfig();
     const event = makeDmEvent({
       app_context: { entities: [{ type: "slack#/types/channel_id" }] },
     } as unknown as Partial<SlackDirectMessageEvent>);
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-10", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-10");
 
     expect(result).not.toBeNull();
     expect(result!.event.source.appContext).toBeUndefined();
   });
 
   it("carries a message_context entity, whose value is an object not an id", () => {
-    const config = makeConfig();
     // The thread/message case — the one that resolves "summarise this". Its
     // `value` is an object, so a string-only schema silently drops it.
     const event = makeDmEvent({
@@ -2311,7 +2092,7 @@ describe("DM app_context", () => {
         ],
       },
     });
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-7", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-7");
 
     expect(result!.event.source.appContext?.entities[0]).toEqual({
       type: "slack#/types/message_context",
@@ -2321,13 +2102,12 @@ describe("DM app_context", () => {
   });
 
   it("carries enterprise_id when Slack sends one", () => {
-    const config = makeConfig();
     const event = makeDmEvent({
       app_context: {
         entities: [{ ...CHANNEL_ENTITY, enterprise_id: "E0GRID" }],
       },
     });
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-8", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-8");
 
     expect(result!.event.source.appContext?.entities[0]).toMatchObject({
       enterpriseId: "E0GRID",
@@ -2335,9 +2115,8 @@ describe("DM app_context", () => {
   });
 
   it("keeps the raw context verbatim on the event", () => {
-    const config = makeConfig();
     const event = makeDmEvent({ app_context: { entities: [CHANNEL_ENTITY] } });
-    const result = normalizeSlackDirectMessage(event, "evt-ctx-6", config);
+    const result = normalizeSlackDirectMessage(event, "evt-ctx-6");
 
     expect((result!.event.raw as Record<string, unknown>).app_context).toEqual({
       entities: [CHANNEL_ENTITY],

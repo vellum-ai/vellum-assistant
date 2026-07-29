@@ -8,8 +8,10 @@ import {
   renderSlackInboundText,
   type SlackTextRenderContext,
 } from "./render-text.js";
-import type { GatewayConfig } from "../config.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import {
+  hasRoutableIdentity,
+  LOCAL_ROUTE,
+} from "../routing/resolve-assistant.js";
 
 /**
  * Normalize a Slack `message_changed` event into the gateway's canonical
@@ -29,7 +31,6 @@ import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 export function normalizeSlackMessageEdit(
   event: unknown,
   eventId: string,
-  config: GatewayConfig,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageChangedEventSchema.safeParse(event);
@@ -52,8 +53,7 @@ export function normalizeSlackMessageEdit(
   const channel = changed.channel;
 
   const isDm = isSlackDmChannel(channel, changed.channel_type);
-  const routing = resolveAssistant(config, channel, edited.user);
-  if (isRejection(routing)) return null;
+  if (!hasRoutableIdentity(channel, edited.user)) return null;
 
   const content = renderSlackInboundText(edited.text ?? "", renderContext);
 
@@ -84,7 +84,7 @@ export function normalizeSlackMessageEdit(
       },
       raw: rawEvent,
     },
-    routing,
+    routing: LOCAL_ROUTE,
     // For DMs without a thread, omit threadTs so the reply goes directly in conversation.
     // For channels (or DMs already in a thread), fall back to edited.ts.
     ...(isDm && !edited.thread_ts
@@ -113,7 +113,6 @@ export function normalizeSlackMessageEdit(
 export function normalizeSlackMessageDelete(
   event: unknown,
   eventId: string,
-  config: GatewayConfig,
 ): NormalizedSlackEvent | null {
   const parsed = slackMessageDeletedEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -130,8 +129,7 @@ export function normalizeSlackMessageDelete(
   const actorId = deleted.previous_message?.user ?? "slack-system";
 
   const isDm = isSlackDmChannel(channel, deleted.channel_type);
-  const routing = resolveAssistant(config, channel, actorId);
-  if (isRejection(routing)) return null;
+  if (!hasRoutableIdentity(channel, actorId)) return null;
 
   const previousThreadTs = deleted.previous_message?.thread_ts;
 
@@ -161,7 +159,7 @@ export function normalizeSlackMessageDelete(
       },
       raw: rawEvent,
     },
-    routing,
+    routing: LOCAL_ROUTE,
     // Preserve thread context so downstream handling stays scoped to the
     // original conversation thread when applicable.
     ...(previousThreadTs ? { threadTs: previousThreadTs } : {}),

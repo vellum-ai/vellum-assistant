@@ -56,9 +56,6 @@ export const REFRESH_INACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 /** Suggest refresh at 80% of access token TTL. */
 export const REFRESH_AFTER_FRACTION = 0.8;
 
-/** The daemon's internal assistant scope identifier. */
-const DAEMON_INTERNAL_ASSISTANT_ID = LOCAL_ASSISTANT_ID;
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -104,9 +101,7 @@ function uuid(): string {
 }
 
 export function getExternalAssistantId(): string {
-  return (
-    process.env.VELLUM_ASSISTANT_NAME?.trim() || DAEMON_INTERNAL_ASSISTANT_ID
-  );
+  return process.env.VELLUM_ASSISTANT_NAME?.trim() || LOCAL_ASSISTANT_ID;
 }
 
 // ---------------------------------------------------------------------------

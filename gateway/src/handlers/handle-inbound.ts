@@ -13,7 +13,10 @@ import {
   canonicalizeInboundIdentity,
   canonicalSenderIdFor,
 } from "../verification/identity.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import {
+  hasRoutableIdentity,
+  LOCAL_ROUTE,
+} from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import {
   forwardToRuntime,
@@ -49,7 +52,7 @@ export type HandleInboundOptions = {
   transportMetadata?: TransportMetadataOverrides;
   replyCallbackUrl?: string;
   traceId?: string;
-  /** When provided, skip resolveAssistant() and use this pre-resolved route. */
+  /** When provided, use this pre-resolved route instead of LOCAL_ROUTE. */
   routingOverride?: RouteResult;
   /** Extra fields merged into sourceMetadata (e.g. commandIntent). */
   sourceMetadata?: Partial<SourceMetadata>;
@@ -113,28 +116,24 @@ export async function handleInbound(
     };
   }
 
-  const routing =
-    options?.routingOverride ??
-    resolveAssistant(
-      config,
+  if (
+    !hasRoutableIdentity(
       event.message.conversationExternalId,
       event.actor.actorExternalId,
-    );
-
-  if (isRejection(routing)) {
+    )
+  ) {
     log.info(
-      {
-        conversationExternalId: event.message.conversationExternalId,
-        reason: routing.reason,
-      },
-      "Inbound event rejected by routing",
+      { conversationExternalId: event.message.conversationExternalId },
+      "Inbound event dropped — no routable identity",
     );
     return {
       forwarded: false,
       rejected: true,
-      rejectionReason: routing.reason,
+      rejectionReason: "no_routable_identity",
     };
   }
+
+  const routing = options?.routingOverride ?? LOCAL_ROUTE;
 
   const displayName = event.actor.displayName || event.actor.username;
 

@@ -3,8 +3,10 @@ import {
   type SlackReactionEvent,
   type NormalizedSlackEvent,
 } from "./message-schemas.js";
-import type { GatewayConfig } from "../config.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import {
+  hasRoutableIdentity,
+  LOCAL_ROUTE,
+} from "../routing/resolve-assistant.js";
 
 /**
  * Shared normalizer for Slack reaction events. Both `reaction_added` and
@@ -15,7 +17,6 @@ function normalizeSlackReaction(
   event: SlackReactionEvent,
   rawEvent: Record<string, unknown>,
   eventId: string,
-  config: GatewayConfig,
   op: "added" | "removed",
 ): NormalizedSlackEvent | null {
   // `reaction` is load-bearing: it forms the `callbackData` and part of the
@@ -34,8 +35,7 @@ function normalizeSlackReaction(
 
   const channel = event.item.channel;
 
-  const routing = resolveAssistant(config, channel, event.user);
-  if (isRejection(routing)) return null;
+  if (!hasRoutableIdentity(channel, event.user)) return null;
 
   const prefix = op === "added" ? "reaction" : "reaction_removed";
   const callbackData = `${prefix}:${event.reaction}`;
@@ -69,7 +69,7 @@ function normalizeSlackReaction(
       },
       raw: rawEvent,
     },
-    routing,
+    routing: LOCAL_ROUTE,
     threadTs: event.item.ts,
     channel,
   };
@@ -86,7 +86,6 @@ function normalizeSlackReaction(
 export function normalizeSlackReactionAdded(
   event: unknown,
   eventId: string,
-  config: GatewayConfig,
 ): NormalizedSlackEvent | null {
   const parsed = slackReactionEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -94,7 +93,6 @@ export function normalizeSlackReactionAdded(
     parsed.data,
     event as Record<string, unknown>,
     eventId,
-    config,
     "added",
   );
 }
@@ -110,7 +108,6 @@ export function normalizeSlackReactionAdded(
 export function normalizeSlackReactionRemoved(
   event: unknown,
   eventId: string,
-  config: GatewayConfig,
 ): NormalizedSlackEvent | null {
   const parsed = slackReactionEventSchema.safeParse(event);
   if (!parsed.success) return null;
@@ -118,7 +115,6 @@ export function normalizeSlackReactionRemoved(
     parsed.data,
     event as Record<string, unknown>,
     eventId,
-    config,
     "removed",
   );
 }

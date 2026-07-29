@@ -1130,43 +1130,24 @@ export class SlackSocketModeClient {
 
     let normalized: NormalizedSlackEvent | null;
     if (isReactionAdded) {
-      normalized = normalizeSlackReactionAdded(
-        event,
-        eventId,
-        this.config.gatewayConfig,
-      );
+      normalized = normalizeSlackReactionAdded(event, eventId);
     } else if (isReactionRemoved) {
-      normalized = normalizeSlackReactionRemoved(
-        event,
-        eventId,
-        this.config.gatewayConfig,
-      );
+      normalized = normalizeSlackReactionRemoved(event, eventId);
     } else if (isAppMention) {
       normalized = normalizeSlackAppMention(
         event,
         eventId,
-        this.config.gatewayConfig,
         this.config.botToken,
         renderContext,
       );
     } else if (isMessageChanged) {
-      normalized = normalizeSlackMessageEdit(
-        event,
-        eventId,
-        this.config.gatewayConfig,
-        renderContext,
-      );
+      normalized = normalizeSlackMessageEdit(event, eventId, renderContext);
     } else if (isMessageDeleted) {
-      normalized = normalizeSlackMessageDelete(
-        event,
-        eventId,
-        this.config.gatewayConfig,
-      );
+      normalized = normalizeSlackMessageDelete(event, eventId);
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
         event,
         eventId,
-        this.config.gatewayConfig,
         this.config.botToken,
         renderContext,
       );
@@ -1174,7 +1155,6 @@ export class SlackSocketModeClient {
       normalized = normalizeSlackDirectMessage(
         event,
         eventId,
-        this.config.gatewayConfig,
         this.config.botToken,
         renderContext,
       );
@@ -1475,7 +1455,6 @@ export class SlackSocketModeClient {
     const normalized = normalizeSlackBlockActions(
       payload,
       envelopeId ?? "unknown",
-      this.config.gatewayConfig,
     );
     if (normalized) {
       this.onEvent(normalized);

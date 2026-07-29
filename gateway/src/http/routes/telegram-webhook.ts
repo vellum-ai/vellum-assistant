@@ -11,10 +11,7 @@ import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { readLimitedBody } from "../read-limited-body.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
-import {
-  resolveAssistant,
-  isRejection,
-} from "../../routing/resolve-assistant.js";
+import { hasRoutableIdentity } from "../../routing/resolve-assistant.js";
 import {
   AttachmentValidationError,
   CircuitBreakerOpenError,
@@ -321,18 +318,14 @@ export function createTelegramWebhookHandler(
     // Handle /start command — forward to runtime as a channel command intent
     const startCmd = parseTelegramStartCommand(normalized.message.content);
     if (startCmd !== null) {
-      const startRouting = resolveAssistant(
-        config,
-        normalized.message.conversationExternalId,
-        normalized.actor.actorExternalId,
-      );
-
-      if (isRejection(startRouting)) {
+      if (
+        !hasRoutableIdentity(
+          normalized.message.conversationExternalId,
+          normalized.actor.actorExternalId,
+        )
+      ) {
         tlog.warn(
-          {
-            chatId: normalized.message.conversationExternalId,
-            reason: startRouting.reason,
-          },
+          { chatId: normalized.message.conversationExternalId },
           "Routing rejected /start command",
         );
         if (
@@ -503,19 +496,15 @@ export function createTelegramWebhookHandler(
 
     // Handle /new command — reset conversation before it reaches the runtime
     if (isNewCommand(normalized.message.content)) {
-      const routing = resolveAssistant(
-        config,
-        normalized.message.conversationExternalId,
-        normalized.actor.actorExternalId,
-      );
-
-      if (isRejection(routing)) {
+      if (
+        !hasRoutableIdentity(
+          normalized.message.conversationExternalId,
+          normalized.actor.actorExternalId,
+        )
+      ) {
         tlog.warn(
-          {
-            chatId: normalized.message.conversationExternalId,
-            reason: routing.reason,
-          },
-          "Routing rejected /new command",
+          { chatId: normalized.message.conversationExternalId },
+          "Dropped /new command — no routable identity",
         );
         if (
           rejectionLimiter.shouldSend(normalized.message.conversationExternalId)
@@ -566,12 +555,10 @@ export function createTelegramWebhookHandler(
 
     // Check routing early so we can gate attachments
     const chatId = normalized.message.conversationExternalId;
-    const routing = resolveAssistant(
-      config,
+    const routable = hasRoutableIdentity(
       chatId,
       normalized.actor.actorExternalId,
     );
-    const routable = !isRejection(routing);
 
     // Download and upload attachments if present (skip for edits and callback
     // queries — edits only update text, callbacks have no media to process)

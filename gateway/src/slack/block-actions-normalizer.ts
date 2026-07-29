@@ -2,8 +2,10 @@ import {
   slackBlockActionsPayloadSchema,
   type NormalizedSlackEvent,
 } from "./message-schemas.js";
-import type { GatewayConfig } from "../config.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import {
+  hasRoutableIdentity,
+  LOCAL_ROUTE,
+} from "../routing/resolve-assistant.js";
 
 /**
  * Normalize a Slack `block_actions` interactive payload into the gateway's
@@ -18,7 +20,6 @@ import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 export function normalizeSlackBlockActions(
   payload: unknown,
   envelopeId: string,
-  config: GatewayConfig,
 ): NormalizedSlackEvent | null {
   const parsed = slackBlockActionsPayloadSchema.safeParse(payload);
   if (!parsed.success) return null;
@@ -38,8 +39,7 @@ export function normalizeSlackBlockActions(
   const channelId = data.channel?.id;
   if (!channelId) return null;
 
-  const routing = resolveAssistant(config, channelId, userId);
-  if (isRejection(routing)) return null;
+  if (!hasRoutableIdentity(channelId, userId)) return null;
 
   const messageTs = data.message?.ts;
   // Use action_ts (unique per click) to prevent dedup collisions when
@@ -73,7 +73,7 @@ export function normalizeSlackBlockActions(
       },
       raw: payload as Record<string, unknown>,
     },
-    routing,
+    routing: LOCAL_ROUTE,
     // Prefer the thread root so follow-up messages land in the original
     // conversation thread, not a reply's sub-thread.
     threadTs: data.message?.thread_ts ?? messageTs ?? envelopeId,

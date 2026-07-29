@@ -9,11 +9,7 @@ import {
   forwardTwilioVoiceWebhook,
   resolvePublicBaseWssUrl,
 } from "../../runtime/client.js";
-import {
-  resolveAssistant,
-  resolveAssistantByPhoneNumber,
-  isRejection,
-} from "../../routing/resolve-assistant.js";
+import { resolveAssistantByPhoneNumber } from "../../routing/resolve-assistant.js";
 import {
   validateTwilioWebhookRequest,
   type TwilioValidationCaches,
@@ -86,36 +82,16 @@ export function createTwilioVoiceWebhookHandler(
           "Resolved assistant by phone number for inbound call",
         );
       } else {
-        // Phone-number lookup missed — fall through to standard routing
-        // instead of silently forwarding with no assistant ID.
-        const fallbackRouting = resolveAssistant(
-          config,
-          params.From,
-          params.From,
+        // Phone-number lookup missed. Voice lines are intentionally open, so
+        // answer on the local assistant rather than dropping the call — a
+        // caller-ID-withheld (anonymous) call has no `From` to route on at
+        // all. The callee is still protected by the `phone` admission floor
+        // checked above.
+        assistantId = LOCAL_ASSISTANT_ID;
+        log.info(
+          { from: params.From, to: params.To },
+          "Inbound call routed to the local assistant",
         );
-
-        if (isRejection(fallbackRouting)) {
-          // The only rejection resolveAssistant produces is a missing
-          // identity, which here means a caller-ID-withheld (anonymous) call.
-          // Voice lines are intentionally open, so answer it on the local
-          // assistant rather than dropping it; the callee is still protected
-          // by the `phone` admission floor checked above.
-          assistantId = LOCAL_ASSISTANT_ID;
-          log.info(
-            { to: params.To },
-            "Anonymous inbound call routed to the local assistant",
-          );
-        } else {
-          assistantId = fallbackRouting.assistantId;
-          log.info(
-            {
-              assistantId,
-              routeSource: fallbackRouting.routeSource,
-              from: params.From,
-            },
-            "Resolved assistant via fallback routing for inbound call",
-          );
-        }
       }
 
       // ── Gateway-owned voice verification ────────────────────────────

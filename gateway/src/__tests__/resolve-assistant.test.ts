@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
-import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
+import {
+  hasRoutableIdentity,
+  LOCAL_ROUTE,
+  resolveAssistantByPhoneNumber,
+} from "../routing/resolve-assistant.js";
 import type { GatewayConfig } from "../config.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -29,124 +33,75 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-describe("resolveAssistant", () => {
-  test("resolves by conversation_id match", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "99001", assistantId: "assistant-a" },
-        { type: "actor_id", key: "55001", assistantId: "assistant-b" },
-      ],
-    });
-
-    const result = resolveAssistant(config, "99001", "55001");
-    expect(isRejection(result)).toBe(false);
-    if (!isRejection(result)) {
-      expect(result.assistantId).toBe("assistant-a");
-      expect(result.routeSource).toBe("conversation_id");
-    }
+describe("LOCAL_ROUTE", () => {
+  test("names the local assistant", () => {
+    expect(LOCAL_ROUTE.assistantId).toBe(LOCAL_ASSISTANT_ID);
+    expect(LOCAL_ROUTE.routeSource).toBe("default");
   });
 
-  test("falls back to actor_id when conversation_id does not match", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "99999", assistantId: "assistant-a" },
-        { type: "actor_id", key: "55001", assistantId: "assistant-b" },
-      ],
-    });
+  test("is frozen so a caller cannot mutate the shared route", () => {
+    expect(Object.isFrozen(LOCAL_ROUTE)).toBe(true);
+  });
+});
 
-    const result = resolveAssistant(config, "99001", "55001");
-    expect(isRejection(result)).toBe(false);
-    if (!isRejection(result)) {
-      expect(result.assistantId).toBe("assistant-b");
-      expect(result.routeSource).toBe("actor_id");
-    }
+describe("hasRoutableIdentity", () => {
+  test("accepts an event with either identity present", () => {
+    expect(hasRoutableIdentity("99001", "55001")).toBe(true);
+    expect(hasRoutableIdentity("99001", undefined)).toBe(true);
+    expect(hasRoutableIdentity(undefined, "55001")).toBe(true);
   });
 
-  test("falls back to the local assistant when no explicit match", () => {
-    const config = makeConfig();
-
-    const result = resolveAssistant(config, "99001", "55001");
-    expect(isRejection(result)).toBe(false);
-    if (!isRejection(result)) {
-      expect(result.assistantId).toBe(LOCAL_ASSISTANT_ID);
-      expect(result.routeSource).toBe("default");
-    }
-  });
-
-  test("conversation_id takes priority over actor_id for same assistant", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "actor_id", key: "55001", assistantId: "assistant-user" },
-        {
-          type: "conversation_id",
-          key: "99001",
-          assistantId: "assistant-chat",
-        },
-      ],
-    });
-
-    const result = resolveAssistant(config, "99001", "55001");
-    expect(isRejection(result)).toBe(false);
-    if (!isRejection(result)) {
-      expect(result.assistantId).toBe("assistant-chat");
-      expect(result.routeSource).toBe("conversation_id");
-    }
-  });
-
-  test("rejects a no-identity event", () => {
-    // Fail-closed: an event with neither a conversation nor an actor id has
-    // nothing to route on, so it must reject rather than fall through to the
-    // local assistant. This is the only rejection resolveAssistant produces.
-    const config = makeConfig();
-
+  test("rejects an event with neither identity", () => {
+    // Fail-closed: nothing to bind a conversation on, nothing to classify
+    // trust against. Empty strings count as absent.
     for (const [conversationId, actorId] of [
       ["", ""],
       [undefined, undefined],
       ["", undefined],
       [undefined, ""],
     ] as const) {
-      const result = resolveAssistant(config, conversationId, actorId);
-      expect(isRejection(result)).toBe(true);
-      if (isRejection(result)) {
-        expect(result.reason).toContain("No routable identity");
-      }
+      expect(hasRoutableIdentity(conversationId, actorId)).toBe(false);
     }
   });
+});
 
-  test("still resolves when only one identity is present and matches a route", () => {
-    const config = makeConfig({
-      routingEntries: [
-        { type: "conversation_id", key: "99001", assistantId: "assistant-a" },
-        { type: "actor_id", key: "55001", assistantId: "assistant-b" },
-      ],
+describe("resolveAssistantByPhoneNumber", () => {
+  const config = makeConfig();
+
+  function cacheWith(mapping: Record<string, string> | undefined) {
+    return {
+      getRecord: () => mapping,
+    } as unknown as Parameters<typeof resolveAssistantByPhoneNumber>[2];
+  }
+
+  test("resolves the assistant whose configured number was dialed", () => {
+    const result = resolveAssistantByPhoneNumber(
+      config,
+      "+12015550101",
+      cacheWith({ "ast-a": "+12015550101", "ast-b": "+12015550102" }),
+    );
+    expect(result).toEqual({
+      assistantId: "ast-a",
+      routeSource: "phone_number",
     });
-
-    // Missing actor, conversation matches.
-    const byConversation = resolveAssistant(config, "99001", undefined);
-    expect(isRejection(byConversation)).toBe(false);
-    if (!isRejection(byConversation)) {
-      expect(byConversation.assistantId).toBe("assistant-a");
-    }
-
-    // Missing conversation, actor matches.
-    const byActor = resolveAssistant(config, undefined, "55001");
-    expect(isRejection(byActor)).toBe(false);
-    if (!isRejection(byActor)) {
-      expect(byActor.assistantId).toBe("assistant-b");
-    }
   });
 
-  test("resolves locally when one identity is present but unrouted", () => {
-    // A valid-but-unrouted event (real identity, no explicit route) still
-    // resolves — only the no-identity case is rejected. Whether it is then
-    // admitted is the admission floor's call, not routing's.
-    const config = makeConfig();
+  test("returns undefined when no configured number matches", () => {
+    const result = resolveAssistantByPhoneNumber(
+      config,
+      "+12015550199",
+      cacheWith({ "ast-a": "+12015550101" }),
+    );
+    expect(result).toBeUndefined();
+  });
 
-    const result = resolveAssistant(config, "C-unrouted", undefined);
-    expect(isRejection(result)).toBe(false);
-    if (!isRejection(result)) {
-      expect(result.assistantId).toBe(LOCAL_ASSISTANT_ID);
-      expect(result.routeSource).toBe("default");
-    }
+  test("returns undefined when no mapping is configured", () => {
+    expect(
+      resolveAssistantByPhoneNumber(
+        config,
+        "+12015550101",
+        cacheWith(undefined),
+      ),
+    ).toBeUndefined();
   });
 });

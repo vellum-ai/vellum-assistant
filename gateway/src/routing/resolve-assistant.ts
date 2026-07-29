@@ -2,66 +2,49 @@ import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
-import type { RoutingOutcome } from "./types.js";
+import type { RouteResult } from "./types.js";
 
 const log = getLogger("routing");
 
-export function resolveAssistant(
-  config: GatewayConfig,
+/**
+ * The route every identified inbound event takes.
+ *
+ * A gateway process fronts exactly one daemon at a fixed
+ * `assistantRuntimeBaseUrl`, and the inbound wire payload carries no assistant
+ * id, so routing has nothing left to choose. Whether a sender is allowed
+ * through is a separate decision made downstream against the channel's
+ * admission floor — see "Channel Trust Classification & Admission Policy" in
+ * gateway/CLAUDE.md.
+ */
+export const LOCAL_ROUTE: RouteResult = Object.freeze({
+  assistantId: LOCAL_ASSISTANT_ID,
+  routeSource: "default",
+});
+
+/**
+ * Fail-closed identity backstop.
+ *
+ * An event carrying neither a conversation nor an actor id has nothing to bind
+ * a conversation on and nothing to classify trust against, so it is dropped
+ * rather than attributed to the local assistant. Ingress handlers validate the
+ * identity fields they key on as well; this is the shared rule behind them.
+ */
+export function hasRoutableIdentity(
   conversationId: string | undefined,
   actorId: string | undefined,
-): RoutingOutcome {
-  // Priority 0: no identity at all → nothing to route on, so a malformed event
-  // with neither a conversation nor an actor is dropped rather than attributed
-  // to the local assistant. This is the only rejection this function produces;
-  // callers are expected to validate identity too, and this is the fail-closed
-  // backstop behind them.
-  if (!conversationId && !actorId) {
-    log.info(
-      { conversationId, actorId },
-      "No routable identity on event, rejecting",
-    );
-    return { rejected: true, reason: "No routable identity on this event" };
-  }
-
-  // Priority 1: explicit conversation_id route
-  for (const entry of config.routingEntries) {
-    if (entry.type === "conversation_id" && entry.key === conversationId) {
-      log.debug(
-        { conversationId, assistantId: entry.assistantId },
-        "Resolved by conversation_id",
-      );
-      return { assistantId: entry.assistantId, routeSource: "conversation_id" };
-    }
-  }
-
-  // Priority 2: explicit actor_id route
-  for (const entry of config.routingEntries) {
-    if (entry.type === "actor_id" && entry.key === actorId) {
-      log.debug(
-        { actorId, assistantId: entry.assistantId },
-        "Resolved by actor_id",
-      );
-      return { assistantId: entry.assistantId, routeSource: "actor_id" };
-    }
-  }
-
-  // Priority 3: the local assistant. A gateway process fronts exactly one
-  // daemon, so any event carrying a routable identity belongs to it — there is
-  // no second backend an unmatched event could have been meant for. Admission
-  // is decided downstream on trust class (see the admission-policy floor in
-  // gateway/CLAUDE.md), not here on whether a routing entry happened to exist.
-  log.debug(
-    { conversationId, actorId, assistantId: LOCAL_ASSISTANT_ID },
-    "Resolved to the local assistant",
+): boolean {
+  if (conversationId || actorId) return true;
+  log.info(
+    { conversationId, actorId },
+    "No routable identity on event, dropping",
   );
-  return { assistantId: LOCAL_ASSISTANT_ID, routeSource: "default" };
+  return false;
 }
 
 /**
  * Resolve the assistant by looking up the inbound "To" phone number in
  * the per-assistant phone number mapping. Returns undefined when no match
- * is found, letting callers fall through to the standard routing chain.
+ * is found, letting callers fall through to {@link LOCAL_ROUTE}.
  *
  * Reads the mapping from ConfigFileCache when available.
  */
@@ -69,7 +52,7 @@ export function resolveAssistantByPhoneNumber(
   _config: GatewayConfig,
   toNumber: string,
   configFileCache?: ConfigFileCache,
-): RoutingOutcome | undefined {
+): RouteResult | undefined {
   const mapping = configFileCache?.getRecord("twilio", "assistantPhoneNumbers");
   if (!mapping) return undefined;
 
@@ -83,10 +66,4 @@ export function resolveAssistantByPhoneNumber(
   }
 
   return undefined;
-}
-
-export function isRejection(
-  outcome: RoutingOutcome,
-): outcome is { rejected: true; reason: string } {
-  return "rejected" in outcome && outcome.rejected === true;
 }

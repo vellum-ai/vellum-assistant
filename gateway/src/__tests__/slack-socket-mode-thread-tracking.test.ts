@@ -860,8 +860,8 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.source.updateId).toBe("Ev-actor-routed-followup");
       expect(emitted[0].threadTs).toBe(threadTs);
       expect(emitted[0].routing).toEqual({
-        assistantId: "ast-actor",
-        routeSource: "actor_id",
+        assistantId: LOCAL_ASSISTANT_ID,
+        routeSource: "default",
       });
 
       // A human with no explicit actor route replying in the armed thread is
@@ -2115,7 +2115,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       await run();
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
-      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+      expect(emitted[0].routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     } finally {
       rawDb.close();
     }
@@ -2155,7 +2155,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       await run();
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.message.isEdit).toBe(true);
-      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+      expect(emitted[0].routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     } finally {
       rawDb.close();
     }
@@ -2192,7 +2192,7 @@ describe("SlackSocketModeClient event classification admit conditions", () => {
       await run();
       expect(emitted).toHaveLength(1);
       expect(emitted[0].event.message.callbackData).toBe("message_deleted");
-      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+      expect(emitted[0].routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
     } finally {
       rawDb.close();
     }
