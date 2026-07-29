@@ -5,7 +5,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { extractMemoryDb, isSecretName } from "./parse-agent-memory-db.js";
-import type { MemoryImportItem } from "./lib/memory-items.js";
+import {
+  createItemsJsonStreamWriter,
+  type MemoryImportItem,
+} from "./lib/memory-items.js";
+
+/**
+ * Test helper: run the streaming extractor and collect the emitted items,
+ * since production callers stream them instead of accumulating.
+ */
+function collectMemoryDb(
+  dbPath: string,
+  provider: Parameters<typeof extractMemoryDb>[1],
+): {
+  items: MemoryImportItem[];
+  census: ReturnType<typeof extractMemoryDb>["census"];
+} {
+  const items: MemoryImportItem[] = [];
+  const { census } = extractMemoryDb(dbPath, provider, (item) =>
+    items.push(item),
+  );
+  return { items, census };
+}
 
 let fixtureDir: string;
 let fixtureDbPath: string;
@@ -62,7 +83,7 @@ afterAll(() => {
 
 describe("extractMemoryDb", () => {
   test("extracts text-bearing columns as review candidates", () => {
-    const { items } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items } = collectMemoryDb(fixtureDbPath, "hermes");
 
     const texts = items.map((i) => i.text);
     expect(texts).toContain("User prefers tea over coffee");
@@ -77,7 +98,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("records context as table.column", () => {
-    const { items } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items } = collectMemoryDb(fixtureDbPath, "hermes");
 
     const memoryItem = items.find(
       (i) => i.text === "User prefers tea over coffee",
@@ -91,7 +112,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("skips FTS5 virtual and shadow tables", () => {
-    const { items, census } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items, census } = collectMemoryDb(fixtureDbPath, "hermes");
 
     for (const item of items) {
       expect(item.context?.startsWith("memories_fts")).toBe(false);
@@ -111,7 +132,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("detects origin_date from epoch and ISO timestamp columns", () => {
-    const { items } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items } = collectMemoryDb(fixtureDbPath, "hermes");
 
     const epochItem = items.find(
       (i) => i.text === "User prefers tea over coffee",
@@ -130,7 +151,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("skips identifier-like and timestamp-like values", () => {
-    const { items } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items } = collectMemoryDb(fixtureDbPath, "hermes");
 
     const texts = items.map((i) => i.text);
     expect(texts).not.toContain("note-123");
@@ -138,7 +159,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("tags items with the requested provider", () => {
-    const { items } = extractMemoryDb(fixtureDbPath, "openclaw");
+    const { items } = collectMemoryDb(fixtureDbPath, "openclaw");
     expect(items.length).toBeGreaterThan(0);
     for (const item of items) {
       expect(item.source).toBe("import:openclaw");
@@ -146,7 +167,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("excludes credential-like tables and reports them as skipped", () => {
-    const { items, census } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items, census } = collectMemoryDb(fixtureDbPath, "hermes");
 
     const texts = items.map((i) => i.text);
     expect(texts).not.toContain("sk-FAKE-EXAMPLE-table");
@@ -161,7 +182,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("excludes credential-like columns and reports them in the census", () => {
-    const { items, census } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items, census } = collectMemoryDb(fixtureDbPath, "hermes");
 
     const texts = items.map((i) => i.text);
     expect(texts).not.toContain("sk-FAKE-EXAMPLE-column");
@@ -175,7 +196,7 @@ describe("extractMemoryDb", () => {
   });
 
   test("does not flag benign names that merely contain secret substrings", () => {
-    const { items } = extractMemoryDb(fixtureDbPath, "hermes");
+    const { items } = collectMemoryDb(fixtureDbPath, "hermes");
 
     const texts = items.map((i) => i.text);
     expect(texts).toContain("Casey the author");
@@ -192,7 +213,7 @@ describe("extractMemoryDb", () => {
     }
     db.close();
 
-    const { items, census } = extractMemoryDb(bigDbPath, "hermes");
+    const { items, census } = collectMemoryDb(bigDbPath, "hermes");
     expect(items.length).toBe(total);
     const entry = census.find((c) => c.table === "memories");
     expect(entry?.rows).toBe(total);
@@ -202,6 +223,41 @@ describe("extractMemoryDb", () => {
     expect(texts.size).toBe(total);
     expect(texts.has("Fact number 0")).toBe(true);
     expect(texts.has(`Fact number ${total - 1}`)).toBe(true);
+  });
+});
+
+describe("createItemsJsonStreamWriter", () => {
+  test("streams the same bytes as a whole-array stringify", () => {
+    const items: MemoryImportItem[] = [
+      { text: "First", source: "import:hermes", context: "memories.content" },
+      {
+        text: "Second",
+        source: "import:hermes",
+        origin_date: "2025-01-01T00:00:00.000Z",
+      },
+    ];
+
+    let streamed = "";
+    const writer = createItemsJsonStreamWriter((chunk) => {
+      streamed += chunk;
+    });
+    for (const item of items) {
+      writer.writeItem(item);
+    }
+    writer.end();
+
+    expect(streamed).toBe(JSON.stringify(items, null, 2) + "\n");
+    expect(JSON.parse(streamed)).toEqual(items);
+  });
+
+  test("emits an empty JSON array when no items are written", () => {
+    let streamed = "";
+    const writer = createItemsJsonStreamWriter((chunk) => {
+      streamed += chunk;
+    });
+    writer.end();
+
+    expect(JSON.parse(streamed)).toEqual([]);
   });
 });
 
@@ -230,6 +286,18 @@ describe("isSecretName", () => {
     }
   });
 
+  test("matches access-key names despite the trailing ss", () => {
+    for (const name of [
+      "accessKey",
+      "access_key",
+      "access_keys",
+      "ACCESS_KEY",
+      "accessKeyId",
+    ]) {
+      expect(isSecretName(name)).toBe(true);
+    }
+  });
+
   test("does not match benign names", () => {
     for (const name of [
       "author",
@@ -240,6 +308,10 @@ describe("isSecretName", () => {
       "credo",
       "sessional_notes",
       "title",
+      "compass",
+      "address",
+      "compass_heading",
+      "home_address",
     ]) {
       expect(isSecretName(name)).toBe(false);
     }
@@ -274,6 +346,44 @@ describe("CLI contract", () => {
     const stderr = result.stderr.toString();
     expect(stderr).toContain("Table census:");
     expect(stderr).toContain("memories");
+  });
+
+  test("streams every row of a multi-batch table as parseable JSON", () => {
+    const bigDbPath = join(fixtureDir, "big-cli-memory.db");
+    const db = new Database(bigDbPath, { create: true });
+    db.exec("CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)");
+    const insert = db.query("INSERT INTO memories (content) VALUES (?)");
+    const total = 2500;
+    for (let i = 0; i < total; i++) {
+      insert.run(`Fact number ${i}`);
+    }
+    db.close();
+
+    const scriptPath = join(import.meta.dir, "parse-agent-memory-db.ts");
+    const result = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "run",
+        scriptPath,
+        "--file",
+        bigDbPath,
+        "--source",
+        "hermes",
+      ],
+    });
+
+    expect(result.exitCode).toBe(0);
+
+    const parsed = JSON.parse(result.stdout.toString()) as MemoryImportItem[];
+    expect(parsed.length).toBe(total);
+    const texts = new Set(parsed.map((i) => i.text));
+    expect(texts.size).toBe(total);
+    expect(texts.has("Fact number 0")).toBe(true);
+    expect(texts.has(`Fact number ${total - 1}`)).toBe(true);
+
+    expect(result.stderr.toString()).toContain(
+      `Total: ${total} review candidates`,
+    );
   });
 
   test("rejects an unsupported --source", () => {

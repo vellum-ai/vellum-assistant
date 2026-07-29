@@ -93,6 +93,7 @@ function itemFromRecord(
 function itemsFromMatchedValue(
   value: unknown,
   context: string,
+  depth = 0,
 ): MemoryImportItem[] {
   if (typeof value === "string" && value.trim().length > 0) {
     return [{ text: value.trim(), source: SOURCE, context }];
@@ -113,6 +114,27 @@ function itemsFromMatchedValue(
       }
     }
     return items;
+  }
+  if (value && typeof value === "object") {
+    // An object-shaped memory, e.g. {"memory": {"content": "..."}}: pull
+    // its text-bearing field (with origin_date when a date field is
+    // present). When no text field matches directly, the record may nest
+    // one level deeper, so recurse a single level into its values.
+    const record = value as Record<string, unknown>;
+    const item = itemFromRecord(record, context);
+    if (item) {
+      return [item];
+    }
+    if (depth < 1) {
+      const items: MemoryImportItem[] = [];
+      for (const [key, child] of Object.entries(record)) {
+        if (DATE_FIELDS.includes(key)) {
+          continue;
+        }
+        items.push(...itemsFromMatchedValue(child, context, depth + 1));
+      }
+      return items;
+    }
   }
   return [];
 }

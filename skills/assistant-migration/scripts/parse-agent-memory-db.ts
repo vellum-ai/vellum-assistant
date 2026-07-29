@@ -16,9 +16,11 @@
  * secret, session, and similar) are excluded from extraction entirely so
  * that live credentials never reach stdout or downstream memory; the
  * exclusions are reported in the stderr census. Rows are read in batches
- * over only the candidate columns, so a large database is never
- * materialized in memory at once. A per-table census is printed to stderr
- * so the review step can see what was extracted and what was skipped.
+ * over only the candidate columns, and candidates are streamed to stdout
+ * as they are found, so neither the database rows nor the emitted JSON
+ * array is ever materialized in memory at once. A per-table census is
+ * printed to stderr so the review step can see what was extracted and
+ * what was skipped.
  *
  * The database is opened read-only. Point `--file` at a consistent
  * snapshot (`sqlite3 memory.db ".backup snapshot.db"`), never a live DB.
@@ -31,7 +33,7 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 
 import {
-  printItemsJson,
+  createItemsJsonStreamWriter,
   toIsoDate,
   type MemoryImportItem,
 } from "./lib/memory-items.js";
@@ -88,7 +90,9 @@ const SECRET_SEGMENT_PAIRS = new Set([
 /**
  * Split a table or column name into lowercase word segments, with a
  * trailing plural "s" stripped so "tokens" and "api_keys" match the
- * singular patterns.
+ * singular patterns. Segments ending in "ss" (access, pass) are not
+ * depluralized: stripping their final "s" would break pair matches
+ * like "access key".
  */
 function nameSegments(name: string): string[] {
   return name
@@ -96,7 +100,9 @@ function nameSegments(name: string): string[] {
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((segment) => segment.length > 0)
-    .map((segment) => segment.replace(/s$/, ""));
+    .map((segment) =>
+      segment.endsWith("ss") ? segment : segment.replace(/s$/, ""),
+    );
 }
 
 /** True when a table or column name looks like it holds credentials. */
@@ -130,10 +136,16 @@ interface SqliteMasterRow {
   sql: string | null;
 }
 
+/**
+ * Walk every extractable table and hand each candidate to `onItem` as it
+ * is found. Candidates are never accumulated here: the CLI streams them
+ * straight to stdout, and tests collect them in the callback.
+ */
 export function extractMemoryDb(
   dbPath: string,
   provider: SourceProvider,
-): { items: MemoryImportItem[]; census: TableCensus[] } {
+  onItem: (item: MemoryImportItem) => void,
+): { census: TableCensus[]; totalItems: number } {
   const db = new Database(dbPath, { readonly: true });
   try {
     const tables = db
@@ -151,8 +163,8 @@ export function extractMemoryDb(
       ),
     );
 
-    const items: MemoryImportItem[] = [];
     const census: TableCensus[] = [];
+    let totalItems = 0;
 
     for (const table of tables) {
       if (table.name.startsWith("sqlite_")) {
@@ -250,8 +262,9 @@ export function extractMemoryDb(
               if (originDate) {
                 item.origin_date = originDate;
               }
-              items.push(item);
+              onItem(item);
               extracted++;
+              totalItems++;
             }
           }
 
@@ -273,7 +286,7 @@ export function extractMemoryDb(
       census.push(entry);
     }
 
-    return { items, census };
+    return { census, totalItems };
   } finally {
     db.close();
   }
@@ -318,15 +331,23 @@ function main() {
     process.exit(1);
   }
 
+  // Stream the JSON array to stdout item by item so the full candidate
+  // set is never held in memory or serialized as one string.
+  const writer = createItemsJsonStreamWriter((chunk) =>
+    process.stdout.write(chunk),
+  );
   let result: ReturnType<typeof extractMemoryDb>;
   try {
-    result = extractMemoryDb(filePath, source);
+    result = extractMemoryDb(filePath, source, (item) =>
+      writer.writeItem(item),
+    );
   } catch (err) {
     process.stderr.write(
       `Error reading database: ${err instanceof Error ? err.message : String(err)}\n`,
     );
     process.exit(1);
   }
+  writer.end();
 
   process.stderr.write("Table census:\n");
   for (const entry of result.census) {
@@ -344,10 +365,8 @@ function main() {
     }
   }
   process.stderr.write(
-    `Total: ${result.items.length} review candidates. These are candidates for creator review, not final memories.\n`,
+    `Total: ${result.totalItems} review candidates. These are candidates for creator review, not final memories.\n`,
   );
-
-  printItemsJson(result.items);
 }
 
 if (import.meta.main) {

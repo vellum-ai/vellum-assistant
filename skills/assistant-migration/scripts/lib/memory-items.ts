@@ -25,6 +25,37 @@ export function printItemsJson(items: MemoryImportItem[]): void {
   process.stdout.write(JSON.stringify(items, null, 2) + "\n");
 }
 
+/**
+ * Incremental writer for the same JSON array contract as `printItemsJson`,
+ * for parsers whose candidate sets are too large to hold in memory. Items
+ * are serialized one at a time (constant-size buffer per item), so neither
+ * the full array nor a full serialized string ever exists. The emitted
+ * bytes match `printItemsJson` exactly: a 2-space-indented JSON array plus
+ * a trailing newline, parseable as `MemoryImportItem[]`.
+ *
+ * Call `writeItem` per candidate, then `end` exactly once to close the
+ * array.
+ */
+export function createItemsJsonStreamWriter(write: (chunk: string) => void): {
+  writeItem: (item: MemoryImportItem) => void;
+  end: () => void;
+} {
+  let count = 0;
+  return {
+    writeItem(item: MemoryImportItem): void {
+      const body = JSON.stringify(item, null, 2)
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n");
+      write(count === 0 ? `[\n${body}` : `,\n${body}`);
+      count++;
+    },
+    end(): void {
+      write(count === 0 ? "[]\n" : "\n]\n");
+    },
+  };
+}
+
 const EPOCH_SECONDS_MIN = 1e9; // 2001-09-09
 const EPOCH_SECONDS_MAX = 1e11;
 const EPOCH_MILLIS_MIN = 1e12; // 2001-09-09 in ms
