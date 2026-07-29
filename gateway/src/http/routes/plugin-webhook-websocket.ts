@@ -3,16 +3,24 @@
  *
  * A plugin declaring `kind: "websocket"` gets a socket the caller dials, but
  * plugin routes are HTTP-only — there is no second socket to hand off to. So
- * the gateway terminates the connection at the edge and POSTs each frame to
- * the plugin's route, one at a time per connection so the plugin observes
- * frames in the order they arrived.
+ * the gateway terminates the connection at the edge and hands each frame to
+ * the plugin's route over IPC, one at a time per connection so the plugin
+ * observes frames in the order they arrived. IPC rather than a loopback HTTP
+ * hop because the socket is the trust boundary: the assistant does not
+ * re-verify a caller the gateway has already authorised.
  *
- * Frames travel upstream; nothing travels back. Giving the plugin's HTTP
- * response a meaning on the wire would be inventing a protocol neither side
- * has agreed to, so a non-2xx is logged and the socket is left alone.
+ * Frames travel upstream; nothing travels back. Giving the route's response a
+ * meaning on the wire would be inventing a protocol neither side has agreed
+ * to, so a failure is logged and the socket is left alone.
+ *
+ * Today a frame must carry a JSON object. The IPC request envelope can carry
+ * a binary frame — `writeMessage` sends one and the server's reader parses it
+ * — but the server discards it (`void binary` in `assistant-server.ts`) and
+ * the gateway's client still speaks the legacy newline protocol, which has no
+ * binary frame at all. Until that is fixed, anything else is refused at the
+ * socket rather than silently dropped on the way to the plugin.
  */
 
-import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
 import type { GatewayConfig } from "../../config.js";
@@ -22,6 +30,7 @@ import {
   resolveCredentialWithRefresh,
   verifySecretWithRefresh,
 } from "../../credential-refresh.js";
+import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
 import {
   VELLUM_TIMESTAMP_HEADER,
@@ -40,8 +49,8 @@ const log = getLogger("plugin-webhook-ws");
  * The count alone is not a memory bound: Bun accepts frames far larger than
  * a webhook payload, so a hundred of them would be gigabytes. Queued bytes
  * are capped as well, and an oversized single frame is refused outright —
- * each frame becomes a webhook-sized POST, so `maxWebhookPayloadBytes` is
- * the size that has to hold.
+ * a frame is a webhook-sized request to the plugin, so
+ * `maxWebhookPayloadBytes` is the size that has to hold.
  */
 const MAX_PENDING_FRAMES = 100;
 
@@ -56,10 +65,12 @@ function frameByteLength(frame: string | Uint8Array): number {
     : frame.byteLength;
 }
 
-export type FetchImpl = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
+/** Signature of {@link ipcCallAssistant}, injectable for tests. */
+export type IpcCall = (
+  method: string,
+  params?: Record<string, unknown>,
+  opts?: { timeoutMs?: number },
+) => Promise<unknown>;
 
 export type PluginWebhookSocketData = {
   wsType: "plugin-webhook";
@@ -70,10 +81,10 @@ export type PluginWebhookSocketData = {
   queue: (string | Uint8Array)[];
   /** Bytes held in {@link queue}, tracked so the cap is on memory not count. */
   queuedBytes: number;
-  /** True while a POST is outstanding, so deliveries stay serialised. */
+  /** True while a delivery is outstanding, so they stay serialised. */
   delivering: boolean;
   closed: boolean;
-  fetchImpl?: FetchImpl;
+  ipcCall?: IpcCall;
 };
 
 export function isPluginWebhookSocketData(
@@ -97,7 +108,7 @@ export interface PluginWebhookWsDeps {
   config: GatewayConfig;
   resolve: () => PluginIngressResolution;
   credentials: CredentialCache | undefined;
-  fetchImpl?: FetchImpl;
+  ipcCall?: IpcCall;
 }
 
 /**
@@ -109,7 +120,7 @@ export interface PluginWebhookWsDeps {
  * upgrade cannot be un-done once accepted, so everything is checked first.
  */
 export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
-  const { config, resolve, credentials, fetchImpl } = deps;
+  const { config, resolve, credentials, ipcCall } = deps;
 
   return async function handleUpgrade(
     req: Request,
@@ -189,7 +200,7 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
         queuedBytes: 0,
         delivering: false,
         closed: false,
-        fetchImpl,
+        ipcCall,
       } satisfies PluginWebhookSocketData,
     });
     if (!upgraded) {
@@ -199,50 +210,51 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
   };
 }
 
-/** POST one frame to the plugin's route. */
+/**
+ * The JSON object a frame carries, or null when it does not carry one.
+ *
+ * Until the IPC request envelope can carry raw bytes, `body` is the only way
+ * a frame reaches a route, and it must be an object — `synthesizeRequest`
+ * re-serialises it, and the runtime adapter keeps objects only. Anything else
+ * is undeliverable rather than merely awkward, so the caller refuses it
+ * instead of letting it vanish.
+ */
+function frameAsJsonObject(
+  frame: string | Uint8Array,
+): Record<string, unknown> | null {
+  if (typeof frame !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(frame);
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Hand one frame to the plugin's route over IPC. */
 async function deliverFrame(
   data: PluginWebhookSocketData,
-  frame: string | Uint8Array,
+  body: Record<string, unknown>,
 ): Promise<void> {
   const { config, plugin, path } = data;
-  const doFetch = data.fetchImpl ?? fetch;
-  const url = `${config.assistantRuntimeBaseUrl}/v1/x/plugins/${plugin}/${path}`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.runtimeTimeoutMs);
+  const call = data.ipcCall ?? ipcCallAssistant;
   try {
-    const response = await doFetch(url, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${mintServiceToken()}`,
-        // Deliberately not application/json for text frames: the runtime's
-        // adapter would parse that and keep only JSON *objects*, silently
-        // dropping a bare string, a number, or anything malformed. A raw
-        // content type hands the plugin the frame exactly as it arrived and
-        // lets the plugin decide what it is.
-        "content-type":
-          typeof frame === "string"
-            ? "text/plain; charset=utf-8"
-            : "application/octet-stream",
+    await call(
+      "user_route_post",
+      {
+        pathParams: { path: `plugins/${plugin}/${path}` },
+        queryParams: {},
+        body,
+        headers: { "content-type": "application/json" },
       },
-      // Uint8Array is a valid BodyInit at runtime; the DOM lib types only
-      // admit the ArrayBufferView union it is a member of.
-      body: frame as BodyInit,
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      log.warn(
-        { plugin, path, status: response.status },
-        "Plugin webhook frame rejected by plugin route",
-      );
-    }
-    // Drain so the connection is returned to the pool rather than held open
-    // by an unread body.
-    await response.arrayBuffer().catch(() => undefined);
+      { timeoutMs: config.runtimeTimeoutMs },
+    );
   } catch (err) {
     log.warn({ err, plugin, path }, "Plugin webhook frame delivery failed");
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -250,7 +262,7 @@ async function deliverFrame(
  * Deliver queued frames one at a time.
  *
  * Serialising is the point: the plugin sees `joined` before `left` because
- * the next POST does not start until the previous one settles. A delivery
+ * the next call does not start until the previous one settles. A delivery
  * that fails is logged and skipped rather than retried — re-sending would
  * reorder it behind frames that have already arrived.
  */
@@ -261,7 +273,10 @@ async function drain(data: PluginWebhookSocketData): Promise<void> {
     while (data.queue.length > 0 && !data.closed) {
       const frame = data.queue.shift()!;
       data.queuedBytes -= frameByteLength(frame);
-      await deliverFrame(data, frame);
+      const body = frameAsJsonObject(frame);
+      // Enqueueing already rejected anything without one; this is a guard,
+      // not a second gate.
+      if (body) await deliverFrame(data, body);
     }
   } finally {
     data.delivering = false;
@@ -269,20 +284,21 @@ async function drain(data: PluginWebhookSocketData): Promise<void> {
 }
 
 /**
- * Refuse the rest of a connection that has exceeded its budget.
+ * Refuse the rest of a connection.
  *
  * Marks it closed before asking for the close: `close` is not immediate, and
  * a caller already outrunning us keeps sending in the meantime. Without this
  * every one of those frames would close again.
  */
-function closeOverBudget(
+function refuse(
   ws: import("bun").ServerWebSocket<PluginWebhookSocketData>,
+  code: number,
   reason: string,
 ): void {
   ws.data.closed = true;
   ws.data.queue = [];
   ws.data.queuedBytes = 0;
-  ws.close(1008, reason);
+  ws.close(code, reason);
 }
 
 export function getPluginWebhookWebsocketHandlers() {
@@ -305,6 +321,23 @@ export function getPluginWebhookWebsocketHandlers() {
         message instanceof ArrayBuffer ? new Uint8Array(message) : message;
       const size = frameByteLength(frame);
 
+      // Refuse what cannot be delivered, rather than queue it and drop it
+      // silently at the far end. 1003 is the code for "received data of a
+      // type this endpoint cannot accept", which is exactly the situation
+      // until the IPC envelope carries raw frames.
+      if (frameAsJsonObject(frame) === null) {
+        log.warn(
+          {
+            plugin: data.plugin,
+            path: data.path,
+            binary: typeof frame !== "string",
+          },
+          "Plugin webhook frame is not a JSON object — closing connection",
+        );
+        refuse(ws, 1003, "Frame must be a JSON object");
+        return;
+      }
+
       // A single oversized frame is refused rather than queued: it could
       // never be delivered anyway, since it exceeds what the plugin's route
       // accepts as a webhook payload.
@@ -313,7 +346,7 @@ export function getPluginWebhookWebsocketHandlers() {
           { plugin: data.plugin, path: data.path, size },
           "Plugin webhook frame exceeds the webhook payload cap — closing connection",
         );
-        closeOverBudget(ws, "Frame too large");
+        refuse(ws, 1009, "Frame too large");
         return;
       }
 
@@ -330,7 +363,7 @@ export function getPluginWebhookWebsocketHandlers() {
           },
           "Plugin webhook frame buffer overflow — closing connection",
         );
-        closeOverBudget(ws, "Buffer overflow");
+        refuse(ws, 1008, "Buffer overflow");
         return;
       }
 

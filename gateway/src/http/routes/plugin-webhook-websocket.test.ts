@@ -361,7 +361,7 @@ function fakeSocket(data: PluginWebhookSocketData) {
 }
 
 function socketData(
-  fetchImpl?: PluginWebhookSocketData["fetchImpl"],
+  ipcCall?: PluginWebhookSocketData["ipcCall"],
 ): PluginWebhookSocketData {
   return {
     wsType: "plugin-webhook",
@@ -372,7 +372,7 @@ function socketData(
     queuedBytes: 0,
     delivering: false,
     closed: false,
-    fetchImpl,
+    ipcCall,
   };
 }
 
@@ -381,86 +381,55 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 50; i++) await Promise.resolve();
 }
 
+/** A frame carrying `value`, as the caller would send it. */
+function evt(value: string): string {
+  return JSON.stringify({ event: value });
+}
+
 describe("frame delivery", () => {
-  it("posts each frame to the plugin's route", async () => {
-    const calls: { url: string; body: unknown }[] = [];
+  it("hands each frame to the plugin's route over IPC", async () => {
+    const calls: { method: string; params?: Record<string, unknown> }[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (url, init) => {
-      calls.push({ url: String(url), body: init?.body });
-      return new Response("", { status: 200 });
+    const data = socketData(async (method, params) => {
+      calls.push({ method, params });
+      return null;
     });
     const { ws } = fakeSocket(data);
 
-    handlers.message(ws, '{"event":"joined"}');
+    handlers.message(ws, evt("joined"));
     await settle();
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(
-      "http://runtime.test:7821/v1/x/plugins/meeting-bot/realtime",
-    );
-    expect(calls[0]!.body).toBe('{"event":"joined"}');
-  });
-
-  it("sends text frames as a raw content type, not application/json", async () => {
-    // The runtime adapter parses application/json and keeps only objects, so
-    // a bare string or malformed frame would reach the plugin as an empty
-    // body. Text frames must arrive exactly as sent.
-    const seen: { body: unknown; contentType: string }[] = [];
-    const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_url, init) => {
-      const headers = init?.headers as Record<string, string>;
-      seen.push({ body: init?.body, contentType: headers["content-type"]! });
-      return new Response("", { status: 200 });
+    expect(calls[0]!.method).toBe("user_route_post");
+    expect(calls[0]!.params).toMatchObject({
+      pathParams: { path: "plugins/meeting-bot/realtime" },
+      body: { event: "joined" },
     });
-    const { ws } = fakeSocket(data);
-
-    handlers.message(ws, "not json at all");
-    await settle();
-
-    expect(seen[0]!.contentType).not.toContain("application/json");
-    expect(seen[0]!.body).toBe("not json at all");
-  });
-
-  it("sends binary frames as octet-stream", async () => {
-    const seen: { body: unknown; contentType: string }[] = [];
-    const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_url, init) => {
-      const headers = init?.headers as Record<string, string>;
-      seen.push({ body: init?.body, contentType: headers["content-type"]! });
-      return new Response("", { status: 200 });
-    });
-    const { ws } = fakeSocket(data);
-
-    handlers.message(ws, new Uint8Array([1, 2, 3]).buffer);
-    await settle();
-
-    expect(seen[0]!.contentType).toBe("application/octet-stream");
-    expect(seen[0]!.body).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it("delivers frames one at a time, in order", async () => {
     // The ordering guarantee: the plugin must see `joined` before `left`,
-    // which a fan-out of concurrent POSTs would not promise.
+    // which a fan-out of concurrent calls would not promise.
     const started: string[] = [];
     const finished: string[] = [];
     let release: (() => void) | undefined;
 
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_url, init) => {
-      const body = String(init?.body);
-      started.push(body);
-      if (body === "first") {
+    const data = socketData(async (_method, params) => {
+      const event = (params!.body as { event: string }).event;
+      started.push(event);
+      if (event === "first") {
         await new Promise<void>((resolve) => {
           release = resolve;
         });
       }
-      finished.push(body);
-      return new Response("", { status: 200 });
+      finished.push(event);
+      return null;
     });
     const { ws } = fakeSocket(data);
 
-    handlers.message(ws, "first");
-    handlers.message(ws, "second");
+    handlers.message(ws, evt("first"));
+    handlers.message(ws, evt("second"));
     await settle();
 
     // Second must not have started while first is still in flight.
@@ -472,58 +441,77 @@ describe("frame delivery", () => {
   });
 
   it("keeps delivering after a frame fails", async () => {
-    // A failed POST is skipped, not retried — retrying would reorder it
+    // A failed call is skipped, not retried — retrying would reorder it
     // behind frames that already arrived.
     const seen: string[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_url, init) => {
-      const body = String(init?.body);
-      seen.push(body);
-      if (body === "boom") throw new Error("upstream down");
-      return new Response("", { status: 200 });
+    const data = socketData(async (_method, params) => {
+      const event = (params!.body as { event: string }).event;
+      seen.push(event);
+      if (event === "boom") throw new Error("assistant unreachable");
+      return null;
     });
     const { ws } = fakeSocket(data);
 
-    handlers.message(ws, "boom");
-    handlers.message(ws, "after");
+    handlers.message(ws, evt("boom"));
+    handlers.message(ws, evt("after"));
     await settle();
 
     expect(seen).toEqual(["boom", "after"]);
   });
 
-  it("closes a connection that outruns the buffer", async () => {
-    const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(
-      async () =>
-        new Promise<Response>(() => {
-          /* never settles, so the queue backs up */
-        }),
-    );
-    const { ws, closes } = fakeSocket(data);
+  it("refuses a frame that is not a JSON object", async () => {
+    // Until the IPC envelope carries raw frames, `body` must be an object.
+    // Queueing anything else would drop it silently at the far end.
+    for (const frame of ["not json", '"a bare string"', "42", "[1,2,3]"]) {
+      const calls: unknown[] = [];
+      const handlers = getPluginWebhookWebsocketHandlers();
+      const data = socketData(async (method) => {
+        calls.push(method);
+        return null;
+      });
+      const { ws, closes } = fakeSocket(data);
 
-    for (let i = 0; i < 150; i++) handlers.message(ws, `frame-${i}`);
+      handlers.message(ws, frame);
+      await settle();
 
-    expect(closes).toHaveLength(1);
-    expect(closes[0]!.code).toBe(1008);
+      expect(closes).toHaveLength(1);
+      expect(closes[0]!.code).toBe(1003);
+      expect(calls).toEqual([]);
+    }
   });
 
-  it("refuses a single frame larger than the webhook payload cap", async () => {
-    // It could never be delivered anyway — the plugin route would reject it
-    // as an oversized webhook body.
-    const seen: string[] = [];
+  it("refuses a binary frame rather than mangling it", async () => {
+    const calls: unknown[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_url, init) => {
-      seen.push(String(init?.body));
-      return new Response("", { status: 200 });
+    const data = socketData(async (method) => {
+      calls.push(method);
+      return null;
     });
     const { ws, closes } = fakeSocket(data);
 
-    handlers.message(ws, "x".repeat(2048));
+    handlers.message(ws, new Uint8Array([1, 2, 3]).buffer);
+    await settle();
+
+    expect(closes[0]!.code).toBe(1003);
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses a single frame larger than the webhook payload cap", async () => {
+    const calls: unknown[] = [];
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(async (method) => {
+      calls.push(method);
+      return null;
+    });
+    const { ws, closes } = fakeSocket(data);
+
+    handlers.message(ws, JSON.stringify({ event: "x".repeat(2048) }));
     await settle();
 
     expect(closes).toHaveLength(1);
-    expect(closes[0]!.code).toBe(1008);
-    expect(seen).toEqual([]);
+    expect(closes[0]!.code).toBe(1009);
+    expect(calls).toEqual([]);
   });
 
   it("bounds the queue by bytes, not just frame count", async () => {
@@ -532,7 +520,7 @@ describe("frame delivery", () => {
     const handlers = getPluginWebhookWebsocketHandlers();
     const data = socketData(
       async () =>
-        new Promise<Response>(() => {
+        new Promise<unknown>(() => {
           /* never settles, so the queue backs up */
         }),
     );
@@ -540,20 +528,38 @@ describe("frame delivery", () => {
 
     // Each frame is under the per-frame cap, and there are fewer than
     // MAX_PENDING_FRAMES of them — only the byte budget can reject these.
-    for (let i = 0; i < 20; i++) handlers.message(ws, "x".repeat(1000));
+    for (let i = 0; i < 20; i++) {
+      handlers.message(ws, JSON.stringify({ event: "x".repeat(900) }));
+    }
 
     expect(closes).toHaveLength(1);
     expect(closes[0]!.code).toBe(1008);
     expect(data.queuedBytes).toBe(0);
   });
 
+  it("closes a connection that outruns the buffer", async () => {
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(
+      async () =>
+        new Promise<unknown>(() => {
+          /* never settles */
+        }),
+    );
+    const { ws, closes } = fakeSocket(data);
+
+    for (let i = 0; i < 150; i++) handlers.message(ws, evt(`frame-${i}`));
+
+    expect(closes).toHaveLength(1);
+    expect(closes[0]!.code).toBe(1008);
+  });
+
   it("releases queued bytes as frames are delivered", async () => {
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async () => new Response("", { status: 200 }));
+    const data = socketData(async () => null);
     const { ws } = fakeSocket(data);
 
-    handlers.message(ws, "x".repeat(100));
-    handlers.message(ws, "x".repeat(100));
+    handlers.message(ws, evt("one"));
+    handlers.message(ws, evt("two"));
     await settle();
 
     expect(data.queue).toEqual([]);
@@ -564,17 +570,17 @@ describe("frame delivery", () => {
     const seen: string[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
     let release: (() => void) | undefined;
-    const data = socketData(async (_url, init) => {
-      seen.push(String(init?.body));
+    const data = socketData(async (_method, params) => {
+      seen.push((params!.body as { event: string }).event);
       await new Promise<void>((resolve) => {
         release = resolve;
       });
-      return new Response("", { status: 200 });
+      return null;
     });
     const { ws } = fakeSocket(data);
 
-    handlers.message(ws, "first");
-    handlers.message(ws, "second");
+    handlers.message(ws, evt("first"));
+    handlers.message(ws, evt("second"));
     await settle();
     handlers.close(ws, 1000, "done");
     release?.();
@@ -586,16 +592,16 @@ describe("frame delivery", () => {
   });
 
   it("ignores frames that arrive after close", async () => {
-    const seen: string[] = [];
+    const seen: unknown[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_url, init) => {
-      seen.push(String(init?.body));
-      return new Response("", { status: 200 });
+    const data = socketData(async (method) => {
+      seen.push(method);
+      return null;
     });
     const { ws } = fakeSocket(data);
 
     handlers.close(ws, 1000, "done");
-    handlers.message(ws, "late");
+    handlers.message(ws, evt("late"));
     await settle();
 
     expect(seen).toEqual([]);
