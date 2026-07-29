@@ -124,10 +124,7 @@ export function SlackChannelTypeDefaults({
         })}
       </Card.Body>
       <Card.Footer className="p-0">
-        <SlackChannelTierLegend
-          assistantName={assistantName}
-          defaultTier={globalDefaultTier}
-        />
+        <SlackChannelTierLegend defaultTier={globalDefaultTier} />
       </Card.Footer>
     </Card.Root>
   );
