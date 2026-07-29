@@ -67,6 +67,7 @@ import {
   type ProvisioningStateKind,
   targetsMet,
 } from "./provisioning-machine";
+import type { TakeoverDirection } from "./takeover-copy";
 import {
   ENSURE_PROVISIONED_RACE_RETRY_MS,
   PRO_POLL_INTERVAL_MS,
@@ -109,6 +110,11 @@ const NO_DIMENSIONS_MET: DimensionMetLatch = {
 
 export interface UseProProvisioningOptions {
   open: boolean;
+  /**
+   * Which way the change being watched goes. Absent reads as an upgrade, which
+   * is what post-checkout onboarding always is.
+   */
+  direction?: TakeoverDirection;
 }
 
 export interface ProProvisioningResult {
@@ -192,6 +198,7 @@ export interface ProProvisioningResult {
 
 export function useProProvisioning({
   open,
+  direction,
 }: UseProProvisioningOptions): ProProvisioningResult {
   const queryClient = useQueryClient();
   // Every query here is org-scoped (needs the Vellum-Organization-Id header).
@@ -787,6 +794,10 @@ export function useProProvisioning({
   const watchStartedAt = resumedAt ?? proConfirmedAt;
   const msSinceWatchStart =
     watchStartedAt == null ? null : Math.max(0, now - watchStartedAt);
+  // Only a change that never lowers the ceilings keeps "targets met" and
+  // "nothing to provision" equivalent. A downgrade, and a move whose direction
+  // nobody knows, both meet their targets before anything has moved.
+  const targetsProveNoop = direction == null || direction === "upgrade";
   const { state, softWaiting } = deriveProvisioningState({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,
@@ -810,6 +821,7 @@ export function useProProvisioning({
       targetsMetAt != null &&
       targetsMetMatchesAssistant &&
       operationalStatusQuery.dataUpdatedAt > targetsMetAt,
+    targetsProveNoop,
   });
 
   const isTerminal = TERMINAL_STATES.includes(state);

@@ -807,7 +807,7 @@ export function ProvisioningState({
         <>
           <Copy
             status={copy.confirmTimeoutStatus}
-            caption="Your payment went through safely — this can take a minute."
+            caption={copy.confirmTimeoutCaption}
           />
           <div className="flex items-center gap-2 pt-1">
             <Button

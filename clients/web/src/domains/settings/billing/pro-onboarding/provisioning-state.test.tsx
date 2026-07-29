@@ -846,7 +846,7 @@ describe("confirm_timeout", () => {
 
     expect(getByText("Still confirming your upgrade")).toBeTruthy();
     expect(
-      getByText("Your payment went through safely — this can take a minute."),
+      getByText("Your payment went through safely. This can take a minute."),
     ).toBeTruthy();
     fireEvent.click(getByTestId("onboarding-retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
@@ -873,6 +873,20 @@ describe("direction", () => {
       expect(getByText(expected)).toBeTruthy();
       unmount();
     }
+  });
+
+  test("a downgrade confirm timeout reassures without claiming a payment", () => {
+    // A net package decrease is credited against the next invoice, so nothing
+    // may have been charged at all.
+    const { getByText, queryByText } = renderState({
+      state: "CONFIRM_TIMEOUT",
+      direction: "downgrade",
+    });
+
+    expect(
+      getByText("Your plan change was submitted. This can take a minute."),
+    ).toBeTruthy();
+    expect(queryByText(/payment/i)).toBeNull();
   });
 
   test("a downgrade snag reads as a plan change, error message and all", () => {

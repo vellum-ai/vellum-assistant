@@ -133,10 +133,18 @@ export function BillingOnboardingModal({
   // chatting stays unavailable until the upgrade finishes.
   const [backgroundConfirmOpen, setBackgroundConfirmOpen] = useState(false);
 
+  // Only an in-place change can go anywhere but up, and only it threads a
+  // context; checkout and a context-less resize mount both read as an upgrade.
+  const direction = isResize ? resizeContext?.direction : undefined;
+  const copy = takeoverCopy(direction);
+
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
-  // backgrounded resize still resolves while the user sets up their domain.
-  const provisioning = useProProvisioning({ open });
+  // backgrounded resize still resolves while the user sets up their domain. It
+  // takes the direction because a change that can lower the ceilings meets
+  // them before anything moves, so it needs positive evidence of the restart
+  // before it may complete.
+  const provisioning = useProProvisioning({ open, direction });
 
   // Whether this wizard has actually been opened, so the reset branch below can
   // tell a close from the mount of an instance that is simply rendered closed
@@ -202,11 +210,6 @@ export function BillingOnboardingModal({
 
   const { targets, assistantId, domainStepAvailable, onboardingSettled } =
     provisioning;
-
-  // Only an in-place change can go anywhere but up, and only it threads a
-  // context; checkout and a context-less resize mount both read as an upgrade.
-  const direction = isResize ? resizeContext?.direction : undefined;
-  const copy = takeoverCopy(direction);
 
   // An in-place change lands before this mounts, so its actuals already read
   // post-change and the captured snapshot is the only honest from-side.

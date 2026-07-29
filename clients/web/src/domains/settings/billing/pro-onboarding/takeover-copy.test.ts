@@ -20,6 +20,9 @@ describe("takeoverCopy", () => {
     );
     expect(copy.confirmingStatus).toBe("Confirming your upgrade…");
     expect(copy.confirmTimeoutStatus).toBe("Still confirming your upgrade");
+    expect(copy.confirmTimeoutCaption).toBe(
+      "Your payment went through safely. This can take a minute.",
+    );
     expect(copy.backgroundConfirmMessage).toBe(
       "Your assistant is still upgrading. Chatting won't be available until it finishes. You can keep waiting here, or continue and we'll let you know when it's ready.",
     );
@@ -44,6 +47,11 @@ describe("takeoverCopy", () => {
     );
     expect(copy.confirmingStatus).toBe("Confirming your plan change…");
     expect(copy.confirmTimeoutStatus).toBe("Still confirming your plan change");
+    // A net package decrease is credited toward the next invoice, so there may
+    // have been no payment to reassure anyone about.
+    expect(copy.confirmTimeoutCaption).toBe(
+      "Your plan change was submitted. This can take a minute.",
+    );
     expect(copy.backgroundConfirmMessage).toBe(
       "Your assistant is still updating. Chatting won't be available until it finishes. You can keep waiting here, or continue and we'll let you know when it's ready.",
     );
@@ -73,6 +81,14 @@ describe("takeoverCopy", () => {
       const strings = Object.values(takeoverCopy(direction));
       const mentionsUpgrade = strings.some((s) => /upgrad/i.test(s));
       expect(mentionsUpgrade).toBe(direction === "upgrade");
+    }
+  });
+
+  test("only the upgrade direction claims a payment", () => {
+    for (const direction of DIRECTIONS) {
+      const strings = Object.values(takeoverCopy(direction));
+      const mentionsPayment = strings.some((s) => /payment/i.test(s));
+      expect(mentionsPayment).toBe(direction === "upgrade");
     }
   });
 

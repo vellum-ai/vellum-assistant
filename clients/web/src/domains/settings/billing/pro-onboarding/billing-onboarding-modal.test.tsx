@@ -238,6 +238,8 @@ let ensureCalls = 0;
 let ensureResponse = makeEnsureResponse("started");
 /** When set, the reconcile rejects with this error body (e.g. the 503). */
 let ensureError: unknown = null;
+/** When set, reconcile responses hold until this promise resolves. */
+let ensureHold: Promise<void> | null = null;
 /** Domains list the modal-level resize query reads; empty by default. */
 let domainsResponse: PaginatedAssistantDomainList = makeDomains(false);
 /** Counts modal-level domains fetches so tests can assert it never fires. */
@@ -285,7 +287,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
     if (ensureError != null) {
       return Promise.reject(ensureError);
     }
-    return Promise.resolve({ data: ensureResponse, response: { ok: true } });
+    const result = { data: ensureResponse, response: { ok: true } };
+    return ensureHold ? ensureHold.then(() => result) : Promise.resolve(result);
   },
   assistantsDomainsList: () => {
     domainsCalls += 1;
@@ -371,6 +374,7 @@ beforeEach(() => {
   ensureCalls = 0;
   ensureResponse = makeEnsureResponse("started");
   ensureError = null;
+  ensureHold = null;
   domainsResponse = makeDomains(false);
   domainsCalls = 0;
   domainsFails = false;
@@ -929,7 +933,7 @@ describe("BillingOnboardingModal", () => {
       () =>
         expect(
           getByText(
-            "Your payment went through safely — this can take a minute.",
+            "Your payment went through safely. This can take a minute.",
           ),
         ).toBeTruthy(),
       { timeout: TEST_CONFIRM_TIMEOUT_MS + 3000 },
@@ -1549,6 +1553,69 @@ describe("BillingOnboardingModal — resize mode", () => {
 });
 
 describe("BillingOnboardingModal (package downgrade)", () => {
+  test("holds the wait while nothing has yet observed the restart", async () => {
+    // The race a downgrade has to survive. Mighty names no machine tier and the
+    // volume keeps its size, so the targets read met from the first render;
+    // meanwhile the status query has not seen the restart and the reconcile has
+    // not answered. Nothing has observed the pod going down, so nothing may say
+    // it is back up: completing here would unlock chat against a gateway that
+    // is still coming up.
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({
+      max_machine_tier: null,
+      selected_storage_gib: 10,
+      domain_setup_available: false,
+    });
+    assistantResponse = makeAssistant("medium", 10);
+    operationalStatusResponse = makeOperationalStatus("active");
+    let releaseEnsure = () => {};
+    ensureHold = new Promise<void>((resolve) => {
+      releaseEnsure = () => resolve();
+    });
+    const { client, getByText, queryByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 10 },
+        credits: { fromTier: "credits_45", toTier: "credits_25" },
+        direction: "downgrade",
+      },
+      plans: plansWithCredits(),
+    });
+
+    // The reconcile has been asked and is still out.
+    await waitFor(() => expect(ensureCalls).toBeGreaterThan(0), {
+      timeout: 5000,
+    });
+    await client.invalidateQueries();
+    await client.invalidateQueries();
+
+    await waitFor(
+      () => expect(getByText("Updating your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText("Your plan is ready")).toBeNull();
+    expect(queryByText("You're all set!")).toBeNull();
+
+    // The restart surfaces, so there is finally something to observe.
+    operationalStatusResponse = makeOperationalStatus("resizing_machine");
+    await client.invalidateQueries();
+    await waitFor(
+      () => expect(getByText("Updating your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await client.invalidateQueries();
+
+    // The cap lands and the marker retires, which resolves the flow properly:
+    // DONE, not the "nothing to do" terminal.
+    assistantResponse = makeAssistant("small", 10);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    releaseEnsure();
+  }, 20_000);
+
   test("Super → Mighty states the credit drop, the machine cap and no storage row", async () => {
     subscriptionPlanId = "pro";
     // Mighty names no machine tier, so the pod is capped down to the floor and

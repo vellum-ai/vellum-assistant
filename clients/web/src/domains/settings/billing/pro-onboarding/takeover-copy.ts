@@ -26,6 +26,12 @@ export interface TakeoverCopy {
   confirmingStatus: string;
   /** CONFIRM_TIMEOUT heading, once that read has run out of patience. */
   confirmTimeoutStatus: string;
+  /**
+   * CONFIRM_TIMEOUT caption. Reassures that the change itself is safe, so it
+   * may only name money where money was certainly taken: a net package
+   * decrease lands as a credit toward the next invoice, with no payment at all.
+   */
+  confirmTimeoutCaption: string;
   /** Body of the confirm that gates the background exit. */
   backgroundConfirmMessage: string;
   /** Toast on a clean background exit. */
@@ -45,6 +51,8 @@ const UPGRADE: TakeoverCopy = {
     "Retry in the background and we'll keep working on your upgrade.",
   confirmingStatus: "Confirming your upgrade…",
   confirmTimeoutStatus: "Still confirming your upgrade",
+  confirmTimeoutCaption:
+    "Your payment went through safely. This can take a minute.",
   backgroundConfirmMessage:
     "Your assistant is still upgrading. Chatting won't be available until it finishes. You can keep waiting here, or continue and we'll let you know when it's ready.",
   backgroundExitToast: "Your upgrade continues in the background.",
@@ -61,6 +69,8 @@ const PLAN_CHANGE: TakeoverCopy = {
     "Retry in the background and we'll keep working on your plan change.",
   confirmingStatus: "Confirming your plan change…",
   confirmTimeoutStatus: "Still confirming your plan change",
+  confirmTimeoutCaption:
+    "Your plan change was submitted. This can take a minute.",
   backgroundConfirmMessage:
     "Your assistant is still updating. Chatting won't be available until it finishes. You can keep waiting here, or continue and we'll let you know when it's ready.",
   backgroundExitToast: "Your plan change continues in the background.",
