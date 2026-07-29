@@ -471,6 +471,49 @@ describe("per-chip progress", () => {
     expect(machine.queryByText("Complete")).toBeNull();
   });
 
+  test("a dimension arriving mid-wait announces itself by name", () => {
+    // Discoverable `sr-only` text is silent on change, so a user who stays on
+    // the takeover hears nothing when a dimension arrives without the region.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      plansResponse(),
+    );
+    const tree = (landed: { machine: boolean; storage: boolean }) => (
+      <QueryClientProvider client={client}>
+        <ProvisioningState {...baseProps({ ...IN_FLIGHT, landed })} />
+      </QueryClientProvider>
+    );
+
+    const { getByTestId, rerender } = render(
+      tree({ machine: false, storage: false }),
+    );
+    expect(getByTestId("chip-announcement").textContent).toBe("");
+
+    rerender(tree({ machine: false, storage: true }));
+
+    const announced = getByTestId("chip-announcement").textContent ?? "";
+    expect(announced).toContain("Storage");
+    expect(announced).toContain("complete");
+  });
+
+  test("what already reads complete at first paint stays silent", () => {
+    // A dimension that settled before the takeover opened, and credits which
+    // carry no wait at all, have no arrival to report. Announcing them on mount
+    // would claim progress the user never waited through.
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    expect(
+      within(getByTestId("chip-storage")).getByText("Complete"),
+    ).toBeTruthy();
+    expect(getByTestId("chip-announcement").textContent).toBe("");
+  });
+
   test("the from-to relation is spoken rather than left to the arrow glyph", () => {
     // The arrow is aria-hidden, so the chip would otherwise read
     // "Machine Small Large Pending".

@@ -460,11 +460,13 @@ function chipDone(
  * green check once it arrives. Showing them one at a time would hide the resize
  * the user is actually waiting on behind a dimension that was never in doubt.
  *
- * Each chip states its progress in `sr-only` text rather than the row holding a
- * live region: the mutating node is the bare status word, so a polite region
- * announces "Complete" without naming the dimension, and an atomic one re-reads
- * all three chips every time one lands. The static reading is accurate on
- * demand at any point in the wait, which is what the row owes.
+ * Each chip states its progress in `sr-only` text, which is what a user gets by
+ * navigating the row at any point in the wait. Discoverable text alone is
+ * silent on change, so the row also carries a polite live region naming the
+ * dimensions that read complete. It names them rather than announcing a bare
+ * status word, which on its own says nothing about which dimension arrived, and
+ * it holds whatever already reads complete at first paint as its baseline so
+ * credits (complete from the start) never announces.
  *
  * `allDone` is the terminal phase, where the state itself is the signal for
  * every dimension. The from-to arrow survives it, so one chip format covers
@@ -493,28 +495,41 @@ function ResourceChangeChips({
     credits: creditsLabel ? { from: "0", to: creditsLabel } : null,
   });
 
+  const completed = changes
+    .filter((change) => allDone || chipDone(change.key, landed))
+    .map((change) => change.label)
+    .join(", ");
+  const [completedAtFirstPaint] = useState(completed);
+  const announcement =
+    completed === completedAtFirstPaint ? "" : `${completed} complete`;
+
   if (changes.length === 0) {
     return null;
   }
 
   return (
-    <ChipRow testId="resource-chips" wide={changes.length >= 3}>
-      {changes.map((change) => {
-        const done = allDone || chipDone(change.key, landed);
-        return (
-          <DimensionChip
-            key={change.key}
-            testId={`chip-${change.key}`}
-            icon={RESOURCE_CHIP_ICON[change.key]}
-            label={change.label}
-            from={change.from}
-            to={change.to}
-            done={done}
-            pending={!done}
-          />
-        );
-      })}
-    </ChipRow>
+    <>
+      <ChipRow testId="resource-chips" wide={changes.length >= 3}>
+        {changes.map((change) => {
+          const done = allDone || chipDone(change.key, landed);
+          return (
+            <DimensionChip
+              key={change.key}
+              testId={`chip-${change.key}`}
+              icon={RESOURCE_CHIP_ICON[change.key]}
+              label={change.label}
+              from={change.from}
+              to={change.to}
+              done={done}
+              pending={!done}
+            />
+          );
+        })}
+      </ChipRow>
+      <p aria-live="polite" className="sr-only" data-testid="chip-announcement">
+        {announcement}
+      </p>
+    </>
   );
 }
 
