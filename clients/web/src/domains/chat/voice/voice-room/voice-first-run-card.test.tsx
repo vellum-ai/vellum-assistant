@@ -350,5 +350,22 @@ describe("VoiceFirstRunCard", () => {
       const start = getByText("Start talking").closest("button");
       expect(start?.disabled).toBe(true);
     });
+
+    test("the settings view's Start also waits out the language write", () => {
+      // A language pick on the intro followed by opening Voice settings must
+      // not offer a Start that races the config patch.
+      stubLocale("hi-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        selecting: true,
+      };
+      const { getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      fireEvent.click(getByText("Voice settings"));
+      const start = getByText("Start talking").closest("button");
+      expect(start?.disabled).toBe(true);
+    });
   });
 });

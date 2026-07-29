@@ -343,6 +343,7 @@ export function VoiceFirstRunCard({
             assistantId={assistantId}
             onStart={onStart}
             onBack={backToIntro}
+            startBlocked={languageSelecting}
           />
         )}
       </Modal.Content>
@@ -360,10 +361,17 @@ function VoiceSettingsView({
   assistantId,
   onStart,
   onBack,
+  startBlocked = false,
 }: {
   assistantId: string | null;
   onStart: () => void;
   onBack: () => void;
+  /**
+   * An in-flight write elsewhere on the card (the intro's language pick)
+   * that Start must also wait out, so the session cannot open on the
+   * previous STT language regardless of which view launches it.
+   */
+  startBlocked?: boolean;
 }) {
   // Own the selection here (rather than let the list self-commit) so the write's
   // in-flight state can gate Start: the picker reports a pick via `onChange`, and
@@ -402,14 +410,15 @@ function VoiceSettingsView({
       </Modal.Body>
       {/* Mirrors the intro footer (fine print left, primary right) and is always
           present, so the picker flows straight into the session without a size
-          change when a voice is chosen. Start waits out an in-flight voice write
-          so the session can't open on the previous voice. */}
+          change when a voice is chosen. Start waits out an in-flight voice or
+          language write so the session can't open on the previous voice or
+          the previous STT language. */}
       <Modal.Footer className="items-center justify-between gap-3">
         <VoiceProvidersNote />
         <Button
           variant="primary"
           onClick={onStart}
-          disabled={selecting}
+          disabled={selecting || startBlocked}
           className="shrink-0"
         >
           Start talking
