@@ -2,12 +2,13 @@
  * Backwards-compat gate: feature-flag query freshness.
  *
  * Vellum Assistant 0.8.5 introduced `sync_changed` broadcasts for the
- * two feature-flag tags (PR #31921 / #31932). Web subscribers use
- * those pushes + `sse.opened` reconnect invalidation to keep the flag
- * query caches fresh, so the previous 5s interval poll is redundant.
+ * feature-flag tags (PR #31921 / #31932). Web subscribers use those
+ * pushes + `sse.opened` reconnect invalidation to keep the assistant
+ * flag query cache fresh, so the previous 5s interval poll is redundant.
  *
- * Assistants on 0.8.4 or older have no push path for flags. They still
- * need the poll to stay live.
+ * Assistants on 0.8.4 or older have no push path for assistant flags.
+ * They still need the poll to stay live. Client flags use their own
+ * once-per-session query policy.
  */
 import { useAssistantSupports } from "@/lib/backwards-compat/utils";
 

@@ -73,9 +73,38 @@ describe("useFeatureFlagBusSync", () => {
     });
     emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+      expect(spy).toHaveBeenCalledWith(
+        {
+          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+        },
+        { cancelRefetch: false },
+      );
+    });
+  });
+
+  test("deduplicates bursty client feature flag invalidations", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    emitOpened("error");
+    emitOpened("watchdog");
+
+    await waitFor(() => {
+      const clientCalls = (
+        spy.mock.calls as unknown as Array<
+          [{ queryKey?: readonly unknown[] }, unknown?]
+        >
+      ).filter(([options]) => {
+        const key = options.queryKey?.[0] as { _id?: string } | undefined;
+        return key?._id === "featureFlagsClientFlagValuesRetrieve";
       });
+      expect(clientCalls).toHaveLength(1);
     });
   });
 
@@ -105,9 +134,12 @@ describe("useFeatureFlagBusSync", () => {
     });
     emitOpened("error");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
-      });
+      expect(spy).toHaveBeenCalledWith(
+        {
+          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+        },
+        { cancelRefetch: false },
+      );
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },
@@ -126,9 +158,12 @@ describe("useFeatureFlagBusSync", () => {
     emitOpened("watchdog");
     emitOpened("resume");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
-      });
+      expect(spy).toHaveBeenCalledWith(
+        {
+          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+        },
+        { cancelRefetch: false },
+      );
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },
