@@ -330,6 +330,13 @@ interface UtteranceCycle {
   // server_vad has the turn detector for the same question, and never sets
   // this — its ingress is handleServerVadAudio.
   manualAudioCaptured: boolean;
+  // server_vad capture routed speech (not just pre-roll silence) into this
+  // cycle. Distinguishes an eagerly re-armed cycle holding only leading
+  // silence from one already carrying the user's utterance: the
+  // stale-language interception in handleServerVadAudio may retire the
+  // former, never the latter. turnId cannot answer this, because a
+  // silence-only pre-roll flush assigns it too.
+  speechRouted: boolean;
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
   finalTranscriptSegments: string[];
@@ -768,6 +775,7 @@ function createUtteranceCycle(): UtteranceCycle {
     finalizeRequested: false,
     transcriber: null,
     manualAudioCaptured: false,
+    speechRouted: false,
     pendingAudioChunks: [],
     pendingAudioBytes: 0,
     finalTranscriptSegments: [],
@@ -1520,17 +1528,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Language change made while the session idles: the post-turn re-arm
     // binds the next cycle to the shared stream eagerly, before the picker
     // patches services.stt.language, so the stale binding surfaces when
-    // speech first reaches the armed cycle. An empty cycle (turnId is
-    // assigned with the first routed chunk) retires together with the
-    // old-language stream and falls through to the lazy arm below, which
-    // dials a fresh stream with the configured language.
+    // speech first reaches the armed cycle. A cycle that has routed no
+    // speech (pre-roll silence flushed at arm time does not count, see
+    // speechRouted) retires together with the old-language stream and
+    // falls through to the lazy arm below, which dials a fresh stream
+    // with the configured language.
     const sharedForLanguage = this.sharedTranscriber;
     if (
       sharedForLanguage &&
       utterance.transcriber === sharedForLanguage &&
       !utterance.released &&
       !utterance.completed &&
-      utterance.turnId === null &&
+      !utterance.speechRouted &&
       this.sharedStreamLanguageIsStale()
     ) {
       this.retireSharedTranscriberForRedial(sharedForLanguage);
@@ -1559,6 +1568,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
+    // Speech is now reaching the cycle, either in this chunk or parked in
+    // the pre-roll about to flush; read the flag before takeVadPreRoll
+    // resets it.
+    if (hasSpeech || this.vadPreRollHasSpeech) {
+      utterance.speechRouted = true;
+    }
     for (const preRollChunk of this.takeVadPreRoll()) {
       await this.routeVadAudio(utterance, preRollChunk);
     }
@@ -1615,9 +1630,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Arm-time flush: parked release-window audio joins the new cycle's
   // pending buffer so a completed parked utterance needs no further speech.
   private flushVadPreRollIntoPending(utterance: UtteranceCycle): void {
+    // Read before takeVadPreRoll resets it: a ring holding parked speech
+    // makes this cycle speech-bearing, a silence-only ring does not.
+    const preRollHadSpeech = this.vadPreRollHasSpeech;
     for (const chunk of this.takeVadPreRoll()) {
       this.collectUserAudio(utterance, chunk);
       this.bufferPendingUtteranceAudio(utterance, chunk);
+    }
+    if (preRollHadSpeech) {
+      utterance.speechRouted = true;
     }
   }
 

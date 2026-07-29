@@ -163,6 +163,10 @@ function loudPcmChunk(amplitude = 8_000, sampleCount = 240): Uint8Array {
   return new Uint8Array(buffer);
 }
 
+function silentPcmChunk(sampleCount = 240): Uint8Array {
+  return new Uint8Array(Buffer.alloc(sampleCount * 2));
+}
+
 function createSessionWithTranscriber(
   transcriber = new MockStreamingTranscriber(),
 ) {
@@ -820,6 +824,83 @@ describe("LiveVoiceSession STT", () => {
         () => frames.filter((frame) => frame.type === "tts_done").length === 3,
       );
       expect(resolver).toHaveBeenCalledTimes(2);
+      expect(transcribers[1]?.stopCalls).toBe(0);
+    } finally {
+      await session.close("websocket_close");
+      saveRawConfig(originalRaw);
+    }
+  });
+
+  test("re-dials for a language change when the eager cycle holds only pre-roll silence", async () => {
+    const originalRaw = loadRawConfig();
+    const transcribers: FinalizingMockStreamingTranscriber[] = [];
+    const resolver = mock(async () => {
+      const transcriber = new FinalizingMockStreamingTranscriber();
+      transcribers.push(transcriber);
+      return transcriber;
+    });
+    // Deferred turn completion: silence sent while the turn is in flight
+    // parks in the VAD pre-roll ring, so the finalize-time eager re-arm
+    // flushes it into the next cycle (assigning a turnId without speech).
+    const pendingCompletions: Array<() => void> = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      pendingCompletions.push(() => {
+        options.callbacks?.message_complete?.({
+          type: "message_complete",
+          conversationId: options.conversationId,
+          messageId: "assistant-message-123",
+        });
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    try {
+      await session.start();
+      await session.handleBinaryAudio(loudPcmChunk());
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => pendingCompletions.length === 1);
+      // Idle mic while the assistant responds: silence lands in the
+      // pre-roll ring ahead of the eager re-arm.
+      await session.handleBinaryAudio(silentPcmChunk());
+      await session.handleBinaryAudio(silentPcmChunk());
+      pendingCompletions.shift()?.();
+      await waitFor(
+        () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+      );
+
+      const rawServices = (originalRaw.services ?? {}) as Record<
+        string,
+        unknown
+      >;
+      saveRawConfig({
+        ...originalRaw,
+        services: {
+          ...rawServices,
+          stt: {
+            ...((rawServices.stt ?? {}) as Record<string, unknown>),
+            language: "hi",
+          },
+        },
+      });
+
+      // First speech after the change: the silence-only eager cycle retires
+      // with the old-language stream and a fresh one dials.
+      await session.handleBinaryAudio(loudPcmChunk());
+      await waitFor(() => transcribers.length === 2);
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => pendingCompletions.length === 1);
+      pendingCompletions.shift()?.();
+      await waitFor(
+        () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+      );
+
+      expect(resolver).toHaveBeenCalledTimes(2);
+      expect(transcribers[0]?.stopCalls).toBe(1);
       expect(transcribers[1]?.stopCalls).toBe(0);
     } finally {
       await session.close("websocket_close");
