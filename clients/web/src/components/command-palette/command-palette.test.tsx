@@ -107,8 +107,8 @@ describe("CommandPalette", () => {
 
     rerender(paletteElement(false));
 
-    // The load-bearing behavior: close is no longer a synchronous unmount, so
-    // AnimatePresence still holds the sheet while the exit plays.
+    // The load-bearing behavior: AnimatePresence holds the sheet in the DOM
+    // while the exit plays, so the chat underneath stays covered.
     expect(screen.getByRole("dialog", { name: "Search" })).toBeTruthy();
   });
 
