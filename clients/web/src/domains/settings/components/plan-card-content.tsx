@@ -14,6 +14,7 @@ import { Card } from "@vellumai/design-library/components/card";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { nonTierFeatures } from "@/domains/settings/billing/plan-spec";
 import { minTierPriceCents } from "./adjust-plan-utils";
 import { CreditBundlePicker } from "./credit-bundle-picker";
 import { PlanFeatureList } from "./plan-feature-list";
@@ -26,8 +27,8 @@ export interface PlanCardContentProps {
   onPro: boolean;
   /** The sub's real plan name ("Mighty" / "Custom"); used on the current Pro card. */
   planDisplayName: string;
-  /** The sub's real tier rows; null until the tier reads settle. */
-  currentPlanFeatures: string[] | null;
+  /** The sub's real machine/storage/credit rows; null until the tier reads settle. */
+  currentSpecRows: string[] | null;
   cancelAtPeriodEnd: boolean;
   isCanceled: boolean;
   cancelDate: string | null;
@@ -68,7 +69,7 @@ export function PlanCardContent({
   isCurrent,
   onPro,
   planDisplayName,
-  currentPlanFeatures,
+  currentSpecRows,
   cancelAtPeriodEnd,
   isCanceled,
   cancelDate,
@@ -248,8 +249,14 @@ export function PlanCardContent({
           </div>
           <PlanFeatureList
             features={
-              showsRealPlan && currentPlanFeatures
-                ? currentPlanFeatures
+              showsRealPlan && currentSpecRows
+                ? // The real values replace the catalog's generic capability
+                  // rows; everything else the catalog lists is an entitlement
+                  // no tier encodes, so it carries through untouched.
+                  [
+                    ...currentSpecRows,
+                    ...nonTierFeatures(plan.included_features),
+                  ]
                 : plan.included_features
             }
             variant="checklist"

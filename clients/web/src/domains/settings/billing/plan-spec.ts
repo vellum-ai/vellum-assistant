@@ -84,12 +84,30 @@ export function packageHighlights(
 }
 
 /**
- * Pro entitlements that no tier encodes, so `currentTierRows` cannot derive
- * them. Mirrors the non-tier entries of `_PRO_INCLUDED_FEATURES` in platform
- * `django/app/billing/plan_views.py`; the tier-derived entries there are
- * deliberately superseded by the subscriber's real values.
+ * The catalog's generic capability rows that a subscriber's real tier values
+ * supersede: "Configurable machine size" says nothing once the card can say
+ * "Large Machine". Matched against `ProPlan.included_features`.
+ *
+ * Recognizing a row here only removes it. A renamed or newly added catalog
+ * feature therefore survives into the card, which reads as redundant next to
+ * the real value at worst; the alternative, listing the entitlements to keep,
+ * would silently drop anything the platform adds.
  */
-export const PRO_NON_TIER_FEATURES = ["Assistant email & subdomain"];
+const TIER_SUPERSEDED_FEATURES = new Set([
+  "Pay-as-you-go and bundled credits",
+  "Configurable machine size",
+  "Configurable storage",
+]);
+
+/**
+ * The catalog features that survive alongside the real tier rows, i.e. the Pro
+ * entitlements no tier encodes (an assistant email and subdomain today). Taken
+ * from the live catalog rather than a client-side mirror of the platform
+ * constant, so an entitlement the API adds shows up without a web change.
+ */
+export function nonTierFeatures(included: readonly string[]): string[] {
+  return included.filter((feature) => !TIER_SUPERSEDED_FEATURES.has(feature));
+}
 
 /**
  * Spec rows for a Pro sub's own tier configuration, e.g.

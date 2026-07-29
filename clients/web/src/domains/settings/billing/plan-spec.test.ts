@@ -13,6 +13,7 @@ import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   currentTierRows,
   machineLabel,
+  nonTierFeatures,
   packageHighlights,
   packageSpecs,
 } from "./plan-spec";
@@ -219,5 +220,40 @@ describe("currentTierRows", () => {
         proPlan,
       )[0],
     ).toBe("xxl Machine");
+  });
+});
+
+describe("nonTierFeatures", () => {
+  // The four rows the platform catalog serves for Pro today.
+  const CATALOG = [
+    "Pay-as-you-go and bundled credits",
+    "Configurable machine size",
+    "Configurable storage",
+    "Assistant email & subdomain",
+  ];
+
+  test("drops the rows the real tier values supersede", () => {
+    expect(nonTierFeatures(CATALOG)).toEqual(["Assistant email & subdomain"]);
+  });
+
+  test("carries through an entitlement the platform adds later", () => {
+    // The regression this guards: a client-side mirror of the platform
+    // constant would silently drop any row it did not already know about.
+    expect(nonTierFeatures([...CATALOG, "Priority support"])).toEqual([
+      "Assistant email & subdomain",
+      "Priority support",
+    ]);
+  });
+
+  test("keeps a renamed capability row rather than dropping it", () => {
+    // Redundant next to the real value, but visible. Failing open beats
+    // silently omitting an entitlement the subscriber actually has.
+    expect(nonTierFeatures(["Configurable compute size"])).toEqual([
+      "Configurable compute size",
+    ]);
+  });
+
+  test("returns an empty list for an empty catalog", () => {
+    expect(nonTierFeatures([])).toEqual([]);
   });
 });

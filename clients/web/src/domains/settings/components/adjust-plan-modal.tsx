@@ -5,10 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
-import {
-  currentTierRows,
-  PRO_NON_TIER_FEATURES,
-} from "@/domains/settings/billing/plan-spec";
+import { currentTierRows } from "@/domains/settings/billing/plan-spec";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
@@ -169,20 +166,17 @@ export function AdjustPlanModal({
   // and storage tiers live on the onboarding read: while it is pending OR after
   // it errors, every tier reads null, which is indistinguishable from a
   // machine-less package and would describe a paid sub as the small baseline.
-  const currentPlanFeatures =
+  const currentSpecRows =
     onPro && onboardingQuery.isSuccess && proPlan
-      ? [
-          ...currentTierRows(
-            {
-              machineTier: currentMachineTier,
-              storageTier: currentStorageTier,
-              storageGib: currentStorageGib,
-              creditTier: currentCreditTier,
-            },
-            proPlan,
-          ),
-          ...PRO_NON_TIER_FEATURES,
-        ]
+      ? currentTierRows(
+          {
+            machineTier: currentMachineTier,
+            storageTier: currentStorageTier,
+            storageGib: currentStorageGib,
+            creditTier: currentCreditTier,
+          },
+          proPlan,
+        )
       : null;
 
   // Disable storage tiers below current (downgrades not allowed).
@@ -643,7 +637,7 @@ export function AdjustPlanModal({
                             isCurrent={planIsCurrent}
                             onPro={onPro}
                             planDisplayName={planDisplayName}
-                            currentPlanFeatures={currentPlanFeatures}
+                            currentSpecRows={currentSpecRows}
                             cancelAtPeriodEnd={cancelAtPeriodEnd}
                             isCanceled={isCanceled}
                             cancelDate={cancelDate}

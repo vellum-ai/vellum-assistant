@@ -1130,6 +1130,34 @@ describe("AdjustPlanModal current plan: name and real tier rows", () => {
     expect(text).not.toContain("Pay-as-you-go and bundled credits");
   });
 
+  test("carries through a non-tier entitlement the catalog adds", async () => {
+    // The real spec rows replace only the generic capability copy. Anything
+    // else the catalog lists is an entitlement no tier encodes, so it has to
+    // survive rather than be dropped by a client-side allowlist.
+    const plans = realKeyedPlansResponse();
+    const pro = (plans.plans as unknown as { included_features: string[] }[])[1];
+    pro.included_features = [...pro.included_features, "Priority support"];
+
+    renderModal(
+      subscription("pro", "credits_50", { cancel_at_period_end: true }),
+      plans,
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      if (!text.includes("Large Machine")) {
+        throw new Error("real rows not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Priority support");
+    expect(text).toContain("Assistant email & subdomain");
+    expect(text).not.toContain("Configurable machine size");
+  });
+
   test("a customized pin reads 'Custom' but still shows its real tier rows", async () => {
     renderModal(
       subscription("pro", "credits_50", {
