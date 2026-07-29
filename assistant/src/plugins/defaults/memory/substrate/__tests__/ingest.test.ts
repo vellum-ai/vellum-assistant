@@ -12,6 +12,10 @@
  *   - Batch over the cap: RangeError.
  *   - In-batch duplicate slug: later occurrence `invalid`.
  *   - Provenance warnings: missing `source`, unparseable `origin_date`.
+ *   - Under-lock collision snapshot: a page committed between validation and
+ *     the write phase is skipped, and `listPages` runs after `tryAcquireLock`.
+ *   - Partial write failure: the reindex fan-out still runs for committed
+ *     pages while the write error propagates.
  *
  * Tests use temp workspaces (mkdtemp) and never touch `~/.vellum/`. Sample
  * content uses generic placeholders (Alice).
@@ -54,6 +58,57 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
   isMemoryEnabled: () => true,
 }));
 
+// ── page-store / consolidation-lock delegating mocks ────────────────
+//
+// Thin wrappers around the real modules that record the ordering of lock
+// acquisition vs the collision snapshot and expose two race hooks: a
+// callback fired right after the lock is acquired (simulating a concurrent
+// writer that committed just before the snapshot) and a set of slugs whose
+// `writePage` rejects (simulating a mid-batch write failure).
+//
+// `mock.module` mutates the already-imported namespace objects in place, so
+// the wrapped functions are snapshotted into standalone consts first; calling
+// through the namespace after mocking would recurse into the wrapper.
+const realPageStore = await import("../page-store.js");
+const realLock = await import("../consolidation-lock.js");
+const realListPages = realPageStore.listPages;
+const realWritePage = realPageStore.writePage;
+const realTryAcquireLock = realLock.tryAcquireLock;
+
+const callTrace: string[] = [];
+let onLockAcquired: (() => void) | undefined;
+let failWriteSlugs = new Set<string>();
+
+mock.module("../page-store.js", () => ({
+  ...realPageStore,
+  listPages: (workspaceDir: string): Promise<string[]> => {
+    callTrace.push("listPages");
+    return realListPages(workspaceDir);
+  },
+  writePage: (...args: Parameters<typeof realWritePage>): Promise<void> => {
+    if (failWriteSlugs.has(args[1].slug)) {
+      return Promise.reject(
+        new Error(`simulated write failure: ${args[1].slug}`),
+      );
+    }
+    return realWritePage(...args);
+  },
+}));
+
+mock.module("../consolidation-lock.js", () => ({
+  ...realLock,
+  tryAcquireLock: (
+    ...args: Parameters<typeof realTryAcquireLock>
+  ): string | null => {
+    const holder = realTryAcquireLock(...args);
+    if (holder === null) {
+      callTrace.push("tryAcquireLock");
+      onLockAcquired?.();
+    }
+    return holder;
+  },
+}));
+
 const { IngestLockedError, ingestPages, MAX_INGEST_PAGES_PER_CALL } =
   await import("../ingest.js");
 const { getConsolidationLockPath } = await import("../consolidation-lock.js");
@@ -65,6 +120,9 @@ beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), "memory-ingest-test-"));
   enqueuedJobs.length = 0;
   pendingJobTypes = new Set();
+  callTrace.length = 0;
+  onLockAcquired = undefined;
+  failWriteSlugs = new Set();
 });
 
 afterEach(() => {
@@ -267,5 +325,72 @@ describe("ingestPages", () => {
       { slug: "people/alice", content: validPage("Alice likes hiking.") },
     ]);
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v3_maintain"]);
+  });
+
+  test("a page committed during lock acquisition is skipped, not overwritten", async () => {
+    // Simulated concurrent writer: the colliding page lands on disk after
+    // validation ran and right after the lock is acquired, so only an
+    // under-lock snapshot can see it.
+    onLockAcquired = () => {
+      const path = join(workspace, "memory", "concepts", "people", "alice.md");
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, validPage("Concurrent writer body."));
+    };
+
+    const summary = await ingestPages(workspace, [
+      { slug: "people/alice", content: validPage("Ingest body.") },
+    ]);
+
+    // The collision snapshot ran after lock acquisition.
+    expect(callTrace).toEqual(["tryAcquireLock", "listPages"]);
+    expect(summary.results[0].action).toBe("skipped_exists");
+    expect(summary.written).toBe(0);
+    expect(summary.skipped).toBe(1);
+    const preserved = await readPage(workspace, "people/alice");
+    expect(preserved?.body.trim()).toBe("Concurrent writer body.");
+    // Nothing written, so no reindex fan-out; the lock is released.
+    expect(enqueuedJobs).toEqual([]);
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
+  test("dry-run takes its advisory snapshot without touching the lock", async () => {
+    await ingestPages(
+      workspace,
+      [{ slug: "people/alice", content: validPage("Alice likes hiking.") }],
+      { dryRun: true },
+    );
+    expect(callTrace).toEqual(["listPages"]);
+  });
+
+  test("a mid-batch write failure still enqueues reindex follow-ups for committed pages", async () => {
+    failWriteSlugs = new Set(["projects/garden"]);
+
+    let thrown: unknown;
+    try {
+      await ingestPages(workspace, [
+        { slug: "people/alice", content: validPage("Alice likes hiking.") },
+        {
+          slug: "projects/garden",
+          content: validPage("Garden redesign notes."),
+        },
+      ]);
+    } catch (err) {
+      thrown = err;
+    }
+
+    // The write error propagates to the caller.
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain(
+      "simulated write failure: projects/garden",
+    );
+    // The first page committed before the failure and still gets its
+    // reindex fan-out, once per job type.
+    expect(await listPages(workspace)).toEqual(["people/alice"]);
+    expect(enqueuedJobs.map((j) => j.type).sort()).toEqual([
+      "memory_v2_reembed",
+      "memory_v3_maintain",
+    ]);
+    // The lock is released despite the failure.
+    expect(existsSync(lockPath())).toBe(false);
   });
 });

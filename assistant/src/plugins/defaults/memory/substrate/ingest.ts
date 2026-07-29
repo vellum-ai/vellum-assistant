@@ -8,9 +8,11 @@
  * reported individually, so one malformed page never sinks the batch.
  *
  * Writes hold the consolidation lock so an ingest cannot interleave with a
- * consolidation pass rewriting the same corpus; after the lock is released,
- * reindex follow-up jobs are enqueued so the freshly written pages become
- * retrievable.
+ * consolidation pass rewriting the same corpus, and the collision snapshot
+ * is taken under that lock so a concurrent writer's page is never silently
+ * overwritten. After the lock is released, reindex follow-up jobs are
+ * enqueued whenever at least one page was written (even when a later write
+ * in the batch failed), so the freshly written pages become retrievable.
  */
 
 import { join } from "node:path";
@@ -104,12 +106,18 @@ const REINDEX_JOB_TYPES: readonly MemoryJobType[] = [
  *   3. Provenance warnings (non-blocking): missing `source` frontmatter, and
  *      an `origin_date` that `Date.parse` cannot read.
  *   4. Collision against on-disk slugs: `skipped_exists` unless
- *      `opts.overwrite`.
+ *      `opts.overwrite`. The snapshot backing this check is taken under the
+ *      consolidation lock, so a page committed by another writer between
+ *      validation and the write phase is still skipped rather than
+ *      overwritten.
  *
- * With `dryRun` the summary is returned without touching disk or the lock.
- * Otherwise the consolidation lock is held across the writes; a held lock
- * throws {@link IngestLockedError} before anything is written. After release,
- * reindex follow-ups are enqueued when at least one page was written.
+ * With `dryRun` the summary is returned without touching disk or the lock;
+ * the dry-run collision snapshot is lock-free and therefore advisory.
+ * Otherwise the consolidation lock is held across the snapshot and the
+ * writes; a held lock throws {@link IngestLockedError} before anything is
+ * written. After release, reindex follow-ups are enqueued when at least one
+ * page was written, including when a later write in the batch threw after
+ * earlier pages committed (the error still propagates).
  *
  * Throws `RangeError` when the batch exceeds {@link MAX_INGEST_PAGES_PER_CALL}.
  */
@@ -128,10 +136,12 @@ export async function ingestPages(
   const dryRun = opts?.dryRun === true;
   const overwrite = opts?.overwrite === true;
 
-  const existingSlugs = new Set(await listPages(workspaceDir));
   const seenSlugs = new Set<string>();
   const results: IngestPageResult[] = [];
-  const toWrite: ConceptPage[] = [];
+  // Pages that passed validation. Collision classification is deferred so
+  // the on-disk snapshot can be taken under the consolidation lock; each
+  // entry keeps a reference to its (provisional) result in `results`.
+  const pending: PendingPage[] = [];
 
   for (const input of pages) {
     const warnings: string[] = [];
@@ -182,25 +192,24 @@ export async function ingestPages(
       );
     }
 
-    if (existingSlugs.has(input.slug) && !overwrite) {
-      results.push({ slug: input.slug, action: "skipped_exists", warnings });
-      continue;
-    }
-
-    results.push({ slug: input.slug, action: "written", warnings });
-    toWrite.push(page);
+    // Provisional action: `classifyCollisions` downgrades it to
+    // `skipped_exists` when the slug already exists on disk and overwrite
+    // is off.
+    const result: IngestPageResult = {
+      slug: input.slug,
+      action: "written",
+      warnings,
+    };
+    results.push(result);
+    pending.push({ page, result });
   }
 
-  const summary: IngestSummary = {
-    results,
-    written: results.filter((r) => r.action === "written").length,
-    skipped: results.filter((r) => r.action === "skipped_exists").length,
-    invalid: results.filter((r) => r.action === "invalid").length,
-    dryRun,
-  };
-
   if (dryRun) {
-    return summary;
+    // Dry-run is advisory: the snapshot is taken without the lock, so a
+    // concurrent writer can change what a later real run would do.
+    const existingSlugs = new Set(await listPages(workspaceDir));
+    classifyCollisions(pending, existingSlugs, overwrite);
+    return summarize(results, dryRun);
   }
 
   const lockPath = getConsolidationLockPath(join(workspaceDir, "memory"));
@@ -208,27 +217,78 @@ export async function ingestPages(
   if (holder !== null) {
     throw new IngestLockedError(holder);
   }
+  let successfulWrites = 0;
   try {
+    // The snapshot is taken under the lock so a page committed by another
+    // writer after validation still classifies as a collision.
+    const existingSlugs = new Set(await listPages(workspaceDir));
+    const toWrite = classifyCollisions(pending, existingSlugs, overwrite);
+    const summary = summarize(results, dryRun);
+
     for (const page of toWrite) {
       await writePage(workspaceDir, page);
+      successfulWrites += 1;
     }
+
+    if (summary.written > 0) {
+      log.info(
+        {
+          written: summary.written,
+          skipped: summary.skipped,
+          invalid: summary.invalid,
+        },
+        "ingest batch written",
+      );
+    }
+    return summary;
   } finally {
     releaseLock(lockPath);
+    // Every committed page needs reindexing, including when a later write
+    // in the batch threw; the follow-ups are enqueued before that error
+    // propagates to the caller.
+    if (successfulWrites > 0) {
+      enqueueReindexFollowUps();
+    }
   }
+}
 
-  if (summary.written > 0) {
-    enqueueReindexFollowUps();
-    log.info(
-      {
-        written: summary.written,
-        skipped: summary.skipped,
-        invalid: summary.invalid,
-      },
-      "ingest batch written",
-    );
+/** A validated page awaiting collision classification against the on-disk set. */
+interface PendingPage {
+  page: ConceptPage;
+  result: IngestPageResult;
+}
+
+/**
+ * Downgrade pending results whose slug is already on disk to `skipped_exists`
+ * (unless overwriting) and return the pages left to write, in batch order.
+ */
+function classifyCollisions(
+  pending: readonly PendingPage[],
+  existingSlugs: ReadonlySet<string>,
+  overwrite: boolean,
+): ConceptPage[] {
+  const toWrite: ConceptPage[] = [];
+  for (const { page, result } of pending) {
+    if (existingSlugs.has(result.slug) && !overwrite) {
+      result.action = "skipped_exists";
+      continue;
+    }
+    toWrite.push(page);
   }
+  return toWrite;
+}
 
-  return summary;
+function summarize(
+  results: IngestPageResult[],
+  dryRun: boolean,
+): IngestSummary {
+  return {
+    results,
+    written: results.filter((r) => r.action === "written").length,
+    skipped: results.filter((r) => r.action === "skipped_exists").length,
+    invalid: results.filter((r) => r.action === "invalid").length,
+    dryRun,
+  };
 }
 
 /**
