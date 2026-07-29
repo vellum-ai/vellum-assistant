@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
+import { assertNotLiveDb } from "../../../../__tests__/assert-not-live-db.js";
 import { applyCommandHelp } from "../../../lib/cli-command-help.js";
 import { memoryHelp } from "../index.help.js";
 
@@ -142,6 +143,7 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
   try {
     await fn(dir);
   } finally {
+    assertNotLiveDb(dir);
     rmSync(dir, { recursive: true, force: true });
   }
 }
