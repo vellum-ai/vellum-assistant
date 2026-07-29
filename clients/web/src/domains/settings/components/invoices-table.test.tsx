@@ -15,6 +15,8 @@ let listResult: InvoiceListResponse;
 let nextPages: Record<string, InvoiceListResponse>;
 // When set, ?starting_after= requests fail with this HTTP status.
 let nextPageErrorStatus: number | null;
+// When set, cursor-less (first page) requests fail with this HTTP status.
+let firstPageErrorStatus: number | null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -27,6 +29,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
       return Promise.resolve({
         data: undefined,
         response: { ok: false, status: nextPageErrorStatus },
+      });
+    }
+    if (!cursor && firstPageErrorStatus !== null) {
+      return Promise.resolve({
+        data: undefined,
+        response: { ok: false, status: firstPageErrorStatus },
       });
     }
     return Promise.resolve({
@@ -65,20 +73,21 @@ function seedTwoPages(): void {
   };
 }
 
-function renderTable(): ReturnType<typeof render> {
+function renderTable(): ReturnType<typeof render> & { client: QueryClient } {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <InvoicesTable />
     </QueryClientProvider>,
   );
+  return { ...view, client };
 }
 
 async function openTable(options?: {
   showAll?: boolean;
-}): Promise<ReturnType<typeof render>> {
+}): Promise<ReturnType<typeof renderTable>> {
   const view = renderTable();
   fireEvent.click(view.getByTestId("invoices-toggle"));
   await waitFor(() =>
@@ -98,6 +107,7 @@ beforeEach(() => {
   };
   nextPages = {};
   nextPageErrorStatus = null;
+  firstPageErrorStatus = null;
 });
 
 afterEach(() => {
@@ -244,6 +254,23 @@ describe("InvoicesTable pagination", () => {
     );
     expect(queryByTestId("invoices-load-more")).toBeNull();
     expect(getByTestId("invoices-load-more-retry")).not.toBeNull();
+  });
+
+  test("a failed background refetch stays silent and keeps Load more", async () => {
+    seedTwoPages();
+    const { client, queryByTestId, getAllByTestId } = await openTable({
+      showAll: true,
+    });
+
+    expect(queryByTestId("invoices-load-more")).not.toBeNull();
+
+    firstPageErrorStatus = 500;
+    await client.refetchQueries();
+
+    await waitFor(() => expect(listRetrieveCalls.length).toBe(2));
+    expect(getAllByTestId("invoice-row").length).toBe(5);
+    expect(queryByTestId("invoices-load-more-error")).toBeNull();
+    expect(queryByTestId("invoices-load-more")).not.toBeNull();
   });
 
   test("a short first page with has_more still offers Load more", async () => {
