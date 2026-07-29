@@ -8,17 +8,17 @@ import { useCommandPaletteStore } from "@/stores/command-palette-store";
 afterEach(() => {
   cleanup();
   useCommandPaletteStore.getState().close();
-  for (const input of document.querySelectorAll("input")) {
+  for (const input of document.querySelectorAll("input, textarea")) {
     input.remove();
   }
 });
 
 describe("useCommandPalette", () => {
-  test("blurs the focused element when closing", () => {
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-    input.focus();
-    expect(document.activeElement).toBe(input);
+  test("leaves focus an action moved outside the palette alone", () => {
+    // Mirrors item selection: `handleIndexSelect` runs the action and then
+    // closes, and "New Conversation" focuses the composer on the way through.
+    const composer = document.createElement("textarea");
+    document.body.appendChild(composer);
 
     const { result } = renderHook(() => useCommandPalette({ itemCount: 0 }));
 
@@ -28,10 +28,11 @@ describe("useCommandPalette", () => {
     expect(result.current.isOpen).toBe(true);
 
     act(() => {
+      composer.focus();
       result.current.close();
     });
 
-    expect(document.activeElement).not.toBe(input);
+    expect(document.activeElement).toBe(composer);
     expect(result.current.isOpen).toBe(false);
     expect(result.current.query).toBe("");
   });

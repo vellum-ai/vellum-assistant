@@ -1,9 +1,15 @@
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
+  AnimatePresence,
+  motion,
+  useIsPresent,
+  useReducedMotion,
+} from "motion/react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   type CSSProperties,
   type FC,
@@ -31,6 +37,13 @@ const MOBILE_SHEET_SAFE_AREA_STYLE: CSSProperties = {
     "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
   paddingLeft: "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
   paddingRight: "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+};
+
+// The exiting sheet still covers the viewport, so taps aimed at the chat and
+// the drawer underneath have to pass through it.
+const MOBILE_SHEET_EXITING_STYLE: CSSProperties = {
+  ...MOBILE_SHEET_SAFE_AREA_STYLE,
+  pointerEvents: "none",
 };
 
 // ---------------------------------------------------------------------------
@@ -74,6 +87,64 @@ export interface CommandPaletteProps {
   surface?: "overlay" | "window";
 }
 
+interface MobileSheetProps {
+  /** Key-down handler from useCommandPalette for keyboard navigation. */
+  onKeyDown: (e: KeyboardEvent) => void;
+  children: ReactNode;
+}
+
+/**
+ * Full-screen sheet used by the iOS shell, sliding up on open and out on
+ * close. It outlives `isOpen` for the length of the exit, and AnimatePresence
+ * renders the exiting element with the props it was frozen at, so everything
+ * that has to change the moment the exit starts reads `useIsPresent()`
+ * instead: the sheet stops taking taps, drops out of the accessibility tree,
+ * and releases focus.
+ */
+const MobileSheet: FC<MobileSheetProps> = ({ onKeyDown, children }) => {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Blurring the search input starts the iOS keyboard dismissal in parallel
+  // with the slide-out. Scoped to the sheet so focus that a close handler
+  // moved elsewhere (the composer, after "New Conversation") survives.
+  useLayoutEffect(() => {
+    if (isPresent) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && sheetRef.current?.contains(active)) {
+      active.blur();
+    }
+  }, [isPresent]);
+
+  return (
+    <motion.div
+      ref={sheetRef}
+      className={MOBILE_SHEET_CLASSES}
+      style={
+        isPresent ? MOBILE_SHEET_SAFE_AREA_STYLE : MOBILE_SHEET_EXITING_STYLE
+      }
+      role="dialog"
+      aria-modal={isPresent ? true : undefined}
+      aria-hidden={isPresent ? undefined : true}
+      aria-label="Search"
+      onKeyDown={onKeyDown}
+      initial={{ y: "100%", opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: "100%", opacity: 0 }}
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : { duration: 0.28, ease: [0.16, 1, 0.3, 1] }
+      }
+    >
+      {children}
+    </motion.div>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -101,7 +172,6 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
 }) => {
   const isMobile = useIsMobile();
   const isNativeIOSShell = useIsNativeIOS();
-  const reduceMotion = useReducedMotion();
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -292,26 +362,10 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     return (
       <AnimatePresence>
         {isOpen ? (
-          <motion.div
-            key="command-palette-sheet"
-            className={MOBILE_SHEET_CLASSES}
-            style={MOBILE_SHEET_SAFE_AREA_STYLE}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Search"
-            onKeyDown={onKeyDown}
-            initial={{ y: "100%", opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: "100%", opacity: 0 }}
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : { duration: 0.28, ease: [0.16, 1, 0.3, 1] }
-            }
-          >
+          <MobileSheet key="command-palette-sheet" onKeyDown={onKeyDown}>
             {searchInputRow}
             {resultsList}
-          </motion.div>
+          </MobileSheet>
         ) : null}
       </AnimatePresence>
     );
