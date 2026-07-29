@@ -567,6 +567,39 @@ describe("SpeechToTextCard: Spoken language dropdown", () => {
     expect(languageTrigger()!.textContent).toContain("en-US");
   });
 
+  test("hides when a stale localStorage provider settles the card off the steered daemon default", async () => {
+    // No `services.stt` config, so the pick steers the daemon schema default
+    // (deepgram, manual), but the cross-assistant localStorage choice settles
+    // the card on auto-detecting Whisper with no pending draft. The mapped
+    // branch of the gate requires the card's daemon mapping to equal the
+    // steered provider, so no picker renders under the auto card.
+    localStorage.setItem(LS_STT_PROVIDER, "openai");
+    daemonConfigData = { services: {} };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+        {
+          id: "openai-whisper",
+          displayName: "Whisper",
+          languageSelection: "auto",
+        },
+      ],
+    };
+    renderCard();
+
+    // The card settles on the localStorage provider (no draft pending).
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="STT provider"]',
+    );
+    await waitFor(() => expect(trigger?.textContent).toContain("OpenAI"));
+
+    expect(languageTrigger()).toBeNull();
+  });
+
   test("does not render when the daemon omits the capability field (old daemon)", () => {
     daemonConfigData = { services: { stt: { provider: "deepgram" } } };
     providerCatalogData = {

@@ -176,15 +176,20 @@ export function SttProviderForm({
   // unsaved draft of a different one: offering the draft's languages would
   // write a value the still-active provider may ignore (e.g. Multilingual
   // drafted for Vellum while xAI runs, whose resolver drops "multi"). A
-  // settled selection with no daemon mapping (the client-only native choice,
-  // whose recognizer never reads `services.stt.language`) also hides the
-  // picker, unless the daemon itself runs a provider the dropdown can't
-  // represent (e.g. xai via CLI renders as a placeholder), which is exactly
-  // what the picker steers.
+  // settled selection with a daemon mapping shows the picker only when that
+  // mapping IS the provider the pick steers (the hook's
+  // `configuredProviderId`): with no `services.stt` config, a stale
+  // cross-assistant localStorage choice can settle the card on a provider
+  // (e.g. auto-detecting Whisper) that diverges from the daemon-default
+  // provider the pick would write for. A settled selection with no daemon
+  // mapping (the client-only native choice, whose recognizer never reads
+  // `services.stt.language`) also hides the picker, unless the daemon itself
+  // runs a provider the dropdown can't represent (e.g. xai via CLI renders
+  // as a placeholder), which is exactly what the picker steers.
   const languagePickerVisible =
     languageAvailable &&
     draftProvider === serverProvider &&
-    (!!STT_DAEMON_PROVIDER[draftProvider] ||
+    (STT_DAEMON_PROVIDER[draftProvider]?.provider === languageProviderId ||
       (!!daemonSttProvider && !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider]));
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
