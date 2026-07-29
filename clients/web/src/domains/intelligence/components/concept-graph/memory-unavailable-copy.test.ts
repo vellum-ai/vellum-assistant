@@ -9,8 +9,9 @@ import {
   describeMemoryUnavailable,
   MEMORY_ENABLE_PROMPT,
   MEMORY_STATUS_ERROR_COPY,
+  MEMORY_V1_UPGRADE_PROMPT,
+  MEMORY_V3_FLIP_PROMPT,
   MEMORY_V3_REFORM_PROMPT,
-  MEMORY_V3_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
 describe("describeMemoryUnavailable", () => {
@@ -91,62 +92,94 @@ describe("MEMORY_STATUS_ERROR_COPY", () => {
   });
 });
 
-describe("MEMORY_V3_UPGRADE_PROMPT", () => {
-  test("asks the assistant to check the corpus before rewriting it", () => {
-    // The seed drives a real, irreversible reform of the concept corpus; both
-    // the check and the confirmation are load-bearing, not politeness.
-    expect(MEMORY_V3_UPGRADE_PROMPT).toContain("v3");
-    expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("empty");
-    expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("before");
-  });
-
-  test("does not name the reform skill, which v1 must not run", () => {
-    // A v1 assistant holds no concept pages. The reform skill's own
-    // `avoid-when` rules it out for an empty corpus and sends the assistant to
-    // the backfill migration, so seeding its name here would plant an
-    // instruction the skill itself rejects.
-    expect(MEMORY_V3_UPGRADE_PROMPT).not.toContain("Memory v3 Migration");
-  });
-});
-
-describe("MEMORY_V3_REFORM_PROMPT", () => {
-  test("names the skill and holds it to its own gates", () => {
-    // Each of these maps to a gate the skill defines and a run can silently
-    // skip. Losing one from the seed loses the gate.
-    expect(MEMORY_V3_REFORM_PROMPT).toContain("Memory v3 Migration");
-    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("preflight");
-    expect(MEMORY_V3_REFORM_PROMPT).toContain("Step 10");
-    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("loss-audit");
-    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("backup path");
-  });
-
-  test("guards the two silent-failure modes", () => {
-    // A leaf profile that no-ops returns a vacuous pass, and mechanical
-    // reformatting satisfies the shape while defeating the point. Both look
-    // like success from the outside, which is why the seed calls them out.
-    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("vacuous");
-    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain(
-      "mechanical reformatting",
+describe("the upgrade seed per legacy tier", () => {
+  // The tier is a config bit; the corpus is a measurement. Only together do
+  // they identify which of the three migrations is the right one.
+  test("v2 with pages gets the reform skill", () => {
+    expect(describeMemoryUnavailable("v2", 250).prompt).toBe(
+      MEMORY_V3_REFORM_PROMPT,
     );
   });
 
-  test("keeps the corpus on v2 unless the gates actually pass", () => {
-    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("don't cut over");
-    expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).toContain("low-confidence");
+  test("v2 with an empty corpus does NOT get the reform skill", () => {
+    // `memory.v2.enabled` defaults on, so a fresh workspace reports tier v2
+    // with nothing in it. The reform skill rejects an empty corpus, so seeding
+    // its name here would plant an instruction that skill refuses.
+    const { prompt } = describeMemoryUnavailable("v2", 0);
+    expect(prompt).toBe(MEMORY_V3_FLIP_PROMPT);
+    expect(prompt).not.toContain("Memory v3 Migration");
   });
 
-  test("says nothing about cost or credits", () => {
-    // Deliberate: this seed asks for the migration, not for a spend decision.
-    for (const word of ["cost", "credit", "spend", "estimate", "money"]) {
-      expect(MEMORY_V3_REFORM_PROMPT.toLowerCase()).not.toContain(word);
+  test("v2 with an unknown count keeps the reform seed", () => {
+    // The skill guards its own empty case, so asserting "looks empty" without
+    // the number is the worse of the two errors.
+    expect(describeMemoryUnavailable("v2", undefined).prompt).toBe(
+      MEMORY_V3_REFORM_PROMPT,
+    );
+  });
+
+  test("v1 gets both hops, in order", () => {
+    const { prompt } = describeMemoryUnavailable("v1", 0);
+    expect(prompt).toBe(MEMORY_V1_UPGRADE_PROMPT);
+    // Neither skill spans the gap alone, and the order is load-bearing:
+    // reaching for the v3 skill first hits its empty-corpus guard and stops.
+    const v2At = prompt!.indexOf("Memory v2 Migration");
+    const v3At = prompt!.indexOf("Memory v3 Migration");
+    expect(v2At).toBeGreaterThan(-1);
+    expect(v3At).toBeGreaterThan(v2At);
+  });
+
+  test("a v1 corpus count never routes it to the v2 seeds", () => {
+    // v1 keeps its memory in the PKB graph, so a page count means nothing here.
+    for (const pages of [0, 5, 250, undefined]) {
+      expect(describeMemoryUnavailable("v1", pages).prompt).toBe(
+        MEMORY_V1_UPGRADE_PROMPT,
+      );
     }
   });
+});
+
+describe("seeded migration prompts", () => {
+  const migrations = {
+    MEMORY_V3_REFORM_PROMPT,
+    MEMORY_V3_FLIP_PROMPT,
+    MEMORY_V1_UPGRADE_PROMPT,
+  };
+
+  test.each(Object.entries(migrations))(
+    "%s says nothing about cost or credits",
+    (_name, seed) => {
+      // Deliberate: these ask for the migration, not for a spend decision.
+      for (const word of ["cost", "credit", "spend", "estimate", "money"]) {
+        expect(seed.toLowerCase()).not.toContain(word);
+      }
+    },
+  );
+
+  test.each(Object.entries(migrations))(
+    "%s runs in the background and reports back",
+    (_name, seed) => {
+      expect(seed.toLowerCase()).toContain("in the background");
+      expect(seed.toLowerCase()).toContain("blocks");
+    },
+  );
+
+  test.each(Object.entries(migrations))(
+    "%s defers to the skill rather than restating it",
+    (_name, seed) => {
+      // The hard rules live in the skill, which versions separately from this
+      // file. Restating them here is what goes stale.
+      expect(seed.toLowerCase()).toContain("exactly");
+      expect(seed).not.toContain("Step 10");
+    },
+  );
 });
 
 describe("every seeded prompt", () => {
   const seeds = {
     MEMORY_V3_REFORM_PROMPT,
-    MEMORY_V3_UPGRADE_PROMPT,
+    MEMORY_V3_FLIP_PROMPT,
+    MEMORY_V1_UPGRADE_PROMPT,
     MEMORY_ENABLE_PROMPT,
   };
 
@@ -161,9 +194,14 @@ describe("every seeded prompt", () => {
   test.each(Object.entries(seeds))(
     "%s is reachable from a tier",
     (_n, seed) => {
-      const prompts = (["off", "v1", "v2"] as const).map(
-        (tier) => describeMemoryUnavailable(tier).prompt,
-      );
+      // Every state a user can actually land in, including both v2 corpus
+      // shapes, so a seed can't be orphaned by a future routing change.
+      const prompts = [
+        describeMemoryUnavailable("off").prompt,
+        describeMemoryUnavailable("v1").prompt,
+        describeMemoryUnavailable("v2", 0).prompt,
+        describeMemoryUnavailable("v2", 250).prompt,
+      ];
       expect(prompts).toContain(seed);
     },
   );
