@@ -1,9 +1,9 @@
 /**
  * Unit tests for `initNativeKeyboard`.
  *
- * These pin the platform gate and the backwards-compat contract: shells built
- * before `@capacitor/keyboard` was linked reject the call, and boot must not
- * surface that as an error.
+ * These pin the platform gate and the backwards-compat contract: shells without
+ * the linked `@capacitor/keyboard` plugin reject the call and retain the
+ * accessory bar, and boot must not surface that as an error.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
