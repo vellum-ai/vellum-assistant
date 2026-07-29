@@ -5,13 +5,19 @@ import {
   FREE_STORAGE_GIB,
 } from "@/domains/settings/billing/plan-tier-meta";
 import type { ProPackage } from "@/domains/settings/billing/package-types";
+import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
+import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   creditRowLabel,
   formatDollars,
   storageRowLabel,
 } from "@/domains/settings/components/tier-pricing";
-import type { MachineSizeEnum } from "@/generated/api/types.gen";
-import { SIZE_DESCRIPTION, SIZE_LABEL } from "@/lib/billing/machine-sizes";
+import type { MachineSizeEnum, ProPlan } from "@/generated/api/types.gen";
+import {
+  MACHINE_TIER_LABEL,
+  SIZE_DESCRIPTION,
+  SIZE_LABEL,
+} from "@/lib/billing/machine-sizes";
 
 /** A single spec chip: an icon and its label. */
 export interface PlanSpec {
@@ -75,4 +81,47 @@ export function packageHighlights(
     creditRowLabel(credits),
     ...extra,
   ];
+}
+
+/**
+ * Pro entitlements that no tier encodes, so `currentTierRows` cannot derive
+ * them. Mirrors the non-tier entries of `_PRO_INCLUDED_FEATURES` in platform
+ * `django/app/billing/plan_views.py`; the tier-derived entries there are
+ * deliberately superseded by the subscriber's real values.
+ */
+export const PRO_NON_TIER_FEATURES = ["Assistant email & subdomain"];
+
+/**
+ * Spec rows for a Pro sub's own tier configuration, e.g.
+ * `["Medium Machine", "30 GB", "50 credits"]`. Unlike `packageSpecs`, which
+ * describes a stock package, this describes what the subscriber actually holds,
+ * so it also covers a Custom sub whose tiers match no package.
+ *
+ * A dimension with no resolvable value is dropped rather than guessed: only the
+ * machine falls back, to the standard-small baseline that a package with no paid
+ * machine tier runs on. Callers must not invoke this before the tier reads have
+ * settled, or an unresolved config renders as that baseline.
+ */
+export function currentTierRows(
+  current: CurrentTiers,
+  proPlan: ProPlan,
+): string[] {
+  const machine = current.machineTier
+    ? (MACHINE_TIER_LABEL[current.machineTier] ?? current.machineTier)
+    : STANDARD_MACHINE_LABEL;
+  const rows = [`${machine} Machine`];
+  if (current.storageGib != null) {
+    rows.push(`${current.storageGib} GB`);
+  }
+  if (current.creditTier != null) {
+    // A held/deprecated credit tier absent from the catalog can't resolve to a
+    // catalog label; derive the amount from the tier key (credits_<usd>) so the
+    // paid bundle still shows instead of being silently dropped.
+    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
+    rows.push(
+      findCreditTier(proPlan, current.creditTier)?.label ??
+        (usd != null ? `${usd} credits` : "Credit bundle"),
+    );
+  }
+  return rows;
 }

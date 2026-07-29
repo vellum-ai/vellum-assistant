@@ -12,8 +12,8 @@ import {
   tierRelation,
 } from "@/domains/settings/billing/package-types";
 import {
+  currentTierRows,
   machineLabel,
-  STANDARD_MACHINE_LABEL,
 } from "@/domains/settings/billing/plan-spec";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
@@ -35,7 +35,6 @@ import {
 } from "@/domains/settings/billing/plans/plans-copy";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
-import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
@@ -67,7 +66,6 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
-import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
@@ -120,30 +118,11 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
 
 /**
  * A one-line recap of a custom sub's current tiers for the Custom row, e.g.
- * "Medium Machine · 30 GB · 50 credits". The machine reads from the tier label
- * map (or the standard-machine baseline), storage from the resolved GiB, and
- * the credit label from the live catalog's `CreditTier.label`; a dimension with
- * no value is dropped. The wording mirrors `packageSpecs` in `plan-spec.ts`.
+ * "Medium Machine · 30 GB · 50 credits". Row wording is shared with the
+ * adjust-plan modal's current-plan card via `currentTierRows`.
  */
 function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
-  const machine = current.machineTier
-    ? (MACHINE_TIER_LABEL[current.machineTier] ?? current.machineTier)
-    : STANDARD_MACHINE_LABEL;
-  const parts = [`${machine} Machine`];
-  if (current.storageGib != null) {
-    parts.push(`${current.storageGib} GB`);
-  }
-  if (current.creditTier != null) {
-    // A held/deprecated credit tier absent from the catalog can't resolve to a
-    // catalog label; derive the amount from the tier key (credits_<usd>) so the
-    // paid bundle still shows instead of being silently dropped.
-    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
-    parts.push(
-      findCreditTier(proPlan, current.creditTier)?.label ??
-        (usd != null ? `${usd} credits` : "Credit bundle"),
-    );
-  }
-  return parts.join(" · ");
+  return currentTierRows(current, proPlan).join(" · ");
 }
 
 /**

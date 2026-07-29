@@ -7,7 +7,15 @@ import {
   FREE_STORAGE_GIB,
 } from "@/domains/settings/billing/plan-tier-meta";
 
-import { machineLabel, packageHighlights, packageSpecs } from "./plan-spec";
+import type { ProPlan } from "@/generated/api/types.gen";
+import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
+
+import {
+  currentTierRows,
+  machineLabel,
+  packageHighlights,
+  packageSpecs,
+} from "./plan-spec";
 
 describe("packageSpecs", () => {
   test("uses the free/base baseline for a null package", () => {
@@ -139,5 +147,77 @@ describe("machineLabel", () => {
     expect(machineLabel({ machine_size: "extra_large" } as ProPackage)).toBe(
       "Extra Large",
     );
+  });
+});
+
+describe("currentTierRows", () => {
+  const proPlan = {
+    id: "pro",
+    credit_tiers: [
+      { tier: "credits_50", label: "50 credits", credits_usd: 50 },
+      { tier: "credits_25", label: "25 credits", credits_usd: 25 },
+    ],
+  } as unknown as ProPlan;
+
+  const tiers = (over: Partial<CurrentTiers> = {}): CurrentTiers => ({
+    machineTier: "large",
+    storageTier: "s",
+    storageGib: 30,
+    creditTier: "credits_50",
+    ...over,
+  });
+
+  test("labels all three dimensions from the sub's own tiers", () => {
+    expect(currentTierRows(tiers(), proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+      "50 credits",
+    ]);
+  });
+
+  test("falls back to the standard small machine when no paid tier is held", () => {
+    expect(currentTierRows(tiers({ machineTier: null }), proPlan)[0]).toBe(
+      "Small Machine",
+    );
+  });
+
+  test("drops storage rather than guessing when the GiB is unresolved", () => {
+    expect(currentTierRows(tiers({ storageGib: null }), proPlan)).toEqual([
+      "Large Machine",
+      "50 credits",
+    ]);
+  });
+
+  test("drops the credit row entirely when no bundle is held", () => {
+    expect(currentTierRows(tiers({ creditTier: null }), proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+    ]);
+  });
+
+  test("prices a held bundle off the tier key when the catalog dropped it", () => {
+    // A delisted tier has no catalog label, but the sub still pays for it, so
+    // the amount is recovered from the `credits_<usd>` key.
+    expect(
+      currentTierRows(tiers({ creditTier: "credits_115" }), proPlan)[2],
+    ).toBe("115 credits");
+  });
+
+  test("falls back to a generic bundle label for an unparseable tier key", () => {
+    expect(
+      currentTierRows(
+        tiers({ creditTier: "legacy_bundle" as CurrentTiers["creditTier"] }),
+        proPlan,
+      )[2],
+    ).toBe("Credit bundle");
+  });
+
+  test("passes an unmapped machine tier through rather than dropping it", () => {
+    expect(
+      currentTierRows(
+        tiers({ machineTier: "xxl" as CurrentTiers["machineTier"] }),
+        proPlan,
+      )[0],
+    ).toBe("xxl Machine");
   });
 });
