@@ -30,15 +30,14 @@ import {
  * intent, and each provider that can serve default profiles has a concrete
  * implementation of that intent (model, token budget, effort, thinking).
  * The `vellum` column is the platform-managed implementation; the other
- * columns are the BYOK implementations used to materialize the personal
- * `custom-*` profiles at hatch time.
+ * columns are the BYOK implementations resolved through `llm.defaultProvider`
+ * on off-platform installs.
  *
- * `seedInferenceProfiles` still materializes the `vellum` column into
- * workspace config on every boot, but runtime readers resolve profiles
- * through `getEffectiveProfiles`/`getEffectiveProfile` below, which serve
- * default bodies from this module and overlay only the workspace-owned
- * `label`/`status`/`topP` state. This keeps default profile content
- * updatable by shipping a release — no workspace migration.
+ * Nothing materializes default bodies into workspace config: runtime readers
+ * resolve profiles through `getEffectiveProfiles`/`getEffectiveProfile`
+ * below, which serve default bodies from this module and overlay only the
+ * workspace-owned `label`/`status`/`topP` state. This keeps default profile
+ * content updatable by shipping a release, with no workspace migration.
  */
 
 /**
@@ -135,8 +134,7 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
  * The BYOK implementation of each default profile intent, shared by every
  * non-vellum provider column. The concrete model resolves per provider from
  * the `intent` via `resolveModelIntent` at materialization time. `provider`
- * is stamped per column (and overridden at hatch time with the user's
- * chosen provider).
+ * is stamped per column.
  */
 const BYOK_PROFILE_IMPLS: Record<
   ProfileMatrixKey,
@@ -209,11 +207,9 @@ export const PROFILE_IMPLS: Record<
 >;
 
 /**
- * Managed profiles, i.e. the `vellum` column keyed by profile name. Seeded
- * into workspace config on every daemon boot; platform overlays
- * (`preserveProfileNames`) take precedence when present. Keyed by the
- * user-facing defaults only — an internal profile is code-resolved and never
- * materialized into workspace config.
+ * Managed profiles, i.e. the `vellum` column keyed by profile name. Keyed by
+ * the user-facing defaults only: an internal profile is code-resolved and
+ * never listed or ordered.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
@@ -221,10 +217,11 @@ export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   );
 
 /**
- * User profile templates, materialized as `custom-*` at hatch time for
- * off-platform installations. The `provider` field is a placeholder — it is
- * overridden at hatch time with the user's chosen provider and personal
- * connection name.
+ * Frozen record of the `custom-*` profile bodies that pre-conversion BYOK
+ * hatches wrote to workspace config (the anthropic column; provider and
+ * connection were overridden per hatch). Consumed by the existing-install
+ * conversion pass as the reference for recognizing unedited copies, which
+ * are safe to remove in favor of the code-resolved defaults.
  */
 export const USER_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
