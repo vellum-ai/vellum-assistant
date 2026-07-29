@@ -3,10 +3,10 @@
  * it accepts, how our stored MIME types normalize onto Gemini's spelling, the
  * inline-request size ceiling, and the token cost.
  *
- * Imported by both the Gemini serializer (`client.ts`) and the token estimator
- * (`context/token-estimator.ts`) so the two cannot drift — if they disagreed on
- * which audio is sent inline, the context budgeter would mis-count what
- * actually goes on the wire.
+ * Imported by both the Gemini serializer (`to-gemini-contents.ts`) and the
+ * token estimator (`context/token-estimator.ts`) so the two cannot drift: if
+ * they disagreed on which audio is sent inline, the context budgeter would
+ * mis-count what actually goes on the wire.
  *
  * Ref: https://ai.google.dev/gemini-api/docs/audio
  *   - Inline-accepted audio: wav, mp3, aiff, aac, ogg, flac
