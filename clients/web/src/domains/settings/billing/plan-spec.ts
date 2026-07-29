@@ -118,10 +118,13 @@ export function currentTierRows(
     // catalog label; derive the amount from the tier key (credits_<usd>) so the
     // paid bundle still shows instead of being silently dropped.
     const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
-    rows.push(
+    const label =
       findCreditTier(proPlan, current.creditTier)?.label ??
-        (usd != null ? `${usd} credits` : "Credit bundle"),
-    );
+      (usd != null ? `${usd} credits` : null);
+    // Credits refresh every month, unlike the machine and storage rows, which
+    // are standing capacity. A bundle whose amount can't be resolved at all
+    // stays generic rather than claiming a cadence for an unknown quantity.
+    rows.push(label != null ? `${label}/mo` : "Credit bundle");
   }
   return rows;
 }

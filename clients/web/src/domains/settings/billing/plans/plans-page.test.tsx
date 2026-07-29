@@ -928,7 +928,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     });
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 50 credits");
+    await findByText("Medium Machine · 10 GB · 50 credits/mo");
   });
 
   test("a legacy/unpinned Pro sub sees the Custom row marked current with a tier summary", async () => {
@@ -938,7 +938,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     });
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 50 credits");
+    await findByText("Medium Machine · 10 GB · 50 credits/mo");
   });
 
   test("a custom sub holding a deprecated credit tier shows a derived credit label", async () => {
@@ -950,7 +950,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     );
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 45 credits");
+    await findByText("Medium Machine · 10 GB · 45 credits/mo");
   });
 
   test("a clean-pinned Pro sub sees no marker on the Custom row", async () => {

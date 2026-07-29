@@ -171,7 +171,7 @@ describe("currentTierRows", () => {
     expect(currentTierRows(tiers(), proPlan)).toEqual([
       "Large Machine",
       "30 GB",
-      "50 credits",
+      "50 credits/mo",
     ]);
   });
 
@@ -184,7 +184,7 @@ describe("currentTierRows", () => {
   test("drops storage rather than guessing when the GiB is unresolved", () => {
     expect(currentTierRows(tiers({ storageGib: null }), proPlan)).toEqual([
       "Large Machine",
-      "50 credits",
+      "50 credits/mo",
     ]);
   });
 
@@ -200,7 +200,7 @@ describe("currentTierRows", () => {
     // the amount is recovered from the `credits_<usd>` key.
     expect(
       currentTierRows(tiers({ creditTier: "credits_115" }), proPlan)[2],
-    ).toBe("115 credits");
+    ).toBe("115 credits/mo");
   });
 
   test("falls back to a generic bundle label for an unparseable tier key", () => {

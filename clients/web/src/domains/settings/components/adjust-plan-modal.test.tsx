@@ -1121,7 +1121,7 @@ describe("AdjustPlanModal current plan: name and real tier rows", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Large Machine");
     expect(text).toContain("30 GB");
-    expect(text).toContain("50 credits");
+    expect(text).toContain("50 credits/mo");
     // The non-tier entitlement survives; the three tier-derived generic bullets
     // are superseded by the subscriber's real values.
     expect(text).toContain("Assistant email & subdomain");
