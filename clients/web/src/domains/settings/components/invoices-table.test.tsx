@@ -1,9 +1,6 @@
 /**
- * Tests for the collapsed-by-default Invoices section.
- *
- * The section renders just its header plus a "Show invoices" toggle in the
- * top-right corner; the table (and its backing fetch) only materializes once
- * the toggle is clicked, and collapses again on a second click.
+ * Tests for the Invoices section: the collapsed-by-default toggle plus the
+ * cursor-paginated table behind it (Load more, inline error, and retry).
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -56,6 +53,18 @@ function makeInvoice(id: string): Invoice {
   };
 }
 
+/** Five invoices on page 1 with more behind cursor "5": invoices 6 and 7. */
+function seedTwoPages(): void {
+  listResult = {
+    invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
+    has_more: true,
+  };
+  nextPages["5"] = {
+    invoices: [makeInvoice("6"), makeInvoice("7")],
+    has_more: false,
+  };
+}
+
 function renderTable(): ReturnType<typeof render> {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -67,9 +76,26 @@ function renderTable(): ReturnType<typeof render> {
   );
 }
 
+async function openTable(options?: {
+  showAll?: boolean;
+}): Promise<ReturnType<typeof render>> {
+  const view = renderTable();
+  fireEvent.click(view.getByTestId("invoices-toggle"));
+  await waitFor(() =>
+    expect(view.queryByTestId("invoices-table")).not.toBeNull(),
+  );
+  if (options?.showAll) {
+    fireEvent.click(view.getByTestId("invoices-show-more"));
+  }
+  return view;
+}
+
 beforeEach(() => {
   listRetrieveCalls = [];
-  listResult = { invoices: [makeInvoice("1"), makeInvoice("2")], has_more: false };
+  listResult = {
+    invoices: [makeInvoice("1"), makeInvoice("2")],
+    has_more: false,
+  };
   nextPages = {};
   nextPageErrorStatus = null;
 });
@@ -93,11 +119,8 @@ describe("InvoicesTable collapse", () => {
   });
 
   test("expanding fetches and shows the table; collapsing hides it again", async () => {
-    const { getByTestId, queryByTestId, getAllByTestId } = renderTable();
+    const { getByTestId, queryByTestId, getAllByTestId } = await openTable();
 
-    fireEvent.click(getByTestId("invoices-toggle"));
-
-    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
     expect(listRetrieveCalls.length).toBe(1);
     expect(getAllByTestId("invoice-row").length).toBe(2);
     expect(getByTestId("invoices-toggle").textContent).toContain(
@@ -122,27 +145,15 @@ describe("InvoicesTable collapse", () => {
     fireEvent.click(getByTestId("invoices-toggle"));
 
     await waitFor(() => expect(queryByTestId("invoices-empty")).not.toBeNull());
-    // No invoices — the Download all button stays hidden even when expanded.
     expect(queryByTestId("invoices-download-all")).toBeNull();
   });
 });
 
 describe("InvoicesTable pagination", () => {
   test("Load more requests the next page with starting_after and renders both pages", async () => {
-    listResult = {
-      invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
-      has_more: true,
-    };
-    nextPages["5"] = {
-      invoices: [makeInvoice("6"), makeInvoice("7")],
-      has_more: false,
-    };
-    const { getByTestId, queryByTestId, getAllByTestId } = renderTable();
+    seedTwoPages();
+    const { getByTestId, queryByTestId, getAllByTestId } = await openTable();
 
-    fireEvent.click(getByTestId("invoices-toggle"));
-    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
-
-    // Collapsed to the first 4 rows; Load more only appears once expanded.
     expect(getAllByTestId("invoice-row").length).toBe(4);
     expect(queryByTestId("invoices-load-more")).toBeNull();
 
@@ -155,7 +166,6 @@ describe("InvoicesTable pagination", () => {
     expect(listRetrieveCalls.length).toBe(2);
     expect(listRetrieveCalls[1]).toEqual({ starting_after: "5" });
 
-    // Final page loaded, so Load more disappears and Show less remains.
     expect(queryByTestId("invoices-load-more")).toBeNull();
     expect(getByTestId("invoices-show-more").textContent).toContain(
       "Show less",
@@ -167,12 +177,7 @@ describe("InvoicesTable pagination", () => {
       invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
       has_more: false,
     };
-    const { getByTestId, queryByTestId } = renderTable();
-
-    fireEvent.click(getByTestId("invoices-toggle"));
-    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
-
-    fireEvent.click(getByTestId("invoices-show-more"));
+    const { getByTestId, queryByTestId } = await openTable({ showAll: true });
 
     expect(queryByTestId("invoices-load-more")).toBeNull();
     expect(getByTestId("invoices-show-more").textContent).toContain(
@@ -186,15 +191,10 @@ describe("InvoicesTable pagination", () => {
       invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
       has_more: true,
     };
-    const { getByTestId, queryByTestId, getAllByTestId } = renderTable();
+    const { getByTestId, queryByTestId, getAllByTestId } = await openTable({
+      showAll: true,
+    });
 
-    fireEvent.click(getByTestId("invoices-toggle"));
-    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
-
-    fireEvent.click(getByTestId("invoices-show-more"));
-
-    // Expanded with more pages on the server: Show less and Load more
-    // render together instead of Load more replacing the toggle.
     expect(getByTestId("invoices-show-more").textContent).toContain(
       "Show less",
     );
@@ -210,34 +210,40 @@ describe("InvoicesTable pagination", () => {
   });
 
   test("a failed Load more keeps loaded rows and shows an inline retry", async () => {
-    listResult = {
-      invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
-      has_more: true,
-    };
+    seedTwoPages();
     nextPageErrorStatus = 400;
     const { getByTestId, queryByTestId, queryByText, getAllByTestId } =
-      renderTable();
-
-    fireEvent.click(getByTestId("invoices-toggle"));
-    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
-    fireEvent.click(getByTestId("invoices-show-more"));
+      await openTable({ showAll: true });
 
     fireEvent.click(getByTestId("invoices-load-more"));
 
     await waitFor(() =>
       expect(queryByTestId("invoices-load-more-error")).not.toBeNull(),
     );
-    // Page 1 rows survive the page 2 failure; no full-panel error.
     expect(getAllByTestId("invoice-row").length).toBe(5);
     expect(queryByText("Failed to load invoices.")).toBeNull();
 
-    // Retry refetches loaded pages and clears the inline error.
     nextPageErrorStatus = null;
     fireEvent.click(getByTestId("invoices-load-more-retry"));
+
+    // Retry refetches cached pages, then fetches the page that failed.
+    await waitFor(() => expect(getAllByTestId("invoice-row").length).toBe(7));
+    expect(queryByTestId("invoices-load-more-error")).toBeNull();
+    expect(listRetrieveCalls.at(-1)).toEqual({ starting_after: "5" });
+  });
+
+  test("Load more is hidden while the inline error is shown", async () => {
+    seedTwoPages();
+    nextPageErrorStatus = 400;
+    const { getByTestId, queryByTestId } = await openTable({ showAll: true });
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+
     await waitFor(() =>
-      expect(queryByTestId("invoices-load-more-error")).toBeNull(),
+      expect(queryByTestId("invoices-load-more-error")).not.toBeNull(),
     );
-    expect(getAllByTestId("invoice-row").length).toBe(5);
+    expect(queryByTestId("invoices-load-more")).toBeNull();
+    expect(getByTestId("invoices-load-more-retry")).not.toBeNull();
   });
 
   test("a short first page with has_more still offers Load more", async () => {
@@ -249,10 +255,7 @@ describe("InvoicesTable pagination", () => {
       invoices: ["3", "4", "5"].map(makeInvoice),
       has_more: false,
     };
-    const { getByTestId, queryByTestId, getAllByTestId } = renderTable();
-
-    fireEvent.click(getByTestId("invoices-toggle"));
-    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+    const { getByTestId, queryByTestId, getAllByTestId } = await openTable();
 
     // Two rows, nothing hidden locally, but the server has more:
     // Load more must render so the rest is reachable.
@@ -260,8 +263,6 @@ describe("InvoicesTable pagination", () => {
     fireEvent.click(getByTestId("invoices-load-more"));
 
     await waitFor(() => expect(getAllByTestId("invoice-row").length).toBe(4));
-    // Once appended rows exceed the collapsed window, the normal
-    // Show more toggle takes over.
     expect(getByTestId("invoices-show-more").textContent).toContain(
       "Show more (1 more)",
     );

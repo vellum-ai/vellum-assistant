@@ -9,18 +9,14 @@ import { useState } from "react";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 
-import { organizationsBillingInvoicesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { organizationsBillingInvoicesRetrieveInfiniteQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
   organizationsBillingInvoicesDownloadRetrieve,
   organizationsBillingInvoicesRetrieve,
 } from "@/generated/api/sdk.gen";
 import type { InvoiceListResponse } from "@/generated/api/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import {
-  ApiError,
-  assertHasResponse,
-  extractErrorMessage,
-} from "@/utils/api-errors";
+import { assertHasResponse, toApiError } from "@/utils/api-errors";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -85,7 +81,7 @@ export function InvoicesTable() {
     // The table hides behind the Show invoices toggle, so don't fetch
     // billing history for a section the user may never open.
     enabled: expanded,
-    queryKey: organizationsBillingInvoicesRetrieveQueryKey(),
+    queryKey: organizationsBillingInvoicesRetrieveInfiniteQueryKey(),
     queryFn: async ({ signal, pageParam }) => {
       const { data, error, response } =
         await organizationsBillingInvoicesRetrieve({
@@ -98,12 +94,9 @@ export function InvoicesTable() {
       }
       assertHasResponse(response, error, "Failed to load invoices.");
       if (!response.ok || !data) {
-        // ApiError carries the HTTP status so the global retry predicate can
-        // skip retrying 4xx, notably the stale starting_after cursor 400.
-        throw new ApiError(
-          response.status,
-          extractErrorMessage(error, response, "Failed to load invoices."),
-        );
+        // The stale starting_after cursor 400 is a 4xx, so the global retry
+        // predicate won't retry it.
+        throw toApiError(error, response);
       }
       return data;
     },
@@ -117,11 +110,29 @@ export function InvoicesTable() {
     ? invoices
     : invoices.slice(0, INITIAL_VISIBLE);
   const hasHiddenRows = invoices.length > INITIAL_VISIBLE;
-  const showVisibilityToggle = showAll || hasHiddenRows;
+  // Both flags stay true through the whole retry: a plain refetch clears the
+  // fetchMore meta (isFetchNextPageError drops), at which point the still-set
+  // error with data present reads as isRefetchError.
+  const showLoadMoreError =
+    invoicesQuery.isFetchNextPageError || invoicesQuery.isRefetchError;
   // "Load more" renders whenever every locally loaded row is already visible
   // but the server still has more, so remaining invoices are always reachable.
+  // Retry supersedes it while the inline error is up.
   const showLoadMore =
-    (showAll || !hasHiddenRows) && invoicesQuery.hasNextPage;
+    (showAll || !hasHiddenRows) &&
+    invoicesQuery.hasNextPage &&
+    !showLoadMoreError;
+
+  function retryLoadMore(): void {
+    // refetch() recomputes every cached page's cursor, healing a stale
+    // starting_after, then fetchNextPage() fetches the page the user asked
+    // for (a no-op if the refreshed pages already exhaust the list).
+    void invoicesQuery
+      .refetch()
+      .then((result) =>
+        result.isError ? undefined : invoicesQuery.fetchNextPage(),
+      );
+  }
 
   async function downloadAllInvoices(): Promise<void> {
     setIsDownloadingAll(true);
@@ -208,7 +219,7 @@ export function InvoicesTable() {
               Loading invoices...
             </Typography>
           </div>
-        ) : invoicesQuery.isError && !invoicesQuery.data ? (
+        ) : invoicesQuery.isLoadingError ? (
           <Notice tone="error">Failed to load invoices.</Notice>
         ) : invoices.length === 0 ? (
           <Typography
@@ -307,9 +318,9 @@ export function InvoicesTable() {
                 </tbody>
               </table>
             </div>
-            {(showVisibilityToggle || showLoadMore) && (
+            {(hasHiddenRows || showLoadMore || showLoadMoreError) && (
               <div className="flex flex-wrap items-center gap-4 self-start">
-                {showVisibilityToggle && (
+                {hasHiddenRows && (
                   <button
                     type="button"
                     onClick={() => setShowAll((v) => !v)}
@@ -335,7 +346,7 @@ export function InvoicesTable() {
                     Load more
                   </button>
                 )}
-                {invoicesQuery.isFetchNextPageError && (
+                {showLoadMoreError && (
                   <div
                     className="flex items-center gap-2"
                     data-testid="invoices-load-more-error"
@@ -349,12 +360,14 @@ export function InvoicesTable() {
                     </Typography>
                     <button
                       type="button"
-                      // refetch() recomputes cursors from fresh pages, so it
-                      // also recovers from a stale starting_after cursor.
-                      onClick={() => void invoicesQuery.refetch()}
-                      className="text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-secondary)]"
+                      onClick={retryLoadMore}
+                      disabled={invoicesQuery.isRefetching}
+                      className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
                       data-testid="invoices-load-more-retry"
                     >
+                      {invoicesQuery.isRefetching && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
                       Retry
                     </button>
                   </div>
