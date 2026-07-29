@@ -11,7 +11,7 @@ import {
   MEMORY_STATUS_ERROR_COPY,
   MEMORY_V1_UPGRADE_PROMPT,
   MEMORY_V3_FLIP_PROMPT,
-  MEMORY_V3_REFORM_PROMPT,
+  memoryV3ReformPrompt,
 } from "./memory-unavailable-copy";
 
 describe("describeMemoryUnavailable", () => {
@@ -97,9 +97,25 @@ describe("the upgrade seed per legacy tier", () => {
   // they identify which of the three migrations is the right one.
   test("v2 with pages gets the reform skill", () => {
     expect(describeMemoryUnavailable("v2", 250).prompt).toBe(
-      MEMORY_V3_REFORM_PROMPT,
+      memoryV3ReformPrompt(250),
     );
   });
+
+  test.each([1, 3, 9])(
+    "v2 with %i page(s) reports the count instead of ruling on it",
+    (pages) => {
+      // The skill's `avoid-when` covers empty OR near-empty, and where
+      // near-empty falls is an editorial call about whether there is enough
+      // substance to reorganize. A threshold invented here would be exactly
+      // the hardcoded heuristic AGENTS.md routes to the assistant instead, so
+      // the seed hands over the measurement and names the rule governing it.
+      const { prompt } = describeMemoryUnavailable("v2", pages);
+      expect(prompt).toContain(`${pages} ${pages === 1 ? "page" : "pages"}`);
+      expect(prompt?.toLowerCase()).toContain(
+        "too small to be worth reforming",
+      );
+    },
+  );
 
   test("v2 with an empty corpus does NOT get the reform skill", () => {
     // `memory.v2.enabled` defaults on, so a fresh workspace reports tier v2
@@ -110,12 +126,14 @@ describe("the upgrade seed per legacy tier", () => {
     expect(prompt).not.toContain("Memory v3 Migration");
   });
 
-  test("v2 with an unknown count keeps the reform seed", () => {
+  test("v2 with an unknown count keeps the reform seed, and invents no size", () => {
     // The skill guards its own empty case, so asserting "looks empty" without
-    // the number is the worse of the two errors.
+    // the number is the worse of the two errors. Never report a count the
+    // daemon didn't send.
     expect(describeMemoryUnavailable("v2", undefined).prompt).toBe(
-      MEMORY_V3_REFORM_PROMPT,
+      memoryV3ReformPrompt(),
     );
+    expect(memoryV3ReformPrompt()).not.toMatch(/\d+ pages?/);
   });
 
   test("v1 gets both hops, in order", () => {
@@ -141,9 +159,10 @@ describe("the upgrade seed per legacy tier", () => {
 
 describe("seeded migration prompts", () => {
   const migrations = {
-    MEMORY_V3_REFORM_PROMPT,
-    MEMORY_V3_FLIP_PROMPT,
-    MEMORY_V1_UPGRADE_PROMPT,
+    reform: memoryV3ReformPrompt(250),
+    "reform (no count)": memoryV3ReformPrompt(),
+    flip: MEMORY_V3_FLIP_PROMPT,
+    v1: MEMORY_V1_UPGRADE_PROMPT,
   };
 
   test.each(Object.entries(migrations))(
@@ -177,10 +196,10 @@ describe("seeded migration prompts", () => {
 
 describe("every seeded prompt", () => {
   const seeds = {
-    MEMORY_V3_REFORM_PROMPT,
-    MEMORY_V3_FLIP_PROMPT,
-    MEMORY_V1_UPGRADE_PROMPT,
-    MEMORY_ENABLE_PROMPT,
+    reform: memoryV3ReformPrompt(250),
+    flip: MEMORY_V3_FLIP_PROMPT,
+    v1: MEMORY_V1_UPGRADE_PROMPT,
+    enable: MEMORY_ENABLE_PROMPT,
   };
 
   test.each(Object.entries(seeds))("%s uses no em dash", (_name, seed) => {

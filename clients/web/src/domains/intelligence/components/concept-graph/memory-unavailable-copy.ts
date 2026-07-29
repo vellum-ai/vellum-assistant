@@ -23,10 +23,23 @@ import type { MemoryTier } from "@/domains/intelligence/memory-graph/get-memory-
  * loss audit, the Step 10 close-out), and restating them here would duplicate
  * a spec that versions separately from this file. "Follow it exactly" points
  * at the source of truth rather than racing it.
+ *
+ * Reports the page count rather than ruling on it. The skill's `avoid-when`
+ * excludes a corpus that is empty **or near-empty**, and where "near-empty"
+ * falls is an editorial call about whether there is enough substance to
+ * reorganize. That is the assistant's to make, not this file's (see
+ * Assistant-Driven Judgement in AGENTS.md), so the seed hands over the
+ * measurement and names the rule that governs it.
  */
-export const MEMORY_V3_REFORM_PROMPT = `Migrate my memory from v2 to v3 by running your "Memory v3 Migration" skill. Follow it exactly.
+export function memoryV3ReformPrompt(conceptPages?: number): string {
+  const size =
+    conceptPages === undefined
+      ? ""
+      : ` My corpus has ${conceptPages} ${conceptPages === 1 ? "page" : "pages"}.`;
+  return `Migrate my memory from v2 to v3 by running your "Memory v3 Migration" skill. Follow it exactly, including its own rule about a corpus too small to be worth reforming.${size}
 
 Run it in the background and tell me when it's done, or if something blocks.`;
+}
 
 /**
  * Seeds the upgrade chat on a **v2** assistant whose concept corpus is empty.
@@ -127,8 +140,16 @@ export const MEMORY_STATUS_ERROR_COPY: MemoryUnavailableCopy = {
  * measurement that separates them, and it rides the same `GET /memory/stats`
  * response as the tier.
  *
- * An unknown count keeps the reform seed: the skill guards its own empty-corpus
- * case, so guessing "empty" without the number is the worse of the two errors.
+ * The only corpus-shape call made here is zero, which is arithmetic rather
+ * than judgement: a corpus with no pages has nothing to reform under any
+ * reading, and the flip is the whole job. Everything above zero goes to the
+ * reform seed carrying its page count, so the assistant makes the near-empty
+ * call against the skill's own rule instead of against a threshold invented in
+ * the web client.
+ *
+ * An unknown count also takes the reform seed (without a count to report),
+ * since the skill guards its own empty case and asserting "empty" without the
+ * number is the worse of the two errors.
  */
 function upgradeSeedFor(
   tier: "v1" | "v2",
@@ -137,7 +158,9 @@ function upgradeSeedFor(
   if (tier === "v1") {
     return MEMORY_V1_UPGRADE_PROMPT;
   }
-  return conceptPages === 0 ? MEMORY_V3_FLIP_PROMPT : MEMORY_V3_REFORM_PROMPT;
+  return conceptPages === 0
+    ? MEMORY_V3_FLIP_PROMPT
+    : memoryV3ReformPrompt(conceptPages);
 }
 
 export function describeMemoryUnavailable(
