@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
@@ -40,6 +43,36 @@ describe("WIDGET_TOKEN_PROPERTIES", () => {
     ]) {
       expect(WIDGET_TOKEN_PROPERTIES).toContain(property);
     }
+  });
+
+  test("its palette steps match the ramps declared in the design-library tokens", () => {
+    // GIVEN the design system's own ramp declarations
+    const tokensCss = readFileSync(
+      join(
+        import.meta.dir,
+        "../../../../packages/design-library/src/tokens.css",
+      ),
+      "utf8",
+    );
+    const declared = new Set(
+      Array.from(
+        tokensCss.matchAll(
+          /(--color-(?:moss|stone|forest|emerald|danger|amber)-\d+)\s*:/g,
+        ),
+        (match) => match[1],
+      ),
+    );
+
+    // WHEN the allowlist's palette entries are compared against them
+    const allowlisted = WIDGET_TOKEN_PROPERTIES.filter((property) =>
+      property.startsWith("--color-"),
+    );
+
+    // THEN the two agree exactly — an allowlisted step that the tokens file
+    // never declares resolves to nothing inside the frame, which silently
+    // drops the widget's fill/color declaration.
+    expect(declared.size).toBeGreaterThan(0);
+    expect([...allowlisted].sort()).toEqual([...declared].sort());
   });
 });
 

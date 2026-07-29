@@ -18,6 +18,7 @@
 
 import {
   coerceSurfaceDataRecord,
+  describeSurfaceDataStringParseFailure,
   FileUploadSurfaceDataSchema,
   normalizeCopyBlockShowData,
 } from "../../api/surfaces.js";
@@ -251,11 +252,33 @@ export const UI_SHOW_TYPE_DOCS = [
 ].join("\n");
 
 /**
+ * Rejection envelope for a `data` argument the model double-encoded as a JSON
+ * string that does not parse — most often HTML whose inner double quotes were
+ * escaped wrong. The decode failure strands every field, so without this the
+ * surface's own shape check fires and blames the first field it misses, sending
+ * the model off to fix a fragment that was never the problem.
+ */
+function surfaceDataEncodingError(
+  surfaceType: string,
+  detail: string,
+  shape: string,
+): string {
+  return (
+    `Error: ui_show ${surfaceType} was not displayed — \`data\` arrived as a JSON-encoded string that could not be parsed: ${detail}. ` +
+    "None of its fields could be read, so the surface looked empty. This is an argument-encoding problem, not a problem with the content itself. " +
+    `Pass \`data\` as a JSON object rather than a string: ${shape}. ` +
+    "If the content is HTML with double quotes inside, use single quotes for the HTML attributes (<rect class='box'>) so there is nothing to escape. " +
+    "Resend the same ui_show with `data` as an object."
+  );
+}
+
+/**
  * Teaching error for a ui_show payload that would render nothing, or null
  * when the payload is displayable. Unknown/missing surface_type gets the
- * full type index; a known type missing its load-bearing content gets that
- * type's exact shape. dynamic_page emptiness and the `visual` fragment
- * checks are handled by the bespoke envelopes in `definitions.ts`, not here.
+ * full type index; an undecodable JSON-string `data` gets the encoding
+ * envelope; a known type missing its load-bearing content gets that type's
+ * exact shape. dynamic_page emptiness and the `visual` fragment checks are
+ * handled by the bespoke envelopes in `definitions.ts`, not here.
  */
 export function uiShowTeachingError(
   input: Record<string, unknown>,
@@ -272,6 +295,10 @@ export function uiShowTeachingError(
     return `Error: ui_show was not displayed — ${got}. Valid types: ${SURFACE_TYPE_INDEX}. Resend ui_show with one of these surface_type values; if a type's data is missing required content, the error will include its exact shape.`;
   }
   const doc = SURFACE_SHAPE_DOCS[surfaceType]!;
+  const parseFailure = describeSurfaceDataStringParseFailure(input.data);
+  if (parseFailure !== null) {
+    return surfaceDataEncodingError(surfaceType, parseFailure, doc.shape);
+  }
   if (!doc.missingContent) {
     return null;
   }

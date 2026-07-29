@@ -168,7 +168,10 @@ describe("ui_show visual fragment guards", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("--color-text-primary");
     expect(result.content).toContain("--content-default");
-    expect(result.content).toContain("--color-<moss|stone|forest|emerald");
+    expect(result.content).toContain("--color-<moss|stone>-<50-950>");
+    expect(result.content).toContain(
+      "--color-<forest|emerald|danger|amber>-<100-950>",
+    );
     expect(proxied).toBe(false);
   });
 
@@ -243,6 +246,79 @@ describe("ui_show visual fragment guards", () => {
     expect(result.isError).toBe(false);
     expect(result.content).not.toContain("app-builder");
     expect(proxied).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stringified `data`
+// ---------------------------------------------------------------------------
+
+describe("ui_show data double-encoded as a JSON string", () => {
+  test("a string that decodes to an object is still accepted", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: JSON.stringify({ html: HTML, height: 320 }),
+    });
+
+    expect(result.isError).toBe(false);
+    expect(proxied).toBe(true);
+  });
+
+  test("a string that fails to decode names the parse failure, not empty html", async () => {
+    // The shape the model actually produced: HTML attributes quoted with `"`
+    // inside a JSON string, escaped wrong.
+    const { result, proxied } = await runUiShow({
+      surface_type: "visual",
+      data: '{"html": "<div style=\\"color:var(--content-default)\\">Hi</div>"',
+    });
+
+    expect(result.isError).toBe(true);
+    const content = result.content as string;
+    expect(content).toContain(
+      "`data` arrived as a JSON-encoded string that could not be parsed",
+    );
+    expect(content).toContain(
+      "Pass `data` as a JSON object rather than a string",
+    );
+    expect(content).toContain("use single quotes for the HTML attributes");
+    expect(content).toContain(
+      "Resend the same ui_show with `data` as an object",
+    );
+    // The misleading cause the model chased for eight minutes in E2E.
+    expect(content).not.toContain("non-empty HTML fragment in `data.html`");
+    expect(proxied).toBe(false);
+  });
+
+  test("the parse error itself is quoted back so the model can locate it", async () => {
+    const { result } = await runUiShow({
+      surface_type: "visual",
+      data: '{"html": "<p>x</p>", }',
+    });
+
+    // Whatever the engine's SyntaxError wording, its text is carried through.
+    let parseMessage = "";
+    try {
+      JSON.parse('{"html": "<p>x</p>", }');
+    } catch (error) {
+      parseMessage = (error as Error).message;
+    }
+    expect(parseMessage.length).toBeGreaterThan(0);
+    expect(result.content).toContain(parseMessage);
+  });
+
+  test("dynamic_page gets the same envelope instead of the empty-html hint", async () => {
+    const { result, proxied } = await runUiShow({
+      surface_type: "dynamic_page",
+      data: '{"html": "<section class=\\"a\\">"',
+    });
+
+    expect(result.isError).toBe(true);
+    const content = result.content as string;
+    expect(content).toContain(
+      "`data` arrived as a JSON-encoded string that could not be parsed",
+    );
+    expect(content).not.toContain("requires non-empty HTML in `data.html`");
+    expect(proxied).toBe(false);
   });
 });
 

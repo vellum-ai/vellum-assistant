@@ -54,6 +54,38 @@ export function coerceSurfaceDataRecord(
   return {};
 }
 
+/**
+ * Describe why a `data` payload the caller double-encoded as a JSON object or
+ * array literal could not be decoded, or null when it decoded fine.
+ *
+ * {@link coerceSurfaceDataRecord} collapses an undecodable string to `{}`, which
+ * every downstream shape check then reads as "no fields were sent". Callers pair
+ * the two so a rejection names the encoding failure instead of blaming whichever
+ * field happened to be looked up first.
+ *
+ * Scoped to strings that open with `{` or `[`: those are an object payload that
+ * lost a quote or a brace on the way through. A string that never resembled one
+ * (`"delete it?"`) is a different mistake, and the surface's own shape doc says
+ * more about it than a parse error would.
+ */
+export function describeSurfaceDataStringParseFailure(
+  value: unknown,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trimStart();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return null;
+  }
+  try {
+    JSON.parse(value);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 /** Optional string that drops (rather than rejects on) a non-string value. */
 const tolerantString = () => z.string().optional().catch(undefined);
 

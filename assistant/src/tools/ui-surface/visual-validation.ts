@@ -13,8 +13,7 @@
 /** Upper bound on fragment size. Well above any well-formed visual. */
 const MAX_HTML_CHARS = 48000;
 
-const COLOR_RAMP = [
-  "50",
+const RAMP_STEPS = [
   "100",
   "200",
   "300",
@@ -27,14 +26,18 @@ const COLOR_RAMP = [
   "950",
 ] as const;
 
-const PALETTES = [
-  "moss",
-  "stone",
-  "forest",
-  "emerald",
-  "danger",
-  "amber",
-] as const;
+/** Neutral ramps carry an extra lightest step; the accents start at 100. */
+const NEUTRAL_PALETTES = ["moss", "stone"] as const;
+const ACCENT_PALETTES = ["forest", "emerald", "danger", "amber"] as const;
+
+const PALETTE_PROPERTIES: readonly string[] = [
+  ...NEUTRAL_PALETTES.flatMap((palette) =>
+    ["50", ...RAMP_STEPS].map((step) => `--color-${palette}-${step}`),
+  ),
+  ...ACCENT_PALETTES.flatMap((palette) =>
+    RAMP_STEPS.map((step) => `--color-${palette}-${step}`),
+  ),
+];
 
 /**
  * The CSS custom properties that exist inside a widget frame. The host injects
@@ -91,9 +94,7 @@ export const WIDGET_TOKEN_PROPERTIES: readonly string[] = [
   "--radius-xxl",
   "--radius-pill",
   // Palettes
-  ...PALETTES.flatMap((palette) =>
-    COLOR_RAMP.map((step) => `--color-${palette}-${step}`),
-  ),
+  ...PALETTE_PROPERTIES,
 ];
 
 /** Lookup form of {@link WIDGET_TOKEN_PROPERTIES}. */
@@ -111,7 +112,7 @@ const TOKEN_FAMILY_SUMMARY =
   WIDGET_TOKEN_PROPERTIES.filter((name) => !name.startsWith("--color-")).join(
     ", ",
   ) +
-  ", and the fixed ramps --color-<moss|stone|forest|emerald|danger|amber>-<50-950>";
+  ", and the fixed ramps --color-<moss|stone>-<50-950> and --color-<forest|emerald|danger|amber>-<100-950>";
 
 /**
  * Sub-resource loads the sandbox blocks outright. Catching them here turns a

@@ -1,16 +1,18 @@
 ---
 name: visualize
-description: Render a polished visual inline in the chat as part of your answer — a diagram, a chart, an interactive explainer, or a UI mockup. Load this proactively whenever an explanation would land better as a picture than as prose — how something works, how the parts relate, how two options compare, how numbers move, or a concept the user should be able to step through. Do not wait to be asked. It teaches the `ui_show` `visual` surface, a self-contained HTML/SVG fragment drawn with the host's design tokens, rendered under your paragraph and correct in light and dark mode.
+description: Render a polished visual inline in the chat as part of your answer — a diagram, a chart, an interactive explainer, or a UI mockup. Load it proactively whenever an explanation would land better as a picture than as prose. Do not wait to be asked.
 metadata:
   emoji: "📊"
   vellum:
     display-name: "Visualize"
     category: "content"
+    always-candidate: true
     activation-hints:
       - "Explaining how something works, or how the parts of a system relate to each other"
       - "Comparing options, tradeoffs, or before and after states side by side"
       - "Walking through numbers, rates, growth, or a distribution the user should see"
       - "Teaching a concept step by step, where the user should be able to move through it"
+      - "Answering how would you explain this, or helping the user teach or onboard someone else"
     avoid-when:
       - "Simple factual answers where a sentence or a markdown list already says it"
       - "Durable apps or tools the user will reopen and keep using — use the app-builder skill"
@@ -32,6 +34,7 @@ ui_show {
 - One visual per call. Two visuals means two calls with a paragraph of prose between them.
 - To change a visual you already showed, `ui_dismiss` its `surface_id` and `ui_show` a new one. There is no partial update.
 - After the call returns, keep writing normally. Never describe what the visual contains — the user is looking at it.
+- If ui_show returns an error, read it, fix the arguments, and call ui_show again. Every rejection is about the arguments you sent and is fixable in the next call. Never reach for the shell, a file, or a log to diagnose it, and never narrate the attempts in your reply — the user should see the visual, not the retries.
 
 Prose goes in your reply, the visual goes in the tool: no titles, headings, intros, captions, or explanatory paragraphs inside the fragment. The chat message around it carries all of that.
 
