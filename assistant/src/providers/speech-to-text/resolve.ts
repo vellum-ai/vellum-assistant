@@ -7,6 +7,7 @@ import type {
   SttProviderId,
 } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
+import { deepgramModelOverrideForLanguage } from "./deepgram.js";
 import {
   getCredentialProvider,
   getProviderEntry,
@@ -34,8 +35,11 @@ const log = getLogger("stt-resolver");
  * - No credentials are configured for the resolved provider.
  */
 export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null> {
-  const config = getConfig();
-  const provider = config.services.stt.provider;
+  // Snapshot the stt config once, before any await, so a concurrent config
+  // change cannot pair one setting's old value with another's new value.
+  const stt = getConfig().services.stt;
+  const provider = stt.provider;
+  const language = stt.language;
 
   // Look up credential provider via the catalog.
   const credentialProviderName = getCredentialProvider(
@@ -51,13 +55,18 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   }
 
   if (provider === "vellum") {
+    // Managed batch transcription rides the platform's speech proxy, which
+    // accepts no language parameter, so `services.stt.language` does not
+    // apply here; streaming is the path that honors it for managed speech.
     return (await sttProviderKeyResolves("vellum"))
       ? createDaemonBatchTranscriber(null, "vellum")
       : null;
   }
 
   const apiKey = await getProviderKeyAsync(credentialProviderName);
-  return createDaemonBatchTranscriber(apiKey, provider as SttProviderId);
+  return createDaemonBatchTranscriber(apiKey, provider as SttProviderId, {
+    ...(language ? { language } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +298,16 @@ export interface ResolveStreamingTranscriberOptions {
    * Ignored without `utteranceBoundaryFinals`. Default: 1000.
    */
   utteranceEndMs?: number;
+  /**
+   * Spoken language to transcribe, forwarded to adapters that accept one.
+   * Defaults to `services.stt.language`; pass explicitly to override the
+   * config for a single session.
+   *
+   * See {@link CreateStreamingTranscriberOptions.language} for how each
+   * provider treats it: notably, leaving it unset is not auto-detection on
+   * Deepgram or the managed relay.
+   */
+  language?: string;
 }
 
 /**
@@ -312,8 +331,15 @@ export interface ResolveStreamingTranscriberOptions {
 export async function resolveStreamingTranscriber(
   options: ResolveStreamingTranscriberOptions = {},
 ): Promise<StreamingTranscriber | null> {
-  const provider =
-    options.providerId ?? (getConfig().services.stt.provider as SttProviderId);
+  // Snapshot the stt config once, before any await, so a concurrent config
+  // change cannot pair one setting's old value with another's new value
+  // (e.g. the old provider with the new language).
+  const stt = getConfig().services.stt;
+  const provider = options.providerId ?? (stt.provider as SttProviderId);
+  // Config-level language applies to every streaming caller (live voice,
+  // dictation, telephony) unless one overrides it for a single session, so
+  // the setting lands in one place rather than at each call site.
+  const language = options.language ?? stt.language;
   const diarizePreference: DiarizePreference = options.diarize ?? "off";
 
   // Look up credential provider via the catalog.
@@ -377,6 +403,7 @@ export async function resolveStreamingTranscriber(
     diarize: enableDiarization,
     utteranceBoundaryFinals: options.utteranceBoundaryFinals ?? false,
     utteranceEndMs: options.utteranceEndMs,
+    ...(language ? { language } : {}),
   });
 }
 
@@ -415,6 +442,20 @@ interface CreateStreamingTranscriberOptions {
    * is set. Defaults to {@link UTTERANCE_BOUNDARY_END_MS}.
    */
   utteranceEndMs?: number;
+  /**
+   * Spoken language, forwarded to the adapters that accept one: Deepgram,
+   * xAI, and the managed relay (which passes it to Deepgram server-side).
+   *
+   * Gemini and Whisper take no language option (both auto-detect natively
+   * from the audio), so this is silently ignored for them, matching how
+   * `diarize` is ignored by adapters without diarization.
+   *
+   * Unset is NOT auto-detect on Deepgram: omitting the param makes Deepgram
+   * decode as English, so non-English speech comes back as English-sounding
+   * nonsense rather than failing loudly. `"multi"` selects nova-3's
+   * code-switching mode (the managed relay pins nova-3).
+   */
+  language?: string;
 }
 
 /**
@@ -437,6 +478,8 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        ...deepgramModelOverrideForLanguage(options.language),
+        ...(options.language ? { language: options.language } : {}),
         ...(options.diarize ? { diarize: true } : {}),
         ...(options.utteranceBoundaryFinals
           ? {
@@ -469,6 +512,12 @@ async function createStreamingTranscriber(
       const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
       return new XAIRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
+        // "multi" is Deepgram's code-switching mode, not a BCP-47 code, so it
+        // never reaches xAI (which expects BCP-47 and auto-handles
+        // multilingual audio well enough without a hint).
+        ...(options.language && options.language !== "multi"
+          ? { language: options.language }
+          : {}),
         ...(options.diarize ? { diarize: true } : {}),
       });
     }
@@ -498,6 +547,10 @@ async function createStreamingTranscriber(
         await import("./vellum-managed-realtime.js");
       return new VellumManagedRealtimeTranscriber(connection, {
         sampleRate: options.sampleRate,
+        // `language` IS in the relay's param allowlist, and the relay pins
+        // the STT model to nova-3 server-side, so "multi" code-switching
+        // needs nothing from the platform, only this forward.
+        ...(options.language ? { language: options.language } : {}),
         ...(options.utteranceBoundaryFinals
           ? { utteranceBoundaryFinals: true }
           : {}),

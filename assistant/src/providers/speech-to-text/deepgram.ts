@@ -11,12 +11,34 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export interface DeepgramProviderOptions {
   /** Deepgram model to use (default: "nova-2"). */
   model?: string;
-  /** BCP-47 language code (e.g. "en", "es"). Omitted by default (auto-detect). */
+  /**
+   * BCP-47 language code (e.g. "en", "es"). Omitted by default, which
+   * Deepgram decodes as English, NOT as auto-detection.
+   */
   language?: string;
   /** Enable Deepgram smart formatting (punctuation, numerals, etc.). Default: true. */
   smartFormatting?: boolean;
   /** Override the Deepgram API base URL (useful for proxies or on-prem). */
   baseUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Language-derived model override
+// ---------------------------------------------------------------------------
+
+/**
+ * Deepgram model override implied by a language selection, for spreading
+ * into adapter constructor options.
+ *
+ * Deepgram's `"multi"` code-switching language requires nova-3: the default
+ * models of the batch and realtime adapters reject `language=multi`, so that
+ * value pins `model: "nova-3"`. Every other value (including unset) returns
+ * an empty override and keeps the caller's default model.
+ */
+export function deepgramModelOverrideForLanguage(
+  language: string | undefined,
+): { model: string } | Record<string, never> {
+  return language === "multi" ? { model: "nova-3" } : {};
 }
 
 // ---------------------------------------------------------------------------
