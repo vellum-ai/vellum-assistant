@@ -13,6 +13,7 @@ import {
 import {
   createDraftConversationId,
   resolveBootstrappedConversationId,
+  shouldMintNewChatDraft,
 } from "@/domains/chat/utils/conversation-selection";
 import {
   loadLastViewedConversationId,
@@ -291,7 +292,6 @@ export function useConversationLoader({
   // recent* fetch failed (we still have last-known-good data to land on).
   // -------------------------------------------------------------------------
   const lastAppliedUrlConversationIdRef = useRef<string | null>(null);
-  const newChatDraftConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (assistantStateKind !== "active") {
       return;
@@ -301,14 +301,20 @@ export function useConversationLoader({
     }
 
     const explicitConversationId = urlConversationId;
+    const currentConversationId =
+      useConversationStore.getState().activeConversationId;
 
     // The Capacitor iOS shell cold-launches into a fresh draft instead of
-    // resuming a conversation. Held in a ref so effect re-runs reuse the key.
-    let newChatDraftConversationId: string | null = null;
-    if (isNativeIOS()) {
-      newChatDraftConversationIdRef.current ??= createDraftConversationId();
-      newChatDraftConversationId = newChatDraftConversationIdRef.current;
-    }
+    // resuming a conversation. Minted per pass rather than retained: the pass
+    // that mints the key also writes it to the store, and a retained key would
+    // later resolve to a conversation the user has already sent in.
+    const newChatDraftConversationId = shouldMintNewChatDraft({
+      platformStartsInNewChat: isNativeIOS(),
+      urlConversationId: explicitConversationId,
+      currentConversationId,
+    })
+      ? createDraftConversationId()
+      : null;
 
     // Only the "resume last-viewed" / "land on latest foreground" fallbacks
     // read the fetched list. An explicit URL key, an onboarding draft, the
@@ -319,7 +325,7 @@ export function useConversationLoader({
       explicitConversationId != null ||
       searchParams.get("onboarding") === "1" ||
       (assistantIdRef.current === assistantId &&
-        useConversationStore.getState().activeConversationId != null) ||
+        currentConversationId != null) ||
       newChatDraftConversationId != null
     );
     if (needsConversationList && conversationListIsPending) {
@@ -358,8 +364,7 @@ export function useConversationLoader({
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
       newChatDraftConversationId,
-      currentConversationId:
-        useConversationStore.getState().activeConversationId,
+      currentConversationId,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: assistantId,
       storedConversationId: loadLastViewedConversationId(assistantId),

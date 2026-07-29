@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveBootstrappedConversationId } from "@/domains/chat/utils/conversation-selection";
+import {
+  resolveBootstrappedConversationId,
+  shouldMintNewChatDraft,
+} from "@/domains/chat/utils/conversation-selection";
 
 const conversations = [
   { conversationId: "old-visible" },
@@ -230,5 +233,67 @@ describe("resolveBootstrappedConversationId", () => {
         }),
       ).toBe("old-visible");
     });
+
+    test("resolves the same key with or without the conversation list", () => {
+      const args = {
+        queryParamKey: null,
+        newChatDraftConversationId: "new-chat-draft",
+        currentConversationId: null,
+        currentAssistantId: null,
+        nextAssistantId: "asst-1",
+        storedConversationId: "old-visible",
+        defaultConversationId: "new-latest",
+      };
+      // The draft short-circuits both list-backed fallbacks, so the loader can
+      // land on it before the conversation-list fetch settles.
+      expect(
+        resolveBootstrappedConversationId({ ...args, conversations: [] }),
+      ).toBe("new-chat-draft");
+      expect(resolveBootstrappedConversationId({ ...args, conversations })).toBe(
+        "new-chat-draft",
+      );
+    });
+  });
+});
+
+describe("shouldMintNewChatDraft", () => {
+  test("mints while nothing is selected in the URL or the store", () => {
+    expect(
+      shouldMintNewChatDraft({
+        platformStartsInNewChat: true,
+        urlConversationId: null,
+        currentConversationId: null,
+      }),
+    ).toBe(true);
+  });
+
+  test("withholds the draft when the URL already names a conversation", () => {
+    expect(
+      shouldMintNewChatDraft({
+        platformStartsInNewChat: true,
+        urlConversationId: "from-deep-link",
+        currentConversationId: null,
+      }),
+    ).toBe(false);
+  });
+
+  test("withholds the draft when a conversation is already selected", () => {
+    expect(
+      shouldMintNewChatDraft({
+        platformStartsInNewChat: true,
+        urlConversationId: null,
+        currentConversationId: "already-sent-draft",
+      }),
+    ).toBe(false);
+  });
+
+  test("does not mint when the platform does not start in a new chat", () => {
+    expect(
+      shouldMintNewChatDraft({
+        platformStartsInNewChat: false,
+        urlConversationId: null,
+        currentConversationId: null,
+      }),
+    ).toBe(false);
   });
 });
