@@ -41,6 +41,7 @@ const VOICE_SETTINGS = {
     type: "string",
   },
   stt_provider: { type: "string" },
+  stt_language: { type: "string" },
 } satisfies Record<string, VoiceSettingMeta>;
 
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
@@ -57,6 +58,55 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
   tts_voice_id: "ElevenLabs voice",
   fish_audio_reference_id: "Fish Audio voice",
   stt_provider: "Speech-to-text provider",
+  stt_language: "Speech-to-text language",
+};
+
+/**
+ * Curated spoken-language codes for `services.stt.language`. The set is
+ * Deepgram nova-3's `multi` (code-switching) roster plus `multi` itself,
+ * mirroring the web settings catalog
+ * (`clients/web/src/lib/stt/language-catalog.ts`). The config schema accepts
+ * any non-empty string, but this tool only offers the curated set so a
+ * conversational request cannot persist an unvalidated code.
+ */
+const VALID_STT_LANGUAGES = [
+  "en",
+  "es",
+  "fr",
+  "de",
+  "hi",
+  "ru",
+  "pt",
+  "ja",
+  "it",
+  "nl",
+  "multi",
+] as const;
+
+/**
+ * Forgiving aliases normalized (after trim + lowercase) to a curated code, so
+ * a natural value like "Hindi" or "multilingual" is accepted rather than
+ * rejected. Mirrors the alias treatment stt_provider gets in the config
+ * schema (openai/whisper -> openai-whisper).
+ */
+const STT_LANGUAGE_ALIASES: Record<
+  string,
+  (typeof VALID_STT_LANGUAGES)[number]
+> = {
+  english: "en",
+  spanish: "es",
+  french: "fr",
+  german: "de",
+  hindi: "hi",
+  russian: "ru",
+  portuguese: "pt",
+  japanese: "ja",
+  italian: "it",
+  dutch: "nl",
+  multilingual: "multi",
+  auto: "multi",
+  mixed: "multi",
+  "code-switching": "multi",
 };
 
 function validateSetting(
@@ -149,6 +199,27 @@ function validateSetting(
         };
       }
       return { ok: true, coerced: value.trim() };
+    }
+    case "stt_language": {
+      if (typeof value !== "string") {
+        return {
+          ok: false,
+          error: `stt_language must be one of: ${VALID_STT_LANGUAGES.join(
+            ", ",
+          )} (language names like "hindi" and "multilingual" are also accepted)`,
+        };
+      }
+      const normalized = value.trim().toLowerCase();
+      const coerced = STT_LANGUAGE_ALIASES[normalized] ?? normalized;
+      if (!(VALID_STT_LANGUAGES as readonly string[]).includes(coerced)) {
+        return {
+          ok: false,
+          error: `stt_language must be one of: ${VALID_STT_LANGUAGES.join(
+            ", ",
+          )} (language names like "hindi" and "multilingual" are also accepted)`,
+        };
+      }
+      return { ok: true, coerced };
     }
     case "fish_audio_reference_id": {
       if (typeof value !== "string" || value.trim().length === 0) {
@@ -297,6 +368,15 @@ export async function run(
   if (setting === "stt_provider") {
     setNestedValue(raw, "services.stt.provider", validation.coerced);
     deleteLegacySpeechMode(raw, "stt");
+    saveRawConfig(raw);
+    invalidateConfigCache();
+  }
+
+  // The write is unconditional across providers: the daemon resolver already
+  // forwards the language only to adapters that accept one (and drops "multi"
+  // for xAI), matching how stt_provider does not cross-validate credentials.
+  if (setting === "stt_language") {
+    setNestedValue(raw, "services.stt.language", validation.coerced);
     saveRawConfig(raw);
     invalidateConfigCache();
   }
