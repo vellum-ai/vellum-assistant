@@ -1,9 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   useCallback,
   useEffect,
   useRef,
+  type CSSProperties,
   type FC,
   type KeyboardEvent,
   type MouseEvent,
@@ -12,9 +14,24 @@ import {
 import { createPortal } from "react-dom";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativeIOS } from "@/runtime/platform-detection";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
+
+// z-50 keeps the full-screen palette above the navigation drawer (fixed z-40
+// in chat-layout), which stays mounted underneath so dismissing search returns
+// to the menu.
+const MOBILE_SHEET_CLASSES =
+  "fixed inset-0 z-50 flex flex-col bg-[var(--surface-lift)]";
+
+const MOBILE_SHEET_SAFE_AREA_STYLE: CSSProperties = {
+  paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+  paddingBottom:
+    "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+  paddingLeft: "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+  paddingRight: "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -83,6 +100,8 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   surface = "overlay",
 }) => {
   const isMobile = useIsMobile();
+  const isNativeIOSShell = useIsNativeIOS();
+  const reduceMotion = useReducedMotion();
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -118,14 +137,18 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     [onClose],
   );
 
-  if (!isOpen) {
+  const isWindowSurface = surface === "window";
+  const useMobileLayout = isMobile && !isWindowSurface;
+  // iOS shell only: the sheet stays mounted while closed so AnimatePresence
+  // can play the slide-out exit.
+  const animateMobileSheet = isNativeIOSShell && useMobileLayout;
+
+  if (!isOpen && !animateMobileSheet) {
     return null;
   }
 
   // Flatten all items to compute the global index for each item.
   let flatIndex = 0;
-  const isWindowSurface = surface === "window";
-  const useMobileLayout = isMobile && !isWindowSurface;
 
   const searchInputRow = (
     <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
@@ -265,27 +288,44 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     </div>
   );
 
+  if (animateMobileSheet) {
+    return (
+      <AnimatePresence>
+        {isOpen ? (
+          <motion.div
+            key="command-palette-sheet"
+            className={MOBILE_SHEET_CLASSES}
+            style={MOBILE_SHEET_SAFE_AREA_STYLE}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Search"
+            onKeyDown={onKeyDown}
+            initial={{ y: "100%", opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0 }}
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : { duration: 0.28, ease: [0.16, 1, 0.3, 1] }
+            }
+          >
+            {searchInputRow}
+            {resultsList}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    );
+  }
+
   if (useMobileLayout) {
     return (
       <div
-        // z-50 keeps the full-screen palette above the navigation drawer
-        // (fixed z-40 in chat-layout), which stays mounted underneath so
-        // dismissing search returns to the menu.
-        className="fixed inset-0 z-50 flex flex-col bg-[var(--surface-lift)]"
+        className={MOBILE_SHEET_CLASSES}
         role="dialog"
         aria-modal="true"
         aria-label="Search"
         onKeyDown={onKeyDown}
-        style={{
-          paddingTop:
-            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-          paddingBottom:
-            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-          paddingLeft:
-            "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-          paddingRight:
-            "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
-        }}
+        style={MOBILE_SHEET_SAFE_AREA_STYLE}
       >
         {searchInputRow}
         {resultsList}

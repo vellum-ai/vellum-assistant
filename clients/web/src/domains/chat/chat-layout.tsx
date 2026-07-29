@@ -67,6 +67,7 @@ import {
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useIsNativeIOS } from "@/runtime/platform-detection";
 import { isPopoutWindow, openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -573,6 +574,17 @@ export function ChatLayout({
       switchConversation: handleSelectConversation,
     });
 
+  const isNativeIOSShell = useIsNativeIOS();
+  // iOS shell: keep the palette subtree mounted after first open so the
+  // AnimatePresence exit inside CommandPalette can run.
+  const [paletteEverOpened, setPaletteEverOpened] = useState(false);
+  useEffect(() => {
+    if (commandPalette.isOpen && !paletteEverOpened) {
+      setPaletteEverOpened(true);
+    }
+  }, [commandPalette.isOpen, paletteEverOpened]);
+  const keepPaletteMounted = isNativeIOSShell && paletteEverOpened;
+
   // Electron host commands (File menu / global hotkeys). The hook is a
   // no-op on the web host. Handlers close over the latest state via an
   // internal ref, so we don't need to memoize them. Composer focus is
@@ -1011,7 +1023,7 @@ export function ChatLayout({
         renameGroup={renameGroup}
         moveToGroup={handleMoveToGroup}
       />
-      {commandPalette.isOpen ? (
+      {commandPalette.isOpen || keepPaletteMounted ? (
         <LazyBoundary>
           <CommandPalette
             isOpen={commandPalette.isOpen}
