@@ -179,7 +179,7 @@ describe("default-provider availability notice", () => {
     });
 
     // Open the Providers modal (the Manage action inside the Providers
-    // section), "fix" the problem server-side, then close — the
+    // section), "fix" the problem server-side, then close - the
     // close-triggered refetch must clear the notice without a reload.
     const providersSection = [
       ...result.baseElement.querySelectorAll("section"),

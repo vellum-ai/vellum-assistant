@@ -59,7 +59,7 @@ describe("/model list", () => {
     const message = ((await resolveSlash("/model")) as { message: string })
       .message;
     // The quality tier is the column discriminator now that cost-optimized
-    // copy is intent-only in both columns (no model names — LUM-2881).
+    // copy is intent-only in both columns (no model names - LUM-2881).
     expect(message).toContain(
       "High-quality results with the most capable model",
     );

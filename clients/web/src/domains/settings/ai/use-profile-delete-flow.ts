@@ -80,7 +80,7 @@ export function useProfileDeleteFlow(
   function requestDelete(name: string) {
     // Without config the reference scan below would see no active selection
     // and no call sites, and the delete patch would write an empty
-    // profileOrder — refuse instead. Callers gate their delete affordances
+    // profileOrder - refuse instead. Callers gate their delete affordances
     // on config presence, so this is a defensive backstop.
     if (config == null) {
       return;

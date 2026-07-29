@@ -96,7 +96,7 @@ export function useProfileSave(
               body: { llm: { profiles: { [name]: oldEntry } } },
             })
             .catch(() => {
-              /* rollback failed — original error still propagates */
+              /* rollback failed - original error still propagates */
             });
         }
         throw recreateErr;

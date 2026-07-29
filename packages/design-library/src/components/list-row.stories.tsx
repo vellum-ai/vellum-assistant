@@ -110,8 +110,8 @@ export const Disabled: Story = {
 
 /**
  * `trailingInteractive` renders the trailing cluster OUTSIDE the row's
- * button (like `leading`), so it can host its own controls — a menu trigger,
- * a picker — without nesting interactive elements. Used by the Language
+ * button (like `leading`), so it can host its own controls - a menu trigger,
+ * a picker - without nesting interactive elements. Used by the Language
  * Model card's profile rows (chips + kebab menu).
  */
 export const InteractiveTrailing: Story = {

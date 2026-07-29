@@ -1,6 +1,6 @@
 /**
  * All state, derivation, and persistence logic of the profile editor,
- * shared by its hosts — the modal (composer quick-add) and the settings
+ * shared by its hosts - the modal (composer quick-add) and the settings
  * sidepanel. Hosts render `ProfileEditorFields` with the returned object
  * and their own chrome/footers around `handleSave` / `switchToSaveAsNew`.
  */
@@ -174,7 +174,7 @@ export function useProfileEditor({
   onSave,
 }: UseProfileEditorArgs): ProfileEditor {
   const [effectiveMode, setEffectiveMode] = useState<ProfileEditorMode>(mode);
-  // Managed profiles are read-only: no rename, no reshaping, no disabling —
+  // Managed profiles are read-only: no rename, no reshaping, no disabling -
   // the only interactive control is the enable-only status flip when the
   // profile is disabled. The lock keys off the server-stamped `invariant`
   // wire flag, so it must hold even if the host opens the editor in edit
@@ -202,7 +202,7 @@ export function useProfileEditor({
   // stored upstream and only promotes to Vellum once the loaded connections
   // prove the bound row is the managed sentinel (see the effect below).
   // A stored "chatgpt" provider (written via the API or CLI) opens with no
-  // provider selected — ChatGPT is a connection sub-option, never a provider
+  // provider selected - ChatGPT is a connection sub-option, never a provider
   // selection here.
   const [provider, setProvider] = useState<ConnectionProvider | "">(
     initialValues?.provider && initialValues.provider !== "chatgpt"
@@ -211,7 +211,7 @@ export function useProfileEditor({
   );
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
-  // binding — daemon falls back to its first-connection dispatch. Snake_case
+  // binding - daemon falls back to its first-connection dispatch. Snake_case
   // `provider_connection` matches the wire schema.
   const [providerConnection, setProviderConnection] = useState(
     initialValues?.provider_connection ?? "",
@@ -228,7 +228,7 @@ export function useProfileEditor({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Advanced params — sliders (null = "inherit / not overridden")
+  // Advanced params - sliders (null = "inherit / not overridden")
   const [maxTokens, setMaxTokens] = useState<number | null>(
     initialValues?.maxTokens ?? null,
   );
@@ -237,7 +237,7 @@ export function useProfileEditor({
       initialValues?.contextWindow?.maxInputTokens ?? null,
     );
 
-  // Advanced params — segment controls
+  // Advanced params - segment controls
   const [effort, setEffort] = useState<EffortSelection>(
     initialValues?.effort ?? "inherit",
   );
@@ -250,7 +250,7 @@ export function useProfileEditor({
     NonNullable<ProfileEntry["verbosity"]>
   >(initialValues?.verbosity ?? "medium");
 
-  // Advanced params — temperature / top P
+  // Advanced params - temperature / top P
   const [temperatureEnabled, setTemperatureEnabled] = useState<boolean>(
     typeof initialValues?.temperature === "number",
   );
@@ -266,11 +266,11 @@ export function useProfileEditor({
     typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
   );
 
-  // True when read-only mode's one permitted edit — the enable flip
-  // (disabled → active) — has been made.
+  // True when read-only mode's one permitted edit - the enable flip
+  // (disabled → active) - has been made.
   const hasViewModeChanges = isReadOnly && status !== initialStatus;
 
-  // Advanced params — thinking
+  // Advanced params - thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
     initialValues?.thinking?.enabled ?? false,
   );
@@ -287,7 +287,7 @@ export function useProfileEditor({
   );
 
   // Derived: selected model from catalog. A saved Vellum model may be a
-  // routed `<provider>/<model>` string; parse it once — the native id feeds
+  // routed `<provider>/<model>` string; parse it once - the native id feeds
   // every catalog lookup and the save path, the prefix feeds upstream
   // derivation.
   const routedModel = useMemo(
@@ -436,7 +436,7 @@ export function useProfileEditor({
     // selected model when switching connections if it's not in the new list.
     if (provider && getModelsForProvider(provider).length === 0 && model) {
       if (newConnection === "") {
-        // "Any connection" — merge models from all connections and keep the
+        // "Any connection" - merge models from all connections and keep the
         // model if it exists in the merged set.
         const allModelIds = new Set(
           availableConnectionsForProvider.flatMap((c) =>
@@ -539,8 +539,8 @@ export function useProfileEditor({
     if (isInvalid && !isReadOnly) {
       return;
     }
-    // Read-only (managed) profiles reach Save only via the enable flip — the
-    // daemon rejects every other mutation on them — so the body is exactly
+    // Read-only (managed) profiles reach Save only via the enable flip - the
+    // daemon rejects every other mutation on them - so the body is exactly
     // `{status: "active"}` sent as a deep-merge so the seed-owned fields
     // (provider, model, advanced params) stay intact.
     if (isReadOnly) {
@@ -661,7 +661,7 @@ export function useProfileEditor({
       if (visibility.thinkingLevel && thinkingLevel !== THINKING_LEVEL_INHERIT) {
         entry.thinking = { enabled: true, level: thinkingLevel };
       }
-      // Status — always include in edit mode; omit in create when active
+      // Status - always include in edit mode; omit in create when active
       if (effectiveMode === "edit") {
         entry.status = status;
       } else if (status !== "active") {

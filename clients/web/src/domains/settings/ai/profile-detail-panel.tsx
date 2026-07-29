@@ -31,7 +31,7 @@ interface ProfileDetailPanelProps {
  * the flat field stack, and a pinned "Save Changes" footer. Managed
  * profiles open read-only with "Save As New" as the escape hatch.
  *
- * Hosts must remount the panel per selection (key by `profileName`) — the
+ * Hosts must remount the panel per selection (key by `profileName`) - the
  * editor snapshots its initial values on mount. For the same reason the
  * panel must only be mounted once the config query has data: the opening
  * affordances (ProfilesSection rows and its Create button) are gated on
@@ -71,7 +71,7 @@ export function ProfileDetailPanel({
   // daemon stamps `invariant` only on managed-source entries, so the two
   // checks normally coincide; keeping both is defensive. A user-owned
   // profile sharing a managed name carries neither marker and opens fully
-  // editable — the daemon accepts every write to it.
+  // editable - the daemon accepts every write to it.
   const mode =
     profileName == null
       ? "create"

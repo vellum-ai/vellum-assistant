@@ -23,7 +23,7 @@ export interface ListRowProps
   trailing?: ReactNode;
   /**
    * Render `trailing` outside the interactive content area (like `leading`),
-   * so it can host its own controls — a menu trigger, a picker — without
+   * so it can host its own controls - a menu trigger, a picker - without
    * nesting interactive elements inside the row's button/anchor. When
    * combined with a chevron, the chevron stays inside the content area and
    * therefore renders before the trailing cluster.

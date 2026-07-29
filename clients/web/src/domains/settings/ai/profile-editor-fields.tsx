@@ -41,10 +41,10 @@ export interface ProfileEditorFieldsProps {
   connections: ProviderConnection[] | undefined;
   /**
    * Host chrome the fields render into:
-   * - `"modal"`: the legacy modal layouts — create keeps Key + advanced
+   * - `"modal"`: the legacy modal layouts - create keeps Key + advanced
    *   params behind a collapsed Advanced disclosure, edit/view shows the
    *   inline Active toggle.
-   * - `"panel"`: the settings sidepanel (Figma 7412:134288) — every field
+   * - `"panel"`: the settings sidepanel (Figma 7412:134288) - every field
    *   is flat and always visible, and enable/disable lives on the row's
    *   kebab menu instead of an inline toggle.
    */
@@ -55,7 +55,7 @@ export interface ProfileEditorFieldsProps {
  * The profile editor's field stack, shared by the modal host (composer
  * quick-add) and the settings sidepanel. All state lives in the
  * `useProfileEditor` hook; this component only arranges fields per
- * mode/variant. The Name field leads every create layout — it must stay
+ * mode/variant. The Name field leads every create layout - it must stay
  * top-level, never inside the Advanced disclosure (LUM-2881).
  */
 export function ProfileEditorFields({
@@ -135,7 +135,7 @@ export function ProfileEditorFields({
 
   // An active read-only (managed) profile shows no status toggle (it cannot
   // be disabled); a disabled one keeps an enable-only toggle. The panel
-  // variant never shows the toggle — enable/disable lives on the row's kebab.
+  // variant never shows the toggle - enable/disable lives on the row's kebab.
   const activeToggle =
     !flat && (!editor.isReadOnly || editor.status !== "active") ? (
       <Toggle

@@ -96,7 +96,7 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
     provider: "vellum",
     source: "managed",
     label: "Speed",
-    // Tier intent only — never name the concrete model here. Clients
+    // Tier intent only - never name the concrete model here. Clients
     // surface the live model beside the description, so a model name in
     // this copy would go stale the moment the pin moves.
     description: "Fastest responses at lower cost",

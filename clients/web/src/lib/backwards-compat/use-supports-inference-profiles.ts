@@ -6,7 +6,7 @@
  * `config.llm.profiles` map: model/provider come from the stored entry and
  * no per-profile availability is known.
  *
- * New behavior (≥ MIN_VERSION): the route serves the *effective* catalog —
+ * New behavior (≥ MIN_VERSION): the route serves the *effective* catalog -
  * managed defaults merged with user profiles, each annotated with `source`
  * and connection `availability`, and with the model resolved the way the
  * daemon will actually dispatch it (e.g. managed tiers reflect the default

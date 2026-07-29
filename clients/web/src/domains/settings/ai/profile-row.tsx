@@ -13,9 +13,9 @@ import type {
 
 interface ProfileRowProps {
   profile: InferenceProfileSummary;
-  /** This profile is `llm.activeProfile` — the main-chat default. */
+  /** This profile is `llm.activeProfile` - the main-chat default. */
   isActiveProfile: boolean;
-  /** This profile is `llm.advisorProfile` — the second-opinion consult. */
+  /** This profile is `llm.advisorProfile` - the second-opinion consult. */
   isAdvisorProfile: boolean;
   /** The row's panel is currently open in the sidepanel. */
   selected: boolean;
@@ -36,7 +36,7 @@ interface ProfileRowProps {
  * kebab menu showing only the actions valid for this row (Rok's annotation
  * on Light 738). Clicking the row opens the profile in the sidepanel.
  *
- * Wording note: the chip for `llm.activeProfile` reads "Default" — the
+ * Wording note: the chip for `llm.activeProfile` reads "Default" - the
  * default profile for chats that haven't picked one. "Active"/"Disabled"
  * is the orthogonal `status` dimension (picker visibility), rendered as
  * the dimmed title + "Disabled" chip + Enable/Disable menu items.

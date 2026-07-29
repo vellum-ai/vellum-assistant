@@ -1,5 +1,5 @@
 /**
- * Tests for `ProfilesSection` — the inline Profiles list of the Language
+ * Tests for `ProfilesSection` - the inline Profiles list of the Language
  * Model card.
  *
  * Invariant (managed) profiles expose enable-only actions and no Delete,
@@ -179,7 +179,7 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("ProfilesSection — chips", () => {
+describe("ProfilesSection - chips", () => {
   test("Default and Advisor chips track the config selections", () => {
     activeProfileState = "balanced";
     advisorProfileState = "my-custom";
@@ -217,7 +217,7 @@ describe("ProfilesSection — chips", () => {
   });
 });
 
-describe("ProfilesSection — kebab menus", () => {
+describe("ProfilesSection - kebab menus", () => {
   test("an active managed profile offers View/Make Default/Make Advisor but no Disable or Delete", async () => {
     renderSection();
     const menu = await openKebab("Balanced");
@@ -318,7 +318,7 @@ describe("ProfilesSection — kebab menus", () => {
   });
 });
 
-describe("ProfilesSection — row interactions", () => {
+describe("ProfilesSection - row interactions", () => {
   test("clicking a row opens its profile", () => {
     const opened: string[] = [];
     renderSection({ onOpenProfile: (name) => opened.push(name) });
@@ -338,7 +338,7 @@ describe("ProfilesSection — row interactions", () => {
 
   // The row actions and the create panel read config state (selections,
   // call-site references, profileOrder), so the section must not expose
-  // them while the config query is still loading — even if the
+  // them while the config query is still loading - even if the
   // effective-catalog query has already produced rows.
   test("holds rows back and disables Create Profile until config loads", () => {
     renderSection({ config: undefined });

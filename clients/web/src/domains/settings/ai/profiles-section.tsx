@@ -64,7 +64,7 @@ export function ProfilesSection({
             onClick={onCreateProfile}
             leftIcon={<Plus />}
             // The create panel needs config for duplicate-key validation
-            // and the profileOrder append — hold the door until it exists.
+            // and the profileOrder append - hold the door until it exists.
             disabled={config == null}
           >
             Create Profile
@@ -73,7 +73,7 @@ export function ProfilesSection({
       >
         {config == null ? (
           // The row actions (open, delete, make default) read config state
-          // — active/advisor selections, call-site references, profileOrder.
+          // - active/advisor selections, call-site references, profileOrder.
           // The effective-catalog query can win the race against configGet
           // on a cold load, so hold the rows back until config exists
           // rather than exposing actions that would see blank state.

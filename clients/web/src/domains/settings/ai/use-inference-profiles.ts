@@ -15,7 +15,7 @@ export interface InferenceProfileList {
   /** Ordered display rows for the Profiles section. */
   entries: InferenceProfileSummary[];
   /**
-   * True when `entries` came from `GET /inference/profiles` — the effective
+   * True when `entries` came from `GET /inference/profiles` - the effective
    * catalog with server-resolved models and per-profile availability. False
    * on the legacy fallback derived from the raw config map, where managed
    * rows show their stored (not resolved) model and availability is unknown.

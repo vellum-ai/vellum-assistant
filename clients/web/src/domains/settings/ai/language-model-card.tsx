@@ -80,7 +80,7 @@ export function LanguageModelCard({
       (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
 
-  // Modal toggles — ephemeral UI state, correct as useState
+  // Modal toggles - ephemeral UI state, correct as useState
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
 

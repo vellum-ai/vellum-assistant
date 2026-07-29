@@ -5,9 +5,9 @@ import { captureError } from "@/lib/sentry/capture-error";
 import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
 
 export interface ProfileActions {
-  /** Set `llm.activeProfile` — the main-chat default. */
+  /** Set `llm.activeProfile` - the main-chat default. */
   makeActive: (name: string) => Promise<void>;
-  /** Set `llm.advisorProfile` — the second-opinion consult. */
+  /** Set `llm.advisorProfile` - the second-opinion consult. */
   makeAdvisor: (name: string) => Promise<void>;
   clearAdvisor: () => Promise<void>;
   /** Enable/disable a profile via a deep-merge status patch. */

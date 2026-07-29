@@ -1,5 +1,5 @@
 /**
- * Tests for `ProfileDetailPanel` — the settings sidepanel host of the
+ * Tests for `ProfileDetailPanel` - the settings sidepanel host of the
  * profile editor.
  *
  * The panel owns the settings-surface save path and its create success
@@ -63,7 +63,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   }),
 }));
 
-// Connections query — a single Anthropic connection so the provider-first
+// Connections query - a single Anthropic connection so the provider-first
 // picker offers "Anthropic" without needing the inline create path.
 const connection: ProviderConnection = {
   name: "anthropic-personal",
@@ -188,7 +188,7 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("ProfileDetailPanel — create flow", () => {
+describe("ProfileDetailPanel - create flow", () => {
   test("fires exactly one success toast and closes on a successful create", async () => {
     let closed = 0;
     renderPanel(null, () => {
@@ -221,7 +221,7 @@ describe("ProfileDetailPanel — create flow", () => {
   });
 });
 
-describe("ProfileDetailPanel — managed profiles", () => {
+describe("ProfileDetailPanel - managed profiles", () => {
   test("opens read-only with Save As New and no Delete", async () => {
     profilesState = {
       balanced: {
@@ -251,7 +251,7 @@ describe("ProfileDetailPanel — managed profiles", () => {
   });
 });
 
-describe("ProfileDetailPanel — edit flow", () => {
+describe("ProfileDetailPanel - edit flow", () => {
   test("a complete custom profile opens in edit with its stored values, not blanks", async () => {
     profilesState = {
       "my-custom": {
@@ -269,7 +269,7 @@ describe("ProfileDetailPanel — edit flow", () => {
       expect(document.body.textContent).toContain("Max Output Tokens");
     });
 
-    // The stored explicit budget renders as the field value — not as an
+    // The stored explicit budget renders as the field value - not as an
     // empty input reading "Default".
     const maxTokensInput = Array.from(
       document.querySelectorAll<HTMLInputElement>('input[type="number"]'),
