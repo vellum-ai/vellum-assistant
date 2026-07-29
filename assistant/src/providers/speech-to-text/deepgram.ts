@@ -23,22 +23,34 @@ export interface DeepgramProviderOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Language-derived model override
+// Language-derived constructor options
 // ---------------------------------------------------------------------------
 
 /**
- * Deepgram model override implied by a language selection, for spreading
- * into adapter constructor options.
+ * Deepgram constructor options implied by a language selection, for
+ * spreading into adapter constructor options. Owning the model+language
+ * pairing here keeps the invariant in one place instead of at each call
+ * site (the batch adapter and the realtime resolver spread this the same
+ * way).
  *
- * Deepgram's `"multi"` code-switching language requires nova-3: the default
- * models of the batch and realtime adapters reject `language=multi`, so that
- * value pins `model: "nova-3"`. Every other value (including unset) returns
- * an empty override and keeps the caller's default model.
+ * - Unset returns `{}`: the adapter passes no `language` param, which
+ *   Deepgram decodes as English (NOT auto-detection).
+ * - A normal code returns `{ language }` and keeps the caller's default
+ *   model.
+ * - `"multi"` (code-switching) requires nova-3: the default models of the
+ *   batch and realtime adapters reject `language=multi`, so that value
+ *   also pins `model: "nova-3"`.
  */
-export function deepgramModelOverrideForLanguage(
-  language: string | undefined,
-): { model: string } | Record<string, never> {
-  return language === "multi" ? { model: "nova-3" } : {};
+export function deepgramLanguageOptions(language: string | undefined): {
+  model?: string;
+  language?: string;
+} {
+  if (!language) {
+    return {};
+  }
+  return language === "multi"
+    ? { model: "nova-3", language: "multi" }
+    : { language };
 }
 
 // ---------------------------------------------------------------------------

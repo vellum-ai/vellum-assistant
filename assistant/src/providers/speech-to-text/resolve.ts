@@ -7,7 +7,7 @@ import type {
   SttProviderId,
 } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
-import { deepgramModelOverrideForLanguage } from "./deepgram.js";
+import { deepgramLanguageOptions } from "./deepgram.js";
 import {
   getCredentialProvider,
   getProviderEntry,
@@ -64,9 +64,11 @@ export async function resolveBatchTranscriber(): Promise<BatchTranscriber | null
   }
 
   const apiKey = await getProviderKeyAsync(credentialProviderName);
-  return createDaemonBatchTranscriber(apiKey, provider as SttProviderId, {
-    ...(language ? { language } : {}),
-  });
+  return createDaemonBatchTranscriber(
+    apiKey,
+    provider as SttProviderId,
+    language,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -478,8 +480,7 @@ async function createStreamingTranscriber(
         await import("./deepgram-realtime.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
-        ...deepgramModelOverrideForLanguage(options.language),
-        ...(options.language ? { language: options.language } : {}),
+        ...deepgramLanguageOptions(options.language),
         ...(options.diarize ? { diarize: true } : {}),
         ...(options.utteranceBoundaryFinals
           ? {
@@ -549,7 +550,9 @@ async function createStreamingTranscriber(
         sampleRate: options.sampleRate,
         // `language` IS in the relay's param allowlist, and the relay pins
         // the STT model to nova-3 server-side, so "multi" code-switching
-        // needs nothing from the platform, only this forward.
+        // needs nothing from the platform, only this forward. Source:
+        // vellum-assistant-platform: velay/internal/velay/deepgram.go
+        // (deepgramSTTParams allowlist; deepgramSTTModel pin).
         ...(options.language ? { language: options.language } : {}),
         ...(options.utteranceBoundaryFinals
           ? { utteranceBoundaryFinals: true }
