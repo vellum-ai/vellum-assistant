@@ -469,6 +469,8 @@ export function BillingOnboardingModal({
           resizeCredits={isResize ? resizeCredits : undefined}
           targets={targets ?? EMPTY_DIMENSIONS}
           fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
+          machineFloor={provisioning.machineFloor}
+          landed={provisioning.landed}
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
           assistantId={assistantId}

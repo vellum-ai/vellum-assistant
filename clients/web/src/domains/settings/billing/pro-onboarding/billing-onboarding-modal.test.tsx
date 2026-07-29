@@ -18,7 +18,13 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
@@ -555,6 +561,51 @@ describe("BillingOnboardingModal", () => {
     await waitFor(() => expect(getByText("Assistant Email")).toBeTruthy(), {
       timeout: 5000,
     });
+  });
+
+  test("a machine-less package renders the floor its pod is capped down to", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({ max_machine_tier: null });
+    // A pod above the ceiling: the server caps it down to small, so the
+    // takeover owes that row even though the package names no machine tier.
+    assistantResponse = makeAssistant("medium", 10);
+    const { getByTestId } = renderModal();
+
+    await waitFor(() => expect(getByTestId("chip-machine")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByTestId("chip-machine").textContent).toContain("Medium");
+    expect(getByTestId("chip-machine").textContent).toContain("Small");
+  });
+
+  test("a dimension that lands checks off while the machine rollout keeps spinning", async () => {
+    subscriptionPlanId = "pro";
+    operationalStatusResponse = makeOperationalStatus("resizing_machine");
+    const { client, getByText, getByTestId } = renderModal();
+
+    await waitFor(() => expect(getByTestId("chip-storage")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    // Wait for the pre-resize actuals to land (the "from" side) before
+    // mutating, so the snapshot doesn't move with them.
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    // Storage reaches its target while the machine is still rolling out.
+    assistantResponse = makeAssistant("small", 50);
+    await client.invalidateQueries();
+
+    await waitFor(
+      () =>
+        expect(
+          within(getByTestId("chip-storage")).getByTestId("chip-check"),
+        ).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(
+      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
+    ).toBeTruthy();
   });
 
   test("already-provisioned fast path reconciles, celebrates and advances", async () => {

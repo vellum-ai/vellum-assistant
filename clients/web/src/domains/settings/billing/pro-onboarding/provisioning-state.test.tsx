@@ -8,7 +8,13 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import * as motionReact from "motion/react";
 
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
@@ -160,6 +166,18 @@ function renderState(
   );
 }
 
+/** Matches the dimension chips, not the check/spinner testids inside them. */
+const CHIP_TESTID = /^chip-(machine|storage|credits)$/;
+
+/** The resource chip row, asserting on the way that there is exactly one. */
+function chipRow(container: HTMLElement): HTMLElement {
+  const rows = container.querySelectorAll<HTMLElement>(
+    '[data-testid="resource-chips"]',
+  );
+  expect(rows.length).toBe(1);
+  return rows[0];
+}
+
 describe("confirming", () => {
   test("renders the confirming status line and caption", () => {
     const { getByText } = renderState({ state: "CONFIRMING" });
@@ -229,8 +247,7 @@ describe("waiting / resizing", () => {
     expect(getByText("Storage")).toBeTruthy();
     expect(getByText("30 GB")).toBeTruthy();
     expect(getByText("100 GB")).toBeTruthy();
-    // Two changed dimensions (≤ MAX_CHIPS_IN_ROW) show together, each with a
-    // current→new arrow.
+    // Both changed dimensions show together, each with a current→new arrow.
     expect(container.querySelector(".lucide-arrow-right")).toBeTruthy();
   });
 
@@ -300,46 +317,284 @@ describe("waiting / resizing", () => {
     expect(queryByText("Credits")).toBeNull();
   });
 
-  test("under reduced motion, machine + storage + credits all render together", () => {
-    reducedMotion = true;
-    const { getByText } = renderState({
+  for (const reduce of [false, true]) {
+    const label = reduce ? "under reduced motion" : "under full motion";
+    test(`${label}, machine + storage + credits share one row`, () => {
+      // The row is motion-independent: three chips are always all on screen,
+      // never one at a time, so a downgrade can't hide the resize being waited
+      // on behind a dimension that was never in doubt.
+      reducedMotion = reduce;
+      const { container, getByText } = renderState({
+        state: "WAITING",
+        intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+        targets: { machineSize: "large", storageGib: 100 },
+        fromSnapshot: { machineSize: "small", storageGib: 30 },
+      });
+
+      expect(getByText("Machine")).toBeTruthy();
+      expect(getByText("Large")).toBeTruthy();
+      expect(getByText("Storage")).toBeTruthy();
+      expect(getByText("100 GB")).toBeTruthy();
+      expect(getByText("Credits")).toBeTruthy();
+      expect(getByText("$50 credits/mo")).toBeTruthy();
+      // One row holds all three; there is no sibling row to wrap onto.
+      const row = chipRow(container);
+      expect(within(row).getAllByTestId(CHIP_TESTID).length).toBe(3);
+    });
+  }
+
+  test("the row cap widens for a third chip and holds the mock's width for two", () => {
+    // happy-dom performs no layout, so this is a smoke test on the class the
+    // width comes from; the real single-row check is visual.
+    const threeChips = renderState({
       state: "WAITING",
       intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
     });
+    expect(chipRow(threeChips.container).className).toContain("max-w-2xl");
+    // Never a second row: the chips shrink inside the cap instead.
+    expect(chipRow(threeChips.container).className).not.toContain("flex-wrap");
 
-    expect(getByText("Machine")).toBeTruthy();
-    expect(getByText("Large")).toBeTruthy();
-    expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("100 GB")).toBeTruthy();
-    expect(getByText("Credits")).toBeTruthy();
-    expect(getByText("$50 credits/mo")).toBeTruthy();
+    cleanup();
+    const twoChips = renderState({
+      state: "WAITING",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+    });
+    expect(chipRow(twoChips.container).className).toContain("max-w-sm");
   });
 
-  test("under full motion, three changes rotate — only the first chip renders", () => {
-    reducedMotion = false;
-    const { getByText, queryByText } = renderState({
+  test("a machine-less target renders the floor downsize it settles at", () => {
+    const { getByTestId } = renderState({
       state: "WAITING",
-      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
-      targets: { machineSize: "large", storageGib: 100 },
-      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      targets: { machineSize: null, storageGib: 100 },
+      fromSnapshot: { machineSize: "medium", storageGib: 30 },
+      machineFloor: "small",
     });
 
-    // Rotation starts at the machine change; storage/credits are off-screen.
+    const chip = getByTestId("chip-machine");
+    expect(chip.textContent).toContain("Medium");
+    expect(chip.textContent).toContain("Small");
+  });
+});
+
+/** A machine + storage upgrade mid-resize, with nothing landed yet. */
+const IN_FLIGHT: Partial<ProvisioningStateProps> = {
+  state: "WAITING",
+  targets: { machineSize: "large", storageGib: 100 },
+  fromSnapshot: { machineSize: "small", storageGib: 30 },
+};
+
+describe("per-chip progress", () => {
+  test("every chip starts pending with a spinner and no check", () => {
+    const { getByTestId } = renderState(IN_FLIGHT);
+
+    for (const key of ["chip-machine", "chip-storage"]) {
+      const chip = getByTestId(key);
+      expect(within(chip).getByTestId("chip-spinner")).toBeTruthy();
+      expect(within(chip).queryByTestId("chip-check")).toBeNull();
+      expect(chip.className).toContain("opacity-70");
+    }
+  });
+
+  test("a landed dimension checks off while the other keeps spinning", () => {
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    const storage = getByTestId("chip-storage");
+    expect(within(storage).getByTestId("chip-check")).toBeTruthy();
+    expect(within(storage).queryByTestId("chip-spinner")).toBeNull();
+    expect(storage.className).not.toContain("opacity-70");
+    // The landed chip keeps its from→to arrow rather than collapsing to the
+    // achieved value.
+    expect(storage.textContent).toContain("30 GB");
+    expect(storage.textContent).toContain("100 GB");
+
+    const machine = getByTestId("chip-machine");
+    expect(within(machine).getByTestId("chip-spinner")).toBeTruthy();
+    expect(within(machine).queryByTestId("chip-check")).toBeNull();
+  });
+
+  test("the credits chip is landed from first paint", () => {
+    // The rate flips when the plan change is accepted; nothing rolls out, so
+    // waiting on the machine would leave it spinning for no reason.
+    const { getByTestId } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+      targets: { machineSize: "large", storageGib: null },
+      fromSnapshot: { machineSize: "small", storageGib: null },
+      landed: { machine: false, storage: false },
+    });
+
+    expect(
+      within(getByTestId("chip-credits")).getByTestId("chip-check"),
+    ).toBeTruthy();
+    expect(
+      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
+    ).toBeTruthy();
+  });
+
+  test("stalled keeps each chip on its own dimension's state", () => {
+    const { getByTestId } = renderState({
+      state: "STALLED",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      landed: { machine: false, storage: true },
+    });
+
+    expect(
+      within(getByTestId("chip-storage")).getByTestId("chip-check"),
+    ).toBeTruthy();
+    expect(
+      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
+    ).toBeTruthy();
+  });
+
+  test("a mixed row reads its progress per dimension, not just paints it", () => {
+    // The spinner, the check and the dimming are all invisible to assistive
+    // tech, so without the status text a landed storage sounds identical to a
+    // pending one.
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    const storage = within(getByTestId("chip-storage"));
+    expect(storage.getByText("Complete").className).toContain("sr-only");
+    expect(storage.queryByText("Pending")).toBeNull();
+
+    const machine = within(getByTestId("chip-machine"));
+    expect(machine.getByText("Pending").className).toContain("sr-only");
+    expect(machine.queryByText("Complete")).toBeNull();
+  });
+
+  test("a dimension arriving mid-wait announces itself by name", () => {
+    // Discoverable `sr-only` text is silent on change, so a user who stays on
+    // the takeover hears nothing when a dimension arrives without the region.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      plansResponse(),
+    );
+    const tree = (landed: { machine: boolean; storage: boolean }) => (
+      <QueryClientProvider client={client}>
+        <ProvisioningState {...baseProps({ ...IN_FLIGHT, landed })} />
+      </QueryClientProvider>
+    );
+
+    const { getByTestId, rerender } = render(
+      tree({ machine: false, storage: false }),
+    );
+    expect(getByTestId("chip-announcement").textContent).toBe("");
+
+    rerender(tree({ machine: false, storage: true }));
+
+    const announced = getByTestId("chip-announcement").textContent ?? "";
+    expect(announced).toContain("Storage");
+    expect(announced).toContain("complete");
+  });
+
+  test("what already reads complete at first paint stays silent", () => {
+    // A dimension that settled before the takeover opened, and credits which
+    // carry no wait at all, have no arrival to report. Announcing them on mount
+    // would claim progress the user never waited through.
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    expect(
+      within(getByTestId("chip-storage")).getByText("Complete"),
+    ).toBeTruthy();
+    expect(getByTestId("chip-announcement").textContent).toBe("");
+  });
+
+  test("the from-to relation is spoken rather than left to the arrow glyph", () => {
+    // The arrow is aria-hidden, so the chip would otherwise read
+    // "Machine Small Large Pending".
+    const { getByTestId } = renderState(IN_FLIGHT);
+
+    expect(
+      within(getByTestId("chip-machine")).getByText("to").className,
+    ).toContain("sr-only");
+  });
+
+  test("a target-only intent chip claims neither status", () => {
+    // CONFIRMING has no per-dimension progress to report, so claiming
+    // "Pending" there would assert a resize that isn't in flight.
+    const { getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      intent: {
+        kind: "custom",
+        machineTier: "large",
+        storageTier: null,
+        creditTier: null,
+        savedAt: Date.now(),
+      },
+    });
+
     expect(getByText("Machine")).toBeTruthy();
-    expect(queryByText("Storage")).toBeNull();
-    expect(queryByText("Credits")).toBeNull();
+    expect(queryByText("Pending")).toBeNull();
+    expect(queryByText("Complete")).toBeNull();
+  });
+});
+
+describe("chip fit at narrow widths", () => {
+  /** The widest row the takeover renders: all three dimensions at once. */
+  const NARROW: Partial<ProvisioningStateProps> = {
+    ...IN_FLIGHT,
+    intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+  };
+
+  test("chip text breaks inside a word so it can never spill into the next chip", () => {
+    // happy-dom runs no layout, so this asserts the rule the no-clip behaviour
+    // rests on. `min-w-0` lets the box shrink but an unbreakable word such as
+    // "Machine" still sets a floor; `anywhere` (not `break-word`) is what feeds
+    // the break opportunity into the min-content sizing a flex item measures
+    // itself against.
+    const { getByTestId } = renderState(NARROW);
+    const cases: Array<[string, string, string]> = [
+      ["chip-machine", "Machine", "Large"],
+      ["chip-storage", "Storage", "100 GB"],
+      ["chip-credits", "Credits", "$50 credits/mo"],
+    ];
+
+    for (const [key, label, value] of cases) {
+      const chip = within(getByTestId(key));
+      // Label and value both sit under the rule, which inherits from the text
+      // column rather than being repeated on each span.
+      expect(chip.getByText(label).closest(".wrap-anywhere")).toBeTruthy();
+      expect(chip.getByText(value).closest(".wrap-anywhere")).toBeTruthy();
+    }
+  });
+
+  test("the decorative icon yields its column below the narrow breakpoint", () => {
+    // 32px of icon and gap against roughly 37px of text width at 320px, for a
+    // glyph that is aria-hidden and repeats what the label already says.
+    const { getByTestId } = renderState(NARROW);
+    const slot =
+      getByTestId("chip-machine").querySelector(".lucide-cpu")?.parentElement;
+
+    expect(slot?.className).toContain("hidden");
+    expect(slot?.className).toContain("min-[420px]:flex");
   });
 });
 
 describe("done / not_applicable", () => {
-  test("done renders the all-done status, target chips, and fires onCelebrationEnd after the dwell", async () => {
+  test("done renders the all-done status, checked chips, and fires onCelebrationEnd after the dwell", async () => {
     const onCelebrationEnd = mock(() => {});
-    const { getByText } = renderState({
+    const { getByText, getByTestId } = renderState({
       state: "DONE",
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
+      // The state itself is the signal here, so a dimension the hook never got
+      // to report still reads done.
+      landed: { machine: false, storage: false },
       celebrating: true,
       onCelebrationEnd,
       dwellMs: 10,
@@ -348,7 +603,15 @@ describe("done / not_applicable", () => {
     expect(getByText("All done!")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
     expect(getByText("100 GB")).toBeTruthy();
-    // The "from" side is dropped once done — only the achieved target shows.
+    // One format everywhere: the terminal phase keeps the from→to arrow and
+    // adds the check.
+    for (const key of ["chip-machine", "chip-storage"]) {
+      const chip = getByTestId(key);
+      expect(within(chip).getByTestId("chip-check")).toBeTruthy();
+      expect(within(chip).queryByTestId("chip-spinner")).toBeNull();
+    }
+    expect(getByText("Small")).toBeTruthy();
+    expect(getByText("30 GB")).toBeTruthy();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
 
