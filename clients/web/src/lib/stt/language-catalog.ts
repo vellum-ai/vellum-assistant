@@ -93,6 +93,23 @@ export function sttLanguageOptionsFor(
 }
 
 /**
+ * Display label for the code as the provider-scoped option list renders it:
+ * the catalog label when the code is in the catalog (Multilingual under a
+ * multi-capable provider), else the synthetic "(custom)" label. Falls back
+ * to the raw code defensively, though `sttLanguageOptionsFor` always
+ * represents the current code.
+ */
+export function sttLanguageLabelForCode(
+  code: string,
+  daemonProviderId: string,
+): string {
+  const option = sttLanguageOptionsFor(code, daemonProviderId).find(
+    (candidate) => candidate.code === code,
+  );
+  return option ? sttLanguageLabel(option) : code;
+}
+
+/**
  * Suggested STT language for a browser locale (`navigator.language`), or
  * `null` when no suggestion applies (English, empty, or outside the catalog).
  *

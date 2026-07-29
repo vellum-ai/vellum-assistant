@@ -22,6 +22,7 @@ import { useSttLanguageSelection } from "@/components/speech/use-stt-language-se
 import { VoiceList } from "@/components/speech/voice-list";
 import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
 import {
+  sttLanguageLabel,
   sttLanguageOptionsFor,
   suggestedLanguageForLocale,
 } from "@/lib/stt/language-catalog";
@@ -103,7 +104,9 @@ function listeningLanguageOptions(
     configuredProviderId,
   ).map((l) => ({
     value: l.code,
-    label: l.nativeLabel ? `${l.label} (${l.nativeLabel})` : l.label,
+    label: sttLanguageLabel(l),
+    // The design-library Dropdown has no visible per-option description
+    // line, so the copy rides the hover tooltip.
     tooltip: l.description,
   }));
   // The suggestion can be absent (a language-selectable provider whose

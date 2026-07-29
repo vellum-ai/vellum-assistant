@@ -140,28 +140,38 @@ describe("useSttLanguageSelection", () => {
     expect(result.current.currentCode).toBe("");
   });
 
-  test("isLanguageSelectable reflects the probe per daemon provider id", () => {
-    // A form gates its picker on the DRAFT provider through this, so it must
-    // answer for ids other than the configured one.
-    daemonConfigData = { services: { stt: { provider: "vellum" } } };
+  test("exposes the configured provider id, mapping legacy managed mode", () => {
+    // Surfaces build their option list from this, so the config narrowing
+    // (managed-mode aliasing, the schema-default fallback) lives here once.
+    daemonConfigData = {
+      services: { stt: { mode: "managed", provider: "deepgram" } },
+    };
     providerCatalogData = {
       providers: [
         { id: "vellum", displayName: "Vellum", languageSelection: "manual" },
-        {
-          id: "openai-whisper",
-          displayName: "Whisper",
-          languageSelection: "auto",
-        },
-        { id: "deepgram", displayName: "Deepgram" },
       ],
     };
 
     const { result } = renderSelection();
-    expect(result.current.isLanguageSelectable("vellum")).toBe(true);
-    expect(result.current.isLanguageSelectable("openai-whisper")).toBe(false);
-    // Absent capability field (old daemon) and unknown ids read as false.
-    expect(result.current.isLanguageSelectable("deepgram")).toBe(false);
-    expect(result.current.isLanguageSelectable("xai")).toBe(false);
+    expect(result.current.configuredProviderId).toBe("vellum");
+    expect(result.current.available).toBe(true);
+  });
+
+  test("an unset provider reads as the daemon schema default", () => {
+    daemonConfigData = { services: {} };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+
+    const { result } = renderSelection();
+    expect(result.current.configuredProviderId).toBe("deepgram");
+    expect(result.current.available).toBe(true);
   });
 
   test("a pick issues one services.stt.language PATCH", async () => {

@@ -167,34 +167,25 @@ export function SttProviderForm({
   const {
     available: languageAvailable,
     currentCode: languageCode,
-    isLanguageSelectable,
+    configuredProviderId: languageProviderId,
     selectLanguage,
   } = useSttLanguageSelection(assistantId);
-  // A language pick hot-applies to the daemon's CONFIGURED provider, so the
-  // picker binds to that provider and hides while the dropdown holds an
+  // A language pick hot-applies to the daemon's CONFIGURED provider (the
+  // hook's `configuredProviderId`, which its `available` already vets), so
+  // the picker binds to that provider and hides while the dropdown holds an
   // unsaved draft of a different one: offering the draft's languages would
   // write a value the still-active provider may ignore (e.g. Multilingual
-  // drafted for Vellum while xAI runs, whose resolver drops "multi"). With
-  // no pending draft, the steered id is the daemon's own provider when the
-  // dropdown can't represent it (e.g. xai via CLI renders as a placeholder),
-  // otherwise the selection's mapping. The client-only native choice has no
-  // daemon mapping (its recognizer never reads `services.stt.language`), so
-  // it resolves to undefined and the capability check below hides the
-  // picker.
-  const languageDaemonProviderId = useMemo(() => {
-    if (draftProvider !== serverProvider) {
-      return undefined;
-    }
-    if (daemonSttProvider && !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider]) {
-      return daemonSttProvider;
-    }
-    return STT_DAEMON_PROVIDER[draftProvider]?.provider;
-  }, [daemonSttProvider, draftProvider, serverProvider]);
-  // Unknown and absent probe entries read as false, hiding the control
-  // rather than offering a language its provider ignores.
-  const draftLanguageSelectable =
-    !!languageDaemonProviderId &&
-    isLanguageSelectable(languageDaemonProviderId);
+  // drafted for Vellum while xAI runs, whose resolver drops "multi"). A
+  // settled selection with no daemon mapping (the client-only native choice,
+  // whose recognizer never reads `services.stt.language`) also hides the
+  // picker, unless the daemon itself runs a provider the dropdown can't
+  // represent (e.g. xai via CLI renders as a placeholder), which is exactly
+  // what the picker steers.
+  const languagePickerVisible =
+    languageAvailable &&
+    draftProvider === serverProvider &&
+    (!!STT_DAEMON_PROVIDER[draftProvider] ||
+      (!!daemonSttProvider && !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider]));
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -383,7 +374,7 @@ export function SttProviderForm({
         />
       </div>
 
-      {languageAvailable && draftLanguageSelectable && (
+      {languagePickerVisible && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Spoken language
@@ -393,10 +384,12 @@ export function SttProviderForm({
             onChange={selectLanguage}
             options={sttLanguageOptionsFor(
               languageCode,
-              languageDaemonProviderId ?? "",
+              languageProviderId,
             ).map((l) => ({
               value: l.code,
               label: sttLanguageLabel(l),
+              // The design-library Dropdown has no visible per-option
+              // description line, so the copy rides the hover tooltip.
               tooltip: l.description,
             }))}
             aria-label="Spoken language"

@@ -70,7 +70,6 @@ let languageSelection = {
   available: false,
   currentCode: "",
   configuredProviderId: "vellum",
-  isLanguageSelectable: () => false,
   selectLanguage: (code: string) => languagePicks.push(code),
   selecting: false,
 };
@@ -95,7 +94,6 @@ function useMockSttLanguageSelection() {
     available: true,
     currentCode: serialized.currentValue,
     configuredProviderId: "vellum",
-    isLanguageSelectable: () => true,
     selectLanguage: serialized.select,
     selecting: serialized.selecting,
   };

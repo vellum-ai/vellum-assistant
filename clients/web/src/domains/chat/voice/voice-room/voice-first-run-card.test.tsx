@@ -66,7 +66,6 @@ const STT_LANGUAGE_SELECTION_DEFAULTS = {
   available: false,
   currentCode: "",
   configuredProviderId: "vellum",
-  isLanguageSelectable: () => false,
   selectLanguage: (_code: string) => {},
   selecting: false,
 };
