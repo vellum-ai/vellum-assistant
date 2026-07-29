@@ -19,7 +19,12 @@
  *   Dropdown menu's fixed-position coordinates, so an inline menu here lands
  *   far from its trigger). Writes `services.stt.language` through
  *   `useSttLanguageSelection`, which hot-applies from the user's next
- *   spoken turn. Only rendered when the daemon reports the configured STT
+ *   spoken turn. The hook is called once here, in a component that stays
+ *   mounted for the whole voice-room session, and its state is passed down
+ *   to the row and the picker: the hook's serialized write chain lives in
+ *   refs, so hosting it in the picker content (which unmounts on close)
+ *   would let a slow PATCH from a previous pick race a newer one across a
+ *   close/reopen. Only rendered when the daemon reports the configured STT
  *   provider as manually language-selectable; auto-detecting providers and
  *   old daemons get no row. See {@link ListeningLanguageRow} and
  *   {@link ListeningLanguagePickerModal}.
@@ -37,6 +42,7 @@ import { cn } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { VoicePickerModal } from "@/components/speech/voice-picker-modal";
 import { ListeningLanguagePickerModal } from "@/domains/chat/voice/voice-room/listening-language-picker-modal";
 import { ListeningLanguageRow } from "@/domains/chat/voice/voice-room/listening-language-row";
@@ -71,6 +77,21 @@ export function VoiceRoomSettingsMenu({
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [languageModalOpen, setLanguageModalOpen] = useState(false);
+
+  // Listening-language selection lives here, above both the row and the
+  // picker, because this menu stays mounted for the whole voice-room session
+  // while the picker content unmounts on close: hoisting keeps the hook's
+  // serialized write chain alive across close/reopen, so a repick queues
+  // behind a still-in-flight PATCH instead of racing it. The queries behind
+  // the hook are cheap (an Infinity-staleTime capability probe plus the
+  // shared config query the row needs anyway).
+  const {
+    available: languageAvailable,
+    currentCode,
+    configuredProviderId,
+    selectLanguage,
+    selecting,
+  } = useSttLanguageSelection(assistantId);
 
   return (
     <>
@@ -134,7 +155,9 @@ export function VoiceRoomSettingsMenu({
                 STT provider as language-selectable; collapses to nothing
                 otherwise, like the Voice row. */}
             <ListeningLanguageRow
-              assistantId={assistantId}
+              available={languageAvailable}
+              currentCode={currentCode}
+              configuredProviderId={configuredProviderId}
               onOpen={() => {
                 setPopoverOpen(false);
                 setLanguageModalOpen(true);
@@ -150,9 +173,12 @@ export function VoiceRoomSettingsMenu({
         onOpenChange={setVoiceModalOpen}
       />
       <ListeningLanguagePickerModal
-        assistantId={assistantId}
         open={languageModalOpen}
         onOpenChange={setLanguageModalOpen}
+        currentCode={currentCode}
+        configuredProviderId={configuredProviderId}
+        selectLanguage={selectLanguage}
+        selecting={selecting}
       />
     </>
   );

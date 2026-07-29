@@ -1,9 +1,19 @@
 import { type ReactNode } from "react";
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+// Loaded (real) before the sdk.gen mock below replaces the registry entry, so
+// the mock can spread the full export surface and only override `configPatch`.
+import * as realDaemonSdk from "@/generated/daemon/sdk.gen";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // The voice picker has its own tests; here it stays collapsed (unavailable) so
@@ -22,9 +32,39 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
   useManagedVoiceSelection: () => voiceSelection,
 }));
 
-// Same shape for the listening-language row: unavailable by default so the
-// menu renders without the daemon query graph. Mutable so tests can offer
-// languages and observe picks; `sttLanguageOptionsFor` itself is real.
+// The daemon config PATCH the serialization tests observe. Each call records
+// the language it carries; `deferPatches` holds every call open until a test
+// releases it through `patchResolvers`, simulating a slow write.
+let patchCalls: Array<{ language: string }> = [];
+let patchResolvers: Array<() => void> = [];
+let deferPatches = false;
+async function recordConfigPatch(options: unknown) {
+  const body = (
+    options as { body: { services: { stt: { language: string } } } }
+  ).body;
+  patchCalls.push({ language: body.services.stt.language });
+  if (deferPatches) {
+    await new Promise<void>((resolve) => patchResolvers.push(resolve));
+  }
+  return { response: { ok: true } };
+}
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...realDaemonSdk,
+  configPatch: recordConfigPatch,
+}));
+
+// Imported after the sdk.gen mock so its `configPatch` binding links to the
+// recording mock above (bun in CI does not re-link already-loaded modules).
+const { useSerializedConfigSelection } =
+  await import("@/components/speech/use-serialized-config-selection");
+
+// The listening-language selection mock: unavailable by default so the menu
+// renders without the daemon query graph. Mutable so tests can offer
+// languages and observe picks; `sttLanguageOptionsFor` itself is real. The
+// serialization tests flip `serializedSelection` to swap in the REAL
+// `useSerializedConfigSelection` write chain (with `configPatch` mocked
+// above), so close/reopen write ordering exercises the shipped engine.
+let serializedSelection = false;
 let languagePicks: string[] = [];
 let languageSelection = {
   available: false,
@@ -34,8 +74,34 @@ let languageSelection = {
   selectLanguage: (code: string) => languagePicks.push(code),
   selecting: false,
 };
+
+const buildTestPatchBody = (code: string) => ({
+  services: { stt: { language: code } },
+});
+
+/** The mock hook: the static fixture, or the real serialized write chain. */
+function useMockSttLanguageSelection() {
+  // Called unconditionally so hook order is stable across modes.
+  const serialized = useSerializedConfigSelection({
+    assistantId: "asst_test",
+    configuredValue: "",
+    buildPatchBody: buildTestPatchBody,
+    failureMessage: "test failure",
+  });
+  if (!serializedSelection) {
+    return languageSelection;
+  }
+  return {
+    available: true,
+    currentCode: serialized.currentValue,
+    configuredProviderId: "vellum",
+    isLanguageSelectable: () => true,
+    selectLanguage: serialized.select,
+    selecting: serialized.selecting,
+  };
+}
 mock.module("@/components/speech/use-stt-language-selection", () => ({
-  useSttLanguageSelection: () => languageSelection,
+  useSttLanguageSelection: useMockSttLanguageSelection,
 }));
 
 // The BYO row links to Models & Services; a plain anchor renders it without a
@@ -50,12 +116,16 @@ const { VoiceRoomSettingsMenu } = await import("./voice-room-settings-menu");
 
 beforeEach(() => {
   voiceSelection = { ...voiceSelection, available: false, isByok: false };
+  serializedSelection = false;
   languagePicks = [];
   languageSelection = {
     ...languageSelection,
     available: false,
     currentCode: "",
   };
+  patchCalls = [];
+  patchResolvers = [];
+  deferPatches = false;
   useVoicePrefsStore.setState({
     showUserTranscript: false,
     showAssistantTranscript: false,
@@ -64,10 +134,15 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-/** Render the menu and open the gear popover. */
+/**
+ * Render the menu and open the gear popover. The QueryClientProvider serves
+ * the real `useSerializedConfigSelection` the mock hook always calls.
+ */
 function openMenu() {
   render(
-    <VoiceRoomSettingsMenu triggerClassName="ctrl" assistantId="asst_test" />,
+    <QueryClientProvider client={new QueryClient()}>
+      <VoiceRoomSettingsMenu triggerClassName="ctrl" assistantId="asst_test" />
+    </QueryClientProvider>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Voice settings" }));
 }
@@ -201,6 +276,75 @@ describe("VoiceRoomSettingsMenu", () => {
     expect(document.activeElement).toBe(options[options.length - 1]);
     await user.keyboard("{Home}");
     expect(document.activeElement).toBe(options[0]);
+  });
+
+  test("opening the picker focuses the selected option, the list's one tab stop", () => {
+    languageSelection = {
+      ...languageSelection,
+      available: true,
+      currentCode: "es",
+    };
+    openMenu();
+    fireEvent.click(screen.getByText("Listening language"));
+    // Focus starts on the configured language, not the first option: from
+    // here Enter re-picks Spanish instead of overwriting it with English.
+    const spanish = screen.getByRole("option", {
+      name: /Spanish \(Español\)/,
+    });
+    expect(document.activeElement).toBe(spanish);
+    // Roving tabindex anchored on the selection: only the selected option is
+    // tabbable, the rest are reached with the arrow keys.
+    expect(spanish.tabIndex).toBe(0);
+    for (const option of screen.getAllByRole("option")) {
+      if (option !== spanish) {
+        expect(option.tabIndex).toBe(-1);
+      }
+    }
+  });
+
+  test("a slow write keeps picks serialized across picker close and reopen", async () => {
+    // Real write chain (mocked transport), with every PATCH held open until
+    // the test releases it.
+    serializedSelection = true;
+    deferPatches = true;
+    const user = userEvent.setup();
+    openMenu();
+    fireEvent.click(screen.getByText("Listening language"));
+
+    // First pick: its PATCH issues and stays in flight; the picker closes.
+    await user.click(
+      screen.getByRole("option", { name: /Spanish \(Español\)/ }),
+    );
+    expect(patchCalls).toEqual([{ language: "es" }]);
+    expect(
+      screen.queryByRole("listbox", { name: "Listening language" }),
+    ).toBeNull();
+
+    // Reopen and pick again while the first write is still unresolved. The
+    // hook state survived the picker unmount: the reopened list shows the
+    // pending Spanish pick as selected.
+    fireEvent.click(screen.getByRole("button", { name: "Voice settings" }));
+    fireEvent.click(screen.getByText("Listening language"));
+    expect(
+      screen
+        .getByRole("option", { name: /Spanish \(Español\)/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    await user.click(
+      screen.getByRole("option", { name: /French \(Français\)/ }),
+    );
+
+    // The strongest observable of the shared chain: the second PATCH has not
+    // issued while the first is unresolved. Two independent chains (the
+    // pre-fix bug) would have fired it immediately.
+    expect(patchCalls).toEqual([{ language: "es" }]);
+
+    // Releasing the first write lets the queued one issue, in pick order.
+    await act(async () => {
+      patchResolvers.shift()?.();
+    });
+    await act(async () => {});
+    expect(patchCalls).toEqual([{ language: "es" }, { language: "fr" }]);
   });
 
   test("language row leaves the Captions toggle and Voice row intact", () => {

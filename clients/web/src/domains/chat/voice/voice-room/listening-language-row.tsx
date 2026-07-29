@@ -6,6 +6,11 @@
  * provider (auto-detecting providers, old daemons), so the popover never shows
  * a control the daemon would ignore.
  *
+ * Selection state arrives as props: the settings menu owns the single
+ * `useSttLanguageSelection` call and shares it between this row and the
+ * picker, so the row and the picker always agree and the hook's serialized
+ * write chain outlives both (see the picker content component).
+ *
  * The picker is a modal rather than an inline dropdown on purpose: the radix
  * popover positions its content through a transformed wrapper, which becomes
  * the containing block for fixed-position descendants, so the Dropdown menu's
@@ -19,27 +24,33 @@ import { ChevronRight } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 
-import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import {
   sttLanguageLabel,
   sttLanguageOptionsFor,
 } from "@/lib/stt/language-catalog";
 
 export interface ListeningLanguageRowProps {
-  assistantId: string | null;
+  /**
+   * Whether the daemon offers manual language selection for the configured
+   * provider; false collapses the row entirely.
+   */
+  available: boolean;
+  /** The currently-selected catalog code, a pending pick included. */
+  currentCode: string;
+  /** Daemon id of the configured STT provider, scoping the option catalog. */
+  configuredProviderId: string;
   /** Open the language picker modal (owned by the parent). */
   onOpen: () => void;
   className?: string;
 }
 
 export function ListeningLanguageRow({
-  assistantId,
+  available,
+  currentCode,
+  configuredProviderId,
   onOpen,
   className,
 }: ListeningLanguageRowProps) {
-  const { available, currentCode, configuredProviderId } =
-    useSttLanguageSelection(assistantId);
-
   if (!available) {
     return null;
   }
