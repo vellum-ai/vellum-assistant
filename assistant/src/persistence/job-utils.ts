@@ -212,7 +212,9 @@ export async function embedAndUpsert(
         )
         .get()
     : undefined;
-  if (cachedRow && cachedRow.dimensions !== expectedDim) cachedRow = undefined;
+  if (cachedRow && cachedRow.dimensions !== expectedDim) {
+    cachedRow = undefined;
+  }
 
   if (cachedRow) {
     // Prefer BLOB (compact), fall back to JSON for unmigrated rows

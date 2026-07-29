@@ -87,7 +87,9 @@ export async function buildConversationSummaryJob(
     .where(and(...conditions))
     .orderBy(asc(memorySegments.createdAt))
     .all();
-  if (rows.length === 0) return;
+  if (rows.length === 0) {
+    return;
+  }
 
   // Build segment text for LLM input (already in chronological order)
   const segmentTexts = rows
