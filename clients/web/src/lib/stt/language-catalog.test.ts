@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   STT_LANGUAGES,
   STT_MULTI_CODE,
+  sttLanguageLabelForCode,
   sttLanguageOptionsFor,
   suggestedLanguageForLocale,
 } from "./language-catalog";
@@ -81,6 +82,33 @@ describe("sttLanguageOptionsFor", () => {
       code: "en-US",
       label: "en-US (custom)",
     });
+  });
+});
+
+describe("sttLanguageLabelForCode", () => {
+  test("labels a catalog code with its native name", () => {
+    expect(sttLanguageLabelForCode("fr", "deepgram")).toBe("French (Français)");
+  });
+
+  test("labels the default code", () => {
+    expect(sttLanguageLabelForCode("", "deepgram")).toBe("English (default)");
+  });
+
+  test("labels multi under a multi-capable provider", () => {
+    expect(sttLanguageLabelForCode(STT_MULTI_CODE, "vellum")).toBe(
+      "Multilingual",
+    );
+  });
+
+  test("labels multi under xai via the custom fallback", () => {
+    // The xai catalog omits Multilingual, so the synthetic entry carries it.
+    expect(sttLanguageLabelForCode(STT_MULTI_CODE, "xai")).toBe(
+      "multi (custom)",
+    );
+  });
+
+  test("labels an out-of-catalog code via the custom fallback", () => {
+    expect(sttLanguageLabelForCode("en-US", "deepgram")).toBe("en-US (custom)");
   });
 });
 

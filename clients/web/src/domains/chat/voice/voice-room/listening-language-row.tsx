@@ -24,10 +24,7 @@ import { ChevronRight } from "lucide-react";
 
 import { cn } from "@vellumai/design-library";
 
-import {
-  sttLanguageLabel,
-  sttLanguageOptionsFor,
-} from "@/lib/stt/language-catalog";
+import { sttLanguageLabelForCode } from "@/lib/stt/language-catalog";
 
 export interface ListeningLanguageRowProps {
   /**
@@ -55,10 +52,6 @@ export function ListeningLanguageRow({
     return null;
   }
 
-  const current = sttLanguageOptionsFor(currentCode, configuredProviderId).find(
-    (option) => option.code === currentCode,
-  );
-
   return (
     <div className={cn("flex flex-col", className)}>
       {/* Same straight full-width divider the Voice row draws (a border on a
@@ -73,7 +66,7 @@ export function ListeningLanguageRow({
           Listening language
         </span>
         <span className="min-w-0 flex-1 truncate text-right text-label-small-default text-[var(--content-tertiary)]">
-          {current ? sttLanguageLabel(current) : currentCode}
+          {sttLanguageLabelForCode(currentCode, configuredProviderId)}
         </span>
         <ChevronRight className="size-4 shrink-0 self-center text-[var(--content-tertiary)]" />
       </button>

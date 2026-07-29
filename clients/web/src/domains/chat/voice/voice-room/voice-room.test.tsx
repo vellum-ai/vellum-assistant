@@ -163,7 +163,6 @@ mock.module("@/components/speech/use-stt-language-selection", () => ({
     available: false,
     currentCode: "",
     configuredProviderId: "vellum",
-    isLanguageSelectable: () => false,
     selectLanguage: () => {},
     selecting: false,
   }),
