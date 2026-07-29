@@ -12,15 +12,20 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
 
-let listRetrieveCalls = 0;
+let listRetrieveCalls: ({ starting_after?: string } | undefined)[] = [];
 let listResult: InvoiceListResponse = { invoices: [], has_more: false };
+// Pages served for ?starting_after=<cursor> requests, keyed by cursor.
+let nextPages: Record<string, InvoiceListResponse> = {};
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingInvoicesRetrieve: () => {
-    listRetrieveCalls += 1;
+  organizationsBillingInvoicesRetrieve: (options?: {
+    query?: { starting_after?: string };
+  }) => {
+    listRetrieveCalls.push(options?.query);
+    const cursor = options?.query?.starting_after;
     return Promise.resolve({
-      data: listResult,
+      data: cursor ? nextPages[cursor] : listResult,
       response: { ok: true, status: 200 },
     });
   },
@@ -55,8 +60,9 @@ function renderTable(): ReturnType<typeof render> {
 }
 
 beforeEach(() => {
-  listRetrieveCalls = 0;
+  listRetrieveCalls = [];
   listResult = { invoices: [makeInvoice("1"), makeInvoice("2")], has_more: false };
+  nextPages = {};
 });
 
 afterEach(() => {
@@ -74,7 +80,7 @@ describe("InvoicesTable collapse", () => {
     );
     expect(queryByTestId("invoices-table")).toBeNull();
     expect(queryByTestId("invoices-download-all")).toBeNull();
-    expect(listRetrieveCalls).toBe(0);
+    expect(listRetrieveCalls.length).toBe(0);
   });
 
   test("expanding fetches and shows the table; collapsing hides it again", async () => {
@@ -83,7 +89,7 @@ describe("InvoicesTable collapse", () => {
     fireEvent.click(getByTestId("invoices-toggle"));
 
     await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
-    expect(listRetrieveCalls).toBe(1);
+    expect(listRetrieveCalls.length).toBe(1);
     expect(getAllByTestId("invoice-row").length).toBe(2);
     expect(getByTestId("invoices-toggle").textContent).toContain(
       "Hide invoices",
@@ -109,5 +115,60 @@ describe("InvoicesTable collapse", () => {
     await waitFor(() => expect(queryByTestId("invoices-empty")).not.toBeNull());
     // No invoices — the Download all button stays hidden even when expanded.
     expect(queryByTestId("invoices-download-all")).toBeNull();
+  });
+});
+
+describe("InvoicesTable pagination", () => {
+  test("Load more requests the next page with starting_after and renders both pages", async () => {
+    listResult = {
+      invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
+      has_more: true,
+    };
+    nextPages["5"] = {
+      invoices: [makeInvoice("6"), makeInvoice("7")],
+      has_more: false,
+    };
+    const { getByTestId, queryByTestId, getAllByTestId } = renderTable();
+
+    fireEvent.click(getByTestId("invoices-toggle"));
+    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+
+    // Collapsed to the first 4 rows; Load more only appears once expanded.
+    expect(getAllByTestId("invoice-row").length).toBe(4);
+    expect(queryByTestId("invoices-load-more")).toBeNull();
+
+    fireEvent.click(getByTestId("invoices-show-more"));
+    expect(getAllByTestId("invoice-row").length).toBe(5);
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+
+    await waitFor(() => expect(getAllByTestId("invoice-row").length).toBe(7));
+    expect(listRetrieveCalls.length).toBe(2);
+    expect(listRetrieveCalls[1]).toEqual({ starting_after: "5" });
+
+    // Final page loaded — back to the plain Show less toggle.
+    expect(queryByTestId("invoices-load-more")).toBeNull();
+    expect(getByTestId("invoices-show-more").textContent).toContain(
+      "Show less",
+    );
+  });
+
+  test("Load more is absent when has_more is false", async () => {
+    listResult = {
+      invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
+      has_more: false,
+    };
+    const { getByTestId, queryByTestId } = renderTable();
+
+    fireEvent.click(getByTestId("invoices-toggle"));
+    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+
+    fireEvent.click(getByTestId("invoices-show-more"));
+
+    expect(queryByTestId("invoices-load-more")).toBeNull();
+    expect(getByTestId("invoices-show-more").textContent).toContain(
+      "Show less",
+    );
+    expect(listRetrieveCalls.length).toBe(1);
   });
 });
