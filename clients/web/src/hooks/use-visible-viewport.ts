@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { subscribeNativeKeyboardHeight } from "@/runtime/native-keyboard-events";
+
 /**
  * Threshold (in px) below which an `innerHeight − visualViewport.height` delta
  * is treated as the soft keyboard opening. Below this we assume incidental
@@ -60,6 +62,28 @@ function isPortrait(): boolean {
 }
 let lastIsPortrait: boolean = isPortrait();
 
+// Keyboard height reported by `@capacitor/keyboard` at the leading edge of the
+// show animation, or `0` when nothing is anticipated.
+//
+// The plugin defers its own web view frame resize until the keyboard animation
+// duration plus 0.2s has elapsed, so `visualViewport` keeps reporting the
+// full-height, keyboard-free state for most of a second while the keyboard is
+// already sliding up. Reporting the anticipated height bridges that gap: layout
+// follows the keyboard as it animates, and the derived measurement takes back
+// over the moment the native resize lands.
+let anticipatedKeyboardHeight = 0;
+
+/**
+ * Record the keyboard height the native shell is about to animate to.
+ *
+ * `0` clears anticipation, which is what a keyboard dismissal reports: the
+ * native hide resize is near-instant, so the derived measurement drives the
+ * restore on its own.
+ */
+export function setAnticipatedKeyboardHeight(keyboardHeight: number): void {
+  anticipatedKeyboardHeight = keyboardHeight;
+}
+
 /**
  * Read the current visual-viewport state.
  *
@@ -91,13 +115,36 @@ export function readVisibleViewport(): VisibleViewport | null {
   // pixels, which would otherwise inflate keyboardHeight and falsely trigger
   // keyboard-open detection. Only derive keyboardHeight at ~1.0 scale.
   const isZoomed = Math.abs(vv.scale - 1) > 0.05;
+  const derivedKeyboardHeight = isZoomed
+    ? 0
+    : Math.max(0, referenceInnerHeight - vv.height);
+  const offsetTop = isZoomed ? 0 : vv.offsetTop;
+  const offsetLeft = isZoomed ? 0 : vv.offsetLeft;
+
+  // The deferred native frame resize has landed once the derived height
+  // catches up, so anticipation retires and the measurement takes over.
+  if (
+    anticipatedKeyboardHeight > 0 &&
+    derivedKeyboardHeight >= anticipatedKeyboardHeight
+  ) {
+    anticipatedKeyboardHeight = 0;
+  }
+
+  // A pinch-zoomed viewport reports no keyboard at all, anticipated or not.
+  if (!isZoomed && anticipatedKeyboardHeight > 0) {
+    return {
+      height: referenceInnerHeight - anticipatedKeyboardHeight,
+      keyboardHeight: anticipatedKeyboardHeight,
+      offsetTop,
+      offsetLeft,
+    };
+  }
+
   return {
     height: vv.height,
-    keyboardHeight: isZoomed
-      ? 0
-      : Math.max(0, referenceInnerHeight - vv.height),
-    offsetTop: isZoomed ? 0 : vv.offsetTop,
-    offsetLeft: isZoomed ? 0 : vv.offsetLeft,
+    keyboardHeight: derivedKeyboardHeight,
+    offsetTop,
+    offsetLeft,
   };
 }
 
@@ -112,6 +159,12 @@ export function readVisibleViewport(): VisibleViewport | null {
  * values together. The `referenceInnerHeight`
  * approach in `readVisibleViewport` handles both cases — see the module-level
  * comment above it.
+ *
+ * On the native iOS shell the plugin defers that frame resize until well after
+ * the keyboard animation has started, so the hook also subscribes to the
+ * plugin's own `keyboardWillShow` height and reports it until the deferred
+ * resize lands. Off that shell the subscription attaches no listeners and the
+ * derived measurement is the only source.
  *
  * Returns `null` in browsers that lack the API; callers should fall back to
  * `100dvh` (and no transform) in that case.
@@ -135,10 +188,15 @@ export function useVisibleViewport(): VisibleViewport | null {
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
     window.addEventListener("resize", update);
+    const unsubscribe = subscribeNativeKeyboardHeight((keyboardHeight) => {
+      setAnticipatedKeyboardHeight(keyboardHeight);
+      update();
+    });
     return () => {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
+      unsubscribe();
     };
   }, []);
 
