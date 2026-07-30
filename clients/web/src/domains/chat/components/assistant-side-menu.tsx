@@ -107,6 +107,20 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRemoveFromGroup?: (conversation: Conversation) => void;
 }
 
+/**
+ * Top-edge fade for the overlay drawer's scrollport on the Capacitor iOS
+ * shell, where the close and search glyphs float over the list. Rows reach
+ * full opacity at the 3.5rem reserve (`native-ios:pt-14`), so they dissolve
+ * only across the stretch the glyphs occupy. The glyphs live in a sibling of
+ * the scrollport, so the mask never dims them.
+ *
+ * Both declarations are spelled out in full because Tailwind only emits the
+ * candidates it finds verbatim in source. `-webkit-mask-image` is not
+ * optional: the iOS client is a WKWebView, which still needs the prefix.
+ */
+const NATIVE_IOS_LIST_TOP_FADE =
+  "native-ios:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)] native-ios:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]";
+
 function SearchButton() {
   const toggle = useCommandPaletteStore.use.toggle();
   // Leaves the drawer open: the palette (fixed z-50) covers it, so dismissing
@@ -436,7 +450,7 @@ export function AssistantSideMenu({
                  inline padding below is applied. pt-14 on iOS clears the 40px
                  the floating icon row covers plus a 16px gap, so the first
                  row starts below the glyphs at rest. */
-                "gap-4 pt-3 pb-24 native-ios:pt-14 max-md:pt-4"
+                `gap-4 pt-3 pb-24 native-ios:pt-14 max-md:pt-4 ${NATIVE_IOS_LIST_TOP_FADE}`
               : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */
