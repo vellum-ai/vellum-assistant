@@ -415,7 +415,7 @@ describe("VoiceRoom — visibility", () => {
 
   test("renders nothing in an Electron pop-out even when the composer owns the session", () => {
     // The room fills whichever box it is mounted in, and in a pop-out that box
-    // is the whole window — it would cover the standalone pill, so pop-outs
+    // is the whole window, so it would cover the standalone pill and pop-outs
     // never show it. The owning composer's voice bar still renders underneath.
     startOwnedSession("listening");
     mockSearch = "?popout=1";
@@ -437,9 +437,9 @@ describe("VoiceRoom — visibility", () => {
 // Placement is the whole point of the two variants: desktop insets the room
 // into the content area so the title bar and sidenav stay visible AND usable,
 // mobile keeps the full-viewport takeover. The modality flag has to follow the
-// placement — a non-modal room that claimed `aria-modal` would tell assistive
+// placement. A non-modal room that claimed `aria-modal` would tell assistive
 // tech the chrome beside it is inert when it is in fact the way out.
-describe("VoiceRoom — placement variants", () => {
+describe("VoiceRoom: placement variants", () => {
   test("content: inset panel, non-modal", () => {
     startOwnedSession("listening");
     render(<VoiceRoom variant="content" />);
@@ -470,7 +470,7 @@ describe("VoiceRoom — placement variants", () => {
     expect(roomDialog()?.className).toContain("fixed inset-0");
   });
 
-  test("both variants keep Escape-to-minimize — the content room is dismissible too", () => {
+  test("both variants keep Escape-to-minimize, so the content room is dismissible too", () => {
     // The content variant is non-modal, but Escape is still the platform
     // "leave the overlay" key; it must not degrade into ending the call.
     startOwnedSession("listening");

@@ -286,7 +286,7 @@ function windowSize(): { w: number; h: number } {
 }
 
 /**
- * The window box, kept live on resize — the fallback for callers that render at
+ * The window box, kept live on resize. The fallback for callers that render at
  * full-viewport scale. The room itself measures its own panel and passes it in
  * as `viewport`; see `use-room-box.ts`.
  */
@@ -340,7 +340,7 @@ export function VoiceRoomColorLook({
   showStateCaption?: boolean;
   /** How prominent that caption is while audio flows. See {@link VoiceCaptionEmphasis}. */
   captionEmphasis?: VoiceCaptionEmphasis;
-  /** Point the entrance grows from (the tapped control), in ROOM-LOCAL space —
+  /** Point the entrance grows from (the tapped control), in ROOM-LOCAL space.
    *  the caller converts from the viewport point it captured. Null → the fixed
    *  room-center origin. */
   entryOrigin?: { x: number; y: number } | null;
@@ -388,7 +388,7 @@ export function VoiceRoomColorLook({
   const bodyGeometry = useMemo(() => {
     // A degenerate box (a not-yet-laid-out panel, a test renderer that reports
     // no extent) would make `startScale` divide by zero and hand Motion an
-    // `Infinity` scale. Skip the body grow rather than animate garbage — the
+    // `Infinity` scale. Skip the body grow rather than animate garbage. The
     // color fill still covers the room.
     if (!look.body || w <= 0 || h <= 0) {
       return null;

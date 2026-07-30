@@ -19,15 +19,15 @@
  *
  * Two placement variants (see `chat-layout.tsx` for the mounts):
  *
- * - `"content"` (desktop) — `absolute inset-0` inside the layout's `<main>`,
+ * - `"content"` (desktop): `absolute inset-0` inside the layout's `<main>`,
  *   an inset panel that leaves the title bar and left sidenav visible AND
  *   interactive, so the user can keep navigating; navigating away hands the
  *   session off to the title-bar pill. Deliberately not `aria-modal`: the
  *   surrounding chrome stays usable.
- * - `"fullscreen"` (mobile) — `fixed inset-0` over the whole viewport, modal,
+ * - `"fullscreen"` (mobile): `fixed inset-0` over the whole viewport, modal,
  *   with safe-area padding for notched iOS shells.
  *
- * The look is laid out against the ROOM's box, not the window's — see
+ * The look is laid out against the ROOM's box, not the window's. See
  * {@link useRoomBox}. As a panel those are different rectangles, so the color
  * look's field, its giant eyes, and the responding rings are all sized to the
  * panel, and the entry origin (published in viewport space by the composer) is
@@ -121,7 +121,7 @@ const SESSION_CONTROL_CLASS =
 const SESSION_CONTROL_NEUTRAL_CLASS =
   "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
 
-/** Placement variant — see the module docstring. */
+/** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content";
 
 export function VoiceRoom({
@@ -171,7 +171,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const [entryOrigin] = useState(liveEntryOrigin);
 
   // The room's own rectangle. Everything in the look lays out against this, not
-  // the window — as an inset panel they differ (see the module docstring).
+  // the window. As an inset panel they differ (see the module docstring).
   const { ref: roomRef, box } = useRoomBox();
   // The entry origin is a viewport point; the look lays out in room-local
   // space. Fullscreen's offset is zero, which makes this a no-op there.
@@ -248,7 +248,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       ref={roomRef}
       className={cn(
         "z-50 flex items-center justify-center overflow-hidden",
-        // Both variants sit at z-50 — the highest tier used inside the chat
+        // Both variants sit at z-50, the highest tier used inside the chat
         // layout. The content variant rounds its corners so it reads as a panel
         // set inside the surrounding chrome; `overflow-hidden` above is what
         // clips the full-bleed color/wave layers to that radius.
@@ -299,7 +299,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           color + eyes. Both draw the waves only while `listening`, from live mic
           amplitude. */}
       {look ? (
-        // Held back until the box is measured — one pre-paint commit, so the
+        // Held back until the box is measured. That is one pre-paint commit, so the
         // entrance still plays from the room's first painted frame, but it
         // grows inside a real rectangle rather than a zero-sized one.
         box ? (

@@ -1,33 +1,30 @@
 /**
  * Live measurement of the voice room's own box.
  *
- * The room used to be a `fixed inset-0` takeover, so "the room box" and "the
- * window" were the same rectangle and every piece of the room's geometry — eye
- * sizing, the body's cover scale, the responding rings, the entrance origin —
- * could read `window.innerWidth`/`innerHeight` directly. As an inset panel
- * (desktop mounts the room inside the layout's `<main>`, leaving the header and
- * sidenav visible) they are different rectangles, and sizing against the window
- * would overshoot the panel: the eyes would be drawn for a viewport the room no
- * longer owns and the entrance would grow from a point outside it.
+ * On desktop the room is a panel inset inside the layout's `<main>`, so its box
+ * and the window are different rectangles. Every piece of the room's geometry
+ * (eye sizing, the body's cover scale, the responding rings, the entrance
+ * origin) scales against the room, and reading `window.innerWidth`/`innerHeight`
+ * instead would overshoot it: the eyes would be drawn for a viewport the room
+ * does not own, and the entrance would grow from a point outside it.
  *
- * `useRoomBox` gives the room its own rectangle instead. It reports both the
- * size — what the geometry scales against — and the viewport offset, which is
- * what converts a viewport-space point (the entry origin published by the
- * composer from a `getBoundingClientRect()`) into the room-local space the look
- * lays out in.
+ * `useRoomBox` reports both the size, which the geometry scales against, and the
+ * viewport offset, which converts a viewport-space point (the entry origin the
+ * composer publishes from a `getBoundingClientRect()`) into the room-local space
+ * the look lays out in.
  *
  * Measurement is synchronous in `useLayoutEffect`, before paint, so the room's
  * entrance animation starts from a real box on its first painted frame rather
  * than growing from a zero-sized one. After mount a `ResizeObserver` tracks the
- * panel's own size (the sidebar collapsing, a rail drag) and a window `resize`
- * listener catches offset changes the observer doesn't fire for — the box can
- * slide without changing size.
+ * panel's own size (the sidebar collapsing, a rail drag), and a window `resize`
+ * listener catches offset changes the observer does not fire for, since the box
+ * can slide without changing size.
  */
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 export interface RoomBox {
-  /** Room width in CSS px — what the look's geometry scales against. */
+  /** Room width in CSS px. The look's geometry scales against this. */
   w: number;
   /** Room height in CSS px. */
   h: number;
@@ -42,9 +39,9 @@ export interface RoomBox {
  *
  * The composer publishes the entry origin as a viewport point (it measures the
  * avatar the user tapped with `getBoundingClientRect()`), but the look lays out
- * against the room box — so an unconverted origin would place the entrance
- * outside the panel by however far the panel is inset, and the room would grow
- * from the wrong corner. Pure so the arithmetic is testable without a DOM.
+ * against the room box, so an unconverted origin lands outside the panel by
+ * however far the panel is inset and the room grows from the wrong corner. Pure
+ * so the arithmetic is testable without a DOM.
  *
  * Not clamped: an origin genuinely outside the panel (a tap in the sidenav)
  * should stay outside it, so the entrance flies in from that direction.

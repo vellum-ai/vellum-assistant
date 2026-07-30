@@ -837,16 +837,38 @@ export function ChatLayout({
     />
   );
 
-  // Blur + freeze the chat body under the MOBILE voice room, which is a
-  // full-viewport takeover mounted outside `<main>`. The room is an opaque
-  // overlay, so this mainly matters for the fade transition and to stop stray
-  // interaction with the covered chat. Desktop is deliberately excluded: its
-  // room is an inset panel mounted INSIDE `<main>`, so blurring `<main>` would
-  // blur the room along with the chat behind it.
+  // Blur the chat body under the MOBILE voice room, which is a full-viewport
+  // takeover mounted outside `<main>`. The room is an opaque overlay, so this
+  // mainly matters for the fade transition. Desktop is deliberately excluded:
+  // its room is an inset panel mounted INSIDE `<main>`, so blurring `<main>`
+  // would blur the room along with the chat behind it. Reachability is handled
+  // by `chatContent` below on both platforms, not here.
   const mainRoomClass =
     voiceRoomVisible && isMobile
-      ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+      ? "blur-sm opacity-40 transition-[filter,opacity]"
       : "";
+
+  // The route content, held inert while the voice room covers it.
+  //
+  // The room paints over the chat but does not remove it from the page, so
+  // without this the composer, transcript and their controls stay tabbable and
+  // screen-reader reachable behind an opaque panel. `inert` takes the whole
+  // subtree out of the tab order and the accessibility tree at once, which
+  // neither the blur nor `aria-modal` does: the desktop room is deliberately
+  // non-modal so the header and sidenav stay usable, and scoping the gate to
+  // this wrapper is what keeps that chrome reachable while the content under
+  // the panel is not.
+  //
+  // The wrapper carries `<main>`'s own flex classes so the route content sees
+  // the same flex parent it would without it.
+  const chatContent = (
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      inert={voiceRoomVisible}
+    >
+      <Outlet />
+    </div>
+  );
 
   return (
     <>
@@ -904,7 +926,7 @@ export function ChatLayout({
         <main
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
         >
-          <Outlet />
+          {chatContent}
           {/* A popout narrowed below the mobile breakpoint lands in this
               branch — still headerless, so it still needs the floating
               session surface (see the desktop popout branch below). */}
@@ -961,7 +983,7 @@ export function ChatLayout({
         <main
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
         >
-          <Outlet />
+          {chatContent}
           {/* Pop-outs render no header, but they DO support in-window
               conversation switching (Cmd+Up/Down) — so a live session started
               here can lose its owning composer exactly like in the main
@@ -1004,7 +1026,7 @@ export function ChatLayout({
           <main
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
-            <Outlet />
+            {chatContent}
             {/* Live-voice room, desktop: an inset panel scoped to the content
                 area, so the title bar above and the sidenav beside it stay
                 visible and interactive. Self-gates on

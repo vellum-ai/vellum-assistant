@@ -1,15 +1,15 @@
 /**
- * Tests for {@link toRoomLocal} — the viewport→room-local conversion the inset
+ * Tests for {@link toRoomLocal}, the viewport to room-local conversion the inset
  * voice room depends on.
  *
  * This is the arithmetic that stops the room's entrance from growing out of the
  * wrong place. The composer captures the entry origin in viewport coordinates
  * (a `getBoundingClientRect()` on the avatar the user tapped) and the room's
  * look positions everything against its own box, so the two only agree once the
- * point is shifted by the panel's offset. When the room was a `fixed inset-0`
- * takeover those coordinate spaces were identical and the bug was unreachable;
- * as a panel inset behind a header and sidenav, an unconverted origin is off by
- * exactly the chrome around it.
+ * point is shifted by the panel's offset. The offset is exactly the chrome the
+ * panel sits inside: skip the conversion and the entrance is off by the header
+ * and sidenav. It is zero for the fullscreen room, where the two coordinate
+ * spaces coincide.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -42,7 +42,7 @@ describe("toRoomLocal", () => {
 
   test("returns null when either input is missing", () => {
     // No origin was captured (a keyboard-started session), or the box has not
-    // been measured yet — the look falls back to its own centered origin.
+    // been measured yet. The look falls back to its own centered origin.
     expect(toRoomLocal(null, PANEL)).toBeNull();
     expect(toRoomLocal({ x: 300, y: 100 }, null)).toBeNull();
     expect(toRoomLocal(null, null)).toBeNull();
