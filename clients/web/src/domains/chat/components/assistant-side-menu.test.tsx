@@ -529,6 +529,11 @@ describe("AssistantSideMenu · overlay close affordance", () => {
     expect(overlayHtml).toContain('aria-label="Close navigation"');
     expect(railHtml).not.toContain('aria-label="Close navigation"');
   });
+
+  test("keeps the search affordance in the overlay header", () => {
+    const overlayHtml = renderMenu({ conversations: [], variant: "overlay" });
+    expect(overlayHtml).toContain('aria-label="Search (⌘K)"');
+  });
 });
 
 describe("AssistantSideMenu · section header menus", () => {

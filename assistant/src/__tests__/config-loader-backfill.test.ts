@@ -836,8 +836,10 @@ describe("loadConfig startup behavior", () => {
     );
     expect(raw.llm.profiles["custom-quality-optimized"].model).toBe("gpt-5.4");
     expect(raw.llm.profiles["custom-cost-optimized"].provider).toBe("openai");
+    // BYOK `cost-optimized` carries `intent: "latency-optimized"`, so it
+    // resolves to the same model as the latency class.
     expect(raw.llm.profiles["custom-cost-optimized"].model).toBe(
-      "gpt-5.4-nano",
+      "gpt-5.6-luna",
     );
 
     // The managed defaults exist only as thin disabled stubs on a BYOK hatch.

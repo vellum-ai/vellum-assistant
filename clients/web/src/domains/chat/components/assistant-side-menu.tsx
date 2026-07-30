@@ -47,6 +47,7 @@ import {
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import {
@@ -134,6 +135,7 @@ function SearchButton() {
       iconOnly={<Search />}
       aria-label="Search (⌘K)"
       title="Search (⌘K)"
+      className={NATIVE_IOS_BARE_ICON_BUTTON}
       onClick={handleClick}
     />
   );
@@ -558,6 +560,7 @@ export function AssistantSideMenu({
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
+                className={NATIVE_IOS_BARE_ICON_BUTTON}
                 onClick={() => onClose?.()}
               />
               <SearchButton />

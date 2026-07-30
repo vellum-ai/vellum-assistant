@@ -37,10 +37,11 @@ export interface VisibleViewport {
 // keyboard opens and only `visualViewport.height` shrinks, so
 // `innerHeight - vv.height` directly yields the keyboard height.
 //
-// In WKWebView (Capacitor iOS without `@capacitor/keyboard`), the web view
-// frame itself is resized to fit above the keyboard. Both `innerHeight` and
-// `vv.height` shrink together, making `innerHeight - vv.height ≈ 0` even when
-// the keyboard is visible. By comparing against the maximum observed
+// In WKWebView (Capacitor iOS; `@capacitor/keyboard` is installed and pinned to
+// `resize: native` in `capacitor.config.ts`), the web view frame itself is resized to
+// fit above the keyboard. Both `innerHeight` and `vv.height` shrink together,
+// making `innerHeight - vv.height ≈ 0` even when the keyboard is visible. By
+// comparing against the maximum observed
 // `innerHeight` — which corresponds to the keyboard-dismissed state — keyboard
 // detection works correctly across both runtimes.
 //
@@ -106,8 +107,9 @@ export function readVisibleViewport(): VisibleViewport | null {
  *
  * In Safari, the soft keyboard shrinks `visualViewport.height` while
  * `window.innerHeight` stays at the full layout viewport. In Capacitor's
- * WKWebView (without `@capacitor/keyboard`), the web view frame itself
- * resizes, shrinking both values together. The `referenceInnerHeight`
+ * WKWebView (with `@capacitor/keyboard` installed and pinned to
+ * `resize: native`), the web view frame itself resizes, shrinking both
+ * values together. The `referenceInnerHeight`
  * approach in `readVisibleViewport` handles both cases — see the module-level
  * comment above it.
  *

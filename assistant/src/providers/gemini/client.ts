@@ -12,6 +12,7 @@ import { getLogger } from "../../util/logger.js";
 import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -380,6 +381,7 @@ export class GeminiProvider implements Provider {
       : undefined;
 
     try {
+      recordProviderRequestDiagnostics({ model_id: activeModel });
       const geminiContents = this.toGeminiContents(messages, activeModel);
 
       const geminiConfig: genai.GenerateContentConfig = {};

@@ -134,16 +134,16 @@ function resolveDiscoveredPluginIngress(
  *
  * Approval is the general gate, with one exception: a route declaring
  * `signer: "vellum"` is served without it. Such a route only opens to a
- * caller holding the platform's own webhook secret — us — and the user
- * already extended that trust when they connected their account, so asking
+ * caller holding the platform's own webhook secret, which is to say us, and
+ * the user extended that trust when they connected their account, so asking
  * them to approve it again buys nothing. A route signed by anyone else still
  * needs a guardian decision, because approval is what establishes who that
  * signer is allowed to be.
  *
  * Note this is reach the plugin can grant itself: a manifest can name a
  * `vellum`-signed path and have it served unreviewed. What it gets is a path
- * only Vellum can drive — no authority over the assistant, and nothing a
- * plugin could not already reach by running its own code.
+ * only Vellum can drive, carrying no authority over the assistant and
+ * nothing a plugin could not already reach by running its own code.
  *
  * Declarations that failed validation are in `problems` and are never
  * servable, regardless of signer.
@@ -159,7 +159,9 @@ export function findServableRoute(
 
   const approved = resolution.approved.find((d) => d.plugin === plugin);
   const fromApproved = approved && matches(approved.routes);
-  if (fromApproved) return fromApproved;
+  if (fromApproved) {
+    return fromApproved;
+  }
 
   const pending = resolution.pending.find((d) => d.plugin === plugin);
   const fromPending = pending && matches(pending.routes);

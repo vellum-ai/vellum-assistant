@@ -37,6 +37,7 @@ import {
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { shouldUseNativeWebSearch } from "./registry.js";
+import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
 import type {
   Message,
   Provider,
@@ -266,6 +267,12 @@ export class CallSiteRoutingProvider implements Provider {
         resolved.model,
       );
       if (connectionProvider) {
+        // The connection whose credential the call authenticates with is only
+        // known here, and diagnostics for a failed request are unactionable
+        // without it ("which key was this?"). Recorded once the adapter exists,
+        // so a connection that fell back to the default transport is not
+        // reported as the one that signed the request.
+        recordProviderRequestDiagnostics({ connection_name: connectionName });
         return connectionProvider;
       }
       // Soft credential failure: the routed connection yielded no usable
