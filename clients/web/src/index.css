@@ -994,6 +994,16 @@ body {
 .voice-listening-waves--mesh.voice-listening-waves--top,
 .voice-listening-waves--mesh.voice-listening-waves--inline {
   transform: none;
+  /* Fade all the way out with the voice, rather than to the shared band's 0.28
+   * floor. The sheet's displacement already drops to nothing as amplitude does
+   * (`idleEnvelope: 0`), so a floored opacity would leave a flat, permanently
+   * visible line across the room between turns. `--band-peak-opacity` is the
+   * per-voice ceiling the room sets (see `BAND_VOICE`); `--band-presence` is a
+   * saturating curve on the amplitude rather than the raw value, so the ceiling
+   * is reached at ordinary speaking level instead of only at a shout — see
+   * `opacityKnee`. Multiplying two linear ramps was what made the band read as
+   * barely there. */
+  opacity: calc(var(--band-presence, 0) * var(--band-peak-opacity, 1));
 }
 /* The centered band still needs its own -50% or it drops half a band height;
  * only the amplitude-driven scaleY comes off. */

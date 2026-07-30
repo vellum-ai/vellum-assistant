@@ -60,7 +60,7 @@ import { VoiceMeshWaves, type VoiceMeshTuning } from "./voice-mesh-waves";
 // ---------------------------------------------------------------------------
 
 /** How the harness sources the 0–1 amplitude every surface is driven by. */
-type Driver = "mic" | "speech" | "silence" | "manual";
+type Driver = "mic" | "speech" | "ramp" | "silence" | "manual";
 
 /**
  * Match the app's own mic scaling so the harness is honest about levels:
@@ -97,6 +97,25 @@ function useDriver(
     if (driver === "silence") {
       ampRef.current = 0;
     }
+  }, [driver]);
+
+  // Ramp: a slow triangle through the whole 0–1 range. Speech envelopes jump
+  // around too fast to tell "responds to amplitude" from "moves a lot", so this
+  // is the driver to judge responsiveness on — anything that answers amplitude
+  // should visibly swell and subside once per cycle.
+  useEffect(() => {
+    if (driver !== "ramp") {
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = () => {
+      const t = ((performance.now() - start) / 1000) % 6;
+      ampRef.current = t < 3 ? t / 3 : (6 - t) / 3;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [driver]);
 
   // Simulated speech: ~3.5 Hz syllabic tremor under a 0.4 Hz phrase swell,
@@ -247,6 +266,7 @@ interface SceneArgs {
   bodyShape: string;
   respondingStyle: VoiceRespondingStyle;
   captionEmphasis: VoiceCaptionEmphasis;
+  bandStrength: number;
 }
 
 /** The room's color look in a measured frame, driven by the selected source. */
@@ -307,9 +327,10 @@ function RoomFrame({
           waveEngine={args.engine}
           waveStyle={args.waveStyle}
           wavePalette={args.wavePalette}
-          // Listening arrives from the ceiling; the responding band answers
-          // from the floor (see `respondingStyle: "waves"`).
-          wavePlacement="top"
+          // Both voices sit on the floor and are told apart by ink instead
+          // (see `BAND_VOICE`); `wavePlacement` still moves the listening band
+          // to the ceiling if the split-by-position version is wanted back.
+          wavePlacement="bottom"
           respondingStyle={args.respondingStyle}
           captionEmphasis={args.captionEmphasis}
           eyePlacement="center"
@@ -366,16 +387,17 @@ const defaultArgs: SceneArgs = {
   eyeStyle: BUNDLED_COMPONENTS.eyeStyles[0]?.id ?? "grumpy",
   bodyShape: "blob",
   respondingStyle: "waves",
-  captionEmphasis: "muted",
+  captionEmphasis: "hidden",
+  bandStrength: 1,
 };
 
 const argTypes = {
   visual: { options: VISUALS, control: { type: "select" as const } },
   driver: {
-    options: ["speech", "mic", "silence", "manual"] satisfies Driver[],
+    options: ["speech", "mic", "ramp", "silence", "manual"] satisfies Driver[],
     control: { type: "inline-radio" as const },
     description:
-      "mic = your real microphone (prompts for permission); speech = simulated envelope; silence = hard zero; manual = the slider.",
+      "mic = your real microphone (prompts for permission); speech = simulated envelope; ramp = a slow 0→1→0 sweep, the one to judge amplitude-responsiveness on; silence = hard zero; manual = the slider.",
   },
   amplitude: {
     control: { type: "range" as const, min: 0, max: 1, step: 0.01 },
@@ -406,6 +428,11 @@ const argTypes = {
   bodyShape: {
     options: BUNDLED_COMPONENTS.bodyShapes.map((b) => b.id),
     control: { type: "select" as const },
+  },
+  bandStrength: {
+    control: { type: "range" as const, min: 0.25, max: 3, step: 0.05 },
+    description:
+      "Multiplier on the band's opacity ceiling (1 = the designer's 0.4 white / 0.2 black). Only affects the Band Strength story.",
   },
   captionEmphasis: {
     options: ["muted", "hidden", "full"] satisfies VoiceCaptionEmphasis[],
@@ -723,14 +750,14 @@ const MESH_PRESETS: {
   tuning: Partial<VoiceMeshTuning>;
 }[] = [
   {
-    name: "dense (current default)",
-    note: "92 lines at low alpha, edges close together — what the rooms and the composer bar now use",
+    name: "filament (current default)",
+    note: "edges almost coincident — the curves part only where the twist pulls them apart",
     tuning: {},
   },
   {
-    name: "filament",
-    note: "edges closer still, so the curves separate only where the twist pulls them apart",
-    tuning: { spread: 0.06, displace: 0.42, alphaNear: 0.18 },
+    name: "slack",
+    note: "slower drift and broader lobes; the other one the designer liked",
+    tuning: { driftSpeed: 0.42, cyclesA: 1.1, cyclesB: 1.9 },
   },
   {
     name: "broad lobes",
@@ -743,13 +770,13 @@ const MESH_PRESETS: {
     tuning: { depthPhase: Math.PI * 3.1 },
   },
   {
-    name: "slack",
-    note: "slower drift and a softer floor — calmer at rest, more of a swell on speech",
-    tuning: { driftSpeed: 0.42, idleEnvelope: 0.07, cyclesA: 1.1, cyclesB: 1.9 },
+    name: "dense (previous default)",
+    note: "edges further apart — starts to read as ruled lines rather than one bundle",
+    tuning: { spread: 0.12, displace: 0.4, alphaNear: 0.13 },
   },
   {
     name: "original (46 lines)",
-    note: "the first tuning, for reference — reads as ruled lines at different heights, not one surface",
+    note: "the first tuning, for reference — a stack of lines, not a folded surface",
     tuning: {
       lines: 46,
       spread: 0.3,
@@ -934,6 +961,225 @@ function CaptionEmphasisScene(args: SceneArgs) {
               className="rounded-xl"
               style={{ height: 460 }}
             />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Both voices on the floor, told apart by ink rather than by position.
+ *
+ * The earlier pass split them by edge — mic at the ceiling, reply at the
+ * bottom — which read well but rearranged the room's whole composition twice
+ * a turn. Here the layout holds still: the user's voice lifts a pale sheet off
+ * the floor (white, 0.4 ceiling), the assistant's answers in a darker one
+ * (black, 0.2), and the eyes never share the frame with a band overhead.
+ *
+ * Both fade from *nothing*, not from a resting visibility — displacement and
+ * opacity both scale from zero, so between turns the floor is empty and the
+ * band flattens away as the voice stops rather than cutting.
+ *
+ * Worth knowing: the dark band composites differently out of necessity, not
+ * taste. The mesh's ridges come from overlapping strokes accumulating under
+ * `lighter`, which is additive — black contributes zero and the sheet would
+ * render invisible. Dark ink composites normally instead, accumulating toward
+ * the ink rather than toward white. `compositeFor()` picks from luminance.
+ */
+export const InkSplit: Story = {
+  name: "Placement — Ink Split (both on the floor)",
+  args: { ...defaultArgs, driver: "speech" },
+  render: (args) => <InkSplitScene {...args} />,
+};
+
+function InkSplitScene(args: SceneArgs) {
+  const { getAmplitude, micError } = useDriver(args.driver, args.amplitude);
+  return (
+    <div>
+      <DriverBar
+        driver={args.driver}
+        getAmplitude={getAmplitude}
+        micError={micError}
+      />
+      <div className="grid gap-4 lg:grid-cols-3">
+        {(
+          [
+            ["listening", "user speaking — white, 0.4"],
+            ["thinking", "between turns — the floor is empty"],
+            ["responding", "assistant speaking — black, 0.2"],
+          ] as const
+        ).map(([visual, label]) => (
+          <div key={visual} className="flex flex-col gap-2">
+            <span className="text-[13px] font-medium text-white/60">
+              {label}
+            </span>
+            <RoomFrame
+              args={{ ...args, visual }}
+              getAmplitude={getAmplitude}
+              className="rounded-xl"
+              style={{ height: 480 }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A strength ladder for both voices, so the opacity ceilings can be picked by
+ * eye rather than argued about in the abstract.
+ *
+ * The designer's numbers — white at 0.4, black at 0.2 — are the `1.0` column.
+ * They read fainter than intended at first because two mistakes compounded:
+ * the ceiling multiplied per-line alphas that had been calibrated against a
+ * fully-opaque container, and opacity scaled linearly with amplitude on top of
+ * a displacement that already did, so presence fell off with the *square* of
+ * the signal. Both are fixed (`opacityKnee`, and full-strength base alphas), so
+ * this ladder now moves the ceiling itself.
+ *
+ * Worth judging the two rows separately: the pale band accumulates additively
+ * and saturates toward white, while the dark one composites normally and
+ * accumulates toward the ink, so equal numbers do not read as equal presence.
+ */
+export const BandStrength: Story = {
+  name: "Band — Strength Ladder",
+  args: { ...defaultArgs, driver: "speech" },
+  render: (args) => <BandStrengthScene {...args} />,
+};
+
+const STRENGTHS = [0.5, 1, 1.75, 2.5];
+
+function BandStrengthScene(args: SceneArgs) {
+  const { getAmplitude, micError } = useDriver(args.driver, args.amplitude);
+  return (
+    <div>
+      <DriverBar
+        driver={args.driver}
+        getAmplitude={getAmplitude}
+        micError={micError}
+      />
+      {(
+        [
+          ["listening", "user — white", 0.4],
+          ["responding", "assistant — black", 0.2],
+        ] as const
+      ).map(([visual, label, base]) => (
+        <div key={visual} className="mb-6">
+          <div className="mb-2 text-[13px] font-medium text-white/60">
+            {label}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {STRENGTHS.map((strength) => (
+              <div key={strength} className="flex flex-col gap-1">
+                <span className="font-mono text-[11px] text-white/45">
+                  ×{strength} → {(base * strength).toFixed(2)}
+                  {strength === 1 ? "  (designer's)" : ""}
+                </span>
+                <BandStrengthCell
+                  args={args}
+                  visual={visual}
+                  strength={strength}
+                  getAmplitude={getAmplitude}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One cell of the ladder. The strength multiplier is applied by overriding
+ * `--band-peak-opacity` on a wrapper, which is the same variable the room's
+ * per-voice ceiling sets — so this scales the real thing rather than
+ * approximating it.
+ */
+function BandStrengthCell({
+  args,
+  visual,
+  strength,
+  getAmplitude,
+}: {
+  args: SceneArgs;
+  visual: VoiceAvatarVisual;
+  strength: number;
+  getAmplitude: () => number;
+}) {
+  return (
+    <div
+      style={
+        {
+          "--band-strength": strength,
+        } as React.CSSProperties
+      }
+      className="[&_.voice-listening-waves--mesh]:[opacity:calc(var(--band-presence,0)*var(--band-peak-opacity,1)*var(--band-strength,1))]"
+    >
+      <RoomFrame
+        args={{ ...args, visual }}
+        getAmplitude={getAmplitude}
+        className="rounded-lg"
+        style={{ height: 300 }}
+      />
+    </div>
+  );
+}
+
+/**
+ * The assistant band's amplitude response, on the ramp driver.
+ *
+ * `opacityKnee` sets how fast the band reaches its opacity ceiling: at 3 it is
+ * fully opaque by a third of full amplitude and everything above that looks
+ * identical. That is right for the *pale* band, whose silhouette reads clearly
+ * enough that displacement can carry the dynamics on its own — but wrong for
+ * the dark one, where the low-contrast silhouette means opacity is doing most
+ * of the visible work, and saturating it early made the assistant's voice look
+ * like it had stopped tracking amplitude at all.
+ *
+ * On the ramp driver each frame should visibly swell and subside once per
+ * cycle. The lower the knee, the more of the amplitude range you can actually
+ * see. 1.0 is perfectly linear; the room currently ships 1.3.
+ */
+export const RespondingResponse: Story = {
+  name: "Band — Assistant Response Curve",
+  args: { ...defaultArgs, driver: "ramp", visual: "responding" },
+  render: (args) => <RespondingResponseScene {...args} />,
+};
+
+const KNEES = [1, 1.3, 2, 3];
+
+function RespondingResponseScene(args: SceneArgs) {
+  const { getAmplitude, micError } = useDriver(args.driver, args.amplitude);
+  return (
+    <div>
+      <DriverBar
+        driver={args.driver}
+        getAmplitude={getAmplitude}
+        micError={micError}
+      />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {KNEES.map((knee) => (
+          <div key={knee} className="flex flex-col gap-1">
+            <span className="font-mono text-[11px] text-white/45">
+              knee {knee.toFixed(1)}
+              {knee === 1 ? "  (linear)" : ""}
+              {knee === 1.3 ? "  (shipping)" : ""}
+              {knee === 3 ? "  (was)" : ""}
+            </span>
+            <div
+              style={{ ["--band-knee" as string]: knee }}
+              className="[&_.voice-listening-waves--mesh]:[opacity:calc(min(1,var(--voice-amp,0)*var(--band-knee,1))*var(--band-peak-opacity,1))]"
+            >
+              <RoomFrame
+                args={{ ...args, visual: "responding" }}
+                getAmplitude={getAmplitude}
+                className="rounded-lg"
+                style={{ height: 320 }}
+              />
+            </div>
           </div>
         ))}
       </div>

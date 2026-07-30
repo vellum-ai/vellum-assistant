@@ -141,6 +141,9 @@ export type VoiceWaveEngine = "reactive" | "mesh" | "sine";
 function WaveBand({
   engine,
   waveStyle,
+  color,
+  peakOpacity,
+  opacityKnee,
   ...props
 }: {
   engine: VoiceWaveEngine;
@@ -148,11 +151,24 @@ function WaveBand({
   waveStyle?: VoiceWaveStyle;
   palette?: VoiceWavePalette;
   placement?: VoiceWavePlacement;
+  /** Mesh-only: explicit ink, its opacity ceiling, and how fast that ceiling
+   *  is reached. See {@link BAND_VOICE}. */
+  color?: string;
+  peakOpacity?: number;
+  opacityKnee?: number;
 }) {
   // The mesh is stroked hairlines by construction, so fill-vs-line does not
-  // apply to it — it takes no `waveStyle`.
+  // apply to it; the filled bands in turn take their color from the palette
+  // CSS and have nowhere to put an explicit ink.
   if (engine === "mesh") {
-    return <VoiceMeshWaves {...props} />;
+    return (
+      <VoiceMeshWaves
+        {...props}
+        color={color}
+        peakOpacity={peakOpacity}
+        tuning={opacityKnee === undefined ? undefined : { opacityKnee }}
+      />
+    );
   }
   return engine === "reactive" ? (
     <VoiceReactiveWaves waveStyle={waveStyle} {...props} />
@@ -288,7 +304,7 @@ export function VoiceRoomColorLook({
   getResponseAmplitude,
   respondingStyle = "waves",
   eyePlacement = "center",
-  wavePlacement = "top",
+  wavePlacement = "bottom",
   wavePalette = "tone",
   waveStyle = "fill",
   showStateCaption = true,
@@ -468,6 +484,9 @@ export function VoiceRoomColorLook({
               waveStyle={waveStyle}
               palette={wavePalette}
               placement={wavePlacement}
+              color={BAND_VOICE.listening.color}
+              peakOpacity={BAND_VOICE.listening.peakOpacity}
+              opacityKnee={BAND_VOICE.listening.opacityKnee}
             />
           </motion.div>
         ) : null}
@@ -483,11 +502,6 @@ export function VoiceRoomColorLook({
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0 : 0.3 }}
           >
-            <VoiceThinkingBand
-              engine={waveEngine}
-              palette={wavePalette}
-              waveStyle={waveStyle}
-            />
             <VoiceThinkingIndicator
               viewport={{ w, h }}
               eyesBottom={thinkingEyeBottom}
@@ -599,18 +613,34 @@ const CAPTION_EMPHASIS: Record<
 };
 
 /**
- * The thinking band's own envelope.
+ * How each voice's band is inked.
  *
- * No microphone and no TTS, so there is nothing to poll — but a flat zero would
- * collapse the sheet to its idle floor and read as a dead band sliding down the
- * screen. A slow swell gives the sweep something to carry. Module-level so its
- * identity is stable and the mesh's draw loop never restarts.
+ * Both sit on the floor. An earlier pass told them apart by *position* — the
+ * mic at the ceiling, the reply at the bottom — which read well but meant the
+ * room's whole composition rearranged itself twice a turn. Keeping both at the
+ * same edge and separating them by ink instead holds the layout still: the
+ * user's voice lifts a pale sheet off the floor, the assistant's answers in a
+ * darker one, and the eyes never have to share the frame with a band overhead.
+ *
+ * The two are deliberately not symmetric, because dark ink and pale ink do not
+ * behave the same way on a mid-tone background:
+ *
+ * - **Opacity ceiling.** Black at 0.2 is nowhere near "half as present" as
+ *   white at 0.4 — light-on-midtone is a far bigger luminance step than
+ *   dark-on-midtone at equal alpha, so the dark band needs a higher number to
+ *   land in the same perceptual place.
+ * - **`opacityKnee`.** The pale band's *silhouette* reads clearly, so opacity
+ *   can saturate early and let displacement carry the dynamics. The dark
+ *   band's silhouette is low-contrast, so opacity is doing most of the visible
+ *   work — saturating it early made the assistant's voice look like it had
+ *   stopped responding to amplitude at all. It stays closer to linear.
+ *
+ * Both still reach zero in silence, so the floor is empty between turns.
  */
-const THINKING_ENVELOPE = () =>
-  0.3 + 0.2 * Math.sin(performance.now() / 850);
-
-/** One full ceiling→floor pass of the thinking band, in seconds. */
-const THINKING_SWEEP_SEC = 3.4;
+const BAND_VOICE = {
+  listening: { color: "#FFFFFF", peakOpacity: 0.4, opacityKnee: 3 },
+  responding: { color: "#000000", peakOpacity: 0.45, opacityKnee: 1.3 },
+} as const;
 
 export function VoiceStateCaption({
   visual,
@@ -782,67 +812,6 @@ function useRespondingAmp(getAmplitude?: () => number) {
   return ref;
 }
 
-/**
- * The `thinking` band — the turn in transit.
- *
- * Listening owns the ceiling and responding owns the floor, which left the
- * hand-off between them as the one beat with no band at all: shrunken eyes, a
- * dot triad, and an otherwise empty room. Against two full-screen woven sheets
- * that reads as the state having been forgotten.
- *
- * So thinking is drawn as the same sheet *travelling* from the user's edge to
- * the assistant's, on a loop. That is not decoration chosen to fill the gap —
- * it is what the state actually is. The user's turn has landed and the reply
- * has not started, so the energy is between edges, and the room says so with
- * the same vocabulary it uses either side of the beat. It also gives the phase
- * a direction, so a long think reads as progress rather than as a hang.
- *
- * Dimmer than the audible bands on purpose: nothing is making sound here, and
- * a sweep at full strength would claim more presence than either real voice.
- */
-function VoiceThinkingBand({
-  engine,
-  palette,
-  waveStyle,
-}: {
-  engine: VoiceWaveEngine;
-  palette: VoiceWavePalette;
-  waveStyle: VoiceWaveStyle;
-}) {
-  const reduce = useReducedMotion();
-  return (
-    <motion.div
-      aria-hidden="true"
-      data-testid="voice-thinking-band"
-      className="pointer-events-none absolute inset-x-0"
-      style={{ height: "42%", opacity: 0.55 }}
-      initial={{ top: "-14%" }}
-      // Reduced motion parks it midway rather than sweeping: the state still
-      // reads as "between the two edges", just without the travel.
-      animate={reduce ? { top: "29%" } : { top: ["-14%", "72%"] }}
-      transition={
-        reduce
-          ? { duration: 0 }
-          : {
-              duration: THINKING_SWEEP_SEC,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }
-      }
-    >
-      {/* `inline` fills the travelling box rather than anchoring to a screen
-          edge — the box is what carries the position here. */}
-      <WaveBand
-        engine={engine}
-        getAmplitude={THINKING_ENVELOPE}
-        waveStyle={waveStyle}
-        palette={palette}
-        placement="inline"
-      />
-    </motion.div>
-  );
-}
-
 function VoiceRespondingTreatment({
   style,
   engine,
@@ -879,6 +848,9 @@ function VoiceRespondingTreatment({
         waveStyle={waveStyle}
         palette={wavePalette}
         placement="bottom"
+        color={BAND_VOICE.responding.color}
+        peakOpacity={BAND_VOICE.responding.peakOpacity}
+        opacityKnee={BAND_VOICE.responding.opacityKnee}
       />
     ) : null;
   }

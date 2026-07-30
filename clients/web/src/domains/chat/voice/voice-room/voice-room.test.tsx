@@ -88,14 +88,24 @@ mock.module("@/domains/chat/voice/voice-room/voice-avatar", () => ({
 // Stub the listening waves (rAF loop + per-frame SVG geometry) so the
 // room-chrome tests stay focused on wiring: we only assert the room mounts
 // them in the right phase, not how they animate.
-const waveStub = ({ placement }: { placement?: string }) => (
-  <div data-testid="listening-waves" data-placement={placement} />
+const waveStub = ({
+  placement,
+  color,
+}: {
+  placement?: string;
+  color?: string;
+}) => (
+  <div
+    data-testid="listening-waves"
+    data-placement={placement}
+    data-color={color}
+  />
 );
 // Both engines are stubbed: the room draws the mesh, but which engine is the
 // default is a design decision that has already changed once, and these tests
-// are about *where* the band lands, not which one draws it. `placement` is
-// surfaced so they can assert the room's spatial language — the user's voice
-// arrives at the ceiling, the assistant's answers from the floor.
+// are about which band the room raises, not which component draws it.
+// `placement` and `color` are surfaced because together they are the room's
+// whole vocabulary for whose voice is on screen.
 mock.module("@/domains/chat/voice/voice-room/voice-mesh-waves", () => ({
   VoiceMeshWaves: waveStub,
   MESH_INLINE_TUNING: {},
@@ -654,50 +664,42 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     expect(exitButton()).not.toBeNull();
   });
 
-  test("the color look answers from the floor while the assistant speaks", () => {
+  function renderCharacterAt(state: LiveVoiceSessionState) {
     mockAvatarData = {
       components: CHARACTER_COMPONENTS,
       traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
       customImageUrl: null,
     };
-    startOwnedSession("speaking");
+    startOwnedSession(state);
     render(<VoiceRoom />);
-    expect(eyes()).not.toBeNull();
-    // Both halves of a turn use the same band; which edge it occupies is what
-    // says whose voice it is. Speaking answers from the bottom.
-    expect(screen.getByTestId("listening-waves").dataset.placement).toBe(
-      "bottom",
-    );
+    return screen.queryByTestId("listening-waves");
+  }
+
+  test("both voices raise their band from the floor", () => {
+    // An earlier pass split them by edge, which rearranged the room's whole
+    // composition twice a turn. Sharing the floor keeps the layout still.
+    expect(renderCharacterAt("listening")?.dataset.placement).toBe("bottom");
+    cleanup();
+    expect(renderCharacterAt("speaking")?.dataset.placement).toBe("bottom");
   });
 
-  test("the color look gathers at the ceiling while the user speaks", () => {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
-    startOwnedSession("listening");
-    render(<VoiceRoom />);
-    expect(screen.getByTestId("listening-waves").dataset.placement).toBe("top");
+  test("ink is what tells the two voices apart", () => {
+    // With position no longer carrying it, the color is the entire signal for
+    // whose voice is on screen — the pale sheet is the user, the dark one the
+    // assistant. If these ever match, the room stops distinguishing them.
+    const listening = renderCharacterAt("listening")?.dataset.color;
+    cleanup();
+    const speaking = renderCharacterAt("speaking")?.dataset.color;
+    expect(listening).toBe("#FFFFFF");
+    expect(speaking).toBe("#000000");
+    expect(listening).not.toBe(speaking);
   });
 
-  test("the color look sweeps the band between edges while thinking", () => {
-    mockAvatarData = {
-      components: CHARACTER_COMPONENTS,
-      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
-      customImageUrl: null,
-    };
-    startOwnedSession("thinking");
-    render(<VoiceRoom />);
-    // Thinking is the turn in transit: neither edge owns it, so the band
-    // travels between them rather than anchoring to the ceiling or the floor.
-    const band = screen.getByTestId("voice-thinking-band");
-    expect(band).toBeTruthy();
-    expect(
-      band.querySelector("[data-testid='listening-waves']")?.getAttribute(
-        "data-placement",
-      ),
-    ).toBe("inline");
+  test("the floor is empty between turns", () => {
+    // No band while thinking, and no transit sweep either: the listening band
+    // flattens and fades out as the voice stops, which is the hand-off.
+    expect(renderCharacterAt("thinking")).toBeNull();
+    expect(screen.queryByTestId("voice-thinking-band")).toBeNull();
   });
 
   test("a default character (no traits) gets first-component eyes", () => {

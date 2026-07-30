@@ -180,6 +180,59 @@ describe("VoiceMeshWaves", () => {
     HISTORY_FILL_MS + 5_000,
   );
 
+  test("dark ink composites normally, light ink additively", async () => {
+    // Not a style preference. `lighter` is additive, so a black stroke
+    // contributes zero and the whole sheet renders invisible — the room's
+    // assistant band is black. Getting this wrong does not look worse, it
+    // looks like nothing, which is why the mode follows luminance rather than
+    // being a caller's choice.
+    render(<VoiceMeshWaves getAmplitude={() => 0.5} color="#000000" />);
+    await waitFor(() => {
+      expect(recorder.strokes).toBeGreaterThan(30);
+    });
+    expect(recorder.composite).toBe("source-over");
+    cleanup();
+
+    recorder = { ys: [], strokes: 0, strokeStyles: [], composite: null };
+    render(<VoiceMeshWaves getAmplitude={() => 0.5} color="#FFFFFF" />);
+    await waitFor(() => {
+      expect(recorder.strokes).toBeGreaterThan(30);
+    });
+    expect(recorder.composite).toBe("lighter");
+  });
+
+  test("explicit ink overrides the palette, and is what gets stroked", async () => {
+    render(
+      <VoiceMeshWaves
+        getAmplitude={() => 0.5}
+        palette="aurora"
+        color="#000000"
+      />,
+    );
+    await waitFor(() => {
+      expect(recorder.strokeStyles.length).toBeGreaterThan(0);
+    });
+    // Aurora would be cyan; the explicit ink wins.
+    expect(recorder.strokeStyles.every((s) => s.startsWith("rgba(0,0,0,"))).toBe(
+      true,
+    );
+  });
+
+  test("fades out entirely as the voice stops", async () => {
+    // Opacity is a ceiling reached at full amplitude, scaled from zero — so
+    // silence leaves nothing on screen rather than an idling decoration.
+    const { container } = render(
+      <VoiceMeshWaves getAmplitude={() => 0} peakOpacity={0.4} />,
+    );
+    const host = container.querySelector<HTMLElement>(".voice-listening-waves")!;
+    expect(host.style.getPropertyValue("--band-peak-opacity")).toBe("0.4");
+    await waitFor(() => {
+      expect(recorder.strokes).toBeGreaterThan(30);
+    });
+    // The CSS multiplies the two, so a zero amplitude means a zero band.
+    expect(Number(host.style.getPropertyValue("--voice-amp") || "0")).toBe(0);
+  });
+
   test("publishes --voice-amp for the shared placement CSS", async () => {
     const { container } = render(<VoiceMeshWaves getAmplitude={() => 0.8} />);
     const host = container.querySelector<HTMLElement>(".voice-listening-waves")!;

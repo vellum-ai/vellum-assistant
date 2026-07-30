@@ -113,23 +113,41 @@ export interface VoiceMeshTuning {
   alphaNear: number;
   /** Displacement floor, so the sheet still breathes through silence. */
   idleEnvelope: number;
+  /**
+   * How fast the band reaches its opacity ceiling as amplitude rises.
+   *
+   * Opacity and displacement both used to scale linearly with amplitude, which
+   * multiplied out: at half volume the sheet was half as tall *and* half as
+   * visible, so presence fell off with the square of the signal and ordinary
+   * speech — which rarely holds near full amplitude — barely registered.
+   * Displacement is what should carry dynamics; opacity only has to say that a
+   * voice is present, so it saturates at `1 / opacityKnee` of full amplitude
+   * and stays there. Still reaches zero in silence.
+   */
+  opacityKnee: number;
   /** Samples of amplitude history retained, and how fast the terrain scrolls. */
   historySize: number;
   historyPeriodMs: number;
 }
 
 /**
- * The "dense" tuning: many lines at low alpha, with the sheet's edges close
- * enough together that the curves nearly coincide. That combination is what
- * makes the weave *resolve* — at the original 46 lines and 0.3 spread the
- * curves read as ruled lines at different heights (a stack) before they read
- * as one folded surface.
+ * The "filament" tuning: many lines at low alpha with the sheet's near and far
+ * edges almost coincident, so the curves separate only where the twist pulls
+ * them apart. That is what reads as a bundle of filaments rather than as ruled
+ * lines at different heights — the earlier 46-line/0.3-spread tuning looked
+ * like a stack before it looked like one folded surface.
+ *
+ * `idleEnvelope` is 0 on purpose: displacement is now proportional to
+ * amplitude with no floor under it, so the sheet flattens as the voice stops
+ * instead of holding a resting breath. The band's opacity fades out over the
+ * same signal (see `--band-peak-opacity` in `index.css`), so silence leaves
+ * nothing on screen rather than an idling decoration.
  */
 export const DEFAULT_MESH_TUNING: VoiceMeshTuning = {
   lines: 92,
   samples: 96,
-  spread: 0.12,
-  displace: 0.4,
+  spread: 0.06,
+  displace: 0.42,
   depthPhase: Math.PI * 1.7,
   cyclesA: 1.6,
   cyclesB: 2.7,
@@ -139,9 +157,10 @@ export const DEFAULT_MESH_TUNING: VoiceMeshTuning = {
   wander: 0.9,
   wanderHzA: 0.037,
   wanderHzB: 0.023,
-  alphaFar: 0.035,
-  alphaNear: 0.13,
-  idleEnvelope: 0.13,
+  alphaFar: 0.08,
+  alphaNear: 0.42,
+  idleEnvelope: 0,
+  opacityKnee: 3,
   historySize: 96,
   historyPeriodMs: 34,
 };
@@ -160,8 +179,8 @@ export const MESH_INLINE_TUNING: Partial<VoiceMeshTuning> = {
   lines: 26,
   spread: 0.18,
   displace: 0.62,
-  alphaFar: 0.1,
-  alphaNear: 0.34,
+  alphaFar: 0.16,
+  alphaNear: 0.6,
 };
 
 /**
@@ -249,7 +268,11 @@ function toRgb(color: string, fallback: [number, number, number]): [number, numb
 function resolveStroke(
   node: HTMLElement,
   palette: VoiceWavePalette,
+  color?: string,
 ): [number, number, number] {
+  if (color) {
+    return toRgb(color, [255, 255, 255]);
+  }
   const styles = getComputedStyle(node);
   if (palette === "aurora") {
     return toRgb(AURORA_HEX, [34, 211, 238]);
@@ -261,16 +284,51 @@ function resolveStroke(
   return toRgb(token, palette === "accent" ? [99, 102, 241] : [255, 255, 255]);
 }
 
+/**
+ * Which compositing mode the sheet's overlapping strokes accumulate under.
+ *
+ * This is not a style preference — it is forced by the ink. `lighter` is
+ * additive, so it can only ever brighten what is already on the canvas: a
+ * black stroke contributes zero and the entire sheet renders invisible. Dark
+ * ink therefore has to composite normally, where each stroke's alpha pulls the
+ * pixel further toward the stroke color. Overlaps still accumulate either way,
+ * which is what keeps the woven ridges emergent rather than painted — they
+ * just accumulate toward white in one mode and toward black in the other.
+ *
+ * Chosen from perceived luminance rather than exposed as a knob, because
+ * getting it wrong does not look worse, it looks like nothing at all.
+ */
+function compositeFor(stroke: [number, number, number]): GlobalCompositeOperation {
+  const [r, g, b] = stroke;
+  // Rec. 601 luma, which is close enough for a light/dark decision.
+  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luma >= 0.5 ? "lighter" : "source-over";
+}
+
 export function VoiceMeshWaves({
   getAmplitude,
   palette = "aurora",
   placement = "bottom",
+  color,
+  peakOpacity = 1,
   tuning,
 }: {
   /** Amplitude source (0–1), polled in a rAF loop. */
   getAmplitude: () => number;
   palette?: VoiceWavePalette;
   placement?: VoiceWavePlacement;
+  /**
+   * Explicit stroke color, overriding `palette`. The room uses this to tell
+   * the two voices apart by ink instead of by position — see `BAND_VOICE`.
+   * Compositing follows the color's luminance automatically.
+   */
+  color?: string;
+  /**
+   * Band opacity at full amplitude. Opacity scales linearly from 0, so the
+   * sheet fades out entirely as the voice stops rather than settling to a
+   * resting visibility.
+   */
+  peakOpacity?: number;
   /** Overrides on {@link DEFAULT_MESH_TUNING}. */
   tuning?: Partial<VoiceMeshTuning>;
 }) {
@@ -303,7 +361,8 @@ export function VoiceMeshWaves({
     const reduce = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    let stroke = resolveStroke(host, palette);
+    let stroke = resolveStroke(host, palette, color);
+    let composite = compositeFor(stroke);
 
     // Backing store follows the element's CSS size × DPR; the context is scaled
     // so all drawing below is in CSS pixels and `lineWidth = 1` stays hairline.
@@ -319,7 +378,8 @@ export function VoiceMeshWaves({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       // The accent can change with the avatar; the observer is the cheapest
       // point to notice without subscribing to anything.
-      stroke = resolveStroke(host, palette);
+      stroke = resolveStroke(host, palette, color);
+      composite = compositeFor(stroke);
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -337,9 +397,10 @@ export function VoiceMeshWaves({
 
     const draw = (timeSec: number) => {
       ctx.clearRect(0, 0, width, height);
-      // Additive: where the folded sheet stacks strokes, the pile brightens.
-      // This is the entire lighting model — no shadow, no blur.
-      ctx.globalCompositeOperation = "lighter";
+      // Where the folded sheet stacks strokes, the pile accumulates — toward
+      // white under `lighter`, toward the ink under `source-over`. That is the
+      // entire lighting model; there is no shadow or blur anywhere in here.
+      ctx.globalCompositeOperation = composite;
       ctx.lineWidth = 1;
       ctx.lineJoin = "round";
 
@@ -412,12 +473,16 @@ export function VoiceMeshWaves({
       const target = Math.min(1, Math.max(0, getAmplitudeRef.current()));
       const amp = smoother.step(target, dt);
 
-      // Keep publishing `--voice-amp`: the placement CSS reads it for the
-      // band's rise and brightness, which composes over the canvas.
+      // `--voice-amp` stays for the shared placement CSS; `--band-presence` is
+      // the saturating curve the mesh's own opacity rides (see `opacityKnee`).
       const ampText = amp.toFixed(3);
       if (ampText !== lastAmpWritten) {
         lastAmpWritten = ampText;
         host.style.setProperty("--voice-amp", ampText);
+        host.style.setProperty(
+          "--band-presence",
+          Math.min(1, amp * config.opacityKnee).toFixed(3),
+        );
       }
 
       history.push(amp, dt);
@@ -430,7 +495,7 @@ export function VoiceMeshWaves({
       cancelAnimationFrame(raf);
       observer.disconnect();
     };
-  }, [palette, config]);
+  }, [palette, color, config]);
 
   const className = [
     "voice-listening-waves",
@@ -440,7 +505,12 @@ export function VoiceMeshWaves({
   ].join(" ");
 
   return (
-    <div ref={hostRef} className={className} aria-hidden>
+    <div
+      ref={hostRef}
+      className={className}
+      style={{ ["--band-peak-opacity" as string]: peakOpacity }}
+      aria-hidden
+    >
       <canvas
         ref={canvasRef}
         data-mesh-canvas=""
