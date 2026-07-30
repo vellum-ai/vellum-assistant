@@ -182,6 +182,33 @@ describe("useVisibleViewport", () => {
     expect(viewport?.height).toBe(REFERENCE_HEIGHT - tallerHeight);
   });
 
+  test("never anticipates past the frame the viewport is currently measured in", () => {
+    // GIVEN a tall keyboard whose deferred resize has landed
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
+    stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+
+    // WHEN it shrinks, as the predictive bar closing or a numeric pad taking
+    // focus does, and the shell re-announces while the frame is still sized for
+    // the tall one
+    const shorterHeight = KEYBOARD_HEIGHT - 86;
+    announce(shorterHeight);
+
+    // THEN the shell holds the measured height rather than growing past the
+    // frame it lives in, which would push the composer below the frame's bottom
+    // edge for the whole deferred resize
+    const pending = readVisibleViewport();
+    expect(pending?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    expect(pending?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+
+    // AND the resize landing is what grows it
+    stubViewport({ height: REFERENCE_HEIGHT - shorterHeight });
+    const landed = readVisibleViewport();
+    expect(landed?.height).toBe(REFERENCE_HEIGHT - shorterHeight);
+    expect(landed?.keyboardHeight).toBe(shorterHeight);
+  });
+
   test("retires anticipation when the landed resize is shorter than announced", () => {
     // GIVEN an announced height the native resize never quite reaches, which
     // is what iPad Stage Manager produces: the plugin measures the keyboard's

@@ -557,39 +557,46 @@ describe("AssistantSideMenu · overlay iOS floating glyph row", () => {
     return match;
   };
 
+  // Whole class tokens, so an assertion matches a utility rather than a prefix
+  // of one: `top-4` must not be satisfied by `top-40`.
+  const classTokens = (element: Element | null): string[] =>
+    element ? Array.from(element.classList) : [];
+
   test("the glyph row carries the floating placement utilities", () => {
     const container = overlayDom();
-    const row = glyph(container, "Close navigation").parentElement;
+    const row = classTokens(glyph(container, "Close navigation").parentElement);
 
-    expect(row?.className).toContain("native-ios:absolute");
-    expect(row?.className).toContain("native-ios:inset-x-4");
-    expect(row?.className).toContain("native-ios:top-4");
-    expect(row?.className).toContain("native-ios:z-10");
-    expect(row?.className).toContain("native-ios:pointer-events-none");
+    expect(row).toContain("native-ios:absolute");
+    expect(row).toContain("native-ios:inset-x-4");
+    expect(row).toContain("native-ios:top-4");
+    expect(row).toContain("native-ios:z-10");
+    expect(row).toContain("native-ios:pointer-events-none");
   });
 
   test("both glyphs opt back into pointer events", () => {
     const container = overlayDom();
 
-    expect(glyph(container, "Close navigation").className).toContain(
+    expect(classTokens(glyph(container, "Close navigation"))).toContain(
       "pointer-events-auto",
     );
-    expect(glyph(container, "Search (⌘K)").className).toContain(
+    expect(classTokens(glyph(container, "Search (⌘K)"))).toContain(
       "pointer-events-auto",
     );
   });
 
   test("the scroll body reserves the glyph band and carries both mask declarations", () => {
-    const body = overlayDom().querySelector<HTMLElement>(
-      '[data-slot="side-menu-body"]',
+    const body = classTokens(
+      overlayDom().querySelector('[data-slot="side-menu-body"]'),
     );
 
-    expect(body?.className).toContain("native-ios:pt-14");
-    // Anchored on the `native-ios:[` prefix so the unprefixed assertion is not
-    // satisfied by the `-webkit-` spelling, which contains it as a substring.
-    expect(body?.className).toContain("native-ios:[mask-image:linear-gradient");
-    expect(body?.className).toContain(
-      "native-ios:[-webkit-mask-image:linear-gradient",
+    expect(body).toContain("native-ios:pt-14");
+    // Complete declarations, so the fade geometry is pinned too: a different
+    // stop or gradient direction is a different token.
+    expect(body).toContain(
+      "native-ios:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+    );
+    expect(body).toContain(
+      "native-ios:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
     );
   });
 });
