@@ -32,44 +32,21 @@
  */
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
-import {
-  isProviderErrorMessage,
-  isSystemCardMessage,
-} from "../persistence/conversation-crud.js";
+import { isStandaloneAssistantMessage } from "../persistence/conversation-crud.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("message-consolidation");
 
 /**
- * True when a row is a daemon-authored system card (`messageKind:
- * "system_card"` metadata). Cards are standalone display turns: they never
- * fold into an adjacent assistant run and adjacent assistant rows never
- * fold into them.
- */
-export function isSystemCardRow(msg: MessageRow): boolean {
-  return isSystemCardMessage(msg.role, msg.metadata);
-}
-
-/**
- * True when a row is the synthetic assistant message the agent loop persists
- * on the provider-error path (`messageKind: "provider_error"` metadata).
- * Like system cards, these rows are standalone display turns: merging one
- * into an adjacent assistant run would let the anchor's metadata win and
- * drop the provider-error marker from the wire (or stamp it onto a bubble
- * containing real assistant text).
- */
-export function isProviderErrorRow(msg: MessageRow): boolean {
-  return isProviderErrorMessage(msg.role, msg.metadata);
-}
-
-/**
  * True when an assistant row is a standalone display turn (system card or
  * provider-error notice) that never merges with adjacent assistant rows in
- * either direction.
+ * either direction. Merging one into an adjacent run would let the anchor's
+ * metadata win and drop the `messageKind` marker from the wire (or stamp it
+ * onto a bubble containing real assistant text).
  */
 function isStandaloneAssistantRow(msg: MessageRow): boolean {
-  return isSystemCardRow(msg) || isProviderErrorRow(msg);
+  return isStandaloneAssistantMessage(msg.role, msg.metadata);
 }
 
 // ── Block predicates ────────────────────────────────────────────────
