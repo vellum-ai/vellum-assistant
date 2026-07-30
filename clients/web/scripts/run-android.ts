@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   accessSync,
   constants,
@@ -107,7 +107,7 @@ function resolveSdkRoot(): string {
   return sdkRoot;
 }
 
-function commandLineTool(sdkRoot: string, name: string): string | null {
+function commandLineToolInSdk(sdkRoot: string, name: string): string | null {
   const executable = process.platform === "win32" ? `${name}.bat` : name;
   const commandLineRoot = join(sdkRoot, "cmdline-tools");
   const candidates = [join(commandLineRoot, "latest", "bin", executable)];
@@ -116,8 +116,11 @@ function commandLineTool(sdkRoot: string, name: string): string | null {
       candidates.push(join(commandLineRoot, version, "bin", executable));
     }
   }
-  candidates.push(findOnPath(name) ?? "");
   return candidates.find((candidate) => candidate && isExecutable(candidate)) ?? null;
+}
+
+function commandLineTool(sdkRoot: string, name: string): string | null {
+  return commandLineToolInSdk(sdkRoot, name) ?? findOnPath(name);
 }
 
 function requireHomebrew(env: NodeJS.ProcessEnv): string {
@@ -180,7 +183,25 @@ function ensureCommandLineTools(
       "Android SDK Command-line Tools are required to create an emulator.",
     );
   }
-  return { sdkmanager, avdmanager };
+
+  let localSdkmanager = commandLineToolInSdk(sdkRoot, "sdkmanager");
+  let localAvdmanager = commandLineToolInSdk(sdkRoot, "avdmanager");
+  if (!localSdkmanager || !localAvdmanager) {
+    console.log("Installing command-line tools into the Android SDK.");
+    run(
+      sdkmanager,
+      [`--sdk_root=${sdkRoot}`, "cmdline-tools;latest"],
+      env,
+    );
+    localSdkmanager = commandLineToolInSdk(sdkRoot, "sdkmanager");
+    localAvdmanager = commandLineToolInSdk(sdkRoot, "avdmanager");
+  }
+  if (!localSdkmanager || !localAvdmanager) {
+    throw new Error(
+      `Android command-line tools were not installed under ${sdkRoot}.`,
+    );
+  }
+  return { sdkmanager: localSdkmanager, avdmanager: localAvdmanager };
 }
 
 interface SdkPackage {
@@ -231,6 +252,44 @@ function availableAvds(emulator: string, env: NodeJS.ProcessEnv): string[] {
     .filter(Boolean);
 }
 
+function startEmulator(
+  emulator: string,
+  avdName: string,
+  env: NodeJS.ProcessEnv,
+): void {
+  console.log(`Starting Android emulator ${avdName}.`);
+  const child = spawn(emulator, ["-avd", avdName], {
+    detached: true,
+    env,
+    stdio: "ignore",
+  });
+  child.unref();
+}
+
+async function waitForEmulator(
+  adb: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const serial = connectedDevices(adb, env).find((device) =>
+      device.startsWith("emulator-"),
+    );
+    if (serial) {
+      const bootCompleted = capture(
+        adb,
+        ["-s", serial, "shell", "getprop", "sys.boot_completed"],
+        env,
+      );
+      if (bootCompleted === "1") {
+        return serial;
+      }
+    }
+    await Bun.sleep(2_000);
+  }
+  throw new Error("Android emulator did not finish booting within 3 minutes.");
+}
+
 function ensureAvd(sdkRoot: string, env: NodeJS.ProcessEnv): string {
   const emulator = join(
     sdkRoot,
@@ -264,7 +323,7 @@ function ensureAvd(sdkRoot: string, env: NodeJS.ProcessEnv): string {
   return AVD_NAME;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const sdkRoot = resolveSdkRoot();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -305,8 +364,8 @@ function main(): void {
     "platform-tools",
     process.platform === "win32" ? "adb.exe" : "adb",
   );
-  let target = connectedDevices(adb, env)[0];
-  if (!target) {
+  let deviceSerial = connectedDevices(adb, env)[0];
+  if (!deviceSerial) {
     ensureSdkPackages(sdkRoot, env, [
       {
         name: "emulator",
@@ -327,29 +386,47 @@ function main(): void {
         ),
       },
     ]);
-    target = ensureAvd(sdkRoot, env);
+    const avdName = ensureAvd(sdkRoot, env);
+    const emulator = join(
+      sdkRoot,
+      "emulator",
+      process.platform === "win32" ? "emulator.exe" : "emulator",
+    );
+    startEmulator(emulator, avdName, env);
+    deviceSerial = await waitForEmulator(adb, env);
   }
 
-  console.log(`Using Android target ${target}.`);
+  console.log(`Using Android target ${deviceSerial}.`);
   run(
     process.execPath,
+    ["x", "--bun", "cap", "sync", "android"],
+    env,
+  );
+
+  env.ANDROID_SERIAL = deviceSerial;
+  run(
+    join(androidRoot, process.platform === "win32" ? "gradlew.bat" : "gradlew"),
+    ["-p", androidRoot, ":app:installDevDebug"],
+    env,
+  );
+  run(
+    adb,
     [
-      "x",
-      "--bun",
-      "cap",
-      "run",
-      "android",
-      "--flavor",
-      "dev",
-      "--target",
-      target,
+      "-s",
+      deviceSerial,
+      "shell",
+      "am",
+      "start",
+      "-n",
+      "ai.vocify.vellumassistant.dev/ai.vocify.vellumassistant.MainActivity",
     ],
     env,
   );
+  console.log(`Android app launched on ${deviceSerial}.`);
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   console.error(
     `Android run failed: ${error instanceof Error ? error.message : String(error)}`,
