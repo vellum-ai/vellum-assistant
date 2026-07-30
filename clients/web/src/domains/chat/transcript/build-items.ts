@@ -8,10 +8,12 @@ import type {
   EphemeralMetaResult,
 } from "@/domains/chat/types/types";
 import type {
+  CreditsUpsellItem,
   MessageItem,
   PendingContactRequestItem,
   TranscriptItem,
 } from "@/domains/chat/transcript/types";
+import { isCreditsExhaustedProviderError } from "@/domains/chat/utils/error-classification";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
@@ -74,6 +76,24 @@ function toMessageItem(message: DisplayMessage): MessageItem {
   return item;
 }
 
+/** Same ref-keyed memoization as {@link toMessageItem}, for the upsell items
+ *  substituted in place of credits-exhausted provider-error rows. */
+const creditsUpsellItemCache = new WeakMap<DisplayMessage, CreditsUpsellItem>();
+
+function toCreditsUpsellItem(message: DisplayMessage): CreditsUpsellItem {
+  const cached = creditsUpsellItemCache.get(message);
+  if (cached) {
+    return cached;
+  }
+  const item: CreditsUpsellItem = {
+    kind: "creditsUpsell",
+    key: `credits-upsell-${message.clientMessageId ?? message.id}`,
+    messageId: message.id,
+  };
+  creditsUpsellItemCache.set(message, item);
+  return item;
+}
+
 /**
  * Project the chat state into an ordered flat list of transcript items.
  *
@@ -125,6 +145,19 @@ export function buildTranscriptItems(
       message.role === "user" && message.queueStatus === "queued";
 
     if (isQueuedUser) {
+      continue;
+    }
+
+    // Persisted credits-exhausted provider-error rows render as the friendly
+    // upsell card instead of a plain persona bubble. The row itself stays in
+    // `messages` (history and the LLM context keep the text); only its
+    // transcript rendering is substituted. Classification is shared with the
+    // live composer banner (`isCreditsExhaustedProviderError`), so a bare
+    // `PROVIDER_BILLING` code with no category substitutes too. Provider
+    // errors of any other category, and untagged rows, keep the normal
+    // message rendering.
+    if (isCreditsExhaustedProviderError(message.providerError)) {
+      items.push(toCreditsUpsellItem(message));
       continue;
     }
 

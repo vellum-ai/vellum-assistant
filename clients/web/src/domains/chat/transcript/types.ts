@@ -19,7 +19,8 @@ export type TranscriptItemKind =
   | "pendingContactRequest"
   | "surface"
   | "ephemeralMeta"
-  | "onboardingChoice";
+  | "onboardingChoice"
+  | "creditsUpsell";
 
 export interface TranscriptItemBase {
   key: string;
@@ -77,6 +78,16 @@ export interface OnboardingChoiceItem extends TranscriptItemBase {
   kind: "onboardingChoice";
 }
 
+/** Friendly credits upsell card, emitted in place of a persisted
+ *  credits-exhausted provider-error row (`providerError.category` matching
+ *  `credits_exhausted`). The row's text stays in message state (the LLM
+ *  transcript keeps it); only the rendering is substituted. */
+export interface CreditsUpsellItem extends TranscriptItemBase {
+  kind: "creditsUpsell";
+  /** Id of the provider-error message row this card renders in place of. */
+  messageId: string;
+}
+
 export interface EphemeralMetaItem extends TranscriptItemBase {
   kind: "ephemeralMeta";
   result: EphemeralMetaResult;
@@ -90,7 +101,8 @@ export type TranscriptItem =
   | PendingContactRequestItem
   | SurfaceItem
   | EphemeralMetaItem
-  | OnboardingChoiceItem;
+  | OnboardingChoiceItem
+  | CreditsUpsellItem;
 
 /** Result of splitting the transcript into stable history and the
  *  currently-in-progress turn. `anchorMessage` is the most recent user

@@ -172,6 +172,33 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isSystemCard).toBe(true);
   });
 
+  test("carries providerError code and category onto the display message", () => {
+    const plain = makeMessage({ id: "m-plain", role: "assistant" });
+    expect(mapRuntimeToDisplayMessage(plain).providerError).toBeUndefined();
+
+    const m = makeMessage({
+      id: "m-err",
+      role: "assistant",
+      providerError: { code: "PROVIDER_BILLING", category: "credits_exhausted" },
+    });
+    expect(mapRuntimeToDisplayMessage(m).providerError).toEqual({
+      code: "PROVIDER_BILLING",
+      category: "credits_exhausted",
+    });
+  });
+
+  test("carries a partial providerError (fields optional on the wire)", () => {
+    const m = makeMessage({
+      id: "m-err-partial",
+      role: "assistant",
+      providerError: { category: "rate_limited" },
+    });
+    expect(mapRuntimeToDisplayMessage(m).providerError).toEqual({
+      code: undefined,
+      category: "rate_limited",
+    });
+  });
+
   test("carries server thinkingSegments and contentOrder onto the display message", () => {
     // GIVEN a persisted assistant message whose reasoning is reconstructed
     // from history as `thinkingSegments` + a `thinking` content-order entry

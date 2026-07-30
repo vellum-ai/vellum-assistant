@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { CreditsUpsellCard } from "@/domains/chat/components/credits-upsell-card";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -206,6 +207,12 @@ export const TranscriptRow = memo(function TranscriptRow({
         return <>{renderOnboardingChoice()}</>;
       }
       return null;
+
+    case "creditsUpsell":
+      // Substituted in place of a credits-exhausted provider-error row by
+      // `buildTranscriptItems`: a standalone card, outside the persona
+      // bubble/avatar/hover-action machinery like `SystemCardRow`.
+      return <CreditsUpsellCard />;
 
     default: {
       // Exhaustiveness guard — TypeScript narrows `item` to `never` here.
