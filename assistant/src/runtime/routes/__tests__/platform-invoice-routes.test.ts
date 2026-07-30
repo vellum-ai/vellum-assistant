@@ -31,7 +31,8 @@ mock.module("../../../inbound/platform-callback-registration.js", () => ({
   }),
 }));
 
-const { ROUTES } = await import("../platform-routes.js");
+const { INVOICE_WALK_DEADLINE_MS, MAX_INVOICE_PAGES, ROUTES } =
+  await import("../platform-routes.js");
 
 const listHandler = ROUTES.find(
   (r) => r.operationId === "platform_invoices_list",
@@ -41,8 +42,6 @@ const getHandler = ROUTES.find(
 )!.handler;
 
 const INVOICES_URL = "https://platform.test/v1/organizations/billing/invoices/";
-const MAX_INVOICE_PAGES = 25;
-const INVOICE_WALK_DEADLINE_MS = 30_000;
 
 function invoice(id: string) {
   return {
@@ -169,6 +168,17 @@ describe("platform_invoices_list", () => {
     expect(err.message).toMatch(
       /use the id of the last invoice from the previous page/,
     );
+  });
+
+  test("rejects with InternalError, not BadRequestError, on a 400 without a cursor", async () => {
+    stubFetch(() => new Response("malformed request", { status: 400 }));
+
+    const err = await expectRejection(() => listHandler({}));
+    // Without a caller-supplied starting_after there is nothing
+    // caller-correctable in a 400, so it stays an internal failure.
+    expect(err).not.toBeInstanceOf(BadRequestError);
+    expect(err).toBeInstanceOf(InternalError);
+    expect(err.message).toMatch(/HTTP 400/);
   });
 });
 
