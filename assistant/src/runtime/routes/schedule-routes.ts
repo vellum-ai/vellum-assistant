@@ -15,6 +15,7 @@ import {
   getUsageCostForRun,
   listRunConversationIds,
 } from "../../persistence/llm-usage-store.js";
+import { isDeferSchedule } from "../../schedule/defer-provenance.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
@@ -46,9 +47,15 @@ import { initializeTools } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
+import { isOwnerCaller } from "../auth/owner-caller.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import {
   paginateRuns,
   parseRunsBeforeCursor,
@@ -59,6 +66,39 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("schedule-routes");
+
+/**
+ * Refuse a state change that touches a deferred-wake schedule unless the caller
+ * holds owner authority right now ({@link isOwnerCaller}: a local IPC caller,
+ * or the current bound vellum guardian).
+ *
+ * A wake row is guardian-owned deferral state. Its target and trigger text
+ * decide what an unattended, potentially guardian-trust turn will do, and even
+ * the transitions that cannot elevate (enabling, cancelling, deleting) decide
+ * whether and when that turn runs at all. The generic schedule editor is shared
+ * with ordinary schedules and is reachable by any `settings.write` caller, so
+ * it applies this narrower bar for wake rows only. Non-wake schedules are
+ * unaffected.
+ *
+ * Applied to a schedule's CURRENT mode and to its RESULTING mode, so a caller
+ * can neither edit an existing wake row nor turn another schedule into one.
+ */
+async function assertWakeMutationAllowed(
+  existing: ScheduleJob | null,
+  resultingMode: string | undefined,
+  headers: Record<string, string> | undefined,
+): Promise<void> {
+  const touchesWake = existing?.mode === "wake" || resultingMode === "wake";
+  if (!touchesWake) {
+    return;
+  }
+  if (await isOwnerCaller(headers)) {
+    return;
+  }
+  throw new ForbiddenError(
+    "Deferred wake schedules can only be changed by the assistant's owner",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Response schemas (shared by all schedule routes)
@@ -239,7 +279,7 @@ function handleListSchedules(queryParams: Record<string, string>) {
   const jobs = listSchedules();
   const filtered = includeAll
     ? jobs
-    : jobs.filter((j) => j.createdBy !== "defer");
+    : jobs.filter((j) => !isDeferSchedule(j.createdBy));
   const sourceConversationCache = new Map<
     string,
     CreatedFromConversationState
@@ -412,11 +452,20 @@ async function handleCreateSchedule(body: Record<string, unknown>) {
   }
 }
 
-async function handleToggleSchedule(id: string, body: Record<string, unknown>) {
+async function handleToggleSchedule(
+  id: string,
+  body: Record<string, unknown>,
+  headers?: Record<string, string>,
+) {
   const enabled = body.enabled;
   if (typeof enabled !== "boolean") {
     throw new BadRequestError("enabled is required");
   }
+
+  // Enabling is a firing trigger in its own right: a disabled wake row whose
+  // `nextRunAt` has already passed fires on the next tick the moment it is
+  // enabled, with no further caller involvement.
+  await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
 
   const updated = await updateSchedule(id, { enabled });
   if (!updated) {
@@ -426,7 +475,11 @@ async function handleToggleSchedule(id: string, body: Record<string, unknown>) {
   return handleListSchedules({});
 }
 
-async function handleDeleteSchedule(id: string) {
+async function handleDeleteSchedule(
+  id: string,
+  headers?: Record<string, string>,
+) {
+  await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
   const removed = await deleteSchedule(id);
   if (!removed) {
     throw new NotFoundError("Schedule not found");
@@ -435,7 +488,11 @@ async function handleDeleteSchedule(id: string) {
   return handleListSchedules({});
 }
 
-async function handleCancelSchedule(id: string) {
+async function handleCancelSchedule(
+  id: string,
+  headers?: Record<string, string>,
+) {
+  await assertWakeMutationAllowed(getSchedule(id), undefined, headers);
   const cancelled = await cancelSchedule(id);
   if (!cancelled) {
     throw new NotFoundError("Schedule not found or not cancellable");
@@ -457,7 +514,11 @@ const VALID_ROUTING_INTENTS = [
   "all_channels",
 ] as const;
 
-async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
+async function handleUpdateSchedule(
+  id: string,
+  body: Record<string, unknown>,
+  headers?: Record<string, string>,
+) {
   if (
     "mode" in body &&
     !VALID_MODES.includes(body.mode as (typeof VALID_MODES)[number])
@@ -490,6 +551,7 @@ async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
   if (existing) {
     const resultingMode =
       "mode" in body ? (body.mode as string) : existing.mode;
+    await assertWakeMutationAllowed(existing, resultingMode, headers);
     if (resultingMode === "workflow") {
       const resultingWorkflowName =
         "workflowName" in body
@@ -859,8 +921,8 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
-    handler: ({ pathParams, body }: RouteHandlerArgs) =>
-      handleToggleSchedule(pathParams!.id, body ?? {}),
+    handler: ({ pathParams, body, headers }: RouteHandlerArgs) =>
+      handleToggleSchedule(pathParams!.id, body ?? {}, headers),
   },
   {
     operationId: "deleteSchedule",
@@ -876,8 +938,8 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
-    handler: ({ pathParams }: RouteHandlerArgs) =>
-      handleDeleteSchedule(pathParams!.id),
+    handler: ({ pathParams, headers }: RouteHandlerArgs) =>
+      handleDeleteSchedule(pathParams!.id, headers),
   },
   {
     operationId: "updateSchedule",
@@ -941,8 +1003,8 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
-    handler: ({ pathParams, body }: RouteHandlerArgs) =>
-      handleUpdateSchedule(pathParams!.id, body ?? {}),
+    handler: ({ pathParams, body, headers }: RouteHandlerArgs) =>
+      handleUpdateSchedule(pathParams!.id, body ?? {}, headers),
   },
   {
     operationId: "cancelSchedule",
@@ -958,8 +1020,8 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
-    handler: ({ pathParams }: RouteHandlerArgs) =>
-      handleCancelSchedule(pathParams!.id),
+    handler: ({ pathParams, headers }: RouteHandlerArgs) =>
+      handleCancelSchedule(pathParams!.id, headers),
   },
   {
     operationId: "runScheduleNow",
@@ -975,12 +1037,15 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
     }),
-    handler: ({ pathParams }: RouteHandlerArgs) =>
-      handleRunScheduleNow(pathParams!.id),
+    handler: ({ pathParams, headers }: RouteHandlerArgs) =>
+      handleRunScheduleNow(pathParams!.id, headers),
   },
 ];
 
-async function handleRunScheduleNow(id: string) {
+async function handleRunScheduleNow(
+  id: string,
+  headers?: Record<string, string>,
+) {
   const schedule = getSchedule(id);
   if (!schedule) {
     throw new NotFoundError("Schedule not found");
@@ -1100,6 +1165,12 @@ async function handleRunScheduleNow(id: string) {
 
   // ── Wake mode (resume an existing conversation, no new message) ────
   if (schedule.mode === "wake") {
+    // Refuse before invoking anything. Firing early is not a lesser act than
+    // editing: it runs a turn in the target conversation on demand, which
+    // pollutes the transcript and spends inference even when no trust is
+    // recovered. Denying it also suppresses nothing, since the autonomous tick
+    // still fires the deferral at its scheduled time.
+    await assertWakeMutationAllowed(schedule, undefined, headers);
     if (!schedule.wakeConversationId) {
       throw new BadRequestError("Wake schedule has no target conversation");
     }

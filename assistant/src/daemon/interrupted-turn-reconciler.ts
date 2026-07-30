@@ -69,8 +69,9 @@ export interface InterruptedTurnReconciliation {
   capped: string[];
   /**
    * Conversation ids left un-resumed because their resting trust could not be
-   * reconstructed from persisted state (a remote-channel turn whose per-actor
-   * gateway verdict is not stored). Their stale flag is still cleared.
+   * reconstructed from persisted state: a remote-channel turn whose per-actor
+   * gateway verdict is not stored, or an origin the build does not recognize.
+   * Their stale flag is still cleared.
    */
   trustUnrecoverable: string[];
 }

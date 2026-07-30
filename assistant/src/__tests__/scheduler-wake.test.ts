@@ -23,7 +23,10 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createSchedule } from "../schedule/schedule-store.js";
+import {
+  createOwnerDeferredWake,
+  createSchedule,
+} from "../schedule/schedule-store.js";
 import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
@@ -58,12 +61,11 @@ describe("scheduler wake mode", () => {
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
     // GIVEN a one-shot wake schedule targeting a local conversation
     createConversation({ id: "conv-xyz" });
-    const schedule = await createSchedule({
+    const schedule = await createOwnerDeferredWake({
+      conversationId: "conv-xyz",
+      hint: "Check back on this",
+      fireAt: Date.now() - 1000,
       name: "Wake Test",
-      message: "Check back on this",
-      mode: "wake",
-      wakeConversationId: "conv-xyz",
-      nextRunAt: Date.now() - 1000,
     });
     forceScheduleDue(schedule.id);
 
