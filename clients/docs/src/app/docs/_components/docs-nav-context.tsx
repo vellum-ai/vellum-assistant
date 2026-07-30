@@ -58,6 +58,13 @@ export function DocsNavProvider({ children }: { children: ReactNode }) {
     close();
   }, [close, pathname]);
 
+  // Same-path anchor navigations (search results link to #section anchors on
+  // the current page) never change the pathname, so also close on hash change.
+  useEffect(() => {
+    window.addEventListener("hashchange", close);
+    return () => window.removeEventListener("hashchange", close);
+  }, [close]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {

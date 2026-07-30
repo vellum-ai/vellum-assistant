@@ -188,8 +188,8 @@ export function HelpFaqContent() {
             your machine instead, with credentials kept in the macOS Keychain
             or an AES-256-GCM encrypted file, isolated behind a separate
             Credential Execution Service. In both cases, your conversations
-            and context are sent to the AI model provider (Anthropic) to
-            generate responses. That&apos;s the trade-off we&apos;re
+            and context are sent to your configured AI model provider (Anthropic
+            by default) to generate responses. That&apos;s the trade-off we&apos;re
             transparent about. Full details in{" "}
             <a href={routes.docs.legal.privacyAndData}>Privacy &amp; Data</a>.
           </p>
@@ -208,10 +208,10 @@ export function HelpFaqContent() {
             Does Vellum collect telemetry?
           </SectionHeading>
           <p className="mb-6 text-zinc-600">
-            Only if you opt in. There are two optional toggles in Settings &gt; Privacy: usage
+            Yes, unless you opt out. There are two toggles in Settings &gt; Privacy: usage
             analytics (anonymized token counts and feature adoption, no message content) and
-            crash diagnostics (error reports via Sentry, no personal data). Both are off by
-            default.
+            crash diagnostics (error reports via Sentry, no personal data). Both are on by
+            default and can be turned off at any time.
           </p>
 
           <SectionHeading id="can-my-employer-see-what-i-do-with-vellum" level={3}>
@@ -324,7 +324,7 @@ export function HelpFaqContent() {
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
             No. Your workspace and tools are local, but your assistant needs an internet connection
-            to think: it sends your messages to the AI model provider (Anthropic) to generate
+            to think: it sends your messages to your configured AI model provider to generate
             responses. Without internet, it can&apos;t respond.
           </p>
         </section>
