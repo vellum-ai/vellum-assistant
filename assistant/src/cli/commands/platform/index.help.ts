@@ -223,10 +223,6 @@ Examples:
             },
           ],
           helpText: `
-Arguments:
-  <invoice-id>  Stripe invoice ID (e.g. in_1AbCdEfGh); run 'assistant
-                platform invoices list' to find it
-
 The platform has no per-invoice endpoint, so the assistant pages through
 the org's invoice list (newest first) until the ID matches. The lookup
 searches the most recent 2,500 invoices (25 pages) and errors if the ID
