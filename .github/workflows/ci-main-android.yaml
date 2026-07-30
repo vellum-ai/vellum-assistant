@@ -11,6 +11,7 @@ on:
       - 'clients/web/capacitor.config.ts'
       - 'clients/web/capacitor-shell/**'
       - 'clients/web/package.json'
+      - '.github/actions/setup-android-sdk/**'
       - '.github/workflows/ci-main-android.yaml'
 
 concurrency:
@@ -33,6 +34,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      - name: Setup Android SDK
+        uses: ./.github/actions/setup-android-sdk
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
