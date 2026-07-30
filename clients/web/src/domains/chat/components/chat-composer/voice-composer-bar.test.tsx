@@ -43,6 +43,20 @@ function renderBar(
   );
 }
 
+/** The painted state word, as distinct from the `sr-only` live region. */
+function visibleLabel(): HTMLElement | undefined {
+  return screen
+    .getAllByText(/…|Muted/)
+    .find((el) => !el.className.includes("sr-only"));
+}
+
+/** The `sr-only` live region that announces the state. */
+function liveRegion(): HTMLElement | undefined {
+  return screen
+    .getAllByText(/…|Muted/)
+    .find((el) => el.className.includes("sr-only"));
+}
+
 describe("VoiceComposerBar — state label", () => {
   const labels: Array<[LiveVoiceSessionState, string]> = [
     ["connecting", "Connecting…"],
@@ -54,23 +68,29 @@ describe("VoiceComposerBar — state label", () => {
   ];
 
   for (const [state, label] of labels) {
-    test(`announces "${label}" for the ${state} state`, () => {
+    test(`shows "${label}" for the ${state} state`, () => {
       renderBar(state);
-      expect(screen.getByText(label)).toBeTruthy();
+      expect(visibleLabel()?.textContent).toBe(label);
     });
   }
 
-  test("announces state changes via an aria-live region", () => {
+  test("the state word is painted in the block", () => {
+    // The block is a surface, not a toolbar: the state word sits in it beside
+    // the band, so the minimized session says what it is doing.
     renderBar("listening");
-    const label = screen.getByText("Listening…");
-    expect(label.getAttribute("aria-live")).toBe("polite");
+    expect(visibleLabel()).toBeTruthy();
   });
 
-  test("the state label is visually hidden, not painted", () => {
-    // The mic glyph and the animating waves carry "listening" on their own,
-    // so the text stays in the tree for assistive tech only.
+  test("announces state changes via a separate aria-live region", () => {
     renderBar("listening");
-    expect(screen.getByText("Listening…").className).toContain("sr-only");
+    expect(liveRegion()?.getAttribute("aria-live")).toBe("polite");
+  });
+
+  test("the painted word is hidden from assistive tech, so it is not read twice", () => {
+    // The live region already announces the state. Leaving the painted copy
+    // exposed would have a screen reader read it a second time.
+    renderBar("listening");
+    expect(visibleLabel()?.getAttribute("aria-hidden")).toBe("true");
   });
 });
 
@@ -129,7 +149,8 @@ describe("VoiceComposerBar — mute toggle", () => {
     expect(
       screen.getByRole("button", { name: "Unmute microphone" }),
     ).toBeTruthy();
-    expect(screen.getByText("Muted")).toBeTruthy();
+    expect(visibleLabel()?.textContent).toBe("Muted");
+    expect(liveRegion()?.textContent).toBe("Muted");
     expect(screen.queryByText("Listening…")).toBeNull();
   });
 });
@@ -188,19 +209,35 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     ).toBeTruthy();
   });
 
-  test("standalone supplies its own top padding", () => {
-    // When the textarea collapses away for the session the bar is the card's
-    // only row, so it can no longer lean on the textarea's top padding.
+  test("standalone takes the composer's footprint, otherwise it is a control row", () => {
+    // Owning the card, the block holds the height the composer it replaced
+    // had, so minimizing does not shift the thread above it. Sharing the card
+    // with the live transcript, it stays a row under it.
     const { unmount } = renderBar("listening", { standalone: true });
     expect(
       screen.getByRole("group", { name: "Voice session" }).className,
-    ).toContain("pt-3");
+    ).toContain("h-[5.25rem]");
     unmount();
 
     renderBar("listening");
     expect(
       screen.getByRole("group", { name: "Voice session" }).className,
-    ).not.toContain("pt-3");
+    ).not.toContain("h-[5.25rem]");
+  });
+
+  test("controls are toned for the avatar color, not theme tokens", () => {
+    // The block is painted an arbitrary avatar color, so chrome that read
+    // `--content-default` would be as likely to vanish into it as contrast.
+    renderBar("listening", { onExpand: () => {} });
+    for (const name of [
+      "Mute microphone",
+      "Open voice room",
+      "End voice session",
+    ]) {
+      expect(
+        screen.getByRole("button", { name }).className,
+      ).toContain("--room-fg-muted");
+    }
   });
 
   test("wave strip fades at both edges instead of hard-clipping", () => {

@@ -191,9 +191,18 @@ const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
  *  eyes from this vertical center — onboarding's picker geometry. */
 const ENTER_FROM_SIZE = 200;
 const ENTER_FROM_CENTER_VH = 40;
-/** The room's own dark base, under the color fade (matches the ambient look's
- *  deep surface so the first frames read the same for both looks). */
-const DARK_SURFACE = "#17191C";
+/**
+ * The room's own dark base, under the color fade (matches the ambient look's
+ * deep surface so the first frames read the same for both looks).
+ *
+ * Exported as the surface any voice surface paints when the assistant has no
+ * character color to borrow, which is what `resolveVoiceRoomLook` returning
+ * null means: custom-image and "none" avatars. The minimized composer bar
+ * shares it so a colorless assistant minimizes into the same deep surface the
+ * room shows it on.
+ */
+export const VOICE_SURFACE_DARK = "#17191C";
+const DARK_SURFACE = VOICE_SURFACE_DARK;
 
 export interface VoiceRoomEyeArt {
   paths: { svgPath: string; color: string }[];

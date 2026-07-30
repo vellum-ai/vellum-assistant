@@ -1,29 +1,32 @@
 /**
- * Voice-session composer bar (Light 53): while a live-voice session is
- * active the composer's action row is replaced by this bar — a mic mute
- * toggle on the left, the voice room's listening waves filling the middle
- * (the same layered accent-tinted band, scaled to the strip), and the
- * session controls on the right: optional expand back to the voice room,
- * end (✕), and the stop slot — ■ stop-response, present only while the
- * assistant speaks.
+ * Minimized live-voice surface (Light 740 desktop, Light 741 mobile): while a
+ * session is active and the room is dismissed, this block is the composer.
  *
- * Purely presentational: the composer observes the live-voice store and
- * wires `state`, an amplitude poll function, and the callbacks. The red ✕
- * ends the session and is always available.
+ * It is a block, not a toolbar. The whole chat input is given over to it,
+ * painted in the room's own background color (the session assistant's avatar
+ * color, or {@link VOICE_SURFACE_DARK} for an assistant with no character
+ * color), with the mesh band and the state word inside it. Minimizing therefore
+ * reads as the room shrinking into the composer rather than as a row swap, and
+ * expanding is the same surface growing back.
  *
- * Textless, matching the title-bar pill: the mic glyph and the animating
- * waves carry the session state on their own, and the waves want the width on
- * a phone-width composer. The state string reaches assistive tech through an
- * `sr-only` live region instead.
+ * Because the block is painted in an arbitrary avatar color, its chrome cannot
+ * use theme tokens: the composer tones the card with `toneForBg` and publishes
+ * `--room-*` (the same contract the room itself uses), and everything here
+ * reads those. See `chat-composer.tsx` for the card.
  *
- * The bar offers no manual "send now" — turns release themselves (server VAD
- * hands-free, auto-release in the manual fallback), so a primary-weight send
- * button would advertise an action the user never needs. ■ earns its place:
+ * The controls sit quiet at the edges so the color and the band hold the
+ * middle: mic mute on the left (stop input), and on the right the stop slot
+ * (stop output, present only while the assistant speaks), expand back to the
+ * room, and end session.
+ *
+ * Purely presentational: the composer observes the live-voice store and wires
+ * `state`, an amplitude poll function, and the callbacks. Ending is always
+ * available.
+ *
+ * There is no manual "send now": turns release themselves (server VAD
+ * hands-free, auto-release in the manual fallback), so a send button would
+ * advertise an action the user never needs. Stop output earns its place because
  * interrupting a reply in progress has no silent equivalent.
- *
- * Layout mirrors the composer's bottom action row (`px-2 pb-2`, regular
- * `h-8` icon buttons) so swapping the rows in during a session causes no
- * layout shift.
  */
 
 import type { CSSProperties } from "react";
@@ -78,13 +81,35 @@ export interface VoiceComposerBarProps {
    */
   waveAccentHex?: string | null;
   /**
-   * Whether the bar is the composer card's only row — set when the textarea
-   * collapses away for the session. The bar normally sits beneath the
-   * textarea's own top padding; standing alone it has to supply its own, or
-   * it renders flush against the card's top edge.
+   * Whether the block is the composer card's only content, which it is unless
+   * the user opted into seeing their own words (the live transcript keeps the
+   * textarea row above). Standing alone it owns the card's whole footprint and
+   * takes the full block height; sharing the card it sits under the transcript
+   * and only takes the control row's height.
    */
   standalone?: boolean;
 }
+
+/**
+ * Block height when the surface owns the whole card, chosen to match the
+ * footprint of the composer it replaces (one textarea row plus the action row).
+ * Holding that height is what keeps minimizing from shifting the transcript
+ * above it.
+ */
+const BLOCK_HEIGHT_CLASS = "h-[5.25rem]";
+
+/**
+ * Control chrome toned for the avatar color under it, via the `--room-*` vars
+ * the composer publishes from `toneForBg`. Theme tokens cannot be used here:
+ * the block is painted an arbitrary avatar color, so `--content-default` is as
+ * likely to be invisible on it as legible. The token fallbacks only apply if a
+ * caller renders the block without the vars, which the composer never does.
+ */
+const VOICE_CONTROL_CLASS = [
+  "[--vbtn-fg:var(--room-fg-muted,var(--content-secondary))]",
+  "hover:[--vbtn-fg:var(--room-fg,var(--content-default))]",
+  "hover:bg-[var(--room-wash,var(--surface-hover))]",
+].join(" ");
 
 export function VoiceComposerBar({
   state,
@@ -101,35 +126,20 @@ export function VoiceComposerBar({
     <div
       role="group"
       aria-label="Voice session"
-      className={cn("flex items-center gap-3 px-2 pb-2", standalone && "pt-3")}
+      className={cn(
+        "relative flex items-center gap-3 px-2",
+        // Standing alone the block owns the card, so it takes the composer's
+        // footprint. Sharing the card with the live transcript it stays a
+        // control row under it.
+        standalone ? BLOCK_HEIGHT_CLASS : "pb-2",
+      )}
     >
-      {/* pl-1 keeps the toggle roughly on the textarea's px-4 text inset. */}
-      <div className="flex shrink-0 items-center gap-2 pl-1">
-        <Button
-          variant="ghost"
-          iconOnly={
-            muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />
-          }
-          onClick={onToggleMute}
-          aria-label={muted ? "Unmute microphone" : "Mute microphone"}
-          aria-pressed={muted}
-          tooltip={muted ? "Unmute microphone" : "Mute microphone"}
-          className={
-            muted ? "[--vbtn-fg:var(--system-negative-strong)]" : undefined
-          }
-        />
-        {/* The bar paints no text, so the session state reaches assistive
-            tech here instead. Announced on change, like the title-bar pill. */}
-        <span aria-live="polite" className="sr-only">
-          {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
-        </span>
-      </div>
-      {/* The room's listening-wave band, inline: needs a positioned box to
-          fill (the component is absolutely positioned) and overflow-hidden so
-          the drifting layers clip to the strip. */}
+      {/* The mesh band fills the block rather than sitting in a middle column,
+          so the color and the motion read as one surface. Behind the controls
+          and the state word, which is why it is first and inert. */}
       <div
         className={cn(
-          "relative h-6 min-w-0 flex-1 overflow-hidden",
+          "pointer-events-none absolute inset-0 overflow-hidden",
           VOICE_WAVE_EDGE_FADE_CLASS,
         )}
         style={
@@ -147,7 +157,53 @@ export function VoiceComposerBar({
           tuning={MESH_INLINE_TUNING}
         />
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+
+      {/* pl-1 keeps the toggle roughly on the textarea's px-4 text inset. */}
+      <div className="relative flex shrink-0 items-center gap-2 pl-1">
+        <Button
+          variant="ghost"
+          iconOnly={
+            muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />
+          }
+          onClick={onToggleMute}
+          aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+          aria-pressed={muted}
+          tooltip={muted ? "Unmute microphone" : "Mute microphone"}
+          className={cn(
+            VOICE_CONTROL_CLASS,
+            muted && "[--vbtn-fg:var(--system-negative-strong)]",
+          )}
+        />
+      </div>
+
+      {/* The state word, centered in the block over the band. `aria-hidden`
+          because the live region below already announces it: rendering both
+          would have a screen reader read the state twice. */}
+      <div className="relative flex min-w-0 flex-1 items-center justify-center">
+        <span
+          aria-hidden
+          className="truncate text-sm font-medium text-[var(--room-fg-muted,var(--content-secondary))]"
+        >
+          {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
+        </span>
+      </div>
+      <span aria-live="polite" className="sr-only">
+        {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
+      </span>
+
+      <div className="relative flex shrink-0 items-center gap-1">
+        {/* Stop slot: interrupts a reply in progress, and is present only
+            while one is playing. Nothing occupies the slot otherwise. */}
+        {onStop && state === "speaking" ? (
+          <Button
+            variant="ghost"
+            iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+            onClick={onStop}
+            aria-label="Stop assistant response"
+            tooltip="Stop assistant response"
+            className={VOICE_CONTROL_CLASS}
+          />
+        ) : null}
         {onExpand ? (
           <Button
             variant="ghost"
@@ -155,25 +211,17 @@ export function VoiceComposerBar({
             onClick={onExpand}
             aria-label="Open voice room"
             tooltip="Open voice room"
+            className={VOICE_CONTROL_CLASS}
           />
         ) : null}
         <Button
-          variant="danger"
+          variant="ghost"
           iconOnly={<X className="h-4 w-4" strokeWidth={2.5} />}
           onClick={onEnd}
           aria-label="End voice session"
+          tooltip="End voice session"
+          className={VOICE_CONTROL_CLASS}
         />
-        {/* Stop slot: ■ interrupts a reply in progress, and is present only
-            while one is playing — nothing occupies the slot otherwise. */}
-        {onStop && state === "speaking" ? (
-          <Button
-            variant="primary"
-            iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-            onClick={onStop}
-            aria-label="Stop assistant response"
-            tooltip="Stop assistant response"
-          />
-        ) : null}
       </div>
     </div>
   );

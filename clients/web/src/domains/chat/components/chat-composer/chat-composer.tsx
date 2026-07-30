@@ -1,5 +1,6 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
   type RefObject,
@@ -51,6 +52,11 @@ import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-p
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
 import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
+import {
+  VOICE_SURFACE_DARK,
+  resolveVoiceRoomLook,
+} from "@/domains/chat/voice/voice-room/voice-room-eyes";
+import { toneForBg } from "@/utils/avatar-tone";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -327,12 +333,42 @@ export function ChatComposer({
     components: avatarComponents,
     traits: avatarTraits,
     customImageUrl: avatarCustomImageUrl,
+    isLoading: avatarLoading,
   } = useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
   const voiceWaveAccentHex = resolveWaveAccentHex(
     avatarComponents,
     avatarTraits,
     avatarCustomImageUrl,
   );
+  // The minimized session paints the whole composer card in the room's own
+  // background color, so the two surfaces are one thing at two sizes. The look
+  // resolves to null for assistants with no character color (custom-image /
+  // "none"), which is exactly when the room falls back to its deep ambient
+  // surface, so the card follows it there.
+  //
+  // Gated on the avatar query having settled: `resolveVoiceRoomLook` returns
+  // null both for "no character color" and for "not fetched yet", so painting
+  // on the in-flight read would flash the card to the ambient dark and then
+  // again to the avatar color. Hold the normal card surface until the answer
+  // is real, and the card changes color once.
+  const voiceRoomLook =
+    isLiveVoiceActive && !avatarLoading
+      ? resolveVoiceRoomLook(
+          avatarComponents,
+          avatarTraits,
+          avatarCustomImageUrl,
+        )
+      : null;
+  const voiceCardBg =
+    isLiveVoiceActive && !avatarLoading
+      ? (voiceRoomLook?.bgHex ?? VOICE_SURFACE_DARK)
+      : null;
+  // Foreground tone for that fill. Published as the `--room-*` vars, the same
+  // contract the room uses, so the block's chrome contrasts against whichever
+  // avatar color it landed on. `data-theme` covers the descendants that read
+  // plain theme tokens (the live transcript's body text) by flipping the whole
+  // card's polarity to match the fill.
+  const voiceCardTone = voiceCardBg ? toneForBg(voiceCardBg) : null;
   // Mic mute state (controller-published) for the voice bar's toggle.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
   // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
@@ -698,9 +734,30 @@ export function ChatComposer({
           <form
             data-slot="chat-composer"
             onSubmit={onSubmit}
-            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
-              hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
-            }`}
+            // A live session repaints the card in the room's color (see
+            // `voiceCardBg`); `overflow-hidden` clips that fill to the card's
+            // radius, so the block reads as a solid rounded panel rather than
+            // a strip inside a white card.
+            className={`overflow-hidden shadow-[0px_2px_2px_rgba(0,0,0,0.05)] transition-colors duration-300 ${
+              voiceCardBg ? "" : "bg-[var(--surface-lift)]"
+            } ${hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"}`}
+            data-theme={
+              voiceCardTone
+                ? voiceCardTone.isLight
+                  ? "light"
+                  : "dark"
+                : undefined
+            }
+            style={
+              voiceCardBg && voiceCardTone
+                ? ({
+                    backgroundColor: voiceCardBg,
+                    "--room-fg": voiceCardTone.fg,
+                    "--room-fg-muted": voiceCardTone.fgMuted,
+                    "--room-wash": voiceCardTone.wash,
+                  } as CSSProperties)
+                : undefined
+            }
           >
             <ChatAttachmentsStrip
               attachments={attachments}
