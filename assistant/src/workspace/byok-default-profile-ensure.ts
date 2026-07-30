@@ -44,9 +44,10 @@ const log = getLogger("byok-default-profile-ensure");
 // on a BYOK default it must equal the default provider (a copy the user
 // re-provisioned to another provider, picking that provider's standard
 // model in the editor, reproduces the template exactly and must not lose
-// its explicit provider selection), and on a vellum default every present
-// copy must record the same provider, since one hatch wrote the whole set
-// from a single provider and a re-provisioned copy breaks that uniformity.
+// its explicit provider selection), and on a vellum default the complete
+// copy set must be present and record one provider, since one hatch wrote
+// all three from a single provider; a re-provisioned copy breaks the
+// uniformity and a user-curated (incomplete) set withholds it entirely.
 //
 // "Unedited" is judged against what hatch seeding actually left on disk, not
 // the raw template: both the copy and the template are normalized through the
@@ -391,19 +392,22 @@ function isKnownUneditedBody(
 }
 
 /**
- * The single provider recorded across every present `custom-*` copy, or
- * null when the copies disagree (or none carries a provider string). One
- * hatch wrote the whole set from one provider, so uniformity is the
- * provenance signal for converting copies whose provider cannot be checked
- * against a vellum default; a copy the user re-provisioned to another
- * provider breaks it and conservatively keeps the whole set.
+ * The single provider recorded across the COMPLETE `custom-*` set, or null
+ * when any copy is absent, any provider string is missing, or the copies
+ * disagree. One hatch wrote all three copies from one provider, so only
+ * the full uniform set corroborates hatch provenance for a vellum default;
+ * an incomplete set means the user curated it (deletion is only reachable
+ * through the profile routes), and a lone surviving copy re-provisioned to
+ * another provider's standard body would otherwise count as trivially
+ * uniform and retire, silently switching the provider and credentials it
+ * selected.
  */
 function uniformCopyProvider(profiles: Record<string, unknown>): string | null {
   let provider: string | null = null;
   for (const key of DEFAULT_PROFILE_KEYS) {
     const entry = readObject(profiles[`custom-${key}`]);
     if (entry === null) {
-      continue;
+      return null;
     }
     if (typeof entry.provider !== "string") {
       return null;

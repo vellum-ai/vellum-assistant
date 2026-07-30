@@ -962,6 +962,29 @@ describe("ensureByokDefaultProfiles", () => {
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
   });
 
+  test("a vellum default keeps a singleton copy (incomplete set is not hatch provenance)", () => {
+    // With two copies deleted through the profile routes, a lone surviving
+    // copy is trivially uniform; the complete-set requirement keeps it.
+    const config = uneditedByokConfig();
+    const llmConfig = config.llm as Record<string, unknown>;
+    llmConfig.defaultProvider = { provider: "vellum" };
+    const profileMap = llmConfig.profiles as Record<
+      string,
+      Record<string, unknown>
+    >;
+    delete profileMap["custom-quality-optimized"];
+    delete profileMap["custom-cost-optimized"];
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeDefined();
+    expect(llm().activeProfile).toBe("custom-balanced");
+    // The stubs are hatch residue regardless and still delete.
+    expect(profiles().balanced).toBeUndefined();
+    expectSecondRunNoop();
+  });
+
   test("a vellum default keeps all copies when one was re-provisioned to another provider", () => {
     // Provider uniformity across the set is the hatch-provenance signal on
     // a vellum default; a re-provisioned copy breaks it and conservatively
