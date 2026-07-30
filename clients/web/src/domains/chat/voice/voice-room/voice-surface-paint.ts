@@ -52,6 +52,28 @@ export function voiceSurfaceTheme(
 }
 
 /**
+ * Ink for a control that is currently *off* (mic muted, assistant muted).
+ *
+ * Not the negative theme token: that is a mid-tone red, and the surface is
+ * painted an arbitrary avatar color, so the two can land close enough that the
+ * muted glyph disappears into the fill. This is the room's own choice instead,
+ * a pale red on dark fills and a deep one on light, which keeps "off" legible
+ * on every palette color. Falls back to the token only for an unpainted
+ * surface, where the theme is the right reference.
+ *
+ * Returned as a value for an inline style rather than a class: it competes with
+ * the resting `--vbtn-fg` in {@link VOICE_SURFACE_CONTROL_CLASS}, and two
+ * arbitrary-property utilities setting the same variable are ordered by
+ * Tailwind's own sort, not by the order they are passed in.
+ */
+export function voiceSurfaceMutedInk(paint: VoiceSurfacePaint | null): string {
+  if (!paint) {
+    return "var(--system-negative-strong)";
+  }
+  return paint.tone.isLight ? "#991B1B" : "#FCA5A5";
+}
+
+/**
  * Control chrome toned for the fill under it. The token fallbacks only apply
  * if a caller renders a control without the vars, which no painted surface
  * does.

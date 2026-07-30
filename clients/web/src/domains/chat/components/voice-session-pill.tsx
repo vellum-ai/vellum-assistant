@@ -50,6 +50,8 @@
  * children.
  */
 
+import type { CSSProperties } from "react";
+
 import { Mic, MicOff, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button, Tag, cn } from "@vellumai/design-library";
@@ -66,6 +68,7 @@ import {
 } from "@/domains/chat/voice/voice-room/voice-mesh-waves";
 import {
   VOICE_SURFACE_CONTROL_CLASS,
+  voiceSurfaceMutedInk,
   voiceSurfaceStyle,
   voiceSurfaceTheme,
   type VoiceSurfacePaint,
@@ -166,6 +169,12 @@ export function VoiceSessionPill({
   const micLive = isLiveVoiceMicLive(state) && !muted;
   const ink = replying ? BAND_VOICE.responding : BAND_VOICE.listening;
 
+  // A muted control has to stay visible on the fill it sits on, so "off" is a
+  // red chosen against that fill rather than the theme's negative token.
+  const mutedInk = {
+    "--vbtn-fg": voiceSurfaceMutedInk(paint),
+  } as CSSProperties;
+
   // The band fills the whole surface rather than sitting in a column of its
   // own, so the color and the motion read as one thing. It sits behind the
   // controls, which is why it is first and inert.
@@ -230,11 +239,8 @@ export function VoiceSessionPill({
         aria-label={muted ? "Unmute microphone" : "Mute microphone"}
         aria-pressed={muted}
         tooltip={muted ? "Unmute microphone" : "Mute microphone"}
-        className={cn(
-          "relative",
-          VOICE_SURFACE_CONTROL_CLASS,
-          muted && "[--vbtn-fg:var(--system-negative-strong)]",
-        )}
+        className={cn("relative", VOICE_SURFACE_CONTROL_CLASS)}
+        style={muted ? mutedInk : undefined}
       />
 
       {/* The middle of the surface is the band and nothing else, and it is the
@@ -276,11 +282,8 @@ export function VoiceSessionPill({
           aria-pressed={outputMuted}
           tooltip={outputMuted ? "Unmute assistant" : "Mute assistant"}
           onClick={onToggleOutputMute}
-          className={cn(
-            "relative",
-            VOICE_SURFACE_CONTROL_CLASS,
-            outputMuted && "[--vbtn-fg:var(--system-negative-strong)]",
-          )}
+          className={cn("relative", VOICE_SURFACE_CONTROL_CLASS)}
+          style={outputMuted ? mutedInk : undefined}
         />
         <Button
           variant="ghost"

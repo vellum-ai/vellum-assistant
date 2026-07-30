@@ -142,6 +142,49 @@ describe("VoiceSessionPill: layouts", () => {
   });
 });
 
+describe("VoiceSessionPill: muted controls stay visible", () => {
+  test("a muted mic inks itself against the fill, not the theme", () => {
+    // The negative token is a mid-tone red and the surface is painted an
+    // arbitrary avatar color, so the two can land close enough that the muted
+    // glyph vanishes into the fill. Inline, so it beats the resting
+    // `--vbtn-fg` regardless of how Tailwind orders the two utilities.
+    renderPill({ muted: true, paint: NAVY_PAINT });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style).toContain("--vbtn-fg");
+    expect(style.toUpperCase()).toContain("#FCA5A5");
+  });
+
+  test("a light fill gets the deep red instead of the pale one", () => {
+    renderPill({ muted: true, paint: YELLOW_PAINT });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#991B1B");
+  });
+
+  test("a muted assistant inks itself the same way", () => {
+    renderPill({ outputMuted: true, paint: NAVY_PAINT });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute assistant" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#FCA5A5");
+  });
+
+  test("an unpainted surface falls back to the theme's negative token", () => {
+    renderPill({ muted: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style).toContain("--system-negative-strong");
+  });
+});
+
 describe("VoiceSessionPill: assistant mute", () => {
   test("offers the mute in every state and fires it", () => {
     // Persistent, like the room's: the pair of mutes never changes shape
