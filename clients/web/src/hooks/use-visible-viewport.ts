@@ -176,13 +176,17 @@ export function readVisibleViewport(): VisibleViewport | null {
   // A pinch-zoomed viewport reports no keyboard at all, anticipated or not, and
   // a reference no taller than the announced keyboard describes no visible
   // region: both defer to the measurement rather than sizing the shell to a
-  // height CSS would reject.
+  // height CSS would reject. Anticipation only ever shrinks the shell against
+  // the current measurement, so a keyboard announced shorter than the one the
+  // frame is still sized for cannot overshoot that frame and push the composer
+  // below its bottom edge.
   const anticipatedVisibleHeight =
     referenceInnerHeight - anticipatedKeyboardHeight;
   if (
     !isZoomed &&
     anticipatedKeyboardHeight > 0 &&
-    anticipatedVisibleHeight > 0
+    anticipatedVisibleHeight > 0 &&
+    anticipatedVisibleHeight < vv.height
   ) {
     return {
       height: anticipatedVisibleHeight,
