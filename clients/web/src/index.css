@@ -13,6 +13,10 @@
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
   color: var(--content-default);
+  /* The app shell can be shorter than the page (it tracks the visual viewport
+     while the keyboard animates in), so the canvas behind it has to be the same
+     surface rather than the host web view's own background. */
+  background: var(--surface-base);
 }
 
 /* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift

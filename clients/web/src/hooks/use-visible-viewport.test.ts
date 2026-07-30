@@ -2,69 +2,43 @@
  * Tests for `readVisibleViewport` and `useVisibleViewport`, the visual-viewport
  * read and subscription behind the app shell's keyboard-aware sizing.
  *
- * The read is driven directly against a stubbed `window.visualViewport`, so
- * only the subscription tests mount the hook. `referenceInnerHeight` and the
- * anticipated keyboard height are module state, so each test pins
- * `window.innerHeight` and resets anticipation rather than relying on ordering.
+ * The hook's seam is `subscribeNativeKeyboardHeight`, so that is what is
+ * stubbed: the callback it hands over is the only way into the module's
+ * anticipation state, which keeps the tests on the production path. The plugin
+ * rig those heights come from belongs to `native-keyboard.test.ts`.
  *
- * The platform gate reports the native iOS shell and `@capacitor/keyboard` is
- * stubbed, so the subscription the hook opens is the real one and the tests
- * that drive it exercise the production wiring end to end.
+ * `referenceInnerHeight` and the orientation are module state, so each test
+ * pins `window.innerHeight` and `matchMedia` rather than relying on ordering;
+ * anticipation is cleared by the last consumer unmounting, which `cleanup()`
+ * does after every test.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-mock.module("@/runtime/platform-detection", () => ({
-  isNativeIOS: () => true,
-}));
-mock.module("@/runtime/native-auth", () => ({
-  isNativePlatform: () => true,
-}));
-mock.module("@/lib/sentry/capture-error", () => ({
-  captureError: () => {},
-}));
+let announceKeyboardHeight: ((keyboardHeight: number) => void) | null = null;
 
-type ShowHandler = (info: { keyboardHeight: number }) => void;
-type HideHandler = () => void;
+const subscribeNativeKeyboardHeight = mock(
+  (onHeightChange: (keyboardHeight: number) => void) => {
+    announceKeyboardHeight = onHeightChange;
+    return () => {
+      announceKeyboardHeight = null;
+    };
+  },
+);
 
-let showHandler: ShowHandler | null = null;
-let hideHandler: HideHandler | null = null;
-
-const addListener = mock((eventName: string, handler: unknown) => {
-  if (eventName === "keyboardWillShow") {
-    showHandler = handler as ShowHandler;
-  } else {
-    hideHandler = handler as HideHandler;
-  }
-  return Promise.resolve({
-    remove: async () => {
-      if (eventName === "keyboardWillShow") {
-        showHandler = null;
-      } else {
-        hideHandler = null;
-      }
-    },
-  });
-});
-
-mock.module("@capacitor/keyboard", () => ({
-  Keyboard: { addListener },
+mock.module("@/runtime/native-keyboard", () => ({
+  subscribeNativeKeyboardHeight,
 }));
 
-// Warm the module cache so the lazy `import("@capacitor/keyboard")` inside the
-// subscription resolves within microtasks instead of a full loader turn.
-await import("@capacitor/keyboard");
-
-const {
-  __resetKeyboardAnticipationForTests,
-  readVisibleViewport,
-  setAnticipatedKeyboardHeight,
-  useVisibleViewport,
-} = await import("@/hooks/use-visible-viewport");
+const { readVisibleViewport, useVisibleViewport } =
+  await import("@/hooks/use-visible-viewport");
 
 const REFERENCE_HEIGHT = 800;
 const KEYBOARD_HEIGHT = 336;
+// Landscape, free of the keyboard and shrunken by it.
+const LANDSCAPE_HEIGHT = 390;
+const LANDSCAPE_OPEN_HEIGHT = 193;
 
 interface ViewportStub {
   height: number;
@@ -100,10 +74,11 @@ function setInnerHeight(height: number): void {
   });
 }
 
-async function flushMicrotasks(rounds = 4): Promise<void> {
-  for (let i = 0; i < rounds; i++) {
-    await Promise.resolve();
-  }
+/** Announce a keyboard height the way the native shell does. */
+function announce(keyboardHeight: number): void {
+  act(() => {
+    announceKeyboardHeight!(keyboardHeight);
+  });
 }
 
 beforeEach(() => {
@@ -114,10 +89,7 @@ beforeEach(() => {
   });
   isPortraitStub = true;
   setInnerHeight(REFERENCE_HEIGHT);
-  __resetKeyboardAnticipationForTests();
-  showHandler = null;
-  hideHandler = null;
-  addListener.mockClear();
+  subscribeNativeKeyboardHeight.mockClear();
   stubViewport();
   // Settle the orientation and `referenceInnerHeight` on the portrait,
   // keyboard-free state.
@@ -126,7 +98,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  __resetKeyboardAnticipationForTests();
 });
 
 describe("readVisibleViewport", () => {
@@ -154,39 +125,61 @@ describe("readVisibleViewport", () => {
     expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
     expect(viewport?.offsetTop).toBe(40);
   });
+});
 
-  test("reports the anticipated height before the native resize lands", () => {
-    // GIVEN the native shell has announced the keyboard height while the web
-    // view frame is still at its full height
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
-    stubViewport({ height: REFERENCE_HEIGHT });
+describe("useVisibleViewport", () => {
+  test("sizes for the keyboard the shell announces, then for its dismissal", () => {
+    // GIVEN a mounted consumer on the native iOS shell
+    const { result } = renderHook(() => useVisibleViewport());
 
-    // WHEN the viewport is read
-    const viewport = readVisibleViewport();
+    // WHEN the shell announces the keyboard at the leading edge of its
+    // animation, with the web view frame still at full height
+    announce(KEYBOARD_HEIGHT);
 
-    // THEN layout is sized for the keyboard the user can already see
-    expect(viewport?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
-    expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
-    expect(viewport?.offsetTop).toBe(0);
+    // THEN the hook already reports the keyboard the user can see
+    expect(result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    expect(result.current?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    expect(result.current?.offsetTop).toBe(0);
+
+    // AND the dismissal restores the full viewport
+    announce(0);
+    expect(result.current?.keyboardHeight).toBe(0);
+    expect(result.current?.height).toBe(REFERENCE_HEIGHT);
   });
 
-  test("hands back to the derived values once the native resize lands", () => {
-    // GIVEN an anticipated keyboard height
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+  test("holds anticipation through a sub-pixel viewport mismatch", () => {
+    // GIVEN a visual viewport already reporting a fraction of a pixel below the
+    // integer `window.innerHeight`, as WebKit routinely does
+    stubViewport({ height: REFERENCE_HEIGHT - 0.5 });
+    renderHook(() => useVisibleViewport());
 
-    // WHEN the web view frame catches up to it
+    // WHEN the keyboard is announced against it
+    announce(KEYBOARD_HEIGHT);
+
+    // THEN that standing delta is not mistaken for the deferred resize landing,
+    // which would retire anticipation inside the announcement that opened it
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+  });
+
+  test("anticipates a taller keyboard while the keyboard is already open", () => {
+    // GIVEN a keyboard whose deferred resize has landed
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
     stubViewport({ height: REFERENCE_HEIGHT - KEYBOARD_HEIGHT });
-    const landed = readVisibleViewport();
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
 
-    // THEN the measured viewport is reported, with no second jump
-    expect(landed?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
-    expect(landed?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+    // WHEN it grows, as it does for the emoji picker, the predictive bar, or a
+    // language switch, and the shell re-announces
+    const tallerHeight = KEYBOARD_HEIGHT + 84;
+    announce(tallerHeight);
 
-    // AND anticipation is retired, so a restored viewport reads as keyboard-free
-    stubViewport({ height: REFERENCE_HEIGHT });
-    const restored = readVisibleViewport();
-    expect(restored?.keyboardHeight).toBe(0);
-    expect(restored?.height).toBe(REFERENCE_HEIGHT);
+    // THEN the new height is anticipated too, rather than layout sitting on the
+    // old one until the second deferred resize lands
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(tallerHeight);
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT - tallerHeight);
   });
 
   test("retires anticipation when the landed resize is shorter than announced", () => {
@@ -195,7 +188,8 @@ describe("readVisibleViewport", () => {
     // overlap in screen coordinates while the frame shrinks against window
     // bounds
     const landedHeight = KEYBOARD_HEIGHT - 6;
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
 
     // WHEN that shorter resize lands
     stubViewport({ height: REFERENCE_HEIGHT - landedHeight });
@@ -211,72 +205,55 @@ describe("readVisibleViewport", () => {
     expect(readVisibleViewport()?.keyboardHeight).toBe(0);
   });
 
-  test("drops anticipation when the device rotates under an open keyboard", () => {
-    // GIVEN a keyboard announced against the portrait reference height
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+  test("drops an announcement that outlives the reference it was measured against", () => {
+    // GIVEN a keyboard open in portrait
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
 
-    // WHEN the device rotates, rebasing the reference on the landscape,
-    // keyboard-shrunk `innerHeight`
+    // WHEN the device rotates under it and the shell re-announces against the
+    // already-rotated viewport, rebasing the reference on the landscape height
     isPortraitStub = false;
-    setInnerHeight(193);
-    stubViewport({ height: 193 });
+    setInnerHeight(LANDSCAPE_OPEN_HEIGHT);
+    stubViewport({ height: LANDSCAPE_OPEN_HEIGHT });
+    announce(KEYBOARD_HEIGHT);
     const rotated = readVisibleViewport();
-
-    // THEN the stale announcement does not survive its baseline
     expect(rotated?.keyboardHeight).toBe(0);
-    expect(rotated?.height).toBe(193);
+    expect(rotated?.height).toBe(LANDSCAPE_OPEN_HEIGHT);
+
+    // THEN the announcement does not survive that rebase: once the dismissal's
+    // window resize lands ahead of the visual viewport, the shell is measured
+    // rather than collapsed to `reference - announced`
+    setInnerHeight(LANDSCAPE_HEIGHT);
+    const restored = readVisibleViewport();
+    expect(restored?.height).toBe(LANDSCAPE_OPEN_HEIGHT);
+    expect(restored?.keyboardHeight).toBe(
+      LANDSCAPE_HEIGHT - LANDSCAPE_OPEN_HEIGHT,
+    );
   });
 
   test("ignores an announced height taller than the reference", () => {
     // GIVEN a reference rebased low by a rotation under an open keyboard
     isPortraitStub = false;
-    setInnerHeight(193);
-    stubViewport({ height: 193 });
+    setInnerHeight(LANDSCAPE_OPEN_HEIGHT);
+    stubViewport({ height: LANDSCAPE_OPEN_HEIGHT });
     readVisibleViewport();
+    renderHook(() => useVisibleViewport());
 
     // WHEN a keyboard taller than that reference is announced
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+    announce(KEYBOARD_HEIGHT);
     const viewport = readVisibleViewport();
 
     // THEN the measurement stands in, rather than a negative height that CSS
     // would drop and collapse the shell with
-    expect(viewport?.height).toBe(193);
+    expect(viewport?.height).toBe(LANDSCAPE_OPEN_HEIGHT);
     expect(viewport?.keyboardHeight).toBe(0);
-  });
-
-  test("returns to the derived path as soon as anticipation is cleared", () => {
-    // GIVEN an anticipated keyboard height being reported
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
-    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
-
-    // WHEN the keyboard hides and anticipation is cleared
-    setAnticipatedKeyboardHeight(0);
-
-    // THEN the measured viewport drives the restore immediately
-    const viewport = readVisibleViewport();
-    expect(viewport?.keyboardHeight).toBe(0);
-    expect(viewport?.height).toBe(REFERENCE_HEIGHT);
-  });
-
-  test("treats a non-positive or non-finite announcement as no keyboard", () => {
-    // GIVEN a nonsense height reaching the setter
-    for (const nonsense of [Number.NaN, Number.POSITIVE_INFINITY, -50]) {
-      setAnticipatedKeyboardHeight(nonsense);
-
-      // WHEN the viewport is read
-      const viewport = readVisibleViewport();
-
-      // THEN it never reaches layout, where it would render as "NaNpx" and
-      // fail every comparison that would otherwise retire it
-      expect(viewport?.keyboardHeight).toBe(0);
-      expect(viewport?.height).toBe(REFERENCE_HEIGHT);
-    }
   });
 
   test("reports no keyboard while pinch-zoomed even with anticipation pending", () => {
     // GIVEN a pinch-zoomed viewport with an anticipated keyboard height
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
     stubViewport({ height: 600, offsetTop: 30, offsetLeft: 10, scale: 1.5 });
+    renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
 
     // WHEN the viewport is read
     const viewport = readVisibleViewport();
@@ -287,54 +264,26 @@ describe("readVisibleViewport", () => {
     expect(viewport?.offsetTop).toBe(0);
     expect(viewport?.offsetLeft).toBe(0);
   });
-});
 
-describe("useVisibleViewport", () => {
-  test("sizes for the keyboard the plugin announces, then for its dismissal", async () => {
-    // GIVEN a mounted consumer on the native iOS shell
-    const { result } = renderHook(() => useVisibleViewport());
-    await flushMicrotasks();
-
-    // WHEN the plugin announces the keyboard at the leading edge of its
-    // animation, with the web view frame still at full height
-    act(() => {
-      showHandler!({ keyboardHeight: KEYBOARD_HEIGHT });
-    });
-
-    // THEN the hook already reports the keyboard the user can see
-    expect(result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
-    expect(result.current?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
-
-    // AND the dismissal restores the full viewport
-    act(() => {
-      hideHandler!();
-    });
-    expect(result.current?.keyboardHeight).toBe(0);
-    expect(result.current?.height).toBe(REFERENCE_HEIGHT);
-  });
-
-  test("opens one native subscription however many consumers mount", async () => {
+  test("opens one native subscription however many consumers mount", () => {
     // GIVEN two concurrent consumers, as the shell plus a mobile overlay
     const shell = renderHook(() => useVisibleViewport());
     const overlay = renderHook(() => useVisibleViewport());
-    await flushMicrotasks();
 
-    // THEN a single pair of plugin listeners covers both
-    expect(addListener).toHaveBeenCalledTimes(2);
+    // THEN a single subscription covers both
+    expect(subscribeNativeKeyboardHeight).toHaveBeenCalledTimes(1);
 
     // AND both are driven by it
-    act(() => {
-      showHandler!({ keyboardHeight: KEYBOARD_HEIGHT });
-    });
+    announce(KEYBOARD_HEIGHT);
     expect(shell.result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
     expect(overlay.result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
   });
 
-  test("keeps anticipation while another consumer is still mounted", () => {
-    // GIVEN two concurrent consumers and an announced keyboard height
+  test("tracks consumers across unmount and remount", () => {
+    // GIVEN two concurrent consumers and an open keyboard
     const shell = renderHook(() => useVisibleViewport());
     const overlay = renderHook(() => useVisibleViewport());
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+    announce(KEYBOARD_HEIGHT);
 
     // WHEN one of them unmounts with the keyboard genuinely open
     overlay.unmount();
@@ -345,31 +294,15 @@ describe("useVisibleViewport", () => {
     expect(stillOpen?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
     expect(stillOpen?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
 
-    // AND the module drops anticipation with its last consumer, so a torn-down
-    // registry never hands a stale height to whatever mounts next
+    // AND the last unmount drops anticipation, so a torn-down registry never
+    // hands a stale height to whatever mounts next
     shell.unmount();
     expect(readVisibleViewport()?.keyboardHeight).toBe(0);
-  });
 
-  test("survives a mount, unmount, and remount cycle", async () => {
-    // GIVEN a consumer that unmounts mid-keyboard
-    const first = renderHook(() => useVisibleViewport());
-    await flushMicrotasks();
-    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
-    first.unmount();
-
-    // WHEN the shell remounts without a page reload and the keyboard opens
-    // again
-    const second = renderHook(() => useVisibleViewport());
-    await flushMicrotasks();
-    act(() => {
-      showHandler!({ keyboardHeight: KEYBOARD_HEIGHT });
-    });
-    expect(second.result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
-
-    // THEN the registry is still balanced, so its own unmount clears
-    // anticipation
-    second.unmount();
-    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+    // AND a fresh mount re-opens the subscription rather than reusing the
+    // closed one
+    const remounted = renderHook(() => useVisibleViewport());
+    announce(KEYBOARD_HEIGHT);
+    expect(remounted.result.current?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
   });
 });
