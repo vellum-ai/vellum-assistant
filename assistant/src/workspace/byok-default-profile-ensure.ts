@@ -16,8 +16,9 @@ import { invalidateConfigCache } from "../config/loader.js";
 import {
   type DefaultProviderConfig,
   DefaultProviderSchema,
-  isDefaultProviderChoice,
+  isByokDefaultProviderChoice,
   LLMConfigBase,
+  type LLMProvider,
   type ProfileEntry,
 } from "../config/schemas/llm.js";
 import { getLogger } from "../util/logger.js";
@@ -249,10 +250,14 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
   // The default provider on a BYOK default, or the uniform hatch provider
   // across the complete copy set on a vellum default; null converts nothing.
-  const convertibleProvider =
+  const candidateProvider =
     parsedDefault.data.provider !== "vellum"
       ? parsedDefault.data.provider
       : uniformCopyProvider(profiles);
+  const convertibleProvider =
+    candidateProvider !== null && isByokDefaultProviderChoice(candidateProvider)
+      ? candidateProvider
+      : null;
 
   const retired = new Map<string, string>();
   const carriedDisables = new Set<DefaultProfileKey>();
@@ -314,7 +319,7 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 function isKnownUneditedBody(
   entry: Record<string, unknown>,
   key: DefaultProfileKey,
-  convertibleProvider: string | null,
+  convertibleProvider: LLMProvider | null,
   completionBase: LLMConfigBase | undefined,
 ): boolean {
   if (typeof entry.model !== "string") {
@@ -322,20 +327,12 @@ function isKnownUneditedBody(
   }
   // The comparison template comes from the copy's own recorded provider
   // (hatch materialized it once; the default provider may have changed
-  // since), with `convertibleProvider` corroborating hatch provenance over
-  // a user re-provision. The choice guard keeps keyless and
-  // endpoint-supplied providers (ollama, openai-compatible) from ever
-  // retiring: their `provider_connection` can carry a base URL the bare key
-  // cannot recover. `vellum` never had hatch copies.
-  const copyProvider = entry.provider;
-  if (
-    typeof copyProvider !== "string" ||
-    copyProvider !== convertibleProvider ||
-    !isDefaultProviderChoice(copyProvider) ||
-    copyProvider === "vellum"
-  ) {
+  // since); equality with the corroborated provider rules out a user
+  // re-provision.
+  if (convertibleProvider === null || entry.provider !== convertibleProvider) {
     return false;
   }
+  const copyProvider = convertibleProvider;
   const template = USER_PROFILE_TEMPLATES[`custom-${key}`];
   if (template === undefined) {
     return false;
