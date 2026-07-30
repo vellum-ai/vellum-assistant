@@ -1,5 +1,6 @@
 import {
   applyQueuedMessageDequeue,
+  markMessageQueued,
   removeQueuedMessage,
   setQueuePosition,
 } from "@/domains/chat/utils/stream-updaters/shared";
@@ -9,6 +10,7 @@ import type {
   MessageQueuedDeletedEvent,
   MessageQueuedEvent,
   MessageRequestCompleteEvent,
+  MessageRequeuedEvent,
 } from "@vellumai/assistant-api";
 import { useConversationStore } from "@/stores/conversation-store";
 import { patchTranscriptMessages } from "@/domains/chat/transcript/patch-transcript-messages";
@@ -71,6 +73,32 @@ export function handleMessageDequeued(
   }
   patchTranscriptMessages((prev) =>
     applyQueuedMessageDequeue(prev, dequeuedMessageId ?? event.requestId),
+  );
+}
+
+/**
+ * Corrective counterpart to `handleMessageDequeued`: the daemon announced the
+ * dequeue, then had to put the message back (another turn took the processing
+ * lock, or the drain threw before its turn started). Restore the pending row
+ * this client already cleared instead of leaving it invisible until a later
+ * drain.
+ *
+ * The dequeue consumed the requestId mapping, so re-register it from the
+ * event's own correlation key. The queue updaters match a row by either its
+ * local id or its `clientMessageId`, so either value works as the key.
+ */
+export function handleMessageRequeued(
+  event: MessageRequeuedEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.turnActions.enqueueMessage();
+  const messageKey = event.clientMessageId ?? event.requestId;
+  ctx.setRequestIdMapping(event.requestId, messageKey);
+  ctx.setOptimisticSends((prev) =>
+    markMessageQueued(prev, messageKey, event.position),
+  );
+  patchTranscriptMessages((prev) =>
+    markMessageQueued(prev, messageKey, event.position),
   );
 }
 

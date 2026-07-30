@@ -307,6 +307,28 @@ describe("rolling-snapshot reducer", () => {
       expect(resolved.messages[0]?.queuePosition).toBeUndefined();
     });
 
+    test("replays a corrective requeue back onto a dequeued row", () => {
+      const snapshot = queuedSnapshot();
+      const resolved = resolveSnapshot(snapshot, [
+        env(2, {
+          type: "message_dequeued",
+          conversationId: "conv-1",
+          requestId: "req-1",
+        } as AssistantEvent),
+        env(3, {
+          type: "message_requeued",
+          conversationId: "conv-1",
+          requestId: "req-1",
+          position: 1,
+        } as AssistantEvent),
+      ]);
+
+      // The drain gave the message back to the queue, so the row it cleared
+      // has to come back rather than vanish until the next drain.
+      expect(resolved.messages[0]?.queueStatus).toBe("queued");
+      expect(resolved.messages[0]?.queuePosition).toBe(1);
+    });
+
     test("replays a queued deletion onto a queued snapshot row", () => {
       const resolved = resolveSnapshot(queuedSnapshot(), [
         env(2, {

@@ -20444,7 +20444,9 @@ paths:
     delete:
       operationId: messages_queued_by_id_delete
       summary: Delete a queued message
-      description: Remove a pending message from the conversation queue before it is processed.
+      description:
+        Remove a pending message from the conversation queue before it is processed. Broadcasts
+        `message_queued_deleted` so every client can close out the pending row.
       tags:
         - messages
       parameters:
@@ -20462,6 +20464,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/messages/queued/{id}/steer:
     post:
       operationId: messages_queued_by_id_steer_post

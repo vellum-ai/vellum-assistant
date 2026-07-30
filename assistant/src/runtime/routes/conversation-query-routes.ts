@@ -113,7 +113,12 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
@@ -2123,17 +2128,26 @@ function resolveQueuedMessageConversationId({
 }
 
 function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
-  const { pathParams = {} } = args;
+  const { pathParams = {}, headers = {} } = args;
   const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
-  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "");
+  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "", {
+    // Verified caller identity. Both adapters derive this header from the
+    // auth context, never from a caller-supplied one.
+    actorPrincipalId: headers["x-vellum-actor-principal-id"] || undefined,
+  });
   if (result.removed) {
     return { ok: true, conversationId, requestId: pathParams.id };
   }
   if (result.reason === "conversation_not_found") {
     throw new NotFoundError("Conversation not found");
+  }
+  if (result.reason === "forbidden") {
+    throw new ForbiddenError(
+      "Queued message was sent by a different user and cannot be cancelled here",
+    );
   }
   throw new NotFoundError("Queued message not found");
 }
@@ -2480,7 +2494,8 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete a queued message",
     description:
-      "Remove a pending message from the conversation queue before it is processed.",
+      "Remove a pending message from the conversation queue before it is processed. " +
+      "Broadcasts `message_queued_deleted` so every client can close out the pending row.",
     tags: ["messages"],
     queryParams: [
       {
@@ -2490,6 +2505,15 @@ export const ROUTES: RouteDefinition[] = [
         description: "Conversation ID (required)",
       },
     ],
+    additionalResponses: {
+      "403": {
+        description:
+          "The queued message was enqueued by a different actor principal.",
+      },
+      "404": {
+        description: "Conversation or queued message not found.",
+      },
+    },
     handler: handleDeleteQueuedMessage,
   },
   {
