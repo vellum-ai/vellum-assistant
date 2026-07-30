@@ -74,6 +74,10 @@ import { ComposerSettingsMenu } from "@/domains/chat/components/composer-setting
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
+import {
+  LowBalanceBanner,
+  shouldShowLowBalanceBanner,
+} from "@/domains/chat/components/low-balance-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
@@ -110,6 +114,7 @@ import {
   isBillingCtaUpgradeArm,
   useBillingCtaExperimentArm,
 } from "@/hooks/use-billing-cta-experiment";
+import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
@@ -152,6 +157,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -1026,6 +1032,17 @@ export function ChatMainPanel({
   const billingBannerDecision =
     errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
+  // Single balance-status read shared by every proactive billing surface in
+  // this component. Error-driven banners always take precedence over the
+  // proactive low-balance warning.
+  const balanceStatus = useBillingBalanceStatus();
+  const lowBalanceBannerDismissed = useLowBalanceBannerStore.use.dismissed();
+  const showLowBalanceBanner = shouldShowLowBalanceBanner({
+    billingBannerDecision,
+    isLowBalance: balanceStatus.isLowBalance,
+    dismissed: lowBalanceBannerDismissed,
+  });
+
   // Credit-paywall CTA: single CTA gated by experiment arm + plan. Only fetch
   // the subscription when the credit paywall is actually shown.
   const billingCtaArm = useBillingCtaExperimentArm();
@@ -1111,8 +1128,9 @@ export function ChatMainPanel({
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
       hasBillingBanner={
-        billingBannerDecision !== null &&
-        billingBannerDecision !== "managed_credits"
+        (billingBannerDecision !== null &&
+          billingBannerDecision !== "managed_credits") ||
+        showLowBalanceBanner
       }
       thresholdPickerSlot={
         assistantId ? (
@@ -1182,6 +1200,10 @@ export function ChatMainPanel({
                 />
               ) : billingBannerDecision === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+              ) : showLowBalanceBanner ? (
+                <LowBalanceBanner
+                  onAddCredits={() => setShowAddCreditsModal(true)}
+                />
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}
