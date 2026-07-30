@@ -29,19 +29,6 @@
 import { parseStringArray } from "@/domains/chat/utils/storage-validators";
 import { createKeyedStorageAccessor } from "@/utils/typed-storage";
 
-// ---------------------------------------------------------------------------
-// Section kinds
-// ---------------------------------------------------------------------------
-
-/**
- * Coarse section classification, used only for divider placement: the
- * sidebar draws a separator wherever two adjacent sections disagree. With
- * free reordering there is no fixed "channels above, groups below" boundary
- * to hard-code a divider into, so the boundary is derived from the order the
- * user actually chose.
- */
-export type SidebarSectionKind = "system" | "custom";
-
 /**
  * True for sections that legitimately vanish and come back — Pinned (empty)
  * and channel sections (no conversations from that channel right now).

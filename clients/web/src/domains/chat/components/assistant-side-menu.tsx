@@ -1,6 +1,5 @@
 import { Search, SquarePen, X } from "lucide-react";
 import {
-  Fragment,
   useCallback,
   useLayoutEffect,
   useRef,
@@ -128,9 +127,7 @@ function SearchButton() {
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       — when non-empty
- *     • ───────────────
  *     • Group ▾        — one collapsible section per custom group
- *     • ───────────────
  *     • Chats ▾        — recent conversations, with Show more/less
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
@@ -143,9 +140,12 @@ function SearchButton() {
  * flat `sections` array already sorted by the user's stored preference, and
  * every section renders through the same path — which is what lets a custom
  * group sit above Recents, and what keeps the spacing between any two
- * sections identical. The separators are derived, not placed: one appears
- * wherever a section's `kind` differs from its predecessor's, so the
- * system/custom boundary survives any ordering the user picks (LUM-2909).
+ * sections identical.
+ *
+ * Every section is a peer: same shell, same header treatment, same drag
+ * handle, and no divider anywhere in the list. A custom group is not a
+ * different class of thing from Pinned or a channel section, so nothing here
+ * may imply a grouping the user didn't create (LUM-2909).
  *
  * The conversation rows, row lists, and collapsible sections are
  * components ({@link ConversationRow} / {@link ConversationRowList} /
@@ -533,33 +533,21 @@ export function AssistantSideMenu({
               value={sidebar.effectiveOpenSections}
               onValueChange={sidebar.onOpenSectionsChange}
             >
-              {sidebar.sections.map((section, index) => {
-                const previous = sidebar.sections[index - 1];
-                return (
-                  <Fragment key={section.key}>
-                    {previous && previous.kind !== section.kind ? (
-                      /* `--border-element`, not the `SideMenu.Separator`
-                         default of `--border-base`: measured against the
-                         sidebar's `--surface-overlay`, `--border-base` is a
-                         1.12:1 hairline (`--border-element` is 1.57:1), which
-                         is why this divider read as missing entirely rather
-                         than merely subtle. Overridden here rather than in the
-                         design library because the other separators (footer,
-                         pinned apps) sit on different surfaces and aren't
-                         load-bearing the way this boundary is.
-                         `my-0` leaves the accordion gap as the only spacing,
-                         so a divider costs no extra height. */
-                      <SideMenu.Separator className="my-0 bg-[var(--border-element)]" />
-                    ) : null}
-                    <SidebarSectionItem
-                      section={section}
-                      groupMenu={sectionMenu(section, index)}
-                      drag={sectionDragFor(section)}
-                      collapsedIndicator={collapsedActivityDot(section.all)}
-                    />
-                  </Fragment>
-                );
-              })}
+              {/* No dividers between sections. A custom group is a peer of
+                  Pinned, Chats, and a channel section, not a different class
+                  of thing, so nothing here may hint at a grouping the user
+                  didn't create — they order these however they like. The
+                  header's own indent (SIDEBAR_SECTION_INDENT) is what marks
+                  where a section starts. */}
+              {sidebar.sections.map((section, index) => (
+                <SidebarSectionItem
+                  key={section.key}
+                  section={section}
+                  groupMenu={sectionMenu(section, index)}
+                  drag={sectionDragFor(section)}
+                  collapsedIndicator={collapsedActivityDot(section.all)}
+                />
+              ))}
             </CollapsibleNavSection.Root>
           )}
         </SideMenu.Body>

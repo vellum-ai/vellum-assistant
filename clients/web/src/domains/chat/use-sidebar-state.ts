@@ -45,7 +45,6 @@ import {
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
-  type SidebarSectionKind,
 } from "@/domains/chat/utils/sidebar-section-order";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
@@ -146,8 +145,6 @@ interface SidebarSectionBase {
   label: string;
   /** Every conversation in the section, ignoring "show more" truncation. */
   all: Conversation[];
-  /** Drives divider placement; see {@link SidebarSectionKind}. */
-  kind: SidebarSectionKind;
 }
 
 /**
@@ -343,7 +340,6 @@ export function useSidebarState({
         key: "pinned",
         label: "Pinned",
         all: grouped.pinned,
-        kind: "system",
       });
     }
     for (const group of grouped.customGroups) {
@@ -352,7 +348,6 @@ export function useSidebarState({
         key: group.id,
         label: group.name,
         all: group.conversations,
-        kind: "custom",
         group,
       });
     }
@@ -361,7 +356,6 @@ export function useSidebarState({
       key: "recents",
       label: "Chats",
       all: recentsSection.all,
-      kind: "system",
       pagination: recentsSection,
     });
     for (const section of channelSections) {
@@ -370,7 +364,6 @@ export function useSidebarState({
         key: channelSectionKey(section.channelId),
         label: getChannelLabel(section.channelId),
         all: section.all,
-        kind: "system",
         channelId: section.channelId,
         pagination: section,
       });

@@ -750,63 +750,48 @@ describe("AssistantSideMenu · default section order", () => {
   });
 });
 
-describe("AssistantSideMenu · section dividers", () => {
-  function separators(container: HTMLElement): HTMLElement[] {
-    return Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="side-menu-separator"]',
-      ),
-    );
-  }
-
-  test("a divider fences the custom-group run off from the built-in sections", () => {
-    const html = renderMenu({
-      conversations: LAYOUT_CONVERSATIONS,
-      conversationGroups: LAYOUT_GROUPS,
-    });
-    const container = parse(html);
-
-    // Default order is Pinned │ Alpha │ Chats, Slack — a divider on each side
-    // of the group run, none between Chats and Slack (both built-in).
-    const bodySeparators = separators(container).filter((hr) =>
-      hr.closest('[data-slot="collapsible"]'),
-    );
-    expect(bodySeparators).toHaveLength(2);
-
-    expect(html.indexOf(">Pinned<")).toBeLessThan(
-      html.indexOf('data-slot="side-menu-separator"'),
-    );
-    expect(html.indexOf('data-slot="side-menu-separator"')).toBeLessThan(
-      html.indexOf(">Alpha<"),
-    );
-  });
-
-  test("no divider renders when every section is built-in", () => {
-    const container = parse(
-      renderMenu({ conversations: LAYOUT_CONVERSATIONS }),
-    );
-    const bodySeparators = separators(container).filter((hr) =>
-      hr.closest('[data-slot="collapsible"]'),
-    );
-    expect(bodySeparators).toHaveLength(0);
-  });
-
-  // The divider was in the DOM before this change but drawn in
-  // `--border-base`, measured at 1.12:1 against the sidebar's
-  // `--surface-overlay` — visually absent, which is what the bug report saw.
-  // `--border-element` measures 1.57:1 on the same surface.
-  test("the divider uses a visible border token", () => {
+describe("AssistantSideMenu · equal section treatment", () => {
+  // Custom groups are peers of Pinned, Chats, and the channel sections — not
+  // a separate class. Nothing in the list may imply a grouping the user
+  // didn't create, because they order these however they like.
+  test("no dividers separate the sections", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
         conversationGroups: LAYOUT_GROUPS,
       }),
     );
-    const bodySeparator = separators(container).find((hr) =>
-      hr.closest('[data-slot="collapsible"]'),
+
+    const separatorsInList = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="side-menu-separator"]',
+      ),
+    ).filter((hr) => hr.closest('[data-slot="collapsible"]'));
+
+    expect(separatorsInList).toHaveLength(0);
+  });
+
+  // Same shell, same drag wiring, same header treatment for every type — a
+  // group must not be distinguishable from a built-in section by its chrome.
+  test("every section renders through the same component with the same affordances", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
     );
-    expect(bodySeparator?.className).toContain("--border-element");
-    expect(bodySeparator?.className).not.toContain("--border-base");
+
+    const sections = sectionElements(container);
+    expect(sections).toHaveLength(4);
+
+    for (const section of sections) {
+      const header = section.querySelector<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      );
+      // Draggable header (the reorder handle) and a leading icon, on all four.
+      expect(header?.getAttribute("draggable")).toBe("true");
+      expect(header?.querySelector("svg")).not.toBeNull();
+    }
   });
 });
 
