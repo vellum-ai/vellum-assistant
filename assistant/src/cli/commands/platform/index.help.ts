@@ -23,6 +23,7 @@ Examples:
   $ assistant platform credits --json
   $ assistant platform subscription --json
   $ assistant platform plans --json
+  $ assistant platform invoices list --json
   $ assistant platform connect
   $ assistant platform disconnect
   $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json`,
@@ -144,6 +145,93 @@ ensure VELLUM_PLATFORM_URL is set and credentials are stored).
 Examples:
   $ assistant platform plans
   $ assistant platform plans --json`,
+    },
+    {
+      name: "invoices",
+      description: "Read the organization's Stripe invoice history",
+      helpText: `
+Invoices are read from the platform's billing invoices endpoint using this
+assistant's platform API key. Amounts are in the currency's minor units
+(e.g. cents); 'created' is a Unix timestamp in seconds.
+
+The platform returns one page of invoices at a time (newest first). When
+the response's 'has_more' is true, pass the last invoice's id via
+--starting-after to fetch the next (older) page.
+
+Requires platform credentials (run 'assistant platform connect' first or
+ensure VELLUM_PLATFORM_URL is set and credentials are stored).
+
+Examples:
+  $ assistant platform invoices list --json
+  $ assistant platform invoices list --starting-after in_1AbCdEfGh
+  $ assistant platform invoices get in_1AbCdEfGh --json`,
+      subcommands: [
+        {
+          name: "list",
+          description:
+            "List one page of the organization's Stripe invoices, newest first",
+          options: [
+            {
+              flags: "--starting-after <invoice-id>",
+              description:
+                "Cursor: return invoices older than this invoice id (use the last id from the previous page)",
+            },
+          ],
+          helpText: `
+Fetches one page of the org's Stripe invoice history from the platform,
+newest first.
+
+Fields:
+  invoices            One page of invoices, each with the fields below
+  id                  Stripe invoice ID; pass it to 'assistant platform
+                      invoices get' or to --starting-after
+  number              Human-readable invoice number, or null
+  status              Stripe status (draft, open, paid, uncollectible,
+                      void), or null
+  currency            Lowercase ISO currency code (e.g. usd)
+  amount_due          Amount due in the currency's minor units (e.g. cents)
+  amount_paid         Amount paid, in minor units
+  amount_remaining    Amount still owed, in minor units
+  created             Creation time as a Unix timestamp in seconds
+  hosted_invoice_url  Link to the hosted Stripe invoice page, or null
+  invoice_pdf         Link to the invoice PDF, or null
+  has_more            True when older invoices exist beyond this page;
+                      fetch them with --starting-after
+
+Requires platform credentials (run 'assistant platform connect' first or
+ensure VELLUM_PLATFORM_URL is set and credentials are stored).
+
+Examples:
+  $ assistant platform invoices list --json
+  $ assistant platform invoices list --starting-after in_1AbCdEfGh --json`,
+        },
+        {
+          name: "get",
+          description: "Show a single Stripe invoice by ID",
+          arguments: [
+            {
+              name: "<invoice-id>",
+              description:
+                "Stripe invoice ID (e.g. in_1AbCdEfGh); run 'assistant platform invoices list' to find it",
+            },
+          ],
+          helpText: `
+Arguments:
+  <invoice-id>  Stripe invoice ID (e.g. in_1AbCdEfGh); run 'assistant
+                platform invoices list' to find it
+
+The platform has no per-invoice endpoint, so the assistant pages through
+the org's invoice list (newest first) until the ID matches. Unknown IDs
+return a not-found error.
+
+Requires platform credentials (run 'assistant platform connect' first or
+ensure VELLUM_PLATFORM_URL is set and credentials are stored).
+
+Examples:
+  $ assistant platform invoices get in_1AbCdEfGh
+  $ assistant platform invoices get in_1AbCdEfGh --json`,
+        },
+      ],
     },
     {
       name: "disconnect",
