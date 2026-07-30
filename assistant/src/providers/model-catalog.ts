@@ -50,6 +50,15 @@ export interface CatalogModel {
    * before dispatching. Implies `supportsThinking`.
    */
   adaptiveThinkingOnly?: boolean;
+  /**
+   * When true, the model predates adaptive thinking and rejects
+   * `thinking: { type: "adaptive" }` (Anthropic 400s such calls) — it only
+   * supports the legacy `{ type: "enabled", budget_tokens }` form, which
+   * Vellum never sends. The daemon drops an enabled thinking config for these
+   * models before dispatching to the Anthropic wire. Mutually exclusive with
+   * `adaptiveThinkingOnly`.
+   */
+  adaptiveThinkingUnsupported?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
   /**
@@ -296,6 +305,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -312,6 +322,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -328,6 +339,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1140,6 +1152,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1156,6 +1169,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1172,6 +1186,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1873,6 +1888,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -2233,6 +2249,20 @@ export function getCatalogProviderForModel(
 export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
   return PROVIDER_CATALOG.some((p) =>
     p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
+}
+
+/**
+ * Whether the given model predates adaptive thinking and rejects
+ * `thinking: { type: "adaptive" }`, driven by the `adaptiveThinkingUnsupported`
+ * capability in the catalog. Matches the model ID across every provider (same
+ * pattern as {@link isAdaptiveThinkingOnlyModel}).
+ */
+export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some(
+      (m) => m.id === modelId && m.adaptiveThinkingUnsupported === true,
+    ),
   );
 }
 
