@@ -7,8 +7,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./channels": "./src/channels.ts",
+    "./channel-actor": "./src/channel-actor.ts",
     "./channel-address": "./src/channel-address.ts",
     "./channel-capabilities": "./src/channel-capabilities.ts",
+    "./channel-coordinates": "./src/channel-coordinates.ts",
     "./channel-envelope": "./src/channel-envelope.ts",
     "./client-metadata": "./src/client-metadata.ts",
     "./credential-rpc": "./src/credential-rpc.ts",

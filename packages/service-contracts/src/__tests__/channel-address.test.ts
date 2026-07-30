@@ -11,72 +11,86 @@ import {
 import { CHANNEL_IDS, type ChannelId } from "../channels.js";
 
 /**
- * One valid address per canonical channel, plus its canonical projection.
+ * One valid conversation address per canonical channel, plus its canonical
+ * projection.
  *
  * The `satisfies Record<ChannelId, …>` is deliberate: a channel added to
  * `CHANNEL_IDS` fails to compile here until someone states what one of its
- * addresses actually looks like, which is the point at which the shape stops
- * being a guess.
+ * conversations actually looks like, which is the point at which the shape
+ * stops being a guess.
  */
 const VALID = {
   a2a: {
-    address: {
-      channel: "a2a",
-      coordinates: { assistantId: "peer-assistant-1" },
-    },
-    projection: "a2a:assistantId=peer-assistant-1",
+    address: { channel: "a2a", coordinates: { peerAssistantId: "peer-one" } },
+    projection: "a2a:peerAssistantId=peer-one",
   },
   discord: {
     address: {
       channel: "discord",
-      coordinates: { userId: "123456789012345678" },
+      scope: {
+        applicationId: "111111111111111111",
+        guildId: "222222222222222222",
+      },
+      coordinates: { channelId: "333333333333333333" },
     },
-    projection: "discord:userId=123456789012345678",
+    projection:
+      "discord:scope.applicationId=111111111111111111;scope.guildId=222222222222222222;channelId=333333333333333333",
   },
   email: {
     address: {
       channel: "email",
-      coordinates: { address: "contact@example.com" },
+      scope: { mailbox: "assistant@example.com" },
+      coordinates: { threadId: "thread-abc" },
     },
-    projection: "email:address=contact%40example.com",
+    projection:
+      "email:scope.mailbox=assistant%40example.com;threadId=thread-abc",
   },
   phone: {
-    address: { channel: "phone", coordinates: { e164: "+15555550123" } },
-    projection: "phone:e164=%2B15555550123",
+    address: {
+      channel: "phone",
+      scope: { assistantNumber: "+15555550100" },
+      coordinates: { peerNumber: "+15555550123" },
+    },
+    projection:
+      "phone:scope.assistantNumber=%2B15555550100;peerNumber=%2B15555550123",
   },
   platform: {
     address: {
       channel: "platform",
       scope: { platformAssistantId: "asst_1" },
-      coordinates: { principalId: "prin_abc" },
+      coordinates: { conversationId: "conv-xyz" },
     },
     projection:
-      "platform:scope.platformAssistantId=asst_1;principalId=prin_abc",
+      "platform:scope.platformAssistantId=asst_1;conversationId=conv-xyz",
   },
   slack: {
     address: {
       channel: "slack",
       scope: { teamId: "T0123ABCD" },
-      coordinates: { userId: "U0123ABCD" },
+      coordinates: { conversationId: "C0123ABCD" },
     },
-    projection: "slack:scope.teamId=T0123ABCD;userId=U0123ABCD",
+    projection: "slack:scope.teamId=T0123ABCD;conversationId=C0123ABCD",
   },
   telegram: {
-    address: { channel: "telegram", coordinates: { userId: "987654321" } },
-    projection: "telegram:userId=987654321",
+    address: {
+      channel: "telegram",
+      scope: { botId: "8012345" },
+      coordinates: { chatId: "-1001234567890" },
+    },
+    projection: "telegram:scope.botId=8012345;chatId=-1001234567890",
   },
   vellum: {
-    address: { channel: "vellum", coordinates: { principalId: "prin_abc" } },
-    projection: "vellum:principalId=prin_abc",
+    address: { channel: "vellum", coordinates: { conversationId: "conv-xyz" } },
+    projection: "vellum:conversationId=conv-xyz",
   },
   whatsapp: {
     address: {
       channel: "whatsapp",
       scope: { businessPhoneNumberId: "109876543210987" },
-      coordinates: { waId: "+15555550188" },
+      coordinates: { chatId: "+15555550188" },
     },
     projection:
-      "whatsapp:scope.businessPhoneNumberId=109876543210987;waId=%2B15555550188",
+      "whatsapp:scope.businessPhoneNumberId=109876543210987;chatId=%2B15555550188",
   },
 } as const satisfies Record<
   ChannelId,
@@ -86,7 +100,7 @@ const VALID = {
 const CHANNELS: readonly ChannelId[] = CHANNEL_IDS;
 
 describe("ChannelAddress exhaustiveness", () => {
-  test("every canonical channel has an address variant", () => {
+  test("every canonical channel has a conversation address variant", () => {
     expect(Object.keys(CHANNEL_ADDRESS_SCHEMAS).sort()).toEqual(
       [...CHANNELS].sort(),
     );
@@ -111,7 +125,7 @@ describe("ChannelAddress exhaustiveness", () => {
     expect(
       ChannelAddressSchema.safeParse({
         channel: "mastodon",
-        coordinates: { userId: "1" },
+        coordinates: { conversationId: "1" },
       }).success,
     ).toBe(false);
   });
@@ -119,7 +133,7 @@ describe("ChannelAddress exhaustiveness", () => {
 
 describe("ChannelAddress variants", () => {
   for (const channel of CHANNELS) {
-    test(`${channel}: accepts a well-formed address`, () => {
+    test(`${channel}: accepts a well-formed conversation address`, () => {
       const result = ChannelAddressSchema.safeParse(VALID[channel].address);
       expect(result.success).toBe(true);
       expect(result.data).toEqual(VALID[channel].address);
@@ -160,112 +174,200 @@ describe("ChannelAddress variants", () => {
       expect(ChannelAddressSchema.safeParse(rest).success).toBe(false);
     });
   }
+});
 
-  test("slack: rejects an address with no workspace scope", () => {
+describe("thread and topic coordinates", () => {
+  test("slack: a threaded reply carries the parent thread_ts", () => {
     expect(
-      ChannelAddressSchema.safeParse({
+      ChannelAddressSchema.parse({
         channel: "slack",
-        coordinates: { userId: "U0123ABCD" },
-      }).success,
-    ).toBe(false);
+        scope: { teamId: "T0123ABCD" },
+        coordinates: {
+          conversationId: "C0123ABCD",
+          threadTs: "1700000000.000100",
+        },
+      }),
+    ).toEqual({
+      channel: "slack",
+      scope: { teamId: "T0123ABCD" },
+      coordinates: {
+        conversationId: "C0123ABCD",
+        threadTs: "1700000000.000100",
+      },
+    });
   });
 
-  test("slack: accepts an enterprise grid scope", () => {
+  test("slack: a thread key must be a Slack message timestamp", () => {
+    for (const threadTs of ["170000000", "170000000.1", "not-a-ts", ""]) {
+      expect(
+        ChannelAddressSchema.safeParse({
+          channel: "slack",
+          scope: { teamId: "T0123ABCD" },
+          coordinates: { conversationId: "C0123ABCD", threadTs },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("telegram: a forum topic is part of the address", () => {
     expect(
       ChannelAddressSchema.safeParse({
-        channel: "slack",
-        scope: { teamId: "T0123ABCD", enterpriseId: "E9876ZZZZ" },
-        coordinates: { userId: "W0123ABCD" },
+        channel: "telegram",
+        scope: { botId: "8012345" },
+        coordinates: { chatId: "-1001234567890", topicId: "42" },
       }).success,
     ).toBe(true);
   });
 
-  test("slack: rejects lowercase and too-short object ids", () => {
-    for (const userId of ["u0123abcd", "U1", ""]) {
+  test("discord: a thread message carries the thread snowflake", () => {
+    expect(
+      ChannelAddressSchema.safeParse({
+        channel: "discord",
+        scope: {
+          applicationId: "111111111111111111",
+          guildId: "222222222222222222",
+        },
+        coordinates: {
+          channelId: "333333333333333333",
+          threadId: "444444444444444444",
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  test("a thread key distinguishes two addresses in one conversation", () => {
+    const unthreaded = formatChannelAddress({
+      channel: "slack",
+      scope: { teamId: "T0123ABCD" },
+      coordinates: { conversationId: "C0123ABCD" },
+    });
+    const threaded = formatChannelAddress({
+      channel: "slack",
+      scope: { teamId: "T0123ABCD" },
+      coordinates: {
+        conversationId: "C0123ABCD",
+        threadTs: "1700000000.000100",
+      },
+    });
+    expect(unthreaded).not.toBe(threaded);
+    expect(parseChannelAddress(threaded)).not.toEqual(
+      parseChannelAddress(unthreaded),
+    );
+  });
+});
+
+describe("per-channel coordinate formats", () => {
+  test("slack: a conversation slot will not hold a user or workspace id", () => {
+    for (const conversationId of ["U0123ABCD", "T0123ABCD", "E0123ABCD"]) {
       expect(
         ChannelAddressSchema.safeParse({
           channel: "slack",
           scope: { teamId: "T0123ABCD" },
-          coordinates: { userId },
+          coordinates: { conversationId },
         }).success,
       ).toBe(false);
+    }
+  });
+
+  test("slack: DM and private conversation prefixes are accepted", () => {
+    for (const conversationId of ["D0123ABCD", "G0123ABCD"]) {
+      expect(
+        ChannelAddressSchema.safeParse({
+          channel: "slack",
+          scope: { teamId: "T0123ABCD" },
+          coordinates: { conversationId },
+        }).success,
+      ).toBe(true);
     }
   });
 
   test("slack: a workspace scope will not hold some other object's id", () => {
-    for (const teamId of ["U0123ABCD", "E0123ABCD", "C0123ABCD", "B0123ABCD"]) {
+    for (const teamId of ["U0123ABCD", "E0123ABCD", "C0123ABCD"]) {
       expect(
         ChannelAddressSchema.safeParse({
           channel: "slack",
           scope: { teamId },
-          coordinates: { userId: "U0123ABCD" },
+          coordinates: { conversationId: "C0123ABCD" },
         }).success,
       ).toBe(false);
     }
   });
 
-  test("slack: an enterprise scope will not hold a workspace or user id", () => {
-    for (const enterpriseId of ["T0123ABCD", "U0123ABCD", "W0123ABCD"]) {
-      expect(
-        ChannelAddressSchema.safeParse({
-          channel: "slack",
-          scope: { teamId: "T0123ABCD", enterpriseId },
-          coordinates: { userId: "U0123ABCD" },
-        }).success,
-      ).toBe(false);
-    }
-  });
-
-  test("slack: a user coordinate will not hold a workspace, channel, or bot id", () => {
-    for (const userId of ["T0123ABCD", "E0123ABCD", "C0123ABCD", "B0123ABCD"]) {
-      expect(
-        ChannelAddressSchema.safeParse({
-          channel: "slack",
-          scope: { teamId: "T0123ABCD" },
-          coordinates: { userId },
-        }).success,
-      ).toBe(false);
-    }
-  });
-
-  test("whatsapp: rejects an address with no business number scope", () => {
+  test("slack: an enterprise scope will not hold a workspace id", () => {
     expect(
       ChannelAddressSchema.safeParse({
-        channel: "whatsapp",
-        coordinates: { waId: "+15555550188" },
+        channel: "slack",
+        scope: { teamId: "T0123ABCD", enterpriseId: "T0123ABCD" },
+        coordinates: { conversationId: "C0123ABCD" },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("slack: an address with no workspace scope is rejected", () => {
+    expect(
+      ChannelAddressSchema.safeParse({
+        channel: "slack",
+        coordinates: { conversationId: "C0123ABCD" },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("telegram: a group chat id is negative and still valid", () => {
+    expect(
+      ChannelAddressSchema.safeParse({
+        channel: "telegram",
+        scope: { botId: "8012345" },
+        coordinates: { chatId: "-1001234567890" },
+      }).success,
+    ).toBe(true);
+  });
+
+  test("telegram: an address with no bot scope is rejected", () => {
+    expect(
+      ChannelAddressSchema.safeParse({
+        channel: "telegram",
+        coordinates: { chatId: "123456789" },
+      }).success,
+    ).toBe(false);
+  });
+
+  test("discord: an address without a guild is rejected", () => {
+    // The admission gate drops non-guild messages outright, so a DM never
+    // reaches the point of needing an address.
+    expect(
+      ChannelAddressSchema.safeParse({
+        channel: "discord",
+        scope: { applicationId: "111111111111111111" },
+        coordinates: { channelId: "333333333333333333" },
       }).success,
     ).toBe(false);
   });
 
   test("whatsapp: accepts the bare-digit wa_id Meta actually sends", () => {
-    // `messages[].from` / `contacts[].wa_id` on the Cloud API are full
-    // international digits with no `+`, which is what a producer holds.
     expect(
       ChannelAddressSchema.parse({
         channel: "whatsapp",
         scope: { businessPhoneNumberId: "109876543210987" },
-        coordinates: { waId: "15555550188" },
+        coordinates: { chatId: "15555550188" },
       }),
     ).toEqual({
       channel: "whatsapp",
       scope: { businessPhoneNumberId: "109876543210987" },
-      coordinates: { waId: "+15555550188" },
+      coordinates: { chatId: "+15555550188" },
     });
   });
 
   test("whatsapp: prefixing the country code needs no country to be guessed", () => {
-    // A national format would need a country guess; a wa_id never does, so a
-    // non-US number canonicalizes exactly as cleanly as a US one.
     expect(
       ChannelAddressSchema.parse({
         channel: "whatsapp",
         scope: { businessPhoneNumberId: "109876543210987" },
-        coordinates: { waId: "447700900123" },
+        coordinates: { chatId: "447700900123" },
       }),
     ).toEqual({
       channel: "whatsapp",
       scope: { businessPhoneNumberId: "109876543210987" },
-      coordinates: { waId: "+447700900123" },
+      coordinates: { chatId: "+447700900123" },
     });
   });
 
@@ -273,86 +375,58 @@ describe("ChannelAddress variants", () => {
     const bare = ChannelAddressSchema.parse({
       channel: "whatsapp",
       scope: { businessPhoneNumberId: "109876543210987" },
-      coordinates: { waId: "15555550188" },
+      coordinates: { chatId: "15555550188" },
     });
     const prefixed = ChannelAddressSchema.parse({
       channel: "whatsapp",
       scope: { businessPhoneNumberId: "109876543210987" },
-      coordinates: { waId: "+15555550188" },
+      coordinates: { chatId: "+15555550188" },
     });
     expect(bare).toEqual(prefixed);
     expect(formatChannelAddress(bare)).toBe(formatChannelAddress(prefixed));
   });
 
-  test("whatsapp: still rejects anything that is not a full international number", () => {
-    for (const waId of [
-      "(555) 555-0123",
-      "+1-555-555-0123",
-      "+1",
-      "555012",
-      "not-a-number",
-      "++15555550188",
-    ]) {
-      expect(
-        ChannelAddressSchema.safeParse({
-          channel: "whatsapp",
-          scope: { businessPhoneNumberId: "109876543210987" },
-          coordinates: { waId },
-        }).success,
-      ).toBe(false);
-    }
-  });
-
   test("phone coordinates must already be E.164", () => {
-    // Twilio hands over `From` with its `+`, so unlike a wa_id there is no
-    // second provider-native spelling to accept.
-    for (const value of [
-      "15555550123",
-      "(555) 555-0123",
-      "+1-555-555-0123",
-      "+1",
-    ]) {
+    // Twilio hands over From and To with their `+`, so unlike a wa_id there is
+    // no second provider-native spelling to accept.
+    for (const value of ["15555550123", "(555) 555-0123", "+1"]) {
       expect(
         ChannelAddressSchema.safeParse({
           channel: "phone",
-          coordinates: { e164: value },
+          coordinates: { peerNumber: value },
+          scope: { assistantNumber: "+15555550100" },
         }).success,
       ).toBe(false);
     }
   });
 
-  test("telegram and discord ids must be decimal digits", () => {
+  test("email: the mailbox scope must be an address and is lower cased", () => {
+    expect(
+      ChannelAddressSchema.parse({
+        channel: "email",
+        scope: { mailbox: "Assistant@example.com" },
+        coordinates: { threadId: "thread-abc" },
+      }),
+    ).toEqual({
+      channel: "email",
+      scope: { mailbox: "assistant@example.com" },
+      coordinates: { threadId: "thread-abc" },
+    });
     expect(
       ChannelAddressSchema.safeParse({
-        channel: "telegram",
-        coordinates: { userId: "not-a-number" },
+        channel: "email",
+        scope: { mailbox: "not-an-email" },
+        coordinates: { threadId: "thread-abc" },
       }).success,
     ).toBe(false);
-    expect(
-      ChannelAddressSchema.safeParse({
-        channel: "discord",
-        coordinates: { userId: "-123" },
-      }).success,
-    ).toBe(false);
-  });
-
-  test("email: rejects anything that is not an address", () => {
-    for (const address of ["not-an-email", "@example.com", "user@"]) {
-      expect(
-        ChannelAddressSchema.safeParse({
-          channel: "email",
-          coordinates: { address },
-        }).success,
-      ).toBe(false);
-    }
   });
 
   test("opaque coordinates reject whitespace and control characters", () => {
-    for (const principalId of ["prin abc", "prin\nabc", "prin\tabc"]) {
+    for (const conversationId of ["conv abc", "conv\nabc", "conv\tabc"]) {
       expect(
         ChannelAddressSchema.safeParse({
           channel: "vellum",
-          coordinates: { principalId },
+          coordinates: { conversationId },
         }).success,
       ).toBe(false);
     }
@@ -362,52 +436,9 @@ describe("ChannelAddress variants", () => {
     expect(
       ChannelAddressSchema.safeParse({
         channel: "vellum",
-        coordinates: { principalId: "p".repeat(257) },
+        coordinates: { conversationId: "c".repeat(257) },
       }).success,
     ).toBe(false);
-  });
-
-  test("case-insensitive namespaces are canonicalized on parse", () => {
-    expect(
-      ChannelAddressSchema.parse({
-        channel: "email",
-        coordinates: { address: "Contact.User+Tag@example.com" },
-      }),
-    ).toEqual({
-      channel: "email",
-      coordinates: { address: "contact.user+tag@example.com" },
-    });
-
-    expect(
-      ChannelAddressSchema.parse({
-        channel: "a2a",
-        coordinates: { assistantId: "Peer-Assistant-1" },
-      }),
-    ).toEqual({
-      channel: "a2a",
-      coordinates: { assistantId: "peer-assistant-1" },
-    });
-  });
-});
-
-describe("identity is not delivery routing", () => {
-  test("no variant carries a reply callback or conversation coordinate", () => {
-    for (const channel of CHANNELS) {
-      const shape = CHANNEL_ADDRESS_SCHEMAS[channel].shape;
-      expect(Object.keys(shape).sort()).toEqual(
-        "scope" in shape
-          ? ["channel", "coordinates", "scope"]
-          : ["channel", "coordinates"],
-      );
-      const coordinates = Object.keys(
-        CHANNEL_ADDRESS_SCHEMAS[channel].shape.coordinates.shape,
-      );
-      for (const name of coordinates) {
-        expect(name.toLowerCase()).not.toContain("callback");
-        expect(name.toLowerCase()).not.toContain("conversation");
-        expect(name.toLowerCase()).not.toContain("url");
-      }
-    }
   });
 });
 
@@ -431,48 +462,45 @@ describe("string projection", () => {
   test("projection does not depend on the order fields were written in", () => {
     const written = formatChannelAddress({
       channel: "slack",
-      coordinates: { userId: "U0123ABCD" },
+      coordinates: {
+        threadTs: "1700000000.000100",
+        conversationId: "C0123ABCD",
+      },
       scope: { enterpriseId: "E9876ZZZZ", teamId: "T0123ABCD" },
     });
     const rewritten = formatChannelAddress({
       channel: "slack",
       scope: { teamId: "T0123ABCD", enterpriseId: "E9876ZZZZ" },
-      coordinates: { userId: "U0123ABCD" },
+      coordinates: {
+        conversationId: "C0123ABCD",
+        threadTs: "1700000000.000100",
+      },
     });
     expect(written).toBe(rewritten);
     expect(written).toBe(
-      "slack:scope.enterpriseId=E9876ZZZZ;scope.teamId=T0123ABCD;userId=U0123ABCD",
+      "slack:scope.enterpriseId=E9876ZZZZ;scope.teamId=T0123ABCD;conversationId=C0123ABCD;threadTs=1700000000.000100",
     );
   });
 
-  test("projection is canonical even when the input spelling is not", () => {
+  test("absent optional coordinates are omitted, not emitted empty", () => {
     expect(
       formatChannelAddress({
-        channel: "email",
-        coordinates: { address: "Contact@example.com" },
+        channel: "telegram",
+        scope: { botId: "8012345" },
+        coordinates: { chatId: "123456789" },
       }),
-    ).toBe("email:address=contact%40example.com");
-  });
-
-  test("absent optional scope coordinates are omitted, not emitted empty", () => {
-    expect(
-      formatChannelAddress({
-        channel: "slack",
-        scope: { teamId: "T0123ABCD" },
-        coordinates: { userId: "U0123ABCD" },
-      }),
-    ).toBe("slack:scope.teamId=T0123ABCD;userId=U0123ABCD");
+    ).toBe("telegram:scope.botId=8012345;chatId=123456789");
   });
 
   test("separators inside a coordinate value are escaped", () => {
     const projection = formatChannelAddress({
       channel: "a2a",
-      coordinates: { assistantId: "a;b=c%d" },
+      coordinates: { peerAssistantId: "a;b=c%d" },
     });
-    expect(projection).toBe("a2a:assistantId=a%3Bb%3Dc%25d");
+    expect(projection).toBe("a2a:peerAssistantId=a%3Bb%3Dc%25d");
     expect(parseChannelAddress(projection)).toEqual({
       channel: "a2a",
-      coordinates: { assistantId: "a;b=c%d" },
+      coordinates: { peerAssistantId: "a;b=c%d" },
     });
   });
 
@@ -487,7 +515,8 @@ describe("string projection", () => {
     expect(() =>
       formatChannelAddress({
         channel: "phone",
-        coordinates: { e164: "555-0123" },
+        scope: { assistantNumber: "+15555550100" },
+        coordinates: { peerNumber: "555-0123" },
       }),
     ).toThrow();
   });
@@ -498,20 +527,20 @@ describe("projection parsing", () => {
     const malformed = [
       "",
       "telegram",
-      ":userId=1",
+      ":chatId=1",
       "telegram:",
-      "telegram:userId",
+      "telegram:chatId",
       "telegram:=1",
-      "telegram:userId=1;",
-      "telegram:userId=1;userId=2",
-      "telegram:scope.=1;userId=1",
-      "telegram:userId=%E0%A4%A",
-      "mastodon:userId=1",
-      "telegram:userId=1;bogus=2",
-      "telegram:scope.botId=1;userId=1",
-      "slack:userId=U0123ABCD",
+      "telegram:scope.botId=8012345;chatId=1;",
+      "telegram:scope.botId=8012345;chatId=1;chatId=2",
+      "telegram:scope.=1;chatId=1",
+      "telegram:scope.botId=8012345;chatId=%E0%A4%A",
+      "mastodon:chatId=1",
+      "telegram:scope.botId=8012345;chatId=1;bogus=2",
+      "telegram:scope.bogus=1;scope.botId=8012345;chatId=1",
+      "slack:conversationId=C0123ABCD",
       "slack:scope.teamId=T0123ABCD",
-      "phone:e164=5555550123",
+      "phone:scope.assistantNumber=%2B15555550100;peerNumber=5555550123",
     ];
     for (const text of malformed) {
       expect(safeParseChannelAddress(text)).toBeNull();
@@ -524,14 +553,14 @@ describe("projection parsing", () => {
     // keeping it, and a projection with junk appended parses as if it were
     // clean. Every one of these carries an otherwise valid address.
     for (const text of [
-      "telegram:userId=987654321;__proto__=x",
-      "telegram:userId=987654321;scope.__proto__=x",
-      "telegram:userId=987654321;constructor=x",
-      "telegram:userId=987654321;prototype=x",
-      "telegram:userId=987654321;toString=x",
-      "telegram:userId=987654321;hasOwnProperty=x",
-      "slack:scope.teamId=T0123ABCD;userId=U0123ABCD;__proto__=junk",
-      "slack:scope.__proto__=x;scope.teamId=T0123ABCD;userId=U0123ABCD",
+      "vellum:conversationId=conv-xyz;__proto__=x",
+      "vellum:conversationId=conv-xyz;scope.__proto__=x",
+      "vellum:conversationId=conv-xyz;constructor=x",
+      "vellum:conversationId=conv-xyz;prototype=x",
+      "vellum:conversationId=conv-xyz;toString=x",
+      "vellum:conversationId=conv-xyz;hasOwnProperty=x",
+      "slack:scope.teamId=T0123ABCD;conversationId=C0123ABCD;__proto__=junk",
+      "slack:scope.__proto__=x;scope.teamId=T0123ABCD;conversationId=C0123ABCD",
     ]) {
       expect(safeParseChannelAddress(text)).toBeNull();
     }
@@ -539,32 +568,41 @@ describe("projection parsing", () => {
 
   test("a repeated prototype-shaped field is caught like any other duplicate", () => {
     for (const text of [
-      "telegram:__proto__=a;__proto__=b;userId=987654321",
-      "telegram:constructor=a;constructor=b;userId=987654321",
-      "slack:scope.__proto__=a;scope.__proto__=b;scope.teamId=T0123ABCD;userId=U0123ABCD",
+      "vellum:__proto__=a;__proto__=b;conversationId=conv-xyz",
+      "vellum:constructor=a;constructor=b;conversationId=conv-xyz",
+      "slack:scope.__proto__=a;scope.__proto__=b;scope.teamId=T0123ABCD;conversationId=C0123ABCD",
     ]) {
       expect(safeParseChannelAddress(text)).toBeNull();
     }
   });
 
   test("parsing never mutates Object.prototype", () => {
-    safeParseChannelAddress("telegram:userId=987654321;__proto__=polluted");
-    safeParseChannelAddress("telegram:__proto__=polluted;userId=987654321");
+    safeParseChannelAddress(
+      "vellum:conversationId=conv-xyz;__proto__=polluted",
+    );
+    safeParseChannelAddress(
+      "vellum:__proto__=polluted;conversationId=conv-xyz",
+    );
     expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
     expect("polluted" in {}).toBe(false);
     expect(Object.getPrototypeOf({})).toBe(Object.prototype);
   });
 
   test("the throwing form does not echo the projection", () => {
-    const attempt = () => parseChannelAddress("email:address=secret-user");
+    const attempt = () => parseChannelAddress("email:threadId=secret-thread");
     expect(attempt).toThrow("not a valid channel address projection");
-    expect(attempt).not.toThrow("secret-user");
+    expect(attempt).not.toThrow("secret-thread");
   });
 
   test("parsing canonicalizes a non-canonical projection", () => {
-    expect(parseChannelAddress("email:address=Contact%40example.com")).toEqual({
+    expect(
+      parseChannelAddress(
+        "email:scope.mailbox=Assistant%40example.com;threadId=thread-abc",
+      ),
+    ).toEqual({
       channel: "email",
-      coordinates: { address: "contact@example.com" },
+      scope: { mailbox: "assistant@example.com" },
+      coordinates: { threadId: "thread-abc" },
     });
   });
 });

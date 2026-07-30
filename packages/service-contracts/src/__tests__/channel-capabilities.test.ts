@@ -5,6 +5,7 @@ import {
   CHANNEL_ADDRESS_CAPABILITIES,
   accountScopedChannels,
   channelAddressCapabilities,
+  threadableChannels,
 } from "../channel-capabilities.js";
 import { CHANNEL_IDS, type ChannelId } from "../channels.js";
 
@@ -24,9 +25,14 @@ describe("channel address capabilities", () => {
 
       expect(capabilities.channel).toBe(channel);
       expect(capabilities.accountScoped).toBe("scope" in shape);
-      expect(capabilities.identityCoordinates).toEqual(
+      expect(capabilities.conversationCoordinates).toEqual(
         Object.keys(shape.coordinates.shape).sort(),
       );
+      expect(
+        capabilities.requiredConversationCoordinates.every((name) =>
+          capabilities.conversationCoordinates.includes(name),
+        ),
+      ).toBe(true);
       expect(
         capabilities.requiredScopeCoordinates.every((name) =>
           capabilities.scopeCoordinates.includes(name),
@@ -41,23 +47,37 @@ describe("channel address capabilities", () => {
     }
   });
 
-  test("a scoped channel names its scope coordinates", () => {
+  test("threadable is derived, never asserted", () => {
+    for (const channel of CHANNELS) {
+      const capabilities = channelAddressCapabilities(channel);
+      const hasOptionalCoordinate =
+        capabilities.requiredConversationCoordinates.length <
+        capabilities.conversationCoordinates.length;
+      expect(capabilities.threadable).toBe(hasOptionalCoordinate);
+    }
+  });
+
+  test("a threaded, scoped channel annotates both", () => {
     expect(channelAddressCapabilities("slack")).toEqual({
       channel: "slack",
       accountScoped: true,
       scopeCoordinates: ["enterpriseId", "teamId"],
       requiredScopeCoordinates: ["teamId"],
-      identityCoordinates: ["userId"],
+      conversationCoordinates: ["conversationId", "threadTs"],
+      requiredConversationCoordinates: ["conversationId"],
+      threadable: true,
     });
   });
 
-  test("an unscoped channel annotates as unscoped", () => {
-    expect(channelAddressCapabilities("telegram")).toEqual({
-      channel: "telegram",
+  test("an unscoped, unthreaded channel annotates as neither", () => {
+    expect(channelAddressCapabilities("a2a")).toEqual({
+      channel: "a2a",
       accountScoped: false,
       scopeCoordinates: [],
       requiredScopeCoordinates: [],
-      identityCoordinates: ["userId"],
+      conversationCoordinates: ["peerAssistantId"],
+      requiredConversationCoordinates: ["peerAssistantId"],
+      threadable: false,
     });
   });
 
@@ -71,12 +91,19 @@ describe("channel address capabilities", () => {
     );
   });
 
+  test("the threadable channels are the ones with a thread coordinate", () => {
+    const expected: ChannelId[] = ["discord", "slack", "telegram"];
+    expect([...threadableChannels()].sort()).toEqual(expected.sort());
+  });
+
   test("coordinate name lists are sorted so annotations are comparable", () => {
     for (const channel of CHANNELS) {
-      const { scopeCoordinates, identityCoordinates } =
+      const { scopeCoordinates, conversationCoordinates } =
         channelAddressCapabilities(channel);
       expect(scopeCoordinates).toEqual([...scopeCoordinates].sort());
-      expect(identityCoordinates).toEqual([...identityCoordinates].sort());
+      expect(conversationCoordinates).toEqual(
+        [...conversationCoordinates].sort(),
+      );
     }
   });
 });

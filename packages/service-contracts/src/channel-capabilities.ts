@@ -1,13 +1,14 @@
 /**
  * Channel capability annotations, read off the address schemas.
  *
- * What a consumer needs to know about a channel before it can address one is
- * already stated by that channel's `ChannelAddress` variant: whether identity
- * is namespaced by a provider account, which scope coordinates exist, which of
- * them are required, and which coordinates name the peer. Restating any of it
- * in a hand-maintained table would create a second classifier that drifts from
- * the schemas the moment one side is edited alone, so this module reflects the
- * schemas instead and holds no per-channel data of its own.
+ * What a consumer needs to know before it can address a channel is already
+ * stated by that channel's `ChannelAddress` variant: whether conversations are
+ * namespaced by a provider account, which scope coordinates exist, which of
+ * them are required, and which coordinates name the conversation and its
+ * thread. Restating any of it in a hand-maintained table would create a second
+ * classifier that drifts from the schemas the moment one side is edited alone,
+ * so this module reflects the schemas instead and holds no per-channel data of
+ * its own.
  *
  * The annotations are built by walking `CHANNEL_IDS`, so a channel added to the
  * canonical vocabulary without an address variant fails at import rather than
@@ -23,9 +24,9 @@ import { CHANNEL_IDS, type ChannelId } from "./channels.js";
 export interface ChannelAddressCapabilities {
   readonly channel: ChannelId;
   /**
-   * Whether identity on this channel is namespaced by a provider account or
-   * installation. A Slack user id means nothing without its workspace; a phone
-   * number means the same thing everywhere.
+   * Whether conversations on this channel are namespaced by a provider account
+   * or installation. A Slack conversation id means nothing without its
+   * workspace; an A2A peer means the same thing everywhere.
    */
   readonly accountScoped: boolean;
   /** Scope coordinate names, alphabetical. Empty when the channel is not scoped. */
@@ -36,8 +37,16 @@ export interface ChannelAddressCapabilities {
    * enterprise id, which only Enterprise Grid has).
    */
   readonly requiredScopeCoordinates: readonly string[];
-  /** Coordinate names identifying the peer itself, alphabetical. */
-  readonly identityCoordinates: readonly string[];
+  /** Coordinate names naming the conversation and its thread, alphabetical. */
+  readonly conversationCoordinates: readonly string[];
+  /**
+   * Conversation coordinates a producer must always supply, alphabetical. A
+   * coordinate outside this list is a thread or topic key, present only when
+   * the conversation is actually threaded.
+   */
+  readonly requiredConversationCoordinates: readonly string[];
+  /** Whether this channel's conversations can be threaded at all. */
+  readonly threadable: boolean;
 }
 
 /**
@@ -84,7 +93,11 @@ function describe(channel: ChannelId): ChannelAddressCapabilities {
     accountScoped: scope !== null,
     scopeCoordinates: scope ? sortedKeys(scope.shape) : [],
     requiredScopeCoordinates: scope ? requiredKeys(scope.shape) : [],
-    identityCoordinates: sortedKeys(coordinates.shape),
+    conversationCoordinates: sortedKeys(coordinates.shape),
+    requiredConversationCoordinates: requiredKeys(coordinates.shape),
+    threadable:
+      requiredKeys(coordinates.shape).length <
+      sortedKeys(coordinates.shape).length,
   };
 }
 
@@ -105,9 +118,16 @@ export function channelAddressCapabilities(
   return capabilities;
 }
 
-/** Channels whose identity is namespaced by a provider account or installation. */
+/** Channels whose conversations are namespaced by a provider account. */
 export function accountScopedChannels(): readonly ChannelId[] {
   return CHANNEL_IDS.filter(
     (channel) => channelAddressCapabilities(channel).accountScoped,
+  );
+}
+
+/** Channels whose conversations can carry a thread or topic key. */
+export function threadableChannels(): readonly ChannelId[] {
+  return CHANNEL_IDS.filter(
+    (channel) => channelAddressCapabilities(channel).threadable,
   );
 }
