@@ -41,6 +41,45 @@ describe("createMetadata", () => {
     });
   });
 
+  test("defaults OG and Twitter images to the static docs OG image", () => {
+    const metadata = createMetadata({
+      title: "Pricing",
+      description: "Vellum pricing",
+      path: "/docs/pricing",
+    });
+
+    expect(metadata.openGraph?.images).toEqual([
+      {
+        url: "https://www.vellum.ai/docs/og.png",
+        width: 1200,
+        height: 630,
+        alt: "Pricing",
+      },
+    ]);
+    expect(metadata.twitter?.images).toEqual([
+      {
+        url: "https://www.vellum.ai/docs/og.png",
+        alt: "Pricing",
+      },
+    ]);
+  });
+
+  test("uses an explicit image without assuming dimensions", () => {
+    const metadata = createMetadata({
+      title: "Pricing",
+      description: "Vellum pricing",
+      path: "/docs/pricing",
+      image: "https://www.vellum.ai/docs/custom.png",
+    });
+
+    expect(metadata.openGraph?.images).toEqual([
+      {
+        url: "https://www.vellum.ai/docs/custom.png",
+        alt: "Pricing",
+      },
+    ]);
+  });
+
   test("maps the docs index to /docs/index.md", () => {
     const metadata = createMetadata({
       title: "Docs",
