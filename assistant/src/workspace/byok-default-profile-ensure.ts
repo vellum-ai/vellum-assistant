@@ -37,10 +37,16 @@ const log = getLogger("byok-default-profile-ensure");
 // The pass runs regardless of the CURRENT default provider: an install that
 // hatched BYOK and later connected to platform (default provider `vellum`)
 // carries the same hatch residue and converts the same way; its default
-// keys then resolve from the vellum column instead. That is why "unedited"
-// is judged against the provider recorded in each copy's own body, not the
-// current default: the copy was materialized once at hatch from the hatch
-// provider's column, and the default provider may have changed since.
+// keys then resolve from the vellum column instead. The copy is compared
+// against the provider recorded in its own body (it was materialized once
+// at hatch from the hatch provider's column), but a body-matches-template
+// copy is only positively hatch-written when that provider is corroborated:
+// on a BYOK default it must equal the default provider (a copy the user
+// re-provisioned to another provider, picking that provider's standard
+// model in the editor, reproduces the template exactly and must not lose
+// its explicit provider selection), and on a vellum default every present
+// copy must record the same provider, since one hatch wrote the whole set
+// from a single provider and a re-provisioned copy breaks that uniformity.
 //
 // "Unedited" is judged against what hatch seeding actually left on disk, not
 // the raw template: both the copy and the template are normalized through the
@@ -257,12 +263,23 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
   // onto user-source profiles (see `withCompletionBaked`).
   const completionBase = LLMConfigBase.safeParse(llm.default ?? {}).data;
 
+  // The one provider whose copies may convert this boot (see the header):
+  // the default provider itself on a BYOK default, or the uniform provider
+  // across all present copies on a vellum default. Null converts nothing.
+  const convertibleProvider =
+    parsedDefault.data.provider !== "vellum"
+      ? parsedDefault.data.provider
+      : uniformCopyProvider(profiles);
+
   const retired = new Map<string, string>();
   const carriedDisables = new Set<DefaultProfileKey>();
   for (const key of DEFAULT_PROFILE_KEYS) {
     const name = `custom-${key}`;
     const entry = readObject(profiles[name]);
-    if (entry === null || !isKnownUneditedBody(entry, key, completionBase)) {
+    if (
+      entry === null ||
+      !isKnownUneditedBody(entry, key, convertibleProvider, completionBase)
+    ) {
       continue;
     }
     const overlay = userOverlayState(entry, key);
@@ -315,24 +332,27 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 function isKnownUneditedBody(
   entry: Record<string, unknown>,
   key: DefaultProfileKey,
+  convertibleProvider: string | null,
   completionBase: LLMConfigBase | undefined,
 ): boolean {
   if (typeof entry.model !== "string") {
     return false;
   }
   // Hatch seeding materialized the copy from the HATCH provider's column and
-  // recorded that provider on the body; the current default provider may
-  // have changed since (most commonly to `vellum` after connecting to
-  // platform), so the copy is compared against its own recorded provider.
-  // Only providers that can back the code-defined defaults are candidates:
-  // it keeps the comparison off the catalog/fallback default-model path, and
-  // legacy onboarding copies for keyless or endpoint-supplied providers
-  // (ollama, openai-compatible) must never retire, since their
-  // `provider_connection` can carry a base URL the bare key cannot recover.
-  // `vellum` never had hatch copies, so a body claiming it is not one.
+  // recorded that provider on the body, so the comparison template comes
+  // from the copy's own provider; `convertibleProvider` corroborates that
+  // the provider is hatch provenance and not a user re-provision (see the
+  // header). Only providers that can back the code-defined defaults are
+  // candidates: it keeps the comparison off the catalog/fallback
+  // default-model path, and legacy onboarding copies for keyless or
+  // endpoint-supplied providers (ollama, openai-compatible) must never
+  // retire, since their `provider_connection` can carry a base URL the bare
+  // key cannot recover. `vellum` never had hatch copies, so a body claiming
+  // it is not one.
   const copyProvider = entry.provider;
   if (
     typeof copyProvider !== "string" ||
+    copyProvider !== convertibleProvider ||
     !isDefaultProviderChoice(copyProvider) ||
     copyProvider === "vellum"
   ) {
@@ -368,6 +388,33 @@ function isKnownUneditedBody(
   return hatchBodyVariants(known, key, copyProvider).some((variant) =>
     isDeepStrictEqual(body, variant),
   );
+}
+
+/**
+ * The single provider recorded across every present `custom-*` copy, or
+ * null when the copies disagree (or none carries a provider string). One
+ * hatch wrote the whole set from one provider, so uniformity is the
+ * provenance signal for converting copies whose provider cannot be checked
+ * against a vellum default; a copy the user re-provisioned to another
+ * provider breaks it and conservatively keeps the whole set.
+ */
+function uniformCopyProvider(profiles: Record<string, unknown>): string | null {
+  let provider: string | null = null;
+  for (const key of DEFAULT_PROFILE_KEYS) {
+    const entry = readObject(profiles[`custom-${key}`]);
+    if (entry === null) {
+      continue;
+    }
+    if (typeof entry.provider !== "string") {
+      return null;
+    }
+    if (provider === null) {
+      provider = entry.provider;
+    } else if (provider !== entry.provider) {
+      return null;
+    }
+  }
+  return provider;
 }
 
 /**

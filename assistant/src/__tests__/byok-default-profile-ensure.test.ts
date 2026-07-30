@@ -942,10 +942,11 @@ describe("ensureByokDefaultProfiles", () => {
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
   });
 
-  test("a custom copy for a different provider than the current default converts", () => {
-    // The copy is judged against its own recorded provider: an unedited
-    // anthropic hatch copy is hatch residue even after the user switched
-    // the default provider to openai.
+  test("a custom copy for a different BYOK provider than the current default is kept", () => {
+    // A copy the user re-provisioned to another provider (standard model,
+    // template tuning) is indistinguishable from a hatch copy for that
+    // provider, so on a BYOK default only copies matching the default
+    // provider are positively hatch-written.
     writeConfig({
       llm: {
         defaultProvider: { provider: "openai" },
@@ -954,10 +955,36 @@ describe("ensureByokDefaultProfiles", () => {
         },
       },
     });
+    const before = readFileSync(configPath(), "utf-8");
 
     ensureByokDefaultProfiles(workspaceDir);
 
-    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("a vellum default keeps all copies when one was re-provisioned to another provider", () => {
+    // Provider uniformity across the set is the hatch-provenance signal on
+    // a vellum default; a re-provisioned copy breaks it and conservatively
+    // keeps the whole set. The stubs still delete.
+    const config = uneditedByokConfig();
+    const llmConfig = config.llm as Record<string, unknown>;
+    llmConfig.defaultProvider = { provider: "vellum" };
+    const profileMap = llmConfig.profiles as Record<
+      string,
+      Record<string, unknown>
+    >;
+    profileMap["custom-balanced"] = hatchBody("balanced", "openai");
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles().balanced).toBeUndefined();
+    expect(profiles()["quality-optimized"]).toBeUndefined();
+    expect(profiles()["cost-optimized"]).toBeUndefined();
+    expect(profiles()["custom-balanced"]).toBeDefined();
+    expect(profiles()["custom-quality-optimized"]).toBeDefined();
+    expect(profiles()["custom-cost-optimized"]).toBeDefined();
+    expect(llm().activeProfile).toBe("custom-balanced");
     expectSecondRunNoop();
   });
 
