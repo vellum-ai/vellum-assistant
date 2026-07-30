@@ -83,7 +83,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     ///
     /// - Marking a *healthy* session stale costs the phase wording for a while.
     ///   The assistant name, the accent and the avatar stay, and tapping
-    ///   through still returns to the session — see
+    ///   through still returns to the session. See
     ///   `ContentState.displayLabel(isStale:)`.
     /// - Leaving a *wedged* session unmarked is a standing claim that a socket
     ///   and a microphone are live. "Listening…" on a Lock Screen is read as an
@@ -92,7 +92,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     ///
     /// Being early is bounded; being late is not. So forty-five seconds: long
     /// enough to clear a pause between turns and a short tool call, and **not**
-    /// long enough for every legitimately long phase — a multi-minute agentic
+    /// long enough for every legitimately long phase: a multi-minute agentic
     /// turn parked in `thinking`, or a long TTS answer, drops its label while
     /// perfectly healthy. That is the accepted cost; a phase-aware horizon (a
     /// longer one for `thinking`) is the refinement to reach for if it proves
@@ -100,7 +100,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     ///
     /// None of this makes a wedged island *correct*. The horizon only bounds
     /// how long it can be wrong: whether the web layer keeps pushing at all
-    /// once iOS suspends it is unmeasured on hardware — see
+    /// once iOS suspends it is unmeasured on hardware. See
     /// `docs/CAPACITOR.md` § "The background-audio contract".
     private static let contentStaleAfter: TimeInterval = 45
 
