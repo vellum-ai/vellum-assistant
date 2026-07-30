@@ -1,0 +1,239 @@
+/**
+ * Data layer for local files referenced from chat markdown.
+ *
+ * Classification costs one ranged GET: the first 512 bytes answer existence,
+ * total size (from `Content-Range`), and content type (magic bytes, with the
+ * server's extension-derived type and the filename as fallbacks) without
+ * pulling a whole media file across the wire. Components decide what to render
+ * from the resulting {@link LocalFileInfo}, and only then ask for the full
+ * bytes through {@link useLocalFileObjectUrl}.
+ */
+
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+
+import {
+  type LocalFileKind,
+  resolveLocalFileType,
+  sniffMimeType,
+} from "@/domains/chat/utils/mime-sniff";
+import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+import { workspaceFileContentGet } from "@/generated/daemon/sdk.gen";
+
+export type LocalFileInfo =
+  | { status: "loading" }
+  | { status: "unavailable"; reason: "missing" | "outside-workspace" | "error" }
+  | {
+      status: "ready";
+      kind: LocalFileKind;
+      mime: string | null;
+      sizeBytes: number | null;
+      workspacePath: string;
+      filename: string;
+    };
+
+/** Enough for every signature we sniff, and cheap on a large file. */
+const HEAD_BYTES = 512;
+const HEAD_RANGE = `bytes=0-${HEAD_BYTES - 1}`;
+
+/** A file's identity rarely changes mid-conversation. */
+const INFO_STALE_TIME_MS = 30_000;
+
+type LocalFileProbe =
+  | {
+      ok: true;
+      kind: LocalFileKind;
+      mime: string | null;
+      sizeBytes: number | null;
+    }
+  | { ok: false; reason: "missing" | "error" };
+
+/**
+ * Read at most `limit` bytes, then cancel. A server that ignores the `Range`
+ * header answers 200 with the whole file, and buffering that to classify it
+ * would defeat the point of the probe.
+ */
+async function readFirstBytes(
+  stream: ReadableStream<Uint8Array> | null,
+  limit: number,
+): Promise<Uint8Array> {
+  if (!stream) {
+    return new Uint8Array(0);
+  }
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < limit) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (value && value.byteLength > 0) {
+        chunks.push(value);
+        total += value.byteLength;
+      }
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+
+  const head = new Uint8Array(Math.min(total, limit));
+  let offset = 0;
+  for (const chunk of chunks) {
+    if (offset >= head.length) {
+      break;
+    }
+    const slice = chunk.subarray(0, head.length - offset);
+    head.set(slice, offset);
+    offset += slice.byteLength;
+  }
+  return head;
+}
+
+/** Total size from a 206's `Content-Range`, or a 200's `Content-Length`. */
+function totalSizeOf(response: Response): number | null {
+  const contentRange = response.headers.get("Content-Range");
+  if (contentRange) {
+    const total = /\/\s*(\d+)\s*$/.exec(contentRange)?.[1];
+    return total ? Number(total) : null;
+  }
+  const contentLength = response.headers.get("Content-Length");
+  if (contentLength && /^\d+$/.test(contentLength.trim())) {
+    return Number(contentLength.trim());
+  }
+  return null;
+}
+
+async function probeWorkspaceFile(
+  assistantId: string,
+  workspacePath: string,
+): Promise<LocalFileProbe> {
+  try {
+    const { data, error, response } = await workspaceFileContentGet({
+      path: { assistant_id: assistantId },
+      query: { path: workspacePath },
+      headers: { Range: HEAD_RANGE },
+      parseAs: "stream",
+      throwOnError: false,
+    });
+
+    if (error || !response?.ok) {
+      return {
+        ok: false,
+        reason: response?.status === 404 ? "missing" : "error",
+      };
+    }
+
+    // `parseAs: "stream"` hands back the response body; the generated response
+    // type describes the default `blob` parse.
+    const body = data as unknown as ReadableStream<Uint8Array> | null;
+    const headBytes = await readFirstBytes(body, HEAD_BYTES);
+    const { mime, kind } = resolveLocalFileType({
+      sniffedMime: sniffMimeType(headBytes),
+      serverMime: response.headers.get("Content-Type"),
+      filename: workspaceBasenameOf(workspacePath),
+    });
+    return { ok: true, kind, mime, sizeBytes: totalSizeOf(response) };
+  } catch {
+    return { ok: false, reason: "error" };
+  }
+}
+
+/**
+ * Classify a workspace file with a single ranged GET (bytes=0-511): existence,
+ * size, and MIME (magic bytes with extension fallback).
+ */
+export function useLocalFileInfo(
+  workspacePath: string | null,
+  assistantId?: string,
+): LocalFileInfo {
+  const canFetch = workspacePath !== null && !!assistantId;
+
+  const query = useQuery({
+    queryKey: ["local-file-info", assistantId ?? null, workspacePath],
+    queryFn: () => probeWorkspaceFile(assistantId!, workspacePath!),
+    enabled: canFetch,
+    staleTime: INFO_STALE_TIME_MS,
+    retry: false,
+  });
+
+  const probe = query.data;
+  const isError = query.isError;
+
+  return useMemo<LocalFileInfo>(() => {
+    if (workspacePath === null) {
+      return { status: "unavailable", reason: "outside-workspace" };
+    }
+    if (!probe) {
+      // No assistant id yet means the probe has not run, not that the file is
+      // gone, so the reference stays in its loading state.
+      return isError
+        ? { status: "unavailable", reason: "error" }
+        : { status: "loading" };
+    }
+    if (!probe.ok) {
+      return { status: "unavailable", reason: probe.reason };
+    }
+    return {
+      status: "ready",
+      kind: probe.kind,
+      mime: probe.mime,
+      sizeBytes: probe.sizeBytes,
+      workspacePath,
+      filename: workspaceBasenameOf(workspacePath),
+    };
+  }, [workspacePath, probe, isError]);
+}
+
+/**
+ * Full bytes of a workspace file as an object URL, re-wrapped so the URL
+ * carries the classified MIME type rather than the server's extension guess.
+ * Revoked on unmount and whenever the underlying blob changes.
+ */
+export function useLocalFileObjectUrl(args: {
+  workspacePath: string | null;
+  mime: string | null;
+  enabled: boolean;
+  assistantId?: string;
+}): { url: string | null; isError: boolean } {
+  const { workspacePath, mime, enabled, assistantId } = args;
+  const canFetch = enabled && workspacePath !== null && !!assistantId;
+
+  const { data: blob, isError } = useQuery({
+    queryKey: ["local-file-blob", assistantId ?? null, workspacePath],
+    queryFn: async () => {
+      const { data, error } = await workspaceFileContentGet({
+        path: { assistant_id: assistantId! },
+        query: { path: workspacePath! },
+        parseAs: "blob",
+        throwOnError: false,
+      });
+      if (error || !(data instanceof Blob)) {
+        throw new Error("Failed to load workspace file");
+      }
+      return data;
+    },
+    enabled: canFetch,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!blob) {
+      setUrl(null);
+      return;
+    }
+    const typed = new Blob([blob], { type: mime ?? undefined });
+    const objectUrl = URL.createObjectURL(typed);
+    setUrl(objectUrl);
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+      setUrl(null);
+    };
+  }, [blob, mime]);
+
+  return { url, isError };
+}

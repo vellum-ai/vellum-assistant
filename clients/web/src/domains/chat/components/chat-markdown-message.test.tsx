@@ -1,21 +1,139 @@
 /**
  * Tests for the chat-domain ChatMarkdownMessage.
  *
- * Generic rendering tests live in `packages/design-library/`. These tests
- * cover the OAuth popup link behaviour and vellum:// file link handling
- * injected by the chat-domain wrapper.
+ * Generic rendering tests live in `packages/design-library/`. These tests cover
+ * what the chat-domain wrapper injects: OAuth popup links, and the dispatch of
+ * markdown links and images onto attachment previews, workspace file media, and
+ * remote images.
  */
 
-import { describe, expect, test } from "bun:test";
-import { createElement } from "react";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import { shouldOpenMarkdownLinkInOAuthPopup } from "@/domains/chat/utils/oauth-popup-links";
+import type { ChatMarkdownMessageProps } from "@/domains/chat/components/chat-markdown-message";
+import type { DisplayAttachment } from "@/types/attachment-types";
 
-import {
-  ChatMarkdownMessage,
-  isVellumLink,
-} from "@/domains/chat/components/chat-markdown-message";
+const PNG_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
+  0x48, 0x44, 0x52,
+]);
+
+type ContentRequest = {
+  path: { assistant_id: string };
+  query: { path: string };
+  headers?: Record<string, string>;
+  parseAs?: string;
+};
+
+type ContentResult = { data: unknown; error: unknown; response?: Response };
+
+/**
+ * Answer the two requests a workspace file reference makes: the ranged probe
+ * that classifies the bytes, and the full blob fetch for inline media.
+ */
+function serveFile(opts: {
+  bytes: Uint8Array;
+  contentType: string;
+}): (request: ContentRequest) => ContentResult {
+  return (request) => {
+    if (request.parseAs === "blob") {
+      return {
+        data: new Blob([new Uint8Array(opts.bytes)], {
+          type: opts.contentType,
+        }),
+        error: null,
+        response: new Response(null, { status: 200 }),
+      };
+    }
+    return {
+      data: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(opts.bytes);
+          controller.close();
+        },
+      }),
+      error: null,
+      response: new Response(null, {
+        status: 206,
+        headers: {
+          "Content-Type": opts.contentType,
+          "Content-Range": `bytes 0-${opts.bytes.byteLength - 1}/${opts.bytes.byteLength}`,
+        },
+      }),
+    };
+  };
+}
+
+let serve: (request: ContentRequest) => ContentResult;
+
+const workspaceFileContentGet = mock(
+  async (request: ContentRequest): Promise<ContentResult> => serve(request),
+);
+
+const attachmentsByIdContentGet = mock(async () => ({
+  data: new Blob([new Uint8Array(PNG_BYTES)], { type: "image/png" }),
+  error: null,
+}));
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
+  workspaceFileContentGet,
+  attachmentsByIdContentGet,
+}));
+
+mock.module("@/domains/chat/components/chat-attachments/pdf-preview", () => ({
+  PdfPreview: ({ url }: { url: string }) => (
+    <span data-testid="pdf-preview" data-url={url} />
+  ),
+}));
+
+const openWorkspaceFile = mock(async (_path: string) => {});
+
+mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
+
+const { ChatMarkdownMessage, isVellumLink } = await import(
+  "@/domains/chat/components/chat-markdown-message"
+);
+
+function makeAttachment(
+  overrides: Pick<DisplayAttachment, "filename" | "mimeType"> &
+    Partial<DisplayAttachment>,
+): DisplayAttachment {
+  return { id: "att-1", sizeBytes: 1024, previewUrl: null, ...overrides };
+}
+
+function renderMarkdown(props: ChatMarkdownMessageProps) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(<ChatMarkdownMessage {...props} />, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
+beforeEach(() => {
+  workspaceFileContentGet.mockClear();
+  attachmentsByIdContentGet.mockClear();
+  openWorkspaceFile.mockClear();
+  serve = serveFile({ bytes: PNG_BYTES, contentType: "image/png" });
+});
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("ChatMarkdownMessage (OAuth link handling)", () => {
   test("detects OAuth authorization links for popup handling", () => {
@@ -54,6 +172,18 @@ describe("ChatMarkdownMessage (OAuth link handling)", () => {
     expect(html).toContain('target="_blank"');
     expect(html).not.toContain('rel="noopener noreferrer"');
   });
+
+  test("remote links stay on the OAuth-aware anchor, handler or not", () => {
+    const html = renderToStaticMarkup(
+      createElement(ChatMarkdownMessage, {
+        content: "[Docs](https://example.com)",
+        onVellumLinkClick: () => {},
+      }),
+    );
+
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+  });
 });
 
 describe("isVellumLink", () => {
@@ -78,40 +208,180 @@ describe("isVellumLink", () => {
   });
 });
 
-describe("ChatMarkdownMessage (vellum:// link handling)", () => {
-  test("renders vellum:// links without target=_blank when handler provided", () => {
-    const html = renderToStaticMarkup(
-      createElement(ChatMarkdownMessage, {
-        content: "[report.pdf](vellum://workspace/scratch/report.pdf)",
-        onVellumLinkClick: () => {},
-      }),
-    );
+describe("ChatMarkdownMessage (file link dispatch)", () => {
+  test("a vellum:// link opens the file-action modal with its label", () => {
+    const onVellumLinkClick = mock((_href: string, _text: string) => {});
+    const { container } = renderMarkdown({
+      content: "[Open](vellum://workspace/scratch/report.pdf)",
+      onVellumLinkClick,
+    });
 
-    expect(html).toContain("report.pdf");
-    expect(html).toContain("vellum://workspace/scratch/report.pdf");
-    expect(html).not.toContain('target="_blank"');
+    const anchor = container.querySelector("a")!;
+    expect(anchor.getAttribute("href")).toBe(
+      "vellum://workspace/scratch/report.pdf",
+    );
+    expect(anchor.getAttribute("target")).toBeNull();
+    expect(anchor.querySelector("svg")).not.toBeNull();
+
+    fireEvent.click(anchor);
+    expect(onVellumLinkClick).toHaveBeenCalledTimes(1);
+    expect(onVellumLinkClick.mock.calls[0]).toEqual([
+      "vellum://workspace/scratch/report.pdf",
+      "Open",
+    ]);
   });
 
-  test("renders vellum:// links as normal when no handler provided", () => {
-    const html = renderToStaticMarkup(
-      createElement(ChatMarkdownMessage, {
-        content: "[report.pdf](vellum://workspace/scratch/report.pdf)",
-      }),
-    );
+  test("a workspace path link routes through the same modal as vellum://", () => {
+    const onVellumLinkClick = mock((_href: string, _text: string) => {});
+    const { container } = renderMarkdown({
+      content: "[Open](/workspace/scratch/report.pdf)",
+      onVellumLinkClick,
+    });
 
-    expect(html).toContain("report.pdf");
-    expect(html).toContain('target="_blank"');
+    fireEvent.click(container.querySelector("a")!);
+    expect(onVellumLinkClick.mock.calls[0]).toEqual([
+      "vellum://workspace/scratch/report.pdf",
+      "Open",
+    ]);
   });
 
-  test("renders non-vellum links normally even when handler is provided", () => {
-    const html = renderToStaticMarkup(
-      createElement(ChatMarkdownMessage, {
-        content: "[Docs](https://example.com/docs)",
-        onVellumLinkClick: () => {},
-      }),
-    );
+  test("without a handler a file link opens the workspace file viewer", () => {
+    const { container } = renderMarkdown({
+      content: "[report.pdf](vellum://workspace/scratch/report.pdf)",
+    });
 
-    expect(html).toContain('target="_blank"');
-    expect(html).toContain('rel="noopener noreferrer"');
+    const anchor = container.querySelector("a")!;
+    expect(anchor.getAttribute("target")).toBeNull();
+
+    fireEvent.click(anchor);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("scratch/report.pdf");
+  });
+
+  test("a percent-encoded path decodes to the workspace path it names", () => {
+    const { container } = renderMarkdown({
+      content:
+        "[file with spaces](/workspace/scratch/shot%20with%20spaces.png)",
+    });
+
+    fireEvent.click(container.querySelector("a")!);
+    expect(openWorkspaceFile).toHaveBeenCalledWith(
+      "scratch/shot with spaces.png",
+    );
+  });
+
+  test("file links inside a list keep the list structure", () => {
+    const { container } = renderMarkdown({
+      content: "- [a](/workspace/a.md)\n- [b](/workspace/b.md)",
+      onVellumLinkClick: () => {},
+    });
+
+    const items = container.querySelectorAll("li");
+    expect(items.length).toBe(2);
+    expect(container.querySelectorAll("ul").length).toBe(1);
+    expect(items[0]!.querySelector("a")).not.toBeNull();
+    expect(items[1]!.querySelector("a")).not.toBeNull();
+  });
+});
+
+describe("ChatMarkdownMessage (image dispatch)", () => {
+  test("a matching image attachment renders its own blob with the zoom button", async () => {
+    const { container } = renderMarkdown({
+      content: "![alt](vellum://workspace/scratch/chart.png)",
+      attachments: [
+        makeAttachment({ filename: "chart.png", mimeType: "image/png" }),
+      ],
+      assistantId: "asst-1",
+    });
+
+    await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+    expect(
+      container.querySelector("img")!.getAttribute("src")?.startsWith("blob:"),
+    ).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "Expand image: alt" }),
+    ).toBeTruthy();
+    expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+    expect(workspaceFileContentGet).not.toHaveBeenCalled();
+  });
+
+  test("a vellum:// image with no matching attachment renders the workspace embed", async () => {
+    serve = serveFile({
+      bytes: new TextEncoder().encode("# Notes\n"),
+      contentType: "text/markdown",
+    });
+
+    const { container } = renderMarkdown({
+      content: "![alt](vellum://workspace/scratch/notes.md)",
+      attachments: [],
+      assistantId: "asst-1",
+    });
+
+    await waitFor(() => expect(screen.getByText("notes.md")).toBeTruthy());
+    expect(workspaceFileContentGet.mock.calls[0]![0].query.path).toBe(
+      "scratch/notes.md",
+    );
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  test("a matching non-image attachment renders the workspace embed", async () => {
+    serve = serveFile({
+      bytes: new TextEncoder().encode("%PDF-1.7\n%stub"),
+      contentType: "application/pdf",
+    });
+
+    renderMarkdown({
+      content: "![alt](vellum://workspace/report.pdf)",
+      attachments: [
+        makeAttachment({
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+        }),
+      ],
+      assistantId: "asst-1",
+    });
+
+    await waitFor(() => expect(screen.getByTestId("pdf-preview")).toBeTruthy());
+    expect(workspaceFileContentGet.mock.calls[0]![0].query.path).toBe(
+      "report.pdf",
+    );
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
+  });
+
+  test("an absolute workspace path renders the workspace embed", async () => {
+    const { container } = renderMarkdown({
+      content: "![alt](/workspace/scratch/chart.png)",
+      assistantId: "asst-1",
+    });
+
+    await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+    expect(
+      container.querySelector("img")!.getAttribute("src")?.startsWith("blob:"),
+    ).toBe(true);
+    expect(workspaceFileContentGet.mock.calls[0]![0].query.path).toBe(
+      "scratch/chart.png",
+    );
+  });
+
+  test("a remote image renders inline from its own URL", async () => {
+    const { container } = renderMarkdown({
+      content: "![alt](https://example.com/x.png)",
+      assistantId: "asst-1",
+    });
+
+    const img = container.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("https://example.com/x.png");
+    expect(img.getAttribute("alt")).toBe("alt");
+    expect(workspaceFileContentGet).not.toHaveBeenCalled();
+  });
+
+  test("a blanked scheme renders the fallback, never an image or link", () => {
+    const { container } = renderMarkdown({
+      content: "![alt](javascript:alert(1))",
+      assistantId: "asst-1",
+    });
+
+    expect(screen.getByText("Image failed to load (alt)")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.innerHTML).not.toContain("javascript:");
   });
 });
