@@ -29,6 +29,9 @@ bun run android:run
 
 `android:run` syncs the dev configuration, builds `devDebug`, starts or reuses
 a connected device or available emulator, installs the app, and launches it.
+If no emulator exists, the command installs the API 36 system image and creates
+`vellum-api-36`. On macOS it installs missing Android command-line tools through
+Homebrew. The first run may prompt you to accept Android SDK licenses.
 Use `bun run android:open` to work in Android Studio or `bun run android:sync`
 when you only need to refresh native generated files.
 
