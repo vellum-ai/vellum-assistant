@@ -55,10 +55,13 @@ find /path/to/raw-corpus \( -name '.env*' -o -name '*.key' -o -name '*.pem' \
   -o -name '*credential*' -o -name '*secret*' -o -name 'cookies*' \
   -o -path '*tokens*' -o -path '*oauth*' \) -print
 
-# 1b. Screen file CONTENTS for credential shapes. Capture the FULL list
-#     (no truncation): every file named here must be excluded below or
-#     cleaned with the user before it lands.
-rg -l -i "api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password\s*[=:]|passwd|bearer |AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY" \
+# 1b. Screen file CONTENTS for credential shapes. --hidden and --no-ignore
+#     matter: rg skips dotfiles and gitignored paths by default, which is
+#     exactly where credentials live. Capture the FULL list (no truncation):
+#     every file named here must be excluded below or cleaned with the user
+#     before it lands.
+rg -l -i --hidden --no-ignore \
+  "api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password\s*[=:]|passwd|bearer |AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY" \
   /path/to/raw-corpus > /tmp/corpus-secret-hits.txt
 cat /tmp/corpus-secret-hits.txt
 
