@@ -293,7 +293,7 @@ export function ConstitutionContent() {
           <figure className="mb-6 mx-auto max-w-2xl">
             <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
               <Image
-                src="/docs/constitution-archetypes.png"
+                src="/docs/constitution-archetypes.webp"
                 alt="The eight archetypes of creator-assistant relationships"
                 width={1600}
                 height={900}
