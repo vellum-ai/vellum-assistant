@@ -72,7 +72,6 @@ import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
-import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
 import {
   LowBalanceBanner,
@@ -106,16 +105,11 @@ import { Link, useLocation, useNavigate } from "react-router";
 import {
   getChatBillingBannerDecision,
   isManagedCredentialChatError,
+  resolveComposerBillingBanner,
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
-import { resolveCreditPaywallCta } from "@/domains/chat/utils/credit-paywall-cta";
-import {
-  isBillingCtaUpgradeArm,
-  useBillingCtaExperimentArm,
-} from "@/hooks/use-billing-cta-experiment";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
   DisplayAttachment,
@@ -430,10 +424,6 @@ export function ChatMainPanel({
 
   const pushToBillingSettings = useCallback(() => {
     void navigate(routes.settings.usageBilling);
-  }, [navigate]);
-
-  const pushToPlansTakeover = useCallback(() => {
-    void navigate(routes.plans);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -1047,14 +1037,9 @@ export function ChatMainPanel({
     isLowBalance: balanceStatus.isLowBalance,
     dismissed: lowBalanceBannerDismissed,
   });
-
-  // Credit-paywall CTA: single CTA gated by experiment arm + plan. Only fetch
-  // the subscription when the credit paywall is actually shown.
-  const billingCtaArm = useBillingCtaExperimentArm();
-  const isFreePlan = useIsFreePlan(billingBannerDecision === "managed_credits");
-  const creditPaywallMode = resolveCreditPaywallCta({
-    isUpgradeArm: isBillingCtaUpgradeArm(billingCtaArm),
-    isFreePlan,
+  const composerBillingBanner = resolveComposerBillingBanner({
+    billingBannerDecision,
+    showLowBalanceBanner,
   });
 
   // -------------------------------------------------------------------------
@@ -1132,11 +1117,7 @@ export function ChatMainPanel({
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
-      hasBillingBanner={
-        (billingBannerDecision !== null &&
-          billingBannerDecision !== "managed_credits") ||
-        showLowBalanceBanner
-      }
+      hasBillingBanner={composerBillingBanner !== null}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
@@ -1195,17 +1176,11 @@ export function ChatMainPanel({
             onOpenMicSettings={handleOpenMicSettings}
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
-              billingBannerDecision === "daily_limit" ? (
+              composerBillingBanner === "daily_limit" ? (
                 <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
-              ) : billingBannerDecision === "managed_credits" ? (
-                <CreditsExhaustedBanner
-                  mode={creditPaywallMode}
-                  onAddCredits={() => setShowAddCreditsModal(true)}
-                  onUpgrade={pushToPlansTakeover}
-                />
-              ) : billingBannerDecision === "provider_billing" ? (
+              ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
-              ) : showLowBalanceBanner ? (
+              ) : composerBillingBanner === "low_balance" ? (
                 <LowBalanceBanner
                   onAddCredits={() => setShowAddCreditsModal(true)}
                 />

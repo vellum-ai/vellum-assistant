@@ -17,7 +17,7 @@ import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
-// Lazy for the same reason as the composer-banner mount in
+// Lazy for the same reason as the `AddCreditsModal` mount in
 // `active-chat-view.tsx`: the Stripe checkout modal stays out of the chat
 // bundle until a CTA actually opens it.
 const AddCreditsModal = lazy(() =>
@@ -26,8 +26,8 @@ const AddCreditsModal = lazy(() =>
   })),
 );
 
-// Both add-credits modes share one copy set; the free/paid split only matters
-// for the harder-sell composer banner this card's wording deliberately softens.
+// Both add-credits modes share one copy set: the card's soft-sell wording
+// does not vary by plan, only the upgrade experiment arm changes the CTA.
 const ADD_CREDITS_COPY = {
   title: "You’re out of credits",
   subtitle: "Add credits to pick up where you left off.",
