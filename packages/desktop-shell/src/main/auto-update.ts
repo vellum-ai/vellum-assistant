@@ -16,6 +16,17 @@ const ENVIRONMENT: string =
 
 const BUCKET_ENV = ENVIRONMENT === "production" ? "prod" : ENVIRONMENT;
 
+/**
+ * Release-bucket path segment for a platform, matching each client's
+ * electron-builder `publish.url` (macOS → `mac-electron`, Linux →
+ * `linux-electron`). The shared updater resolves this at runtime so it targets
+ * the bucket for the OS it is actually running on.
+ */
+export const releaseBucketSegment = (
+  platform: NodeJS.Platform,
+): "mac-electron" | "linux-electron" =>
+  platform === "darwin" ? "mac-electron" : "linux-electron";
+
 export type { UpdateState, UpdateStatus };
 
 let currentState: UpdateState = { status: "idle" };
@@ -51,7 +62,7 @@ export const installAutoUpdate = (): void => {
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-ai-${BUCKET_ENV}-releases/mac-electron/${process.arch}/`,
+    url: `https://storage.googleapis.com/vellum-ai-${BUCKET_ENV}-releases/${releaseBucketSegment(process.platform)}/${process.arch}/`,
   });
 
   autoUpdater.on("checking-for-update", () => {

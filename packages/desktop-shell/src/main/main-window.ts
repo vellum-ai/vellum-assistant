@@ -53,12 +53,16 @@ const MAIN_TRAFFIC_LIGHT_POSITION = { x: 19, y: 15 } as const;
 // Align the macOS traffic lights with the active layout. The compact
 // onboarding / auth surfaces pass `compact: true` to reset the cluster to the
 // system default (`null`); the main app passes `compact: false` to centre it
-// in the inline title bar. macOS-only API — the desktop app only ships on
-// macOS — but `setWindowButtonPosition` is a harmless no-op shape elsewhere.
+// in the inline title bar. `setWindowButtonPosition` exists only on the macOS
+// BrowserWindow, so the call is gated to macOS — on Linux/Windows there are no
+// traffic-light controls to position.
 const applyTrafficLightPosition = (
   win: BrowserWindow,
   compact: boolean,
 ): void => {
+  if (process.platform !== "darwin") {
+    return;
+  }
   win.setWindowButtonPosition(
     compact ? null : { ...MAIN_TRAFFIC_LIGHT_POSITION },
   );

@@ -10,11 +10,14 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
   pinning is enforced repo-wide; see root `AGENTS.md` for the dependency,
   license, and tool-version rules.
 - All current client apps use bundlers (`clients/web/` via Vite,
-  `clients/macos/` via electron-vite) and therefore use
+  `clients/macos/` and `clients/linux/` via electron-vite) and therefore use
   `moduleResolution: "Bundler"` with `module: "ESNext"`. Bundler-mode apps
   omit `.js` extensions on imports. If a future client compiles without a
   bundler, use NodeNext with `.js` extensions (matching `assistant/`,
   `gateway/`, `cli/`).
+- The macOS and Linux Electron shells share their main-process + preload
+  runtime via [`packages/desktop-shell`](../packages/desktop-shell/); keep
+  cross-platform desktop logic there (platform-gated), not copied per client.
 
 ## Adding a new client
 

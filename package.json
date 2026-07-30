@@ -5,6 +5,7 @@
     "assistant",
     "assistant/src/api",
     "cli",
+    "clients/linux",
     "clients/macos",
     "clients/web",
     "credential-executor",
@@ -13,6 +14,7 @@
     "packages/ces-client",
     "packages/credential-storage",
     "packages/design-library",
+    "packages/desktop-shell",
     "packages/egress-proxy",
     "packages/environments",
     "packages/gateway-client",
@@ -33,5 +35,8 @@
   },
   "patchedDependencies": {
     "storybook@10.4.0": "patches/storybook@10.4.0.patch"
+  },
+  "dependencies": {
+    "electron-vite": "5.0.0"
   }
 }
