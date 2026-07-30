@@ -42,8 +42,7 @@ describe("searchDocsIndex", () => {
       limit: 5,
     });
 
-    expect(prefix.mode).toBe("lexical");
-    expect(prefix.results[0]?.route).toBe("/docs/getting-started");
+    expect(prefix[0]?.route).toBe("/docs/getting-started");
 
     const fuzzy = searchDocsIndex({
       query: "calender",
@@ -51,7 +50,7 @@ describe("searchDocsIndex", () => {
       limit: 5,
     });
 
-    expect(fuzzy.results[0]?.route).toBe("/docs/help/common-issues");
+    expect(fuzzy[0]?.route).toBe("/docs/help/common-issues");
   });
 
   test("builds fuzzy-match snippets from the matched term, not the raw query token", () => {
@@ -71,7 +70,7 @@ describe("searchDocsIndex", () => {
       limit: 5,
     });
 
-    expect(fuzzy.results[0]?.snippet.toLowerCase()).toContain("calendar");
+    expect(fuzzy[0]?.snippet.toLowerCase()).toContain("calendar");
   });
 
   test("boosts title/heading matches over body-only matches", () => {
@@ -101,12 +100,12 @@ describe("searchDocsIndex", () => {
       ],
     };
 
-    const result = searchDocsIndex({
+    const results = searchDocsIndex({
       query: "permissions",
       index,
       limit: 5,
     });
 
-    expect(result.results[0]?.route).toBe("/docs/title-match");
+    expect(results[0]?.route).toBe("/docs/title-match");
   });
 });

@@ -3,12 +3,6 @@ import { load, type Cheerio, type CheerioAPI } from "cheerio";
 import type { DocsSearchChunk } from "@/lib/docs/search/types";
 import { normalizeText, uniqueTokens } from "@/lib/docs/search/text";
 
-export interface ExtractedDocsPage {
-  pageTitle: string;
-  breadcrumb: string;
-  chunks: DocsSearchChunk[];
-}
-
 // Cheerio<AnyNode> derived without importing domhandler, which is not a direct dependency.
 type NodeSelection = ReturnType<Cheerio<never>["contents"]>;
 
@@ -89,7 +83,7 @@ function makeChunk(params: {
   };
 }
 
-export function extractDocsPageFromHtml(route: string, html: string): ExtractedDocsPage {
+export function extractDocsPageFromHtml(route: string, html: string): DocsSearchChunk[] {
   const $ = load(html);
   const main = $(".docs-main").first();
 
@@ -187,5 +181,5 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
     );
   }
 
-  return { pageTitle, breadcrumb, chunks };
+  return chunks;
 }

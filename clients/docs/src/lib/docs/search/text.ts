@@ -72,18 +72,3 @@ export function extractSnippet(body: string, query: string, maxLen = 180): strin
 
   return `${prefix}${snippet}${suffix}`;
 }
-
-export function highlightSnippet(snippet: string, query: string): string {
-  const tokens = uniqueTokens([query]).sort((a, b) => b.length - a.length);
-  if (tokens.length === 0 || !snippet) {
-    return snippet;
-  }
-
-  let output = snippet;
-  for (const token of tokens) {
-    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    output = output.replace(new RegExp(`(${escaped})`, "ig"), "<mark>$1</mark>");
-  }
-
-  return output;
-}
