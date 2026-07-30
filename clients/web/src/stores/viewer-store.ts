@@ -392,14 +392,6 @@ export interface ViewerActions {
    * keep their own dedicated open actions.
    */
   openProcessDetail: (ref: { kind: ProcessKind; id: string }) => void;
-  /**
-   * Close whichever of the four process-detail panels (subagent, workflow,
-   * acp-run, background-task) is currently open, restoring the prior view. A
-   * no-op when none of the four is the active view. Mirrors the existing
-   * Escape behavior for these kinds; does not handle tool-detail, document, or
-   * channel-setup.
-   */
-  closeActiveDetail: () => void;
   /** Close the active overlay view, returning whether one was closed. */
   closeActiveOverlay: () => boolean;
 
@@ -732,25 +724,6 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         const _exhaustive: never = kind;
         void _exhaustive;
       }
-    }
-  },
-
-  closeActiveDetail: () => {
-    switch (get().mainView) {
-      case "subagent-detail":
-        get().closeSubagentDetail();
-        return;
-      case "workflow-detail":
-        get().closeWorkflowDetail();
-        return;
-      case "acp-run-detail":
-        get().closeAcpRunDetail();
-        return;
-      case "background-task-detail":
-        get().closeBackgroundTaskDetail();
-        return;
-      default:
-        return;
     }
   },
 

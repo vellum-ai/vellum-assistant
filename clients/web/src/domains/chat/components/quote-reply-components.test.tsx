@@ -302,6 +302,28 @@ describe("QuoteReplyBubble", () => {
     expect(useQuoteReplyStore.getState().stagedQuotes).toHaveLength(0);
   });
 
+  test("Escape dismisses the touch-mobile reply dialog", () => {
+    const restorePointer = installCoarsePointer();
+    try {
+      useQuoteReplyStore.setState({
+        replyBubble: {
+          quotedText: "quoted context",
+          sourceMessageId: "msg-1",
+          anchorRect: { top: 120, left: 180, width: 0, height: 0 },
+        },
+      });
+
+      render(<QuoteReplyBubble />);
+
+      const dialog = screen.getByRole("dialog", { name: "Quote and reply" });
+      expect(fireEvent.keyDown(dialog, { key: "Escape" })).toBe(false);
+      expect(useQuoteReplyStore.getState().replyBubble).toBeNull();
+      expect(useQuoteReplyStore.getState().stagedQuotes).toHaveLength(0);
+    } finally {
+      restorePointer();
+    }
+  });
+
   test("Enter stages the reply, closes the bubble, and focuses the composer", async () => {
     const composerInput = document.createElement("textarea");
     document.body.appendChild(composerInput);
