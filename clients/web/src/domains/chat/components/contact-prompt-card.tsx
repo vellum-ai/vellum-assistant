@@ -12,10 +12,18 @@ export interface ContactPromptCardProps {
     label?: string;
     description?: string;
     role?: string;
+    /** When "merge", render a merge-confirmation UI instead of the address form. */
+    mode?: "merge";
+    keepId?: string;
+    discardId?: string;
+    keepName?: string;
+    discardName?: string;
   };
   isSubmitting: boolean;
   accepted: boolean;
   onSubmit: (address: string, channelType: string) => void;
+  /** Confirms a pending merge prompt. Required when `contactRequest.mode === "merge"`. */
+  onConfirmMerge: () => void;
   onCancel: () => void;
 }
 
@@ -24,6 +32,7 @@ export function ContactPromptCard({
   isSubmitting,
   accepted,
   onSubmit,
+  onConfirmMerge,
   onCancel,
 }: ContactPromptCardProps) {
   // Render sites must key this card by `requestId` so a new contact_request
@@ -33,6 +42,7 @@ export function ContactPromptCard({
 
   // Derive a sensible channelType from the hint (free text → normalised key).
   const channelType = contactRequest.channel?.toLowerCase().trim() || "email";
+  const isMerge = contactRequest.mode === "merge";
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -46,19 +56,23 @@ export function ContactPromptCard({
     <Card className="flex flex-col gap-4 p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1">
-          <Typography
-            variant="label-small-default"
-            className="text-[var(--content-primary)]"
-          >
-            {contactRequest.label ?? "Add a contact"}
+          <Typography variant="label-small-default" className="text-[var(--content-primary)]">
+            {contactRequest.label ?? (isMerge ? "Merge contacts" : "Add a contact")}
           </Typography>
-          {contactRequest.description && (
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-secondary)]"
-            >
+          {contactRequest.description ? (
+            <Typography variant="body-small-default" className="text-[var(--content-secondary)]">
               {contactRequest.description}
             </Typography>
+          ) : (
+            isMerge && (
+              <Typography variant="body-small-default" className="text-[var(--content-secondary)]">
+                Merge{" "}
+                <span className="font-medium">{contactRequest.discardName ?? contactRequest.discardId}</span>{" "}
+                into{" "}
+                <span className="font-medium">{contactRequest.keepName ?? contactRequest.keepId}</span>?
+                This deletes the merged contact and moves its channels to the kept contact.
+              </Typography>
+            )
           )}
         </div>
         {!accepted && (
@@ -79,7 +93,23 @@ export function ContactPromptCard({
 
         <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
           <CheckCircle size={16} />
-          Contact saved
+          {isMerge ? "Contacts merged" : "Contact saved"}
+        </div>
+      ) : isMerge ? (
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="compact" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            size="compact"
+            onClick={onConfirmMerge}
+            disabled={isSubmitting}
+            leftIcon={isSubmitting ? <Loader2 className="animate-spin" /> : undefined}
+          >
+            {isSubmitting ? "Merging…" : "Merge"}
+          </Button>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">

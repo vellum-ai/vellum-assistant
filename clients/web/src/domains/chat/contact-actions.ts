@@ -13,18 +13,21 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
-import { submitContactPrompt } from "@/domains/chat/api/interactions";
+import { submitContactPrompt, submitContactMerge } from "@/domains/chat/api/interactions";
+import type { SubmitSecretResponseResult } from "@/domains/chat/api/interactions";
 
 /**
- * Submit the contact address/channel to the daemon.
- * Optimistically dismisses the prompt after a 1.5 s delay (matching macOS).
+ * Shared submit lifecycle for both prompt modes (address entry and merge
+ * confirmation): guards on an active pending request, requires a live
+ * stream session, and optimistically dismisses the prompt 1.5 s after a
+ * successful submit (matching macOS).
  */
-export async function handleContactPromptSubmit(
-  address: string,
-  channelType: string,
+async function runContactPromptSubmission(
+  submit: (assistantId: string, requestId: string) => Promise<SubmitSecretResponseResult>,
+  failureMessage: string,
+  sentryContext: string,
 ): Promise<void> {
-  const { pendingContactRequest, isSubmittingContactRequest } =
-    useInteractionStore.getState();
+  const { pendingContactRequest, isSubmittingContactRequest } = useInteractionStore.getState();
   if (!pendingContactRequest || isSubmittingContactRequest) {
     return;
   }
@@ -41,13 +44,7 @@ export async function handleContactPromptSubmit(
   }
 
   try {
-    const result = await submitContactPrompt(
-      ctx.assistantId,
-      pendingContactRequest.requestId,
-      address,
-      channelType,
-      pendingContactRequest.role,
-    );
+    const result = await submit(ctx.assistantId, pendingContactRequest.requestId);
     if (!result.ok) {
       useChatSessionStore.getState().setError({ message: result.error });
       useInteractionStore.getState().submitContactRequestEnd();
@@ -63,16 +60,47 @@ export async function handleContactPromptSubmit(
       }
     }, 1500);
   } catch (err) {
-    captureError(err, { context: "submit_contact_prompt" });
-    useChatSessionStore
-      .getState()
-      .setError({ message: "Failed to save contact. Please try again." });
+    captureError(err, { context: sentryContext });
+    useChatSessionStore.getState().setError({ message: failureMessage });
     useInteractionStore.getState().submitContactRequestEnd();
   }
 }
 
 /**
+ * Submit the contact address/channel to the daemon.
+ */
+export async function handleContactPromptSubmit(address: string, channelType: string): Promise<void> {
+  await runContactPromptSubmission(
+    (assistantId, requestId) =>
+      submitContactPrompt(
+        assistantId,
+        requestId,
+        address,
+        channelType,
+        useInteractionStore.getState().pendingContactRequest?.role,
+      ),
+    "Failed to save contact. Please try again.",
+    "submit_contact_prompt",
+  );
+}
+
+/**
+ * Confirm a pending contact-merge prompt. The guardian's confirmation is
+ * relayed to the daemon, which performs the merge itself.
+ */
+export async function handleContactMergeConfirm(): Promise<void> {
+  await runContactPromptSubmission(
+    (assistantId, requestId) => submitContactMerge(assistantId, requestId),
+    "Failed to merge contacts. Please try again.",
+    "submit_contact_merge_confirm",
+  );
+}
+
+/**
  * Cancel the contact prompt — dismisses local state and ends the turn.
+ * Applies to both address-entry and merge-confirmation prompts; neither
+ * mode notifies the gateway/daemon on cancel (the pending prompt times out
+ * server-side if never resolved).
  */
 export function handleContactPromptCancel(): void {
   useInteractionStore.getState().dismissContactRequest();

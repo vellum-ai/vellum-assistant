@@ -6,6 +6,7 @@
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import {
   handleContactPromptSubmit,
+  handleContactMergeConfirm,
   handleContactPromptCancel,
 } from "@/domains/chat/contact-actions";
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
@@ -27,6 +28,7 @@ export function PendingContactRequestRow() {
       isSubmitting={isSubmitting}
       accepted={accepted}
       onSubmit={handleContactPromptSubmit}
+      onConfirmMerge={handleContactMergeConfirm}
       onCancel={handleContactPromptCancel}
     />
   );

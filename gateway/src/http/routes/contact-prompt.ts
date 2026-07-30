@@ -3,13 +3,24 @@
  *
  * POST /v1/contacts/prompt/submit
  *
- * Called by the client after the user fills in a contact address in response
- * to a `contact_request` broadcast from the daemon. This route:
+ * Called by the client after the user responds to a `contact_request`
+ * broadcast from the daemon. Two modes, discriminated by `mode`:
+ *
+ * Address entry (default, no `mode`):
  *   1. Validates the submitted contact info.
  *   2. Upserts the contact + channel gateway-first via ContactStore.upsertContact
  *      (gateway DB is the source of truth; assistant DB is a best-effort mirror).
- *   3. Calls daemon IPC `resolve_contact_prompt` to unblock the waiting CLI.
- *   4. Returns { accepted: true } to the client.
+ *   3. Calls daemon IPC `resolve_contact_prompt` with the new contact/channel
+ *      ids to unblock the waiting CLI.
+ *
+ * Merge confirmation (`mode: "merge"`):
+ *   1. Writes nothing here — the merge write happens on the daemon side,
+ *      relayed through the same `merge_contacts` path a CLI-initiated merge
+ *      uses (single source of truth for merge validation).
+ *   2. Calls daemon IPC `resolve_contact_prompt` with `{ confirmed: true }`
+ *      to signal the guardian confirmed; the daemon performs the merge.
+ *
+ * Both modes return { accepted: true } to the client.
  *
  * Auth: edge (same as all ingress contact routes).
  */
@@ -62,8 +73,9 @@ function resolveChannelId(
 
 interface ContactPromptSubmitBody {
   requestId: string;
-  address: string;
-  channelType: string;
+  mode?: "merge";
+  address?: string;
+  channelType?: string;
   role?: "guardian" | "trusted-contact" | "unknown";
   displayName?: string;
 }
@@ -85,7 +97,7 @@ export async function handleContactPromptSubmit(
     );
   }
 
-  const { requestId, address, channelType, role } = body;
+  const { requestId, address, channelType, role, mode } = body;
   // Treat a non-string displayName (incl. an explicit null) as omitted, so
   // upsertContact preserves an existing contact's name instead of writing the
   // value through to the NOT NULL display_name column (which would 500).
@@ -98,6 +110,14 @@ export async function handleContactPromptSubmit(
       { status: 400 },
     );
   }
+
+  // Merge-confirmation mode: no contact/channel write happens here. The
+  // daemon performs the merge itself once it sees `confirmed: true` — see
+  // module docstring.
+  if (mode === "merge") {
+    return await confirmContactPromptMerge(requestId);
+  }
+
   if (!address || typeof address !== "string") {
     return Response.json(
       { accepted: false, error: "address is required" },
@@ -407,6 +427,32 @@ async function channelResolutionError(requestId: string): Promise<Response> {
     { accepted: false, error: "Channel resolution failed" },
     { status: 500 },
   );
+}
+
+/**
+ * Relay a merge-confirmation to the daemon. No contact/channel write happens
+ * here — the daemon performs the merge itself (via the same relay a
+ * CLI-initiated `contacts/merge` uses) once it sees `confirmed: true`.
+ */
+async function confirmContactPromptMerge(requestId: string): Promise<Response> {
+  try {
+    const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
+      body: { requestId, confirmed: true },
+    });
+    if ((ipcResult as { resolved?: boolean }).resolved === false) {
+      log.warn(
+        { requestId },
+        "contact-prompt-submit: resolve_contact_prompt IPC did not find a pending merge prompt — CLI may time out",
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, requestId },
+      "contact-prompt-submit: resolve_contact_prompt IPC failed for merge confirm — CLI may time out",
+    );
+  }
+
+  return Response.json({ accepted: true });
 }
 
 /**

@@ -12,6 +12,7 @@ const baseProps = {
   isSubmitting: false,
   accepted: false,
   onSubmit: noop,
+  onConfirmMerge: noop,
   onCancel: noop,
 };
 
@@ -138,5 +139,98 @@ describe("ContactPromptCard defaultValue", () => {
     );
 
     expect(addressInput().value).toBe("second@example.com");
+  });
+});
+
+describe("ContactPromptCard merge mode", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("renders a confirm/cancel UI instead of an address form", () => {
+    render(
+      <ContactPromptCard
+        {...baseProps}
+        contactRequest={{
+          requestId: "req-merge-1",
+          mode: "merge",
+          keepId: "keep-1",
+          discardId: "discard-1",
+          keepName: "Alice",
+          discardName: "Alice (duplicate)",
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getByRole("button", { name: "Merge" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(screen.getByText("Alice")).toBeTruthy();
+    expect(screen.getByText("Alice (duplicate)")).toBeTruthy();
+  });
+
+  test("clicking Merge calls onConfirmMerge, not onSubmit", () => {
+    const onSubmit = mock(() => {});
+    const onConfirmMerge = mock(() => {});
+
+    render(
+      <ContactPromptCard
+        {...baseProps}
+        onSubmit={onSubmit}
+        onConfirmMerge={onConfirmMerge}
+        contactRequest={{
+          requestId: "req-merge-2",
+          mode: "merge",
+          keepId: "keep-1",
+          discardId: "discard-1",
+          keepName: "Alice",
+          discardName: "Alice (duplicate)",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Merge" }));
+
+    expect(onConfirmMerge).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  test("clicking Cancel calls onCancel", () => {
+    const onCancel = mock(() => {});
+
+    render(
+      <ContactPromptCard
+        {...baseProps}
+        onCancel={onCancel}
+        contactRequest={{
+          requestId: "req-merge-3",
+          mode: "merge",
+          keepId: "keep-1",
+          discardId: "discard-1",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  test("shows the merged success state instead of the contact-saved message", () => {
+    render(
+      <ContactPromptCard
+        {...baseProps}
+        accepted
+        contactRequest={{
+          requestId: "req-merge-4",
+          mode: "merge",
+          keepId: "keep-1",
+          discardId: "discard-1",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Contacts merged")).toBeTruthy();
+    expect(screen.queryByText("Contact saved")).toBeNull();
   });
 });

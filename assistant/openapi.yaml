@@ -6107,10 +6107,12 @@ paths:
   /v1/contacts/prompt:
     post:
       operationId: contacts_prompt_post
-      summary: Prompt user to register a contact channel
+      summary: Prompt user to register a contact channel, or confirm a merge
       description:
-        Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway.
-        The gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC.
+        Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway
+        (address-entry mode) or confirm a merge (when mergeKeepId/mergeDiscardId are provided). In address-entry mode
+        the gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC. In merge mode the
+        daemon performs the merge itself once the guardian confirms.
       tags:
         - contacts
       requestBody:
@@ -6143,6 +6145,14 @@ paths:
                     - guardian
                     - trusted-contact
                     - unknown
+                mergeKeepId:
+                  description:
+                    UUID of the contact to keep. When provided together with mergeDiscardId, prompts the guardian to confirm a
+                    merge instead of an address entry.
+                  type: string
+                mergeDiscardId:
+                  description: UUID of the contact to merge away. Must be provided together with mergeKeepId.
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -6163,6 +6173,11 @@ paths:
                     type: string
                   address:
                     type: string
+                  contact:
+                    description: Surviving contact after a merge confirmation.
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
                 required:
                   - ok
                 additionalProperties: false
@@ -24643,7 +24658,10 @@ paths:
     post:
       operationId: resolve_contact_prompt_post
       summary: "Gateway callback: resolve a pending contact prompt"
-      description: Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.
+      description:
+        Called by the gateway after it writes the contact and channel (address-entry mode), or after the guardian
+        confirms/cancels a merge (merge mode, in which case the daemon performs the merge itself). Unblocks the waiting
+        contacts/prompt IPC call.
       tags:
         - contacts
       responses:

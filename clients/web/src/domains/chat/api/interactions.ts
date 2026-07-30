@@ -203,6 +203,36 @@ export async function submitContactPrompt(
 }
 
 /**
+ * Confirm a pending contact-merge prompt. Unlike `submitContactPrompt`, this
+ * writes nothing on the gateway — it only relays the guardian's confirmation
+ * so the daemon can perform the merge itself.
+ */
+export async function submitContactMerge(
+  assistantId: string,
+  requestId: string,
+): Promise<SubmitSecretResponseResult> {
+  try {
+    const { error, response } = await assistantContactsPromptSubmit({
+      path: { assistant_id: assistantId },
+      body: { requestId, mode: "merge" },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to confirm contact merge");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response);
+      return { ok: false, status: response.status, error: msg };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+    };
+  }
+}
+
+/**
  * Submit a response to a `question_request` event emitted by the daemon's
  * `ask_user_question` tool. Fire-and-forget, mirroring `submitConfirmation`:
  * the daemon resolves the awaiting tool call on its side and pushes any

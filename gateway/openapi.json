@@ -1214,9 +1214,9 @@
     "/v1/contacts/prompt/submit": {
       "post": {
         "operationId": "contactsPromptSubmit",
-        "summary": "Submit a contact-prompt address",
+        "summary": "Submit a contact-prompt address, or confirm a merge",
         "tags": ["contacts"],
-        "description": "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
+        "description": "Completes a daemon-broadcast contact_request. In address-entry mode, writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC. In merge mode (mode: 'merge'), writes nothing here — it relays the confirmation to daemon IPC, which performs the merge itself.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1228,12 +1228,17 @@
                     "type": "string",
                     "description": "The contact_request id broadcast by the daemon"
                   },
+                  "mode": {
+                    "description": "When set to 'merge', confirms a pending merge prompt instead of submitting an address. address/channelType are not used in this mode.",
+                    "type": "string",
+                    "const": "merge"
+                  },
                   "address": { "type": "string" },
                   "channelType": { "type": "string" },
                   "role": { "type": "string" },
                   "displayName": { "type": "string" }
                 },
-                "required": ["requestId", "address", "channelType"]
+                "required": ["requestId"]
               }
             }
           }

@@ -123,6 +123,11 @@ export function handleContactRequest(
     label: event.label,
     description: event.description,
     role: event.role,
+    mode: event.mode,
+    keepId: event.keepId,
+    discardId: event.discardId,
+    keepName: event.keepName,
+    discardName: event.discardName,
   });
 }
 

@@ -1,7 +1,7 @@
 /**
  * IPC route for the `contacts/prompt` CLI command.
  *
- * Flow:
+ * Address-entry flow:
  *   1. CLI calls `contacts/prompt` IPC route with optional channel/role hints.
  *   2. Daemon broadcasts a `contact_request` to all connected clients.
  *   3. Client shows a contact address input form.
@@ -11,8 +11,23 @@
  *   6. Gateway calls daemon IPC `resolve_contact_prompt` with the new contact info.
  *   7. Daemon resolves the pending promise; `contacts/prompt` IPC returns to CLI.
  *
- * The daemon only broadcasts the prompt and waits. It never writes contacts.
- * All writes go through the gateway.
+ * Merge-confirmation flow (`mergeKeepId` + `mergeDiscardId` both provided):
+ *   1. CLI calls `contacts/prompt` IPC route with the two contact ids.
+ *   2. Daemon looks up both contacts' names and broadcasts a `contact_request`
+ *      with `mode: "merge"` instead of an address-entry hint set.
+ *   3. Client shows a confirm/cancel UI (no address input).
+ *   4. On confirm, client POSTs to the same gateway submit route with
+ *      `{ requestId, mode: "merge" }` — the gateway does not write anything
+ *      itself, it only relays the confirmation to daemon IPC
+ *      `resolve_contact_prompt`.
+ *   5. Daemon performs the merge itself (relaying to the gateway via the
+ *      existing `merge_contacts` route/IPC, same as a CLI-initiated merge)
+ *      and resolves the pending promise with the merge result.
+ *
+ * For address entry, the daemon only broadcasts the prompt and waits — it
+ * never writes contacts, all writes go through the gateway. For a merge
+ * confirmation, the daemon performs the write itself (via the same relay
+ * `contacts/merge` already uses) once the guardian confirms.
  */
 
 import { v4 as uuid } from "uuid";
@@ -21,6 +36,8 @@ import { z } from "zod";
 import { getLogger } from "../../util/logger.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { handleGetContact, handleMergeContactsRoute } from "./contact-routes.js";
+import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-prompt-routes");
@@ -39,23 +56,33 @@ export interface ContactPromptResult {
   channelId?: string;
   channelType?: string;
   address?: string;
+  /** Surviving contact after a merge confirmation. Merge mode only. */
+  contact?: Record<string, unknown>;
 }
 
 interface PendingContactPrompt {
   resolve: (result: ContactPromptResult) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** Set when this prompt is a merge confirmation rather than address entry. */
+  merge?: { keepId: string; mergeId: string };
 }
 
 const pendingContactPrompts = new Map<string, PendingContactPrompt>();
 
 /**
- * Called by the gateway after it writes the contact and channel.
+ * Called by the gateway once the guardian responds. For address-entry
+ * prompts the gateway has already written the contact and channel and
+ * passes their ids through. For merge-confirmation prompts the gateway
+ * writes nothing — it only relays `confirmed`/`error`, and this handler
+ * performs the merge itself by delegating to `handleMergeContactsRoute`
+ * (the same relay a CLI-initiated `contacts/merge` call uses).
+ *
  * Resolves the pending promise so the CLI's `contacts/prompt` IPC call returns.
  */
-function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
-  resolved: boolean;
-} {
-  const { requestId, contactId, channelId, channelType, address, error } =
+async function resolveContactPrompt({
+  body = {},
+}: RouteHandlerArgs): Promise<{ resolved: boolean }> {
+  const { requestId, contactId, channelId, channelType, address, error, confirmed } =
     body as {
       requestId: string;
       contactId?: string;
@@ -63,6 +90,7 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
       channelType?: string;
       address?: string;
       error?: string;
+      confirmed?: boolean;
     };
   const pending = pendingContactPrompts.get(requestId);
   if (!pending) {
@@ -72,6 +100,34 @@ function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
 
   clearTimeout(pending.timer);
   pendingContactPrompts.delete(requestId);
+
+  if (pending.merge) {
+    if (error) {
+      pending.resolve({ ok: false, error });
+    } else if (confirmed === false) {
+      pending.resolve({ ok: false, error: "Merge cancelled by guardian" });
+    } else {
+      const { keepId, mergeId } = pending.merge;
+      try {
+        const result = (await handleMergeContactsRoute({
+          body: { keepId, mergeId },
+        })) as { ok: boolean; contact?: Record<string, unknown> };
+        pending.resolve({
+          ok: result.ok,
+          contactId: (result.contact?.id as string | undefined) ?? keepId,
+          contact: result.contact,
+        });
+      } catch (err) {
+        log.error({ err, requestId, keepId, mergeId }, "Contact merge failed");
+        pending.resolve({
+          ok: false,
+          error: err instanceof Error ? err.message : "Merge failed",
+        });
+      }
+    }
+    log.info({ requestId }, "Contact merge prompt resolved");
+    return { resolved: true };
+  }
 
   if (error) {
     pending.resolve({ ok: false, error });
@@ -122,6 +178,18 @@ const ContactPromptParams = z.object({
     .enum(["guardian", "trusted-contact", "unknown"])
     .default("unknown")
     .describe("Intended role of the contact being registered."),
+  mergeKeepId: z
+    .string()
+    .optional()
+    .describe(
+      "UUID of the contact to keep. When provided together with mergeDiscardId, prompts the guardian to confirm a merge instead of an address entry.",
+    ),
+  mergeDiscardId: z
+    .string()
+    .optional()
+    .describe(
+      "UUID of the contact to merge away. Must be provided together with mergeKeepId.",
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -131,8 +199,41 @@ const ContactPromptParams = z.object({
 async function handleContactPrompt({
   body = {},
 }: RouteHandlerArgs): Promise<ContactPromptResult> {
-  const { channel, placeholder, defaultValue, label, description, role } =
-    ContactPromptParams.parse(body);
+  const {
+    channel,
+    placeholder,
+    defaultValue,
+    label,
+    description,
+    role,
+    mergeKeepId,
+    mergeDiscardId,
+  } = ContactPromptParams.parse(body);
+
+  if (Boolean(mergeKeepId) !== Boolean(mergeDiscardId)) {
+    throw new BadRequestError(
+      "mergeKeepId and mergeDiscardId must both be provided to prompt for a merge",
+    );
+  }
+  if (mergeKeepId && mergeKeepId === mergeDiscardId) {
+    throw new BadRequestError(
+      "mergeKeepId and mergeDiscardId must refer to different contacts",
+    );
+  }
+
+  const isMerge = Boolean(mergeKeepId && mergeDiscardId);
+
+  let keepName: string | undefined;
+  let discardName: string | undefined;
+  if (isMerge) {
+    const [keepResult, discardResult] = await Promise.all([
+      handleGetContact(mergeKeepId!),
+      handleGetContact(mergeDiscardId!),
+    ]);
+    keepName = keepResult?.contact.displayName;
+    discardName = discardResult?.contact.displayName;
+  }
+>>>>>>> df800024e5b (feat(contacts): add merge-confirmation mode to contacts prompt CLI)
 
   const requestId = uuid();
 
@@ -143,7 +244,13 @@ async function handleContactPrompt({
       resolve({ ok: false, error: "Prompt timed out" });
     }, CONTACT_PROMPT_TIMEOUT_MS);
 
-    pendingContactPrompts.set(requestId, { resolve, timer });
+    pendingContactPrompts.set(requestId, {
+      resolve,
+      timer,
+      merge: isMerge
+        ? { keepId: mergeKeepId!, mergeId: mergeDiscardId! }
+        : undefined,
+    });
 
     broadcastMessage({
       type: "contact_request",
@@ -154,9 +261,16 @@ async function handleContactPrompt({
       label,
       description,
       role,
+      ...(isMerge && {
+        mode: "merge" as const,
+        keepId: mergeKeepId,
+        discardId: mergeDiscardId,
+        keepName,
+        discardName,
+      }),
     });
 
-    log.info({ requestId, channel, role }, "Contact prompt broadcast");
+    log.info({ requestId, channel, role, isMerge }, "Contact prompt broadcast");
   });
 }
 
@@ -174,9 +288,9 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: handleContactPrompt,
-    summary: "Prompt user to register a contact channel",
+    summary: "Prompt user to register a contact channel, or confirm a merge",
     description:
-      "Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway. The gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC.",
+      "Broadcasts a contact_request to connected clients, waits for the user to submit an address via the gateway (address-entry mode) or confirm a merge (when mergeKeepId/mergeDiscardId are provided). In address-entry mode the gateway owns the contact write and notifies the daemon via resolve_contact_prompt IPC. In merge mode the daemon performs the merge itself once the guardian confirms.",
     tags: ["contacts"],
     requestBody: ContactPromptParams,
     responseBody: z.object({
@@ -186,6 +300,11 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       channelId: z.string().optional(),
       channelType: z.string().optional(),
       address: z.string().optional(),
+      contact: z
+        .object({})
+        .passthrough()
+        .optional()
+        .describe("Surviving contact after a merge confirmation."),
     }),
   },
   {
@@ -199,7 +318,7 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     handler: resolveContactPrompt,
     summary: "Gateway callback: resolve a pending contact prompt",
     description:
-      "Called by the gateway after it writes the contact and channel. Unblocks the waiting contacts/prompt IPC call.",
+      "Called by the gateway after it writes the contact and channel (address-entry mode), or after the guardian confirms/cancels a merge (merge mode, in which case the daemon performs the merge itself). Unblocks the waiting contacts/prompt IPC call.",
     tags: ["contacts"],
   },
 ];

@@ -85,7 +85,8 @@ Examples:
     },
     {
       name: "prompt",
-      description: "Prompt user to register a contact channel via the app UI",
+      description:
+        "Prompt user to register a contact channel, or confirm a contact merge, via the app UI",
       options: [
         {
           flags: "--channel <channel>",
@@ -120,13 +121,38 @@ Examples:
             "How long to wait for the user to submit (ms). Defaults to match the server-side prompt timeout.",
           defaultValue: String(310_000),
         },
+        {
+          flags: "--merge-keep <id>",
+          description:
+            "UUID of the contact to keep (surviving). Run 'assistant contacts list' to find IDs. Requires --merge-discard; switches the prompt to merge-confirmation mode.",
+        },
+        {
+          flags: "--merge-discard <id>",
+          description:
+            "UUID of the contact to merge away (deleted on confirm). Run 'assistant contacts list' to find IDs. Requires --merge-keep.",
+        },
       ],
       helpText: `
-Opens a contact address prompt in the user's app. The user enters a channel
-address (phone number, email, Telegram ID, etc.). The address is saved with
-status "unverified". Verification is a separate step.
+Two modes, selected by which flags are provided:
 
-Run \`assistant contacts prompt --help\` for full option details.`,
+1. Address entry (default): opens a contact address prompt in the user's
+   app. The user enters a channel address (phone number, email, Telegram
+   ID, etc.). The address is saved with status "unverified". Verification
+   is a separate step.
+
+2. Merge confirmation: when both --merge-keep and --merge-discard are
+   provided, opens a "Merge contact X into contact Y?" confirmation prompt
+   instead of an address form. The guardian must explicitly confirm — this
+   is a guardian-level action and is never bypassed. On confirm, the two
+   contacts are merged (--merge-discard is deleted, its channels move to
+   --merge-keep) and the surviving contact is returned. On cancel, no
+   change is made and the command returns an error.
+
+Run \`assistant contacts prompt --help\` for full option details.
+
+Examples:
+  $ assistant contacts prompt --channel email --role guardian
+  $ assistant contacts prompt --merge-keep 7a3b1c2d-...-ef0123456789 --merge-discard 9c2f4a1b-...-ab9876543210`,
     },
     {
       name: "channels",

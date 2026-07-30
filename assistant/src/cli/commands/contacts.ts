@@ -50,6 +50,8 @@ interface ContactPromptResult {
   address?: string;
   channelId?: string;
   contactId?: string;
+  /** Surviving contact after a merge confirmation. Merge mode only. */
+  contact?: { id: string; displayName: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -262,9 +264,21 @@ export function registerContactsCommand(program: Command): void {
             label?: string;
             description?: string;
             timeout?: string;
+            mergeKeep?: string;
+            mergeDiscard?: string;
           },
           cmd: Command,
         ) => {
+          if (Boolean(opts.mergeKeep) !== Boolean(opts.mergeDiscard)) {
+            writeError(
+              cmd,
+              "--merge-keep and --merge-discard must both be provided to prompt for a merge",
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const isMerge = Boolean(opts.mergeKeep && opts.mergeDiscard);
+
           const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : 310_000;
           const r = await cliIpcCall<ContactPromptResult>(
             "contacts_prompt",
@@ -276,6 +290,8 @@ export function registerContactsCommand(program: Command): void {
                 role: opts.role ?? "unknown",
                 label: opts.label,
                 description: opts.description,
+                mergeKeepId: opts.mergeKeep,
+                mergeDiscardId: opts.mergeDiscard,
               },
             },
             { timeoutMs },
@@ -297,6 +313,11 @@ export function registerContactsCommand(program: Command): void {
           const result = r.result;
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, result);
+          } else if (isMerge) {
+            process.stdout.write(
+              `Merged contact ${opts.mergeDiscard} into ${result.contact?.id ?? result.contactId}\n` +
+                `  Surviving contact: ${result.contact?.displayName ?? result.contactId}\n`,
+            );
           } else {
             process.stdout.write(
               `Registered ${result.channelType} channel: ${result.address}\n` +

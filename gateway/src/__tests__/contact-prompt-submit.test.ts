@@ -858,6 +858,63 @@ describe("handleContactPromptSubmit", () => {
     expectNoEmit(ipcMock);
   });
 
+  describe("merge mode (mode: \"merge\")", () => {
+    test("relays confirmed:true to resolve_contact_prompt, writing no contact/channel", async () => {
+      const res = await handleContactPromptSubmit(
+        makeRequest({ requestId: "req-merge-1", mode: "merge" }),
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.accepted).toBe(true);
+
+      // No contact/channel write happens on the gateway for merge confirm —
+      // the daemon performs the merge itself once it sees the relay.
+      expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+      expect(
+        getGatewayDb().select().from(gwContactChannels).all(),
+      ).toHaveLength(0);
+
+      const ipcCall = resolveCall(ipcMock);
+      expect(ipcCall.body).toEqual({ requestId: "req-merge-1", confirmed: true });
+
+      // Merge mode does not touch the identity mirror or cache invalidation —
+      // the daemon-side merge relay owns that once it performs the write.
+      expect(callsFor(ipcMock, "contacts_mirror_upsert_full")).toHaveLength(0);
+      expect(callsFor(ipcMock, "contacts_mirror_upsert_contact")).toHaveLength(0);
+      expectNoEmit(ipcMock);
+    });
+
+    test("still requires requestId", async () => {
+      const res = await handleContactPromptSubmit(
+        makeRequest({ mode: "merge" }),
+      );
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.accepted).toBe(false);
+      expect(ipcMock).not.toHaveBeenCalled();
+    });
+
+    test("address/channelType are ignored when mode is merge", async () => {
+      // Even if a caller mistakenly includes address-entry fields alongside
+      // mode: "merge", the merge branch short-circuits before they're read.
+      const res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-merge-2",
+          mode: "merge",
+          address: "should-be-ignored@example.com",
+          channelType: "email",
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+      const ipcCall = resolveCall(ipcMock);
+      expect(ipcCall.body).toEqual({ requestId: "req-merge-2", confirmed: true });
+    });
+  });
+
   test("guardian bind — existing guardian, read-back miss still emits (committed bind, no rollback)", async () => {
     // An existing guardian is bound to a NEW channel; the post-bind resolve
     // misses. rollbackCreatedContact is a no-op (the guardian wasn't created

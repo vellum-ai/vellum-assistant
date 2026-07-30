@@ -116,8 +116,14 @@ const ContactPromptSubmitRequestSchema = z.object({
   requestId: z
     .string()
     .describe("The contact_request id broadcast by the daemon"),
-  address: z.string(),
-  channelType: z.string(),
+  mode: z
+    .literal("merge")
+    .optional()
+    .describe(
+      "When set to 'merge', confirms a pending merge prompt instead of submitting an address. address/channelType are not used in this mode.",
+    ),
+  address: z.string().optional(),
+  channelType: z.string().optional(),
   role: z.string().optional(),
   displayName: z.string().optional(),
 });
@@ -156,9 +162,9 @@ export const ROUTES: GatewayRouteDefinition[] = [
     path: "/v1/contacts/prompt/submit",
     method: "post",
     operationId: "contactsPromptSubmit",
-    summary: "Submit a contact-prompt address",
+    summary: "Submit a contact-prompt address, or confirm a merge",
     description:
-      "Completes a daemon-broadcast contact_request: writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC.",
+      "Completes a daemon-broadcast contact_request. In address-entry mode, writes the contact and channel gateway-first, then unblocks the waiting prompt via daemon IPC. In merge mode (mode: 'merge'), writes nothing here — it relays the confirmation to daemon IPC, which performs the merge itself.",
     tags: ["contacts"],
     requestBody: ContactPromptSubmitRequestSchema,
     responseBody: z.object({
