@@ -1,8 +1,17 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
+import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -48,6 +57,14 @@ mock.module("@/domains/chat/transcript/use-history-pagination", () => ({
   useHistoryPagination: () => paginationStub(),
 }));
 
+// Drives the platform gate on the turn-end billing-summary invalidation; the
+// real gate reads auth/lifecycle/org stores that are out of scope here.
+let billingSummaryEnabled = true;
+
+mock.module("@/hooks/use-billing-balance-status", () => ({
+  useBillingBalanceQueryEnabled: () => billingSummaryEnabled,
+}));
+
 const { useConversationHistory } =
   await import("@/domains/chat/hooks/use-conversation-history");
 
@@ -73,9 +90,24 @@ function renderHistory(activeConversationId: string | null = "conv-A") {
   );
 }
 
+// Call-through spy on the shared client, recording billing-summary
+// invalidations issued by the turn-end effect.
+const invalidateQueriesSpy = spyOn(queryClient, "invalidateQueries");
+
+/** Calls to the QueryClient's `invalidateQueries` for the billing summary. */
+function billingInvalidations(): number {
+  const billingKey = organizationsBillingSummaryRetrieveQueryKey();
+  return invalidateQueriesSpy.mock.calls.filter(
+    ([filters]) =>
+      JSON.stringify(filters?.queryKey) === JSON.stringify(billingKey),
+  ).length;
+}
+
 beforeEach(() => {
   __resetForTesting();
   invalidateSpy = mock(async () => {});
+  billingSummaryEnabled = true;
+  invalidateQueriesSpy.mockClear();
 });
 
 afterEach(() => {
@@ -204,7 +236,57 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
       useConversationStore.getState().removeProcessingConversationId("conv-A");
     });
 
-    // THEN the history query is invalidated so the snapshot reseeds.
+    // THEN the history query is invalidated so the snapshot reseeds, and the
+    // billing summary is invalidated once so balance surfaces reflect the
+    // turn's spend.
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
+    expect(billingInvalidations()).toBe(1);
+  });
+
+  test("invalidates the billing summary once per falling edge, not per turn tick", () => {
+    /**
+     * The billing refresh rides the same falling edge as the history reseed:
+     * one invalidation per finished turn, none while the turn is streaming,
+     * and no repeats until another turn completes.
+     */
+    // GIVEN two back-to-back turns on the active conversation
+    renderHistory("conv-A");
+    for (let turn = 0; turn < 2; turn++) {
+      act(() => {
+        useConversationStore.getState().markConversationProcessing("conv-A");
+      });
+      // No refresh while the turn is still in progress.
+      expect(billingInvalidations()).toBe(turn);
+      act(() => {
+        useConversationStore
+          .getState()
+          .removeProcessingConversationId("conv-A");
+      });
+    }
+
+    // THEN exactly one billing invalidation per completed turn
+    expect(billingInvalidations()).toBe(2);
+  });
+
+  test("skips the billing invalidation when the billing query is gated off", () => {
+    /**
+     * Self-hosted / org-not-ready contexts never run the billing summary
+     * query, so the turn-end edge must not invalidate (and thereby fetch) it.
+     */
+    // GIVEN a context where the billing summary query is disabled
+    billingSummaryEnabled = false;
+    renderHistory("conv-A");
+
+    // WHEN a turn completes
+    act(() => {
+      useConversationStore.getState().markConversationProcessing("conv-A");
+    });
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-A");
+    });
+
+    // THEN history still reseeds but the billing summary is left alone
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+    expect(billingInvalidations()).toBe(0);
   });
 });

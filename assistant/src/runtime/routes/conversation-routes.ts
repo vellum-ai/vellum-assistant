@@ -1185,6 +1185,7 @@ export function handleListMessages({
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
+      ...(m.systemCard ? { systemCard: true } : {}),
       ...(m.providerError ? { providerError: m.providerError } : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };

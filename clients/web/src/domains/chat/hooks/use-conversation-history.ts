@@ -25,6 +25,8 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
+import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+import { useBillingBalanceQueryEnabled } from "@/hooks/use-billing-balance-status";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   extractWirePendingAcpConnect,
@@ -434,13 +436,31 @@ export function useConversationHistory({
   // turn). The monotonic seq baseline makes the reseed a no-op when nothing new
   // landed, and the buffered event tail is replayed so anything that raced the
   // fetch isn't lost.
+  //
+  // The billing summary is invalidated on the same edge: every turn (including
+  // one that fails on exhausted credits) can move the credit balance, and the
+  // balance surfaces should reflect it without waiting for the staleTime
+  // window. Gated exactly like `useBillingBalanceStatus` so self-hosted /
+  // org-not-ready contexts, where the query never runs, skip it.
   // -------------------------------------------------------------------------
+  const billingSummaryEnabled = useBillingBalanceQueryEnabled();
   const refetchHistoryOnTurnEnd = useCallback(() => {
     if (!assistantId || !activeConversationId) {
       return;
     }
     void pagination.invalidate();
-  }, [assistantId, activeConversationId, pagination]);
+    if (billingSummaryEnabled) {
+      void queryClient.invalidateQueries({
+        queryKey: organizationsBillingSummaryRetrieveQueryKey(),
+      });
+    }
+  }, [
+    assistantId,
+    activeConversationId,
+    pagination,
+    billingSummaryEnabled,
+    queryClient,
+  ]);
 
   // A turn is in progress for the active conversation when either the local
   // turn store is sending (a `useSendMessage` turn this client started) or the
