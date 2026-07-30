@@ -112,23 +112,17 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
     },
   },
   "latency-optimized": {
-    // The managed latency class. Its leading tokens ARE the live-voice
-    // turn-taking verdict, so TTFT — and specifically the tail, not the
-    // median — is what this profile optimizes: a verdict later than
+    // The managed latency class. Its leading tokens are the live-voice
+    // turn-taking verdict, so what this profile optimizes is the tail of
+    // time-to-first-token rather than the median: a verdict slower than
     // `liveVoice.frontModel.endpointDecisionTimeoutMs` trips the speculative
     // fail-open commit in live-voice-session.ts, which is audible dead air.
     //
-    // Benched against the real front-door shape (full system prompt, no tool
-    // schemas — the front-door leg runs toolless): p50 ~525ms / p95 ~625-715ms,
-    // versus ~960ms / ~1100-1620ms for `claude-haiku-4-5-20251001`, which rode
-    // the budget line and breached it in up to 24% of turns.
-    //
-    // Two constraints on replacing this: the model's managed credentials must
-    // be provisioned in EVERY environment (`gemini-3.5-flash-lite` benches
-    // faster still but has no key in prod or staging), and the upstream is
-    // derived from this model id alone — `provider: "vellum"` is the
-    // provider-agnostic managed sentinel, so `getManagedUpstream` resolves the
-    // real upstream via the model's catalog owner.
+    // Two constraints bind the model id. Its managed credentials must be
+    // provisioned in every environment, and it alone selects the upstream:
+    // `provider` below is the provider-agnostic managed sentinel, so
+    // `getManagedUpstream` resolves the real upstream from the model's catalog
+    // owner.
     model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",

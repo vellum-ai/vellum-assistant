@@ -271,15 +271,16 @@ describe("RetryProvider — callSite resolution", () => {
   });
 
   test("live-voice front-door call sites reach OpenAI with reasoning off", async () => {
-    // The `latency-optimized` pin's whole value is TTFT, and on an OpenAI
-    // upstream that depends entirely on disabled thinking being encoded as
-    // `effort: "none"` — OpenAI-compatible APIs reason by default when the
-    // field is absent, which pushes first-token past the verdict deadline the
-    // profile exists to beat. The profile declares `provider: "vellum"` (the
-    // provider-agnostic managed sentinel) and the real upstream is derived
-    // from the model id, so the stub is named for that resolved upstream
-    // rather than the sentinel — matching what `createAdapterFromConnection`
-    // builds for a managed route.
+    // The `latency-optimized` pin's whole value is time-to-first-token, and on
+    // an OpenAI upstream that depends entirely on disabled thinking being
+    // encoded as `effort: "none"`. OpenAI-compatible APIs reason by default
+    // when the field is absent, which pushes first-token past the verdict
+    // deadline the profile exists to beat.
+    //
+    // The profile declares `provider: "vellum"` (the provider-agnostic managed
+    // sentinel) and the real upstream comes from the model id, so the stub is
+    // named for that resolved upstream rather than the sentinel, matching what
+    // `createAdapterFromConnection` builds for a managed route.
     setLlmConfig({});
 
     const expected = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"];
