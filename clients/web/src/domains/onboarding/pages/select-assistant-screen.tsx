@@ -295,29 +295,19 @@ export function SelectAssistantScreen() {
   return (
     <OnboardingLayout>
       <div
-        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-16"} text-[var(--content-default)]`}
+        className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
       >
+        {/* The main block floats in the space above the creature footer;
+            electron keeps its compact top-aligned flow. */}
         <div
-          className="w-full"
-          style={{ animation: "fadeInUp 0.5s ease-out both" }}
+          className={`flex w-full flex-col items-center ${electron ? "" : "flex-1 justify-center"}`}
         >
-          <Button
-            variant="ghost"
-            size="compact"
-            className="-ml-2 text-[var(--content-tertiary)]"
-            leftIcon={<ArrowLeft />}
-            onClick={onBack}
-            disabled={connecting || loginLoading}
-          >
-            Back
-          </Button>
-        </div>
         <h1
-          className={`${
+          className={`text-center ${
             electron
               ? "text-title-large"
               : "text-3xl font-semibold tracking-tight"
-          } ${electron ? "mt-4" : "mt-6"}`}
+          }`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Choose an Assistant
@@ -374,23 +364,19 @@ export function SelectAssistantScreen() {
             }
             disabled={connecting || loginLoading}
             className={[
-              "group flex w-full items-center border border-dashed border-[var(--border-element)] text-left",
-              electron ? "gap-3 rounded-lg p-3" : "gap-4 rounded-2xl px-5 py-4",
+              "group flex w-full items-center justify-center gap-2 border border-dashed border-[var(--border-element)]/50 text-[var(--content-tertiary)]",
+              electron ? "rounded-lg px-3 py-2.5" : "rounded-xl px-5 py-3",
               "cursor-pointer transition-all duration-200 ease-out",
-              "text-[var(--content-tertiary)] hover:bg-[var(--surface-secondary)] hover:text-[var(--content-default)]",
+              "hover:border-[var(--border-element)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
               "disabled:cursor-not-allowed disabled:opacity-50",
             ].join(" ")}
           >
-            <div
-              className={[
-                "flex shrink-0 items-center justify-center",
-                electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
-                "bg-[var(--surface-tertiary)] text-[var(--content-secondary)]",
-              ].join(" ")}
+            <Plus className="h-4 w-4" />
+            <span
+              className={
+                electron ? "text-body-small-default" : "text-body-medium-default"
+              }
             >
-              <Plus className="h-5 w-5" />
-            </div>
-            <span className="text-body-medium-default">
               Create a new assistant
             </span>
           </button>
@@ -413,6 +399,22 @@ export function SelectAssistantScreen() {
             </Button>
           </div>
         )}
+        <div
+          className={accessibleAssistants.length > 0 ? "mt-3" : "mt-8"}
+          style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
+        >
+          <Button
+            variant="ghost"
+            size="compact"
+            className="text-[var(--content-tertiary)]"
+            leftIcon={<ArrowLeft />}
+            onClick={onBack}
+            disabled={connecting || loginLoading}
+          >
+            Back
+          </Button>
+        </div>
+        </div>
       </div>
       <ConnectRecoveryDialog
         open={recoveryAssistant != null}
@@ -500,11 +502,13 @@ function AssistantCard({
         electron ? "gap-3 rounded-lg p-3" : "gap-4 rounded-2xl px-5 py-4",
         "transition-all duration-200 ease-out",
         locked
+          ? "border-[var(--border-base)] bg-[var(--surface-overlay)]"
+          : "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-base)]",
+        locked
           ? ""
-          : "cursor-pointer hover:bg-[var(--surface-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-base)]",
-        selected && !locked
-          ? "border-[var(--primary-base)] bg-[var(--primary-base)]/[0.08] shadow-[inset_0_0_0_1px_var(--primary-base)]"
-          : "border-[var(--border-element)] bg-transparent",
+          : selected
+            ? "border-[var(--primary-base)] bg-[var(--surface-lift)]"
+            : "border-[var(--border-base)] bg-[var(--surface-lift)]/60 hover:border-[var(--border-element)] hover:bg-[var(--surface-lift)]",
       ].join(" ")}
     >
       <div
@@ -512,8 +516,8 @@ function AssistantCard({
           "flex shrink-0 items-center justify-center transition-colors duration-200",
           electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
           selected && !locked
-            ? "bg-[var(--primary-base)]/15 text-[var(--primary-base)]"
-            : "bg-[var(--surface-tertiary)] text-[var(--content-secondary)]",
+            ? "bg-[var(--primary-base)] text-[var(--surface-base)]"
+            : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
         ].join(" ")}
       >
         {assistant.isLocal ? (
@@ -524,9 +528,7 @@ function AssistantCard({
       </div>
 
       <div className="min-w-0 flex-1">
-        <span
-          className={`block text-body-medium-default ${locked ? "text-[var(--content-secondary)]" : "text-[var(--content-default)]"}`}
-        >
+        <span className="block text-body-medium-default text-[var(--content-default)]">
           {assistantLabel(assistant)}
         </span>
         <span
