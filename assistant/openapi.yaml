@@ -6126,6 +6126,9 @@ paths:
                 placeholder:
                   description: Placeholder text for the address input field.
                   type: string
+                defaultValue:
+                  description: Suggested address to pre-fill the input with (e.g. a known email). The user can edit it before submitting.
+                  type: string
                 label:
                   description: Display label shown in the prompt UI.
                   type: string

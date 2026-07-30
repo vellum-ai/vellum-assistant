@@ -21,6 +21,7 @@ export interface BuildTranscriptItemsInput {
     requestId: string;
     channel?: string;
     placeholder?: string;
+    defaultValue?: string;
     label?: string;
     description?: string;
     role?: string;
@@ -170,6 +171,7 @@ export function buildTranscriptItems(
       requestId: pendingContactRequest.requestId,
       channel: pendingContactRequest.channel,
       placeholder: pendingContactRequest.placeholder,
+      defaultValue: pendingContactRequest.defaultValue,
       label: pendingContactRequest.label,
       description: pendingContactRequest.description,
       role: pendingContactRequest.role,

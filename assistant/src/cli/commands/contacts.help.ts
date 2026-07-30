@@ -97,6 +97,11 @@ Examples:
           description: "Placeholder text for the address input field",
         },
         {
+          flags: "--default-value <address>",
+          description:
+            "Suggested address to pre-fill the input with (user can edit before submitting)",
+        },
+        {
           flags: "--role <role>",
           description:
             "Intended role: guardian, trusted-contact, or unknown (default: unknown)",
