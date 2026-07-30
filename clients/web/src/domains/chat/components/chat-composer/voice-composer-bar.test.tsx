@@ -3,20 +3,45 @@
  *
  * The bar is purely presentational, so tests drive it prop-by-prop: state
  * label mapping, control presence, callback wiring, and accessibility
- * attributes. The embedded `VoiceReactiveWaves` is SVG + a rAF loop writing
- * a CSS var — inert under happy-dom, so no harness is needed here.
+ * attributes.
+ *
+ * `VoiceMeshWaves` is a canvas plus a rAF loop, inert under happy-dom, so the
+ * band is stubbed with a probe that records the props it was handed. That is
+ * the only way to assert what the band is drawing (its ink and which voice it
+ * rides), which is otherwise invisible to a DOM test.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
+let lastBandProps: {
+  getAmplitude: () => number;
+  color?: string;
+  peakOpacity?: number;
+} | null = null;
+mock.module("@/domains/chat/voice/voice-room/voice-mesh-waves", () => ({
+  MESH_INLINE_TUNING: {},
+  VoiceMeshWaves: (props: {
+    getAmplitude: () => number;
+    color?: string;
+    peakOpacity?: number;
+  }) => {
+    lastBandProps = props;
+    return null;
+  },
+}));
+
+const { VoiceComposerBar } =
+  await import("@/domains/chat/components/chat-composer/voice-composer-bar");
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 afterEach(() => {
   cleanup();
 });
+
+const INPUT_LEVEL = 0.5;
+const OUTPUT_LEVEL = 0.25;
 
 function renderBar(
   state: LiveVoiceSessionState,
@@ -32,7 +57,8 @@ function renderBar(
   return render(
     <VoiceComposerBar
       state={state}
-      getAmplitude={() => 0.5}
+      getAmplitude={() => INPUT_LEVEL}
+      getOutputAmplitude={() => OUTPUT_LEVEL}
       muted={overrides?.muted ?? false}
       onToggleMute={overrides?.onToggleMute ?? (() => {})}
       onEnd={overrides?.onEnd ?? (() => {})}
@@ -202,11 +228,13 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     expect(group).toBeTruthy();
   });
 
-  test("renders the room's listening waves inline", () => {
-    const { container } = renderBar("listening");
-    expect(
-      container.querySelector(".voice-listening-waves--inline"),
-    ).toBeTruthy();
+  test("renders the room's band across the block", () => {
+    renderBar("listening");
+    const band = screen.getByTestId("voice-session-band");
+    // Filling the block, behind everything: the color and the motion are one
+    // surface, not a strip in a middle column.
+    expect(band.className).toContain("absolute inset-0");
+    expect(lastBandProps).not.toBeNull();
   });
 
   test("standalone takes the composer's footprint, otherwise it is a control row", () => {
@@ -234,21 +262,19 @@ describe("VoiceComposerBar — structure and accessibility", () => {
       "Open voice room",
       "End voice session",
     ]) {
-      expect(
-        screen.getByRole("button", { name }).className,
-      ).toContain("--room-fg-muted");
+      expect(screen.getByRole("button", { name }).className).toContain(
+        "--room-fg-muted",
+      );
     }
   });
 
-  test("wave strip fades at both edges instead of hard-clipping", () => {
+  test("the band fades at both edges instead of hard-clipping", () => {
     // Includes the -webkit- prefix: the iOS client is a WKWebView and drops
     // the unprefixed property, which would silently disable the fade there.
-    const { container } = renderBar("listening");
-    const strip = container.querySelector(
-      ".voice-listening-waves--inline",
-    )?.parentElement;
-    expect(strip?.className).toContain("mask-image:linear-gradient");
-    expect(strip?.className).toContain("-webkit-mask-image:linear-gradient");
+    renderBar("listening");
+    const band = screen.getByTestId("voice-session-band");
+    expect(band.className).toContain("mask-image:linear-gradient");
+    expect(band.className).toContain("-webkit-mask-image:linear-gradient");
   });
 
   test("resting bar is exactly mute + expand + end", () => {
@@ -261,5 +287,41 @@ describe("VoiceComposerBar — structure and accessibility", () => {
       "Open voice room",
       "End voice session",
     ]);
+  });
+});
+
+describe("VoiceComposerBar: the band", () => {
+  test("rides the mic in a pale ink while listening", () => {
+    renderBar("listening");
+    // Pale over the fill, per the room's own pairing. The block is painted the
+    // avatar color, so an accent-tinted band would be that same hue and paint
+    // nothing at all.
+    expect(lastBandProps?.color).toBe("#FFFFFF");
+    expect(lastBandProps?.getAmplitude()).toBe(INPUT_LEVEL);
+  });
+
+  test("rides the reply in a darker ink while the assistant speaks", () => {
+    renderBar("speaking");
+    expect(lastBandProps?.color).toBe("#000000");
+    // The mic is closed through the reply, so a band on the input level would
+    // sit flat for that whole half of the turn.
+    expect(lastBandProps?.getAmplitude()).toBe(OUTPUT_LEVEL);
+  });
+
+  test("keeps riding the mic while the turn is being worked on", () => {
+    // The mic is open through transcribing/thinking (barge-in), so the block
+    // stays alive with the user's own level rather than flattening.
+    renderBar("thinking");
+    expect(lastBandProps?.getAmplitude()).toBe(INPUT_LEVEL);
+  });
+
+  test("empties the floor when neither voice is present", () => {
+    renderBar("connecting");
+    expect(lastBandProps?.getAmplitude()).toBe(0);
+  });
+
+  test("a muted mic reads silent, not frozen", () => {
+    renderBar("listening", { muted: true });
+    expect(lastBandProps?.getAmplitude()).toBe(0);
   });
 });

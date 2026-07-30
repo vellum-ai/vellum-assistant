@@ -40,6 +40,7 @@ import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
+  getLiveVoiceOutputAmplitude,
   isLiveVoiceSessionActive,
   restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
@@ -51,7 +52,6 @@ import {
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
-import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
 import {
   VOICE_SURFACE_DARK,
   resolveVoiceRoomLook,
@@ -325,21 +325,17 @@ export function ChatComposer({
   // shares the global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
-  // Wave accent for the voice bar's listening waves — the same avatar-matched
-  // tint the room resolves (see wave-accent.ts), so the minimized session
-  // keeps the room's color language. Fetch-gated to live sessions; the query
-  // is shared with every other avatar consumer.
+  // The session assistant's avatar, which is where the block's fill comes from.
+  // Fetch-gated to live sessions; the query is shared with every other avatar
+  // consumer. The band no longer takes an accent from it: the block is painted
+  // that color, so its ink has to contrast with the fill instead (see
+  // `BAND_VOICE` in voice-composer-bar.tsx).
   const {
     components: avatarComponents,
     traits: avatarTraits,
     customImageUrl: avatarCustomImageUrl,
     isLoading: avatarLoading,
   } = useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
-  const voiceWaveAccentHex = resolveWaveAccentHex(
-    avatarComponents,
-    avatarTraits,
-    avatarCustomImageUrl,
-  );
   // The minimized session paints the whole composer card in the room's own
   // background color, so the two surfaces are one thing at two sizes. The look
   // resolves to null for assistants with no character color (custom-image /
@@ -1024,6 +1020,7 @@ export function ChatComposer({
               <VoiceComposerBar
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceInputAmplitude}
+                getOutputAmplitude={getLiveVoiceOutputAmplitude}
                 muted={liveVoiceMuted}
                 onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
                 onEnd={endLiveVoiceSession}
@@ -1034,7 +1031,6 @@ export function ChatComposer({
                 // windows, where the room never renders (the standalone pill
                 // is their only session surface).
                 onExpand={isPopout ? undefined : restoreVoiceRoom}
-                waveAccentHex={voiceWaveAccentHex}
                 standalone={hideTextareaForLiveVoice}
               />
             ) : (

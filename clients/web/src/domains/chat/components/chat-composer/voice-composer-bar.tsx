@@ -29,8 +29,6 @@
  * interrupting a reply in progress has no silent equivalent.
  */
 
-import type { CSSProperties } from "react";
-
 import { Maximize2, Mic, MicOff, Square, X } from "lucide-react";
 
 import { Button, cn } from "@vellumai/design-library";
@@ -45,17 +43,22 @@ import {
   MESH_INLINE_TUNING,
   VoiceMeshWaves,
 } from "@/domains/chat/voice/voice-room/voice-mesh-waves";
-import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
+import { BAND_VOICE } from "@/domains/chat/voice/voice-room/voice-room-eyes";
 
-// While the mic is not live (muted, assistant speaking) the waves read a
-// steady zero and settle into their quiet drift — the room's own resting
-// listening band — instead of freezing.
+// Between turns (mic muted, assistant silent) the band reads a steady zero,
+// which is the room's empty floor: no ink at all until a voice is present.
 const SILENT_AMPLITUDE = () => 0;
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
-  /** Polled ~30 Hz by the waveform's draw loop — no re-render per sample. */
+  /** Mic level, polled ~30 Hz by the band's draw loop. No re-render per sample. */
   getAmplitude: () => number;
+  /**
+   * Assistant-playback level, same polling contract. The band rides this while
+   * the assistant speaks, so the block keeps moving through the half of the
+   * turn the mic is silent for, exactly as the room's two bands do.
+   */
+  getOutputAmplitude: () => number;
   /** Whether the mic is muted — drives the left-side mute toggle. */
   muted: boolean;
   /** Toggle the mic mute without ending the session. */
@@ -74,12 +77,6 @@ export interface VoiceComposerBarProps {
    * ships dead.
    */
   onExpand?: () => void;
-  /**
-   * Accent hex matching the avatar the voice room renders (see
-   * `resolveWaveAccentHex`), so the bar's waves keep the room's tint.
-   * Null/omitted falls back to the app-wide accent, then aurora.
-   */
-  waveAccentHex?: string | null;
   /**
    * Whether the block is the composer card's only content, which it is unless
    * the user opted into seeing their own words (the live transcript keeps the
@@ -114,14 +111,31 @@ const VOICE_CONTROL_CLASS = [
 export function VoiceComposerBar({
   state,
   getAmplitude,
+  getOutputAmplitude,
   muted,
   onToggleMute,
   onEnd,
   onStop,
   onExpand,
-  waveAccentHex,
   standalone = false,
 }: VoiceComposerBarProps) {
+  // Which voice the band is drawing, in the room's own terms: the user lifts a
+  // pale sheet off the floor, the assistant answers in a darker one, and in
+  // silence the floor is empty. Ink cannot come from the avatar accent here:
+  // the block is painted that exact color, so an accent-tinted band is the
+  // fill's own hue and paints nothing at all.
+  //
+  // The reply wins the surface while it plays. The mic stays open through it
+  // for barge-in (`isLiveVoiceMicLive` spans listening→speaking), so keying off
+  // the mic alone would draw the user's voice over the assistant's.
+  const replying = state === "speaking";
+  const micLive = isLiveVoiceMicLive(state) && !muted;
+  const ink = replying ? BAND_VOICE.responding : BAND_VOICE.listening;
+  const bandAmplitude = replying
+    ? getOutputAmplitude
+    : micLive
+      ? getAmplitude
+      : SILENT_AMPLITUDE;
   return (
     <div
       role="group"
@@ -138,23 +152,18 @@ export function VoiceComposerBar({
           so the color and the motion read as one surface. Behind the controls
           and the state word, which is why it is first and inert. */}
       <div
+        data-testid="voice-session-band"
         className={cn(
           "pointer-events-none absolute inset-0 overflow-hidden",
           VOICE_WAVE_EDGE_FADE_CLASS,
         )}
-        style={
-          waveAccentHex
-            ? ({ [AVATAR_ACCENT_CSS_VAR]: waveAccentHex } as CSSProperties)
-            : undefined
-        }
       >
         <VoiceMeshWaves
-          getAmplitude={
-            isLiveVoiceMicLive(state) ? getAmplitude : SILENT_AMPLITUDE
-          }
-          palette="accent"
+          getAmplitude={bandAmplitude}
+          color={ink.color}
+          peakOpacity={ink.peakOpacity}
           placement="inline"
-          tuning={MESH_INLINE_TUNING}
+          tuning={{ ...MESH_INLINE_TUNING, opacityKnee: ink.opacityKnee }}
         />
       </div>
 
