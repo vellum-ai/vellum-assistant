@@ -29,15 +29,18 @@ function request(
     referrer,
     userAgent = BROWSER_UA,
     headers = {},
+    method = "GET",
   }: {
     host?: string;
     cookie?: string;
     referrer?: string;
     userAgent?: string;
     headers?: Record<string, string>;
+    method?: string;
   } = {},
 ): NextRequest {
   const req = new NextRequest(url, {
+    method,
     headers: { "user-agent": userAgent, ...headers },
   });
   // host, cookie, and referer are Fetch-spec forbidden request headers;
@@ -115,6 +118,15 @@ describe("docs proxy page_view logging", () => {
 
     expect(pageViewLogs()).toHaveLength(0);
   });
+
+  test.each([["HEAD"], ["POST"], ["OPTIONS"]])(
+    "%s requests are not logged as page views",
+    (method) => {
+      proxy(request("https://www.vellum.ai/docs", { method }));
+
+      expect(pageViewLogs()).toHaveLength(0);
+    },
+  );
 });
 
 describe("docs proxy prefetch filtering", () => {

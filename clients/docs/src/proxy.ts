@@ -467,7 +467,12 @@ export function proxy(request: NextRequest) {
   setVisitorIdCookie(request, host, response, vid);
 
   const userAgent = request.headers.get("user-agent") || "";
-  if (isPagePath(pathname) && !isbot(userAgent) && !isPrefetch(request)) {
+  if (
+    request.method === "GET" &&
+    isPagePath(pathname) &&
+    !isbot(userAgent) &&
+    !isPrefetch(request)
+  ) {
     emitPageViewLog(request, vid, pathname, resolveEntryAttribution(request));
   }
   return response;
