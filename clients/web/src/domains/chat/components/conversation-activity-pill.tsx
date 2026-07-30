@@ -1,7 +1,12 @@
 /**
  * Header control listing the current conversation's agent sessions (its
- * subagents and ACP runs), so a session can be reopened after it scrolls out of
- * the transcript, running or finished.
+ * subagents and ACP runs), running or finished, so a session's details stay one
+ * click away once its transcript card has scrolled out of view.
+ *
+ * A navigation surface only. Rows open the same read-only detail viewer the
+ * transcript card opens, via `onOpenDetail`; nothing here starts, resumes, or
+ * restarts an agent. The one action on a live process is Stop, offered on
+ * running rows.
  *
  * Deliberately a sibling of {@link ConversationAssetsPill} rather than a section
  * inside it, and built from the same parts: the same ghost/`active` pill
