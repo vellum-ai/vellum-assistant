@@ -677,8 +677,8 @@ describe("buildTranscriptItems", () => {
   test("code-only provider-error rows (no category) substitute the card too", () => {
     // The daemon builds `providerError` with each field conditional on being
     // a string, so a persisted row can carry a bare PROVIDER_BILLING code.
-    // The substitution shares `isCreditsExhaustedProviderError` with the live
-    // composer banner, which accepts that shape as managed credits.
+    // The substitution classifies via `isCreditsExhaustedProviderError`,
+    // which accepts that shape as managed credits.
     const errorRow = makeMessage({
       id: "m1",
       role: "assistant",

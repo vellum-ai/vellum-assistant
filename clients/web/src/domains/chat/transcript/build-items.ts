@@ -168,8 +168,8 @@ export function buildTranscriptItems(
     // Persisted credits-exhausted provider-error rows render as the friendly
     // upsell card instead of a plain persona bubble. The row itself stays in
     // `messages` (history and the LLM context keep the text); only its
-    // transcript rendering is substituted. Classification is shared with the
-    // live composer banner (`isCreditsExhaustedProviderError`), so a bare
+    // transcript rendering is substituted. Classification goes through the
+    // shared `isCreditsExhaustedProviderError`, so a bare
     // `PROVIDER_BILLING` code with no category substitutes too. Provider
     // errors of any other category, and untagged rows, keep the normal
     // message rendering.
