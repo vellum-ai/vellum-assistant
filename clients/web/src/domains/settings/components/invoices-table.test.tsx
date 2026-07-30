@@ -78,9 +78,13 @@ function seedTwoPages(): void {
   };
 }
 
-function renderTable(): ReturnType<typeof render> & { client: QueryClient } {
+function renderTable(options?: {
+  staleTime?: number;
+}): ReturnType<typeof render> & { client: QueryClient } {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: {
+      queries: { retry: false, staleTime: options?.staleTime ?? 0 },
+    },
   });
   const view = render(
     <QueryClientProvider client={client}>
@@ -92,8 +96,9 @@ function renderTable(): ReturnType<typeof render> & { client: QueryClient } {
 
 async function openTable(options?: {
   showAll?: boolean;
+  staleTime?: number;
 }): Promise<ReturnType<typeof renderTable>> {
-  const view = renderTable();
+  const view = renderTable({ staleTime: options?.staleTime });
   fireEvent.click(view.getByTestId("invoices-toggle"));
   await waitFor(() =>
     expect(view.queryByTestId("invoices-table")).not.toBeNull(),
@@ -260,6 +265,31 @@ describe("InvoicesTable pagination", () => {
     );
     expect(queryByTestId("invoices-load-more")).toBeNull();
     expect(getByTestId("invoices-load-more-retry")).not.toBeNull();
+  });
+
+  test("a settled page failure does not resurrect after collapse and quick reopen", async () => {
+    seedTwoPages();
+    nextPageErrorStatus = 400;
+    const { getByTestId, queryByTestId } = await openTable({
+      showAll: true,
+      staleTime: 10_000,
+    });
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+    await waitFor(() =>
+      expect(queryByTestId("invoices-load-more-error")).not.toBeNull(),
+    );
+
+    nextPageErrorStatus = null;
+    fireEvent.click(getByTestId("invoices-toggle"));
+    expect(queryByTestId("invoices-table")).toBeNull();
+    fireEvent.click(getByTestId("invoices-toggle"));
+
+    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+    await waitFor(() =>
+      expect(queryByTestId("invoices-load-more-error")).toBeNull(),
+    );
+    expect(queryByTestId("invoices-load-more")).not.toBeNull();
   });
 
   test("a page failure resolving after re-expand does not resurrect the error", async () => {
