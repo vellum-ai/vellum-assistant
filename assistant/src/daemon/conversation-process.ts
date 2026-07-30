@@ -57,53 +57,12 @@ import {
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
 import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
+import { isEchoSuppressedUserMessage } from "./message-metadata-predicates.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
-
-/**
- * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`),
- * ACP run (`acpNotification`), and any wake trigger (the persisted
- * `<background_event source="...">` row every wake reads) — are persisted into
- * the parent conversation so the orchestrator wakes and reads the trigger, but
- * they are internal scaffolding: the user sees the wake through its inline card
- * ("Conversation Woke", or a terminal card for a backgrounded bash run), not a
- * chat turn. Skip the `user_message_echo` broadcast for these so they never
- * render as a live user bubble; the persisted row is filtered from the rendered
- * transcript on the client.
- *
- * Messages explicitly flagged `hidden` (a hidden `POST /messages` send that
- * queued behind an in-flight turn, e.g. the channel-setup wizard-close
- * marker) are suppressed the same way — the immediate route path already
- * skips their echo, and the persisted `hidden` metadata keeps them out of
- * the fetched transcript.
- */
-export function isEchoSuppressedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return (
-    isHiddenMessageMetadata(metadata) ||
-    metadata?.subagentNotification != null ||
-    metadata?.acpNotification != null ||
-    isBackgroundEventMetadata(metadata)
-  );
-}
-
-/**
- * True when the row is a persisted `<background_event source="...">` trigger —
- * every wake, scheduled run, and backgrounded-tool completion stamps one (see
- * {@link persistWakeTriggerMessage}). The permission mode such a turn ran under
- * varies (most run interactive; clientless/headless wakes do not) and is
- * recorded separately in `backgroundEventInteractive`; this predicate only
- * identifies the row as a background event.
- */
-export function isBackgroundEventMetadata(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return typeof metadata?.backgroundEventSource === "string";
-}
 
 /** Locale-formatted count for the user-facing context stats cards. */
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
@@ -612,7 +571,14 @@ export async function kickQueueDrain(
       },
       "drainQueue retry rejected; queued messages remain stranded until the next drain trigger",
     );
-    for (const queued of conversation.queue.snapshot()) {
+    // Only the sends a user is waiting on get the failure notice. A stranded
+    // echo-suppressed enqueue (subagent/ACP/background-event notification,
+    // hidden machine signal) has no queued bubble to explain, so a "your
+    // queued message" error would describe something the user never sent.
+    const strandedVisible = conversation.queue
+      .snapshot()
+      .filter((queued) => !isEchoSuppressedUserMessage(queued.metadata));
+    for (const queued of strandedVisible) {
       queued.onEvent({
         type: "error",
         conversationId: conversation.conversationId,
@@ -660,12 +626,21 @@ async function drainSingleMessage(
     },
     "Dequeuing message",
   );
-  next.onEvent({
-    type: "message_dequeued",
-    conversationId: conversation.conversationId,
-    requestId: next.requestId,
-    ...(next.clientMessageId ? { clientMessageId: next.clientMessageId } : {}),
-  });
+  // Queue events come in pairs: an echo-suppressed enqueue never produced a
+  // `message_queued` ack, so releasing one must not produce a dequeue either.
+  // An unpaired dequeue would retire a client's counter entry for a message
+  // that is still waiting. The activity-state transition below is unrelated to
+  // the queue and always fires: the turn really is starting.
+  if (!isEchoSuppressedUserMessage(next.metadata)) {
+    next.onEvent({
+      type: "message_dequeued",
+      conversationId: conversation.conversationId,
+      requestId: next.requestId,
+      ...(next.clientMessageId
+        ? { clientMessageId: next.clientMessageId }
+        : {}),
+    });
+  }
   conversation.emitActivityState("thinking", "message_dequeued", {
     requestId: next.requestId,
   });
@@ -1334,12 +1309,16 @@ async function drainBatch(
   const persistedMessageIds: string[] = [];
   for (let i = 0; i < batch.length; i++) {
     const qm = batch[i];
-    qm.onEvent({
-      type: "message_dequeued",
-      conversationId: conversation.conversationId,
-      requestId: qm.requestId,
-      ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
-    });
+    // Paired with the `message_queued` ack the same predicate gated: an
+    // echo-suppressed member was never acked, so it is never dequeued either.
+    if (!isEchoSuppressedUserMessage(qm.metadata)) {
+      qm.onEvent({
+        type: "message_dequeued",
+        conversationId: conversation.conversationId,
+        requestId: qm.requestId,
+        ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
+      });
+    }
 
     const qmSlash = await resolveSlash(
       qm.content,

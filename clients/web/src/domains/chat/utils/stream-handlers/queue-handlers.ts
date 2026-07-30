@@ -18,7 +18,6 @@ export function handleMessageQueued(
   event: MessageQueuedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.enqueueMessage();
   const { requestId, position, clientMessageId } = event;
   // When the ack names its send, bind by identity: consume that exact
   // pending entry, and ignore acks for sends this client did not originate
@@ -29,9 +28,13 @@ export function handleMessageQueued(
     ? ctx.takePendingQueuedMessageId(clientMessageId)
     : ctx.shiftPendingQueuedMessageId();
   if (!messageId) {
+    // No local row owns this ack, so there is nothing for the queued counter
+    // to describe. Counting it would leave the turn store reporting a pending
+    // queued send the drawer can never show.
     return;
   }
 
+  ctx.turnActions.enqueueMessage();
   ctx.setRequestIdMapping(requestId, messageId);
 
   if (ctx.consumePendingLocalDeletion(messageId)) {

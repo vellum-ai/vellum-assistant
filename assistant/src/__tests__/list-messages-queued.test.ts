@@ -192,6 +192,58 @@ describe("handleListMessages in-memory queue", () => {
     expect(body.messages[0].queuePosition).toBe(1);
   });
 
+  test("filters queued subagent notifications from the snapshot, keeping positions contiguous", async () => {
+    // A subagent notification is injected into the parent conversation as a
+    // user-role turn so the orchestrator reads it, but the user never sent it:
+    // it must not surface as a queued bubble, and the real queued send keeps
+    // position 1.
+    const conv = createConversation();
+    registerLiveConversation(conv.id, [
+      makeQueued({
+        requestId: "req-subagent",
+        content: '[Subagent "investigate-ttft" — important] found the cause',
+        metadata: {
+          subagentNotification: {
+            subagentId: "sub-1",
+            label: "investigate-ttft",
+            status: "running",
+          },
+        },
+      }),
+      makeQueued({ requestId: "req-visible", content: "a real message" }),
+    ]);
+
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].id).toBe("req-visible");
+    expect(body.messages[0].queuePosition).toBe(1);
+  });
+
+  test("filters queued background-event wake triggers from the snapshot", async () => {
+    const conv = createConversation();
+    registerLiveConversation(conv.id, [
+      makeQueued({
+        requestId: "req-wake",
+        content: '<background_event source="background-tool" />',
+        metadata: { backgroundEventSource: "background-tool" },
+      }),
+      makeQueued({ requestId: "req-visible", content: "a real message" }),
+    ]);
+
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].id).toBe("req-visible");
+    expect(body.messages[0].queuePosition).toBe(1);
+  });
+
   test("does not append queued messages to an older-history page", async () => {
     // GIVEN history requested with beforeTimestamp (older page)
     const conv = createConversation();

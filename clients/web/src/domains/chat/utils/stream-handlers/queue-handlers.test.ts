@@ -44,7 +44,7 @@ describe("handleMessageQueued", () => {
     expect(updated[0]?.queuePosition).toBe(2);
   });
 
-  it("returns early when no pending messageId", () => {
+  it("returns early without counting the enqueue when no pending messageId", () => {
     const ctx = makeCtx({
       pendingQueuedMessageIds: [],
     });
@@ -58,6 +58,9 @@ describe("handleMessageQueued", () => {
       ctx,
     );
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+    // No local row owns the ack, so the turn store must not report a pending
+    // queued send the drawer can never show.
+    expect(ctx.turnActions.enqueueMessage).not.toHaveBeenCalled();
   });
 
   it("binds by clientMessageId even when the nonce is not at the FIFO head", () => {
@@ -98,6 +101,7 @@ describe("handleMessageQueued", () => {
     );
     expect(ctx.setRequestIdMapping).not.toHaveBeenCalled();
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+    expect(ctx.turnActions.enqueueMessage).not.toHaveBeenCalled();
     // The local pending entry is untouched and still awaits its own ack.
     expect(pending).toEqual(["stable-1"]);
   });

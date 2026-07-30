@@ -142,6 +142,33 @@ describe("useMessageQueue", () => {
     expect(result.current.queuedMessages).toHaveLength(0);
   });
 
+  test("excludes daemon-injected notifications from the queue drawer", () => {
+    const notification: DisplayMessage = {
+      ...queuedMessage("request-notif", "client-notif"),
+      textSegments: ['[Subagent "research" completed]'],
+      isSubagentNotification: true,
+    };
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [notification, queuedMessage("request-1", "client-1", 2)],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+    });
+    const { result } = renderHook(() =>
+      useMessageQueue({
+        assistantId: "assistant-1",
+        activeConversationId: "conversation-1",
+      }),
+    );
+
+    expect(result.current.queuedMessages.map((message) => message.id)).toEqual([
+      "request-1",
+    ]);
+  });
+
   test("steers a snapshot-backed queued message by its request id", () => {
     useChatSessionStore.setState({
       snapshot: {

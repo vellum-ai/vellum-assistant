@@ -774,6 +774,69 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("subagent notifications are never acked with message_queued and don't shift visible positions", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const notifEvents: AssistantEvent[] = [];
+    const visibleEvents: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A daemon-injected subagent update is a user-role turn the orchestrator
+    // reads, not a send the user is waiting on: it queues without an ack so
+    // it never renders in the client's queue drawer.
+    const notif = conversation.enqueueMessage({
+      content: '[Subagent "research" — important] found the cause',
+      onEvent: (e) => notifEvents.push(e),
+      requestId: "req-notif",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "research",
+          status: "running",
+        },
+      },
+    });
+    expect(notif.queued).toBe(true);
+    expect(notifEvents.filter((e) => e.type === "message_queued")).toEqual([]);
+
+    // A real send queued behind the notification is position 1.
+    const visible = conversation.enqueueMessage({
+      content: "visible-msg",
+      onEvent: (e) => visibleEvents.push(e),
+      requestId: "req-visible",
+    });
+    expect(visible.queued).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(2);
+    const queuedAck = visibleEvents.find((e) => e.type === "message_queued");
+    expect(queuedAck).toMatchObject({
+      requestId: "req-visible",
+      position: 1,
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForCondition(() => conversation.getQueueDepth() === 0);
+    for (let i = 1; i < pendingRuns.length; i++) {
+      await resolveRun(i);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Queue events stay paired: an enqueue that was never acked is never
+    // dequeued either, so the client counter can't retire an entry it never
+    // took. The visible send keeps both halves.
+    expect(notifEvents.filter((e) => e.type === "message_dequeued")).toEqual(
+      [],
+    );
+    expect(visibleEvents.some((e) => e.type === "message_dequeued")).toBe(true);
+  });
+
   test("abort() clears the queue and sends generation_cancelled for each queued message", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();

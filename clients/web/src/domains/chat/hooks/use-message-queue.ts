@@ -74,7 +74,18 @@ export function useMessageQueue({
   const queuedMessages = useMemo(
     () =>
       transcriptMessages
-        .filter((m) => m.role === "user" && m.queueStatus === "queued")
+        .filter(
+          (m) =>
+            m.role === "user" &&
+            m.queueStatus === "queued" &&
+            // Daemon-injected run lifecycle notifications (subagent, ACP, wake
+            // trigger) are user-role rows the LLM reads, not sends the user is
+            // waiting on. The transcript already skips them; the drawer must
+            // too, or they show up as messages the user never wrote.
+            !m.isSubagentNotification &&
+            !m.isAcpNotification &&
+            !m.isBackgroundEventNotification,
+        )
         .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0)),
     [transcriptMessages],
   );

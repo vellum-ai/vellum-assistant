@@ -48,7 +48,6 @@ import {
   extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
-  isHiddenMessageMetadata,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -65,6 +64,7 @@ import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
+import { isEchoSuppressedUserMessage } from "./message-metadata-predicates.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TrustContext } from "./trust-context-types.js";
@@ -633,16 +633,16 @@ export function enqueueMessage(
   }
   // Ack the accepted enqueue on the sender's event sink. Emitting here,
   // rather than at each ingress call site, is what guarantees every path
-  // that queues (HTTP send, surface actions, agent wake, subagent
-  // notifications) surfaces the queued row live. Hidden sends are
-  // suppressed from the transcript at every stage, including this ack,
-  // and `position` counts visible items only: both mirror the
-  // list-messages queued-snapshot filter so a live ack and a cold reload
-  // render the same row at the same position.
-  if (!isHiddenMessageMetadata(metadata)) {
+  // that queues (HTTP send, surface actions, agent wake) surfaces the queued
+  // row live. Echo-suppressed enqueues (hidden sends and the daemon-injected
+  // subagent/ACP/background-event notifications) are absent from the
+  // transcript at every stage, including this ack, and `position` counts
+  // visible items only: both mirror the list-messages queued-snapshot filter
+  // so a live ack and a cold reload render the same row at the same position.
+  if (!isEchoSuppressedUserMessage(metadata)) {
     const position = ctx.queue
       .snapshot()
-      .filter((item) => !isHiddenMessageMetadata(item.metadata)).length;
+      .filter((item) => !isEchoSuppressedUserMessage(item.metadata)).length;
     onEvent?.({
       type: "message_queued",
       conversationId: ctx.conversationId,
