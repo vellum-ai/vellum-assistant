@@ -11,16 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-let deleteCalls = 0;
-let deleteResult = true;
-
-mock.module("@/domains/chat/api/messages", () => ({
-  deleteQueuedMessage: async (): Promise<boolean> => {
-    deleteCalls += 1;
-    return deleteResult;
-  },
-}));
-
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
@@ -37,14 +28,28 @@ function ctxWithRealTurnActions(
   return makeCtx({ turnActions: useTurnStore.getState(), ...overrides });
 }
 
+// Spy on the generated client rather than `mock.module`-ing the API surface:
+// a module mock would replace `@/domains/chat/api/messages` for every other
+// test file sharing this Bun process. Same convention as `api/messages.test.ts`.
+let deleteCalls = 0;
+const originalDelete = daemonClient.delete;
+
 beforeEach(() => {
   deleteCalls = 0;
-  deleteResult = true;
+  daemonClient.delete = mock(async () => {
+    deleteCalls += 1;
+    return {
+      data: { ok: true },
+      error: null,
+      response: new Response(null, { status: 200 }),
+    };
+  }) as typeof daemonClient.delete;
   useTurnStore.setState({ ...INITIAL_TURN_STATE });
   useConversationStore.setState({ activeConversationId: "conv-1" });
 });
 
 afterEach(() => {
+  daemonClient.delete = originalDelete;
   useChatSessionStore.setState({ snapshot: null });
 });
 
