@@ -3,13 +3,13 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const openWorkspaceFile = mock(async (_path: string) => {});
-const downloadLocalFile = mock(
+const downloadWorkspaceFile = mock(
   async (_opts: { assistantId: string; path: string; filename: string }) => {},
 );
 
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
-mock.module("@/domains/chat/components/local-file/download-local-file", () => ({
-  downloadLocalFile,
+mock.module("@/utils/download-workspace-file", () => ({
+  downloadWorkspaceFile,
 }));
 
 const { LocalFileMenu } =
@@ -17,7 +17,7 @@ const { LocalFileMenu } =
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();
-  downloadLocalFile.mockClear();
+  downloadWorkspaceFile.mockClear();
 });
 
 afterEach(() => {
@@ -81,8 +81,8 @@ describe("LocalFileMenu", () => {
     const user = await openMenu();
     await user.click(screen.getByRole("menuitem", { name: "Download" }));
 
-    await waitFor(() => expect(downloadLocalFile).toHaveBeenCalledTimes(1));
-    expect(downloadLocalFile.mock.calls[0]![0]).toEqual({
+    await waitFor(() => expect(downloadWorkspaceFile).toHaveBeenCalledTimes(1));
+    expect(downloadWorkspaceFile.mock.calls[0]![0]).toEqual({
       assistantId: "asst-1",
       path: "scratch/report.pdf",
       filename: "report.pdf",

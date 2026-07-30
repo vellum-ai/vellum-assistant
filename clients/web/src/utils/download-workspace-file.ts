@@ -4,7 +4,11 @@ import { saveFile } from "@/runtime/native-file";
 /**
  * Download a workspace file to the user's device. Fetches the raw bytes from
  * the daemon content endpoint and hands them to the cross-platform saver
- * (browser download on web, native Share Sheet on iOS).
+ * (browser download on web, native Share Sheet on iOS/macOS).
+ *
+ * Shared: the workspace browser downloads previewed files through here, and
+ * chat's file references do too. It lives at the top level so neither domain
+ * has to reach across the other's boundary.
  */
 export async function downloadWorkspaceFile(opts: {
   assistantId: string;

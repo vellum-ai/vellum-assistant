@@ -12,18 +12,25 @@ export interface AcpChatAgentMessageProps {
   content: string;
   /** When false the block is still streaming; shows a trailing indicator. */
   isComplete: boolean;
+  /**
+   * Assistant that owns the run's parent conversation. Lets workspace file
+   * references in the agent's message resolve against its workspace (inline
+   * media, file cards, download) instead of degrading to an inert card.
+   */
+  assistantId?: string | null;
 }
 
 export function AcpChatAgentMessage({
   content,
   isComplete,
+  assistantId,
 }: AcpChatAgentMessageProps) {
   return (
     <div
       data-testid="acp-chat-agent-message"
       className="flex w-full flex-col items-start text-chat text-[var(--content-default)]"
     >
-      <ChatMarkdownMessage content={content} />
+      <ChatMarkdownMessage content={content} assistantId={assistantId} />
       {!isComplete && (
         <ThreeDotIndicator
           className="mt-1"

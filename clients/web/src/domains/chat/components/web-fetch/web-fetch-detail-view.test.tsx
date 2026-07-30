@@ -13,8 +13,19 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 // Render the extracted markdown as plain text so assertions can read it back
 // without depending on the markdown renderer's element splitting.
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  ChatMarkdownMessage: ({ content }: { content: string }) => (
-    <div data-testid="markdown">{content}</div>
+  ChatMarkdownMessage: ({
+    content,
+    assistantId,
+  }: {
+    content: string;
+    assistantId?: string | null;
+  }) => (
+    <div
+      data-testid="markdown"
+      data-has-assistant-id={assistantId == null ? "false" : "true"}
+    >
+      {content}
+    </div>
   ),
 }));
 
@@ -119,6 +130,16 @@ describe("WebFetchDetailView", () => {
     ).toBeDefined();
     expect(getByTestId("markdown").textContent).toContain(
       "Michelob Ultra has overtaken",
+    );
+  });
+
+  test("never gives the fetched page an assistant id to resolve local files with", () => {
+    const { getByTestId } = render(<WebFetchDetailView detail={payload({})} />);
+    // Remote page text is the least-trusted content in the app: without an
+    // assistant id a `vellum://workspace/…` reference it smuggles in stays an
+    // inert card instead of pulling local workspace bytes into the panel.
+    expect(getByTestId("markdown").getAttribute("data-has-assistant-id")).toBe(
+      "false",
     );
   });
 

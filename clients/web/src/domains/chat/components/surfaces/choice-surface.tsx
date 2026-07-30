@@ -16,6 +16,12 @@ interface ChoiceSurfaceProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
+  /**
+   * Assistant that owns the conversation this surface belongs to. Lets
+   * workspace file references in the description resolve against its
+   * workspace instead of degrading to an inert file card.
+   */
+  assistantId?: string | null;
 }
 
 function buildInitialSelectedIds(
@@ -44,7 +50,11 @@ function buildChoicePayload(option: ChoiceOption): Record<string, unknown> {
   };
 }
 
-export function ChoiceSurface({ surface, onAction }: ChoiceSurfaceProps) {
+export function ChoiceSurface({
+  surface,
+  onAction,
+  assistantId,
+}: ChoiceSurfaceProps) {
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -138,6 +148,7 @@ export function ChoiceSurface({ surface, onAction }: ChoiceSurfaceProps) {
         <ChatMarkdownMessage
           content={data.description}
           className="mt-1 text-body-medium-lighter text-[var(--content-quiet)]"
+          assistantId={assistantId}
         />
       )}
 

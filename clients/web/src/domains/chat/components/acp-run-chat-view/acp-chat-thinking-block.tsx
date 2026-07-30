@@ -23,11 +23,18 @@ export interface AcpChatThinkingBlockProps {
   content: string;
   /** When false the block is still streaming; auto-expands and shows an indicator. */
   isComplete: boolean;
+  /**
+   * Assistant that owns the run's parent conversation. Lets workspace file
+   * references in the reasoning resolve against its workspace instead of
+   * degrading to an inert file card.
+   */
+  assistantId?: string | null;
 }
 
 export function AcpChatThinkingBlock({
   content,
   isComplete,
+  assistantId,
 }: AcpChatThinkingBlockProps) {
   // Auto-expanded while streaming; collapsed once complete. A user toggle sets
   // an override that sticks regardless of later `isComplete` changes. Local
@@ -85,7 +92,7 @@ export function AcpChatThinkingBlock({
           data-testid="acp-chat-thinking-body"
           className="mt-1.5 border-l-2 border-[var(--border-base)] pl-3 text-body-small-default text-[var(--content-tertiary)]"
         >
-          <ChatMarkdownMessage content={content} />
+          <ChatMarkdownMessage content={content} assistantId={assistantId} />
         </div>
       )}
     </div>

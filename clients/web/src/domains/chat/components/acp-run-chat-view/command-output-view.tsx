@@ -7,9 +7,18 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 export interface CommandOutputViewProps {
   /** Stringified ACP tool content whose text output to render. */
   content?: string;
+  /**
+   * Assistant that owns the run's parent conversation. Lets workspace file
+   * references in the command output resolve against its workspace instead of
+   * degrading to an inert file card.
+   */
+  assistantId?: string | null;
 }
 
-export function CommandOutputView({ content }: CommandOutputViewProps) {
+export function CommandOutputView({
+  content,
+  assistantId,
+}: CommandOutputViewProps) {
   const output = getAcpToolOutputText(content);
   return (
     <div
@@ -18,7 +27,11 @@ export function CommandOutputView({ content }: CommandOutputViewProps) {
       // scroll rather than nesting a second scrollbar.
       className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 [&_pre]:!max-h-none"
     >
-      <ChatMarkdownMessage content={output} hardLineBreaks />
+      <ChatMarkdownMessage
+        content={output}
+        hardLineBreaks
+        assistantId={assistantId}
+      />
     </div>
   );
 }

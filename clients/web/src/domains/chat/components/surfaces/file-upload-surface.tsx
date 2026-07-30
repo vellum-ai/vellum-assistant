@@ -25,6 +25,12 @@ interface FileUploadSurfaceProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
+  /**
+   * Assistant that owns the conversation this surface belongs to. Lets
+   * workspace file references in the prompt copy resolve against its
+   * workspace instead of degrading to an inert file card.
+   */
+  assistantId?: string | null;
 }
 
 interface SelectedFile {
@@ -126,6 +132,7 @@ function readFileAsBase64(file: File): Promise<string> {
 export function FileUploadSurface({
   surface,
   onAction,
+  assistantId,
 }: FileUploadSurfaceProps) {
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (every field optional/coerced, so a real surface never fails to parse). The
@@ -311,6 +318,7 @@ export function FileUploadSurface({
       <ChatMarkdownMessage
         content={data.prompt ?? ""}
         className="mb-3 text-body-medium-lighter text-[var(--content-strong)]"
+        assistantId={assistantId}
       />
 
       {/* Drop zone */}

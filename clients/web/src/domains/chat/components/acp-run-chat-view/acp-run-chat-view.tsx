@@ -86,13 +86,24 @@ type ActiveDetail =
 export interface AcpRunChatViewProps {
   entry: AcpRunEntry;
   onClose: () => void;
+  /**
+   * Assistant that owns the run's parent conversation. `entry` carries no id
+   * of its own: the ACP run store is populated from that conversation's
+   * stream. Threaded to every markdown block so workspace file references
+   * resolve against the right workspace.
+   */
+  assistantId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
+export function AcpRunChatView({
+  entry,
+  onClose,
+  assistantId,
+}: AcpRunChatViewProps) {
   const isRunning = isActiveAcpStatus(entry.status);
 
   const events = useAcpRunStore(
@@ -227,7 +238,10 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
               newText={activeDiff?.newText}
             />
           ) : (
-            <CommandOutputView content={activeToolBlock?.content} />
+            <CommandOutputView
+              content={activeToolBlock?.content}
+              assistantId={assistantId}
+            />
           )}
         </div>
       ) : (
@@ -264,6 +278,7 @@ export function AcpRunChatView({ entry, onClose }: AcpRunChatViewProps) {
                     isTerminal={isTerminal}
                     onOpenDiff={handleOpenDiff}
                     onOpenOutput={handleOpenOutput}
+                    assistantId={assistantId}
                   />
                 </AcpChatTimelineBlock>
               ))}
@@ -421,12 +436,15 @@ function ChatBlock({
   isTerminal,
   onOpenDiff,
   onOpenOutput,
+  assistantId,
 }: {
   block: AcpChatBlock;
   /** When the run is terminal, force trailing live agent/thinking blocks complete. */
   isTerminal: boolean;
   onOpenDiff: (toolCallId: string, fileChange: AcpFileChange) => void;
   onOpenOutput: (toolCallId: string) => void;
+  /** Assistant that owns the run's parent conversation. */
+  assistantId?: string | null;
 }) {
   switch (block.kind) {
     case "user":
@@ -436,6 +454,7 @@ function ChatBlock({
         <AcpChatAgentMessage
           content={block.content}
           isComplete={block.isComplete || isTerminal}
+          assistantId={assistantId}
         />
       );
     case "thinking":
@@ -443,6 +462,7 @@ function ChatBlock({
         <AcpChatThinkingBlock
           content={block.content}
           isComplete={block.isComplete || isTerminal}
+          assistantId={assistantId}
         />
       );
     case "tool":

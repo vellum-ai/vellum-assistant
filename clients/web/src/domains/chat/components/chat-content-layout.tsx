@@ -481,6 +481,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onClose={onCloseSubagentDetail}
             onStop={onStopSubagent}
             onRequestDetail={onRequestSubagentDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -490,6 +491,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <ToolDetailPanel
             detail={activeToolDetail}
             onClose={closeToolDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -506,6 +508,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             }`}
             payload={activeActivitySteps}
             onClose={closeActivitySteps}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );
@@ -519,6 +522,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <AcpRunDetailPanel
             entry={activeAcpRunEntry}
             onClose={onCloseAcpRunDetail}
+            assistantId={assistantId}
           />
         </LazyBoundary>
       );

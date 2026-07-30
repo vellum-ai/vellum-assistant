@@ -62,7 +62,9 @@ export interface TranscriptRowProps {
   ) => void | Promise<void>;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
-  /** Forwarded to inline app surfaces so they can render live preview iframes. */
+  /** Assistant that owns this transcript. Forwarded to inline app surfaces so
+   *  they can render live preview iframes, and to every markdown renderer in
+   *  the row so workspace file references resolve against its workspace. */
   assistantId?: string | null;
   /** Click handler when the user clicks the "open timeline" button on an
    *  inline subagent progress card. */
@@ -114,7 +116,9 @@ export const TranscriptRow = memo(function TranscriptRow({
       // Daemon-authored status cards render as standalone system notices,
       // outside the persona bubble/avatar/hover-action machinery.
       if (item.message.isSystemCard) {
-        return <SystemCardRow message={item.message} />;
+        return (
+          <SystemCardRow message={item.message} assistantId={assistantId} />
+        );
       }
       return (
         <TranscriptMessageBody
@@ -196,7 +200,11 @@ export const TranscriptRow = memo(function TranscriptRow({
       return (
         <div className="flex justify-start">
           <div className="max-w-full rounded-[var(--radius-lg)] bg-[var(--surface-overlay)] px-4 py-3 text-body-small-default text-[var(--content-secondary)]">
-            <ChatMarkdownMessage content={item.result.text} hardLineBreaks />
+            <ChatMarkdownMessage
+              content={item.result.text}
+              hardLineBreaks
+              assistantId={assistantId}
+            />
           </div>
         </div>
       );

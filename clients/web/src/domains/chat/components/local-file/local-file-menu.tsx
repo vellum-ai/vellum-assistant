@@ -18,7 +18,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 
 import { Button, cn, Menu, toast } from "@vellumai/design-library";
 
-import { downloadLocalFile } from "@/domains/chat/components/local-file/download-local-file";
+import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
 export interface LocalFileMenuProps {
@@ -58,7 +58,7 @@ export function LocalFileMenu({
       return;
     }
     try {
-      await downloadLocalFile({
+      await downloadWorkspaceFile({
         assistantId,
         path: workspacePath,
         filename,

@@ -67,9 +67,16 @@ const THINKING_PILL_MAX_CHARS = 60;
 export function ActivityStepsPanel({
   payload,
   onClose,
+  assistantId,
 }: {
   payload: ActivityStepsPayload;
   onClose: () => void;
+  /**
+   * Assistant that owns the conversation this activity group belongs to.
+   * Threaded to the drill-in reasoning markdown so workspace file references
+   * resolve against the right workspace.
+   */
+  assistantId?: string | null;
 }) {
   // Level-2 drill-in: the step detail currently open, or null for the
   // timeline. Local state — the drawer level is navigation within the panel,
@@ -165,7 +172,7 @@ export function ActivityStepsPanel({
       onClose={onClose}
     >
       {stepDetail ? (
-        <StepDetailLevel detail={stepDetail} />
+        <StepDetailLevel detail={stepDetail} assistantId={assistantId} />
       ) : (
         <PhaseGroupedStepList
           steps={cardData.steps}
@@ -274,7 +281,13 @@ function TimelineStep({
  * live reasoning markdown; tool details reuse the shared `ToolDetailBody`
  * (technical details + streaming output).
  */
-function StepDetailLevel({ detail }: { detail: ToolDetailPayload }) {
+function StepDetailLevel({
+  detail,
+  assistantId,
+}: {
+  detail: ToolDetailPayload;
+  assistantId?: string | null;
+}) {
   // Live reasoning for thinking details — streams while the panel is open,
   // falling back to the click-time snapshot when the source can't be
   // resolved. Called unconditionally (hook rules); no-ops for tool details.
@@ -290,6 +303,7 @@ function StepDetailLevel({ detail }: { detail: ToolDetailPayload }) {
         <ChatMarkdownMessage
           content={liveThinking ?? detail.thinkingText ?? ""}
           hardLineBreaks
+          assistantId={assistantId}
         />
       ) : (
         <ToolDetailBody detail={detail} />

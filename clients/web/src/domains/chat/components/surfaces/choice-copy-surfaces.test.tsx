@@ -3,9 +3,19 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
+// Records the assistant id the surface threads through, so the router → surface
+// wiring for workspace file references is assertable without the real renderer.
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  ChatMarkdownMessage: ({ content }: { content: string }) => (
-    <div>{content}</div>
+  ChatMarkdownMessage: ({
+    content,
+    assistantId,
+  }: {
+    content: string;
+    assistantId?: string | null;
+  }) => (
+    <div data-testid="markdown" data-assistant-id={assistantId ?? ""}>
+      {content}
+    </div>
   ),
 }));
 
@@ -462,6 +472,25 @@ describe("OAuthConnectSurface", () => {
 });
 
 describe("SurfaceRouter", () => {
+  test("threads the owning assistant id into the surface's markdown", () => {
+    const { getByTestId } = render(
+      <SurfaceRouter
+        surface={makeSurface({
+          data: {
+            description: "See [the report](vellum://workspace/report.pdf).",
+            options: [{ id: "inbox", title: "Clean up my inbox" }],
+          },
+        })}
+        onAction={() => {}}
+        assistantId="asst-owner"
+      />,
+    );
+
+    expect(getByTestId("markdown").getAttribute("data-assistant-id")).toBe(
+      "asst-owner",
+    );
+  });
+
   test("collapses completed choice surfaces into a completion chip", () => {
     const { queryByText, getByText } = render(
       <SurfaceRouter

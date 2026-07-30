@@ -21,6 +21,12 @@ interface ConfirmationSurfaceProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void;
+  /**
+   * Assistant that owns the conversation this surface belongs to. Lets
+   * workspace file references in the message/detail copy resolve against its
+   * workspace instead of degrading to an inert file card.
+   */
+  assistantId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -30,6 +36,7 @@ interface ConfirmationSurfaceProps {
 export function ConfirmationSurface({
   surface,
   onAction,
+  assistantId,
 }: ConfirmationSurfaceProps) {
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (tolerant, so a real payload never fails to parse) rather than an
@@ -94,6 +101,7 @@ export function ConfirmationSurface({
 
       <ChatMarkdownMessage
         content={data.message}
+        assistantId={assistantId}
         className={cn(
           "text-body-medium-default",
           data.destructive
@@ -106,6 +114,7 @@ export function ConfirmationSurface({
         <ChatMarkdownMessage
           content={data.detail}
           className="mt-1 text-body-medium-lighter text-[var(--content-secondary)]"
+          assistantId={assistantId}
         />
       )}
 

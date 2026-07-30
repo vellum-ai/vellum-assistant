@@ -14,6 +14,8 @@ interface MobileActivityStepsOverlayProps {
   payload: ActivityStepsPayload | null;
   /** Closes the overlay. */
   onClose: () => void;
+  /** Assistant that owns the conversation the activity group belongs to. */
+  assistantId?: string | null;
 }
 
 /**
@@ -26,6 +28,7 @@ interface MobileActivityStepsOverlayProps {
 export function MobileActivityStepsOverlay({
   payload,
   onClose,
+  assistantId,
 }: MobileActivityStepsOverlayProps) {
   if (!payload) {
     return null;
@@ -52,7 +55,11 @@ export function MobileActivityStepsOverlay({
       onClick={handleBackdropClick}
     >
       <LazyBoundary>
-        <ActivityStepsPanel payload={payload} onClose={onClose} />
+        <ActivityStepsPanel
+          payload={payload}
+          onClose={onClose}
+          assistantId={assistantId}
+        />
       </LazyBoundary>
     </div>
   );

@@ -30,6 +30,12 @@ export interface SurfaceRouterProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void | Promise<void>;
+  /**
+   * Assistant that owns the conversation this surface belongs to. Threaded to
+   * every surface that renders markdown so workspace file references in the
+   * surface's copy resolve against the right workspace (inline media, file
+   * cards, download), not the globally-active assistant.
+   */
   assistantId?: string | null;
   assistantDisplayName?: string | null;
   onOpenApp?: (appId: string) => void;
@@ -76,19 +82,49 @@ function SurfaceRouterInner({
 
   switch (surface.surfaceType) {
     case "form":
-      return <FormSurface surface={surface} onAction={onAction} />;
+      return (
+        <FormSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "confirmation":
-      return <ConfirmationSurface surface={surface} onAction={onAction} />;
+      return (
+        <ConfirmationSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "file_upload":
-      return <FileUploadSurface surface={surface} onAction={onAction} />;
+      return (
+        <FileUploadSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "card":
-      return <CardSurface surface={surface} onAction={onAction} />;
+      return (
+        <CardSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "choice":
-      return <ChoiceSurface surface={surface} onAction={onAction} />;
+      return (
+        <ChoiceSurface
+          surface={surface}
+          onAction={onAction}
+          assistantId={assistantId}
+        />
+      );
 
     case "copy_block":
       return <CopyBlockSurface surface={surface} onAction={onAction} />;

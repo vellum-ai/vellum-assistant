@@ -96,6 +96,12 @@ export interface SubagentDetailPanelProps {
   onClose: () => void;
   onStop?: (subagentId: string) => void;
   onRequestDetail?: (subagentId: string) => void;
+  /**
+   * Assistant that owns the conversation this subagent was spawned from.
+   * Threaded to the step markdown (and the nested tool detail) so workspace
+   * file references resolve against the right workspace.
+   */
+  assistantId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +113,7 @@ export function SubagentDetailPanel({
   onClose,
   onStop,
   onRequestDetail,
+  assistantId,
 }: SubagentDetailPanelProps) {
   const isRunning = isActiveStatus(entry.status);
   const reduce = useReducedMotion();
@@ -372,6 +379,7 @@ export function SubagentDetailPanel({
                 <ChatMarkdownMessage
                   content={activeDetail.thinkingText ?? ""}
                   hardLineBreaks
+                  assistantId={assistantId}
                 />
               ) : activeDetail.kind === "web_search" &&
                 activeDetail.status !== "error" ? (

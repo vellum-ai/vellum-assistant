@@ -43,6 +43,12 @@ interface CardSurfaceProps {
     actionId: string,
     data?: Record<string, unknown>,
   ) => void | Promise<void>;
+  /**
+   * Assistant that owns the conversation this surface belongs to. Lets
+   * workspace file references in the card body resolve against its workspace
+   * instead of degrading to an inert file card.
+   */
+  assistantId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +270,11 @@ function TaskStepList({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function CardSurface({ surface, onAction }: CardSurfaceProps) {
+export function CardSurface({
+  surface,
+  onAction,
+  assistantId,
+}: CardSurfaceProps) {
   // The wire keeps surface `data` opaque; narrow it with the canonical schema
   // (every field optional, so a real card never fails to parse) rather than an
   // unchecked cast or a re-declared local interface.
@@ -318,6 +328,7 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     <ChatMarkdownMessage
       content={data.body ?? ""}
       className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+      assistantId={assistantId}
     />
   );
 

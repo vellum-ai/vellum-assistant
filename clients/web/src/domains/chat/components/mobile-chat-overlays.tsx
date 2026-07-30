@@ -186,6 +186,7 @@ export function MobileChatOverlays() {
         onClose={handleCloseSubagentDetail}
         onStop={handleStopSubagent}
         onRequestDetail={handleRequestSubagentDetail}
+        assistantId={assistantId}
       />
       <MobileWorkflowDetailOverlay
         entry={
@@ -204,6 +205,7 @@ export function MobileChatOverlays() {
             : null
         }
         onClose={handleCloseAcpRunDetail}
+        assistantId={assistantId}
       />
       <MobileBackgroundTaskDetailOverlay
         entry={
@@ -216,10 +218,12 @@ export function MobileChatOverlays() {
       <MobileToolDetailOverlay
         detail={mainView === "tool-detail" ? activeToolDetail : null}
         onClose={handleCloseToolDetail}
+        assistantId={assistantId}
       />
       <MobileActivityStepsOverlay
         payload={mainView === "activity-steps" ? activeActivitySteps : null}
         onClose={handleCloseActivitySteps}
+        assistantId={assistantId}
       />
     </>,
     overlayTarget,
