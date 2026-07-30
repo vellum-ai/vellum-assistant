@@ -1,6 +1,6 @@
 /**
  * Single-line preview label for a thinking segment shown in pill / header
- * chrome, which renders plain text — not markdown.
+ * chrome, which renders plain text, not markdown.
  *
  * Reasoning summaries usually open with a bold markdown headline
  * (`**Considering formatting options** I'm pondering …`). Rendered as plain
@@ -17,7 +17,7 @@ export function thinkingPreview(text: string): string {
   }
   const close = trimmed.indexOf("**", 2);
   if (close === -1) {
-    // The headline is still streaming (no closing marker yet) — show the
+    // The headline is still streaming (no closing marker yet), so show the
     // partial headline without the literal asterisks. It settles to the
     // extracted headline once the closing marker lands.
     return trimmed.slice(2).trimStart();
