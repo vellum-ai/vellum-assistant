@@ -61,6 +61,13 @@ import { getChannelLabel } from "@/utils/channel-presentation";
 
 export const SIDEBAR_CONVERSATION_LIMIT = 5;
 
+/**
+ * Shared empty array for the "no attention anywhere" case — the common one.
+ * Returning a fresh `[]` would give every dependent memo a new identity on
+ * each render.
+ */
+const EMPTY_KEYS: string[] = [];
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -322,156 +329,6 @@ export function useSidebarState({
     [grouped.channelSections, visibleChannelCounts, attentionConversationIds],
   );
 
-  // --- Attention-forced expansion ---
-
-  const hasAttentionIn = useCallback(
-    (convs: Conversation[]) =>
-      attentionConversationIds
-        ? convs.some((c) => attentionConversationIds.has(c.conversationId))
-        : false,
-    [attentionConversationIds],
-  );
-
-  const effectiveOpenCategories = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0) {
-      return openCategories;
-    }
-    const extra: string[] = [];
-    for (const section of grouped.channelSections) {
-      if (
-        section.conversations.length > 0 &&
-        hasAttentionIn(section.conversations)
-      ) {
-        extra.push(channelSectionKey(section.channelId));
-      }
-    }
-    if (extra.length === 0) {
-      return openCategories;
-    }
-    if (extra.every((c) => openCategories.includes(c))) {
-      return openCategories;
-    }
-    return [...new Set([...openCategories, ...extra])];
-  }, [
-    openCategories,
-    attentionConversationIds,
-    grouped.channelSections,
-    hasAttentionIn,
-  ]);
-
-  const effectiveOpenCustomGroups = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0) {
-      return openCustomGroups;
-    }
-    const extra: string[] = [];
-    for (const group of grouped.customGroups) {
-      if (
-        group.conversations.some((c) =>
-          attentionConversationIds.has(c.conversationId),
-        )
-      ) {
-        extra.push(group.id);
-      }
-    }
-    if (extra.length === 0) {
-      return openCustomGroups;
-    }
-    if (extra.every((g) => openCustomGroups.includes(g))) {
-      return openCustomGroups;
-    }
-    return [...new Set([...openCustomGroups, ...extra])];
-  }, [openCustomGroups, attentionConversationIds, grouped.customGroups]);
-
-  // Pinned and Chats default open; force-open still applies if the user
-  // collapsed one and a conversation in it needs attention.
-  const effectiveOpenPrimary = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0) {
-      return openPrimary;
-    }
-    const extra: string[] = [];
-    if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned)) {
-      extra.push("pinned");
-    }
-    if (grouped.recents.length > 0 && hasAttentionIn(grouped.recents)) {
-      extra.push("recents");
-    }
-    if (extra.length === 0) {
-      return openPrimary;
-    }
-    if (extra.every((k) => openPrimary.includes(k))) {
-      return openPrimary;
-    }
-    return [...new Set([...openPrimary, ...extra])];
-  }, [
-    openPrimary,
-    attentionConversationIds,
-    grouped.pinned,
-    grouped.recents,
-    hasAttentionIn,
-  ]);
-
-  // Every section renders in one accordion root — they interleave freely, so
-  // there is no fixed block a second root could own. The three storage
-  // buckets are merged into a single value array here and split apart again
-  // on change. They stay separate because they have different defaults
-  // (primary open, the rest closed) and because `setOpenCategories` owns the
-  // lazy-fetch activation side effects.
-  const effectiveOpenSections = useMemo(
-    () => [
-      ...effectiveOpenPrimary,
-      ...effectiveOpenCategories,
-      ...effectiveOpenCustomGroups,
-    ],
-    [
-      effectiveOpenPrimary,
-      effectiveOpenCategories,
-      effectiveOpenCustomGroups,
-    ],
-  );
-
-  // Sections held open by attention rather than by the user. Radix builds each
-  // `onValueChange` payload from the current value array, so these ride along
-  // when the user toggles some *other* section — persisting them would outlive
-  // the attention that opened them and leave the section stuck open.
-  const forcedOpenKeys = useMemo(() => {
-    const stored = new Set([
-      ...openPrimary,
-      ...openCategories,
-      ...openCustomGroups,
-    ]);
-    return new Set(
-      [
-        ...effectiveOpenPrimary,
-        ...effectiveOpenCategories,
-        ...effectiveOpenCustomGroups,
-      ].filter((key) => !stored.has(key)),
-    );
-  }, [
-    openPrimary,
-    openCategories,
-    openCustomGroups,
-    effectiveOpenPrimary,
-    effectiveOpenCategories,
-    effectiveOpenCustomGroups,
-  ]);
-
-  // Routes each key from the shared root back to the bucket that owns it.
-  // Anything that is neither a primary key nor a built-in category key is a
-  // custom group id.
-  const onOpenSectionsChange = useCallback(
-    (next: string[]) => {
-      const toPersist = next.filter((key) => !forcedOpenKeys.has(key));
-      setOpenPrimary(toPersist.filter(isKnownPrimaryKey));
-      setOpenCategories(toPersist.filter(isKnownCategoryKey));
-      setOpenCustomGroups(
-        toPersist.filter(
-          (key) => !isKnownPrimaryKey(key) && !isKnownCategoryKey(key),
-        ),
-      );
-    },
-    [forcedOpenKeys, setOpenPrimary, setOpenCategories, setOpenCustomGroups],
-  );
-
   // --- Section order ---
 
   // Default layout: Pinned, then the user's custom groups, then Chats and the
@@ -556,6 +413,70 @@ export function useSidebarState({
       }
     },
     [sections, sectionOrder, setSectionOrder],
+  );
+
+  // --- Open/closed state ---
+
+  // The three storage buckets exist because they have different defaults
+  // (Pinned/Chats open, the rest closed) and because `setOpenCategories` owns
+  // the lazy-fetch activation side effects. That split is a *storage* concern:
+  // every section shares one accordion root, so reads merge the buckets into
+  // one value array and writes route each key back to its owner.
+  const storedOpenSections = useMemo(
+    () => [...openPrimary, ...openCategories, ...openCustomGroups],
+    [openPrimary, openCategories, openCustomGroups],
+  );
+
+  // Sections a conversation needing attention forces open, whatever the user
+  // last chose. One pass over `sections` covers every type — each section
+  // already carries its own conversations, so there's nothing type-specific
+  // left to special-case here.
+  const attentionOpenKeys = useMemo(() => {
+    if (!attentionConversationIds || attentionConversationIds.size === 0) {
+      return EMPTY_KEYS;
+    }
+    const keys = sections
+      .filter((section) =>
+        section.all.some((c) =>
+          attentionConversationIds.has(c.conversationId),
+        ),
+      )
+      .map((section) => section.key);
+    return keys.length > 0 ? keys : EMPTY_KEYS;
+  }, [sections, attentionConversationIds]);
+
+  // Held open by attention rather than by the user. Radix builds each
+  // `onValueChange` payload from the current value array, so these ride along
+  // when the user toggles some *other* section — persisting them would outlive
+  // the attention that opened them and leave the section stuck open.
+  const forcedOpenKeys = useMemo(() => {
+    const stored = new Set(storedOpenSections);
+    return new Set(attentionOpenKeys.filter((key) => !stored.has(key)));
+  }, [storedOpenSections, attentionOpenKeys]);
+
+  const effectiveOpenSections = useMemo(
+    () =>
+      forcedOpenKeys.size === 0
+        ? storedOpenSections
+        : [...new Set([...storedOpenSections, ...attentionOpenKeys])],
+    [storedOpenSections, attentionOpenKeys, forcedOpenKeys],
+  );
+
+  // Routes each key from the shared root back to the bucket that owns it.
+  // Anything that is neither a primary key nor a built-in category key is a
+  // custom group id.
+  const onOpenSectionsChange = useCallback(
+    (next: string[]) => {
+      const toPersist = next.filter((key) => !forcedOpenKeys.has(key));
+      setOpenPrimary(toPersist.filter(isKnownPrimaryKey));
+      setOpenCategories(toPersist.filter(isKnownCategoryKey));
+      setOpenCustomGroups(
+        toPersist.filter(
+          (key) => !isKnownPrimaryKey(key) && !isKnownCategoryKey(key),
+        ),
+      );
+    },
+    [forcedOpenKeys, setOpenPrimary, setOpenCategories, setOpenCustomGroups],
   );
 
   return {

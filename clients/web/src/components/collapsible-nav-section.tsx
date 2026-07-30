@@ -13,6 +13,7 @@ import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE,
   SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_SECTION_INDENT,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -305,7 +306,13 @@ function CollapsibleNavSectionSection({
       {...itemProps}
     >
       {header}
-      <Collapsible.Content className={contentClassName}>
+      {/* One indent for every section's content, here rather than at each call
+          site — a section whose rows don't nest under its header is the whole
+          reason the boundaries were hard to see. */}
+      <Collapsible.Content
+        className={contentClassName}
+        style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+      >
         {children}
       </Collapsible.Content>
     </Collapsible.Item>

@@ -83,9 +83,19 @@ type Story = StoryObj<typeof AssistantSideMenu>;
 
 export const ConversationSections: Story = {
   name: "Conversation sections",
+  /* `--surface-base` is the app backdrop the sidebar sits on; `SideMenu`
+     paints its own `--surface-overlay`, so the wrapper must not paint over
+     it. (This previously read `--surface-default` / `--border-default`,
+     neither of which is a real token — the background silently fell through
+     to transparent and `border-[var(--border-default)]` resolved to
+     `currentColor`, drawing a near-black rule that looks nothing like the
+     app.) The sidebar's own type and row metrics switch at `md`, so view
+     this story at a desktop viewport to see what desktop users see. */
   render: (args) => (
-    <div className="h-screen w-[280px] border-r border-[var(--border-default)] bg-[var(--surface-default)]">
-      <AssistantSideMenu {...args} />
+    <div className="flex h-screen bg-[var(--surface-base)]">
+      <div className="w-[280px] shrink-0">
+        <AssistantSideMenu {...args} />
+      </div>
     </div>
   ),
   args: {

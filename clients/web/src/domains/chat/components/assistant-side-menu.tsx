@@ -1,11 +1,4 @@
-import {
-  MessageSquare,
-  Pin,
-  Search,
-  SquarePen,
-  X,
-  type LucideIcon,
-} from "lucide-react";
+import { Search, SquarePen, X } from "lucide-react";
 import {
   Fragment,
   useCallback,
@@ -18,10 +11,7 @@ import {
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
-import {
-  CollapsibleNavSection,
-  type CollapsibleNavSectionDrag,
-} from "@/components/collapsible-nav-section";
+import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import {
   CollapsedGroupIcon,
   getGroupIndicatorState,
@@ -31,15 +21,13 @@ import {
   ConversationListProvider,
   type ConversationListContextValue,
 } from "@/domains/chat/components/conversation-list-context";
-import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
-import {
-  GroupActionsMenu,
-  type GroupMenuItemsProps,
-} from "@/domains/chat/components/group-actions-menu";
+import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
+import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
+import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
 import {
   SIDEBAR_CONVERSATION_LIMIT,
   useSidebarState,
@@ -48,25 +36,14 @@ import {
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
+import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
-import {
-  DEFAULT_GROUP_ICON,
-  getGroupIcon,
-} from "@/domains/chat/utils/group-icon-registry";
-import { getChannelIcon } from "@/utils/channel-presentation";
 import { Button, SideMenu } from "@vellumai/design-library";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT =
   SIDEBAR_CONVERSATION_LIMIT;
-
-/**
- * `useDragReorder` section key for the section-reordering controller. Drags
- * only land within the key they started in, and sections form a single
- * reorderable list, so one constant covers them all.
- */
-const SECTION_DRAG_KEY = "sidebar-sections";
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -270,39 +247,11 @@ export function AssistantSideMenu({
     onReorder: (_section, ordered) => onReorderConversations?.(ordered),
   });
 
-  // --- Drag-reorder (whole sections) ---
-  // A second, independent controller: rows reorder *within* a section, whole
-  // sections reorder among each other. Separate hook instances means separate
-  // active-drag refs, so a row drag can never be mistaken for a section drag
-  // even though both ride the same HTML5 drag events.
-  const sectionDragReorder = useDragReorder<SidebarSection>({
-    getId: (section) => section.key,
-    onReorder: (_key, ordered) =>
-      sidebar.onReorderSections(ordered.map((section) => section.key)),
+  // Whole-section reordering, separate from the row-level controller above.
+  const sectionDragFor = useSectionDragReorder({
+    sections: sidebar.sections,
+    onReorder: sidebar.onReorderSections,
   });
-
-  const buildSectionDrag = (
-    section: SidebarSection,
-  ): CollapsibleNavSectionDrag | undefined => {
-    // Nothing to reorder against with a single section on screen.
-    if (sidebar.sections.length < 2) {
-      return undefined;
-    }
-    const indicator = sectionDragReorder.dropIndicator;
-    return {
-      headerProps: sectionDragReorder.getItemProps(
-        SECTION_DRAG_KEY,
-        sidebar.sections,
-        section,
-      ),
-      dragging: sectionDragReorder.draggingId === section.key,
-      dropEdge:
-        indicator?.section === SECTION_DRAG_KEY &&
-        indicator.itemId === section.key
-          ? indicator.edge
-          : null,
-    };
-  };
 
   // Header actions for a sidebar section. Every section gets the same shape —
   // Pinned, Chats, each channel section, and each custom group — so the bulk
@@ -382,90 +331,35 @@ export function AssistantSideMenu({
     canReorder: !!onReorderConversations,
   };
 
-  // Every section type resolves to an icon, so the header treatment is
-  // identical across them: icon at rest, disclosure chevron on hover. Custom
-  // groups previously rendered bare (chevron only) even though the rail
-  // already drew their chosen icon.
-  const sectionIcon = (section: SidebarSection): LucideIcon => {
-    switch (section.type) {
-      case "pinned":
-        return Pin;
-      case "recents":
-        return MessageSquare;
-      case "channel":
-        return getChannelIcon(section.channelId);
-      case "group":
-        return getGroupIcon(section.group.icon) ?? DEFAULT_GROUP_ICON;
-    }
-  };
-
-  // One render path for every section. The type-specific differences are
-  // deliberately narrow — what the row list shows, whether the header owns
-  // rename/delete, and whether rows themselves drag — so no section type can
-  // quietly acquire different spacing or a different header treatment.
-  const renderSection = (section: SidebarSection, index: number) => {
-    const isFirst = index === 0;
-    const isLast = index === sidebar.sections.length - 1;
+  // Header actions for one section: the bulk actions every section shares,
+  // the move-up/down pair its position allows (absent at either end, which is
+  // how the menu avoids offering a move that does nothing), and — for custom
+  // groups only — rename/delete/copy-id.
+  const sectionMenu = (
+    section: SidebarSection,
+    index: number,
+  ): GroupMenuItemsProps => {
     const moveOptions = {
-      onMoveUp: isFirst
-        ? undefined
-        : () => sidebar.onMoveSection(section.key, -1),
-      onMoveDown: isLast
-        ? undefined
-        : () => sidebar.onMoveSection(section.key, 1),
+      onMoveUp:
+        index === 0 ? undefined : () => sidebar.onMoveSection(section.key, -1),
+      onMoveDown:
+        index === sidebar.sections.length - 1
+          ? undefined
+          : () => sidebar.onMoveSection(section.key, 1),
     };
-
-    // Recents and channel sections paginate and stay recency-sorted; Pinned
-    // and custom groups show everything and honor `displayOrder`, so only
-    // those two offer row-level drag. Both branches carry the same keys so
-    // the spread stays a single object type.
-    const listProps =
-      section.type === "recents" || section.type === "channel"
-        ? {
-            items: section.pagination.items,
-            pagination: section.pagination,
-            dragSection: undefined,
-          }
-        : {
-            items: section.all,
-            pagination: undefined,
-            dragSection:
-              section.type === "pinned" ? "pinned" : `group:${section.key}`,
-          };
-
-    const groupMenu =
-      section.type === "group"
-        ? buildGroupMenu(section.label, section.all, {
-            ...moveOptions,
-            onRename: onRenameGroup
-              ? () => onRenameGroup(section.group.id)
-              : undefined,
-            onDelete: onDeleteGroup
-              ? () => onDeleteGroup(section.group.id)
-              : undefined,
-            onCopyGroupId: () =>
-              copyIdToClipboard(section.group.id, "Group ID"),
-          })
-        : buildGroupMenu(section.label, section.all, moveOptions);
-
-    return (
-      <ConversationNavSection
-        value={section.key}
-        icon={sectionIcon(section)}
-        label={section.label}
-        /* The "…" button and the header's right-click menu both render from
-           `groupMenu`; only custom groups carry the always-visible button. */
-        trailing={
-          section.type === "group" ? (
-            <GroupActionsMenu label={section.label} {...groupMenu} />
-          ) : undefined
-        }
-        groupMenu={groupMenu}
-        collapsedIndicator={collapsedActivityDot(section.all)}
-        drag={buildSectionDrag(section)}
-        {...listProps}
-      />
-    );
+    if (section.type !== "group") {
+      return buildGroupMenu(section.label, section.all, moveOptions);
+    }
+    return buildGroupMenu(section.label, section.all, {
+      ...moveOptions,
+      onRename: onRenameGroup
+        ? () => onRenameGroup(section.group.id)
+        : undefined,
+      onDelete: onDeleteGroup
+        ? () => onDeleteGroup(section.group.id)
+        : undefined,
+      onCopyGroupId: () => copyIdToClipboard(section.group.id, "Group ID"),
+    });
   };
 
   // --- Built-in navigation ---
@@ -657,7 +551,12 @@ export function AssistantSideMenu({
                          so a divider costs no extra height. */
                       <SideMenu.Separator className="my-0 bg-[var(--border-element)]" />
                     ) : null}
-                    {renderSection(section, index)}
+                    <SidebarSectionItem
+                      section={section}
+                      groupMenu={sectionMenu(section, index)}
+                      drag={sectionDragFor(section)}
+                      collapsedIndicator={collapsedActivityDot(section.all)}
+                    />
                   </Fragment>
                 );
               })}
