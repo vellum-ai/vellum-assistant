@@ -112,6 +112,9 @@ describe("chat error classification", () => {
 });
 
 describe("resolveComposerBillingBanner", () => {
+  // Inputs that would render the low-balance banner absent an error decision.
+  const lowBalanceInputs = { isLowBalance: true, dismissed: false };
+
   test("managed_credits renders no composer banner while the generic notice stays suppressed", () => {
     // The in-transcript credits upsell card is the exhausted-credits surface.
     const error = {
@@ -124,7 +127,8 @@ describe("resolveComposerBillingBanner", () => {
     expect(
       resolveComposerBillingBanner({
         billingBannerDecision,
-        showLowBalanceBanner: false,
+        isLowBalance: false,
+        dismissed: false,
       }),
     ).toBeNull();
     expect(shouldShowGenericChatErrorNotice(error)).toBe(false);
@@ -134,18 +138,18 @@ describe("resolveComposerBillingBanner", () => {
     expect(
       resolveComposerBillingBanner({
         billingBannerDecision: "managed_credits",
-        showLowBalanceBanner: true,
+        ...lowBalanceInputs,
       }),
     ).toBeNull();
   });
 
-  test("daily-limit and provider-billing errors keep their banners", () => {
+  test("daily-limit and provider-billing errors win over the low-balance warning", () => {
     expect(
       resolveComposerBillingBanner({
         billingBannerDecision: getChatBillingBannerDecision({
           errorCategory: "daily_limit_reached",
         }),
-        showLowBalanceBanner: false,
+        ...lowBalanceInputs,
       }),
     ).toBe("daily_limit");
     expect(
@@ -153,7 +157,7 @@ describe("resolveComposerBillingBanner", () => {
         billingBannerDecision: getChatBillingBannerDecision({
           errorCategory: "provider_billing",
         }),
-        showLowBalanceBanner: false,
+        ...lowBalanceInputs,
       }),
     ).toBe("provider_billing");
   });
@@ -162,13 +166,27 @@ describe("resolveComposerBillingBanner", () => {
     expect(
       resolveComposerBillingBanner({
         billingBannerDecision: null,
-        showLowBalanceBanner: true,
+        ...lowBalanceInputs,
       }),
     ).toBe("low_balance");
+  });
+
+  test("no low-balance banner when the server flag is off (normal balance, auto-top-up, or gated-off query)", () => {
     expect(
       resolveComposerBillingBanner({
         billingBannerDecision: null,
-        showLowBalanceBanner: false,
+        isLowBalance: false,
+        dismissed: false,
+      }),
+    ).toBeNull();
+  });
+
+  test("no low-balance banner after a session dismissal", () => {
+    expect(
+      resolveComposerBillingBanner({
+        billingBannerDecision: null,
+        isLowBalance: true,
+        dismissed: true,
       }),
     ).toBeNull();
   });
