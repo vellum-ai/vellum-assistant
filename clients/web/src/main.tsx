@@ -13,7 +13,7 @@ import { WindowDragRegion } from "@/components/window-drag-region";
 import { isChunkLoadError } from "@/lib/chunk-errors";
 import { setupClientFlagScopeSync } from "@/lib/feature-flags/client-flag-scope";
 import { installConsentRefreshListeners } from "@/lib/consent/consent-refresh";
-import { isLocalMode, loadLockfile } from "@/lib/local-mode";
+import { isLocalClient, loadLockfile } from "@/lib/local-mode";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { installTranslateDomGuard } from "@/lib/translate-dom-guard";
 import { initSessionReplay } from "@/lib/session-replay/session-replay-init";
@@ -59,7 +59,7 @@ async function boot() {
   // Register before initSession so the boot `unknown → present` transition it
   // drives is caught and the platform assistants list is loaded.
   setupPlatformAssistantsSync();
-  if (isLocalMode()) {
+  if (isLocalClient()) {
     await loadLockfile();
     await useAuthStore.getState().initSession();
   } else {

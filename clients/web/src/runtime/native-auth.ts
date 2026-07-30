@@ -9,7 +9,7 @@ import { sanitizeReturnTo } from "@/domains/account/return-to";
 import { getSession } from "@/lib/auth/allauth-client";
 import { resolveSignupCheckoutDestination } from "@/lib/billing/post-auth-checkout";
 import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalClient } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { primeElectronSessionToken } from "@/runtime/session-token";
@@ -392,7 +392,7 @@ export async function startAuthFlow(
 
   // Standalone local mode (no local Django serving the SPA): redirect
   // through the platform's login page and back to a loopback callback.
-  if (isLocalMode() && !isPlatformLocal()) {
+  if (isLocalClient() && !isPlatformLocal()) {
     await startLoopbackAuth(options.returnTo ?? undefined, {
       intent: options.intent,
     });

@@ -20,7 +20,7 @@ import {
   useHasPlatformSession,
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { getSelectedAssistant, isLocalMode } from "@/lib/local-mode";
+import { getSelectedAssistant, isLocalClient } from "@/lib/local-mode";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -234,7 +234,7 @@ export function RootLayout() {
       // The chooser route is local-only — navigation-resolver redirects
       // platform users away — so platform sessions switch via the Switch
       // Assistant picker on the settings page instead.
-      if (isLocalMode()) {
+      if (isLocalClient()) {
         void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
       } else {
         void navigate(routes.settings.general);
