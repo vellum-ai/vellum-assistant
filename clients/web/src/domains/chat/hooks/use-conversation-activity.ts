@@ -6,8 +6,8 @@
  * The running halves delegate to `useActiveSubagentIds` / `useActiveAcpRunIds`
  * so the parent-scoping rules stay in one place per kind (they differ: a
  * subagent with no parent id is unknown-and-visible, an ACP run's parent is a
- * required-but-possibly-empty string). The completed halves mirror each of those
- * rules exactly, inverted on status.
+ * required-but-possibly-empty string). The completed halves invert those on
+ * status, and the ACP one additionally requires ownership; see its docstring.
  *
  * Only these two kinds are included. Workflows and background tools have their
  * own surfaces and are deliberately out of scope here.
@@ -34,9 +34,9 @@ export interface ConversationActivityRow {
 }
 
 export interface ConversationActivity {
-  /** Still-running processes, oldest first — the order they were spawned in. */
+  /** Still-running processes, oldest first: the order they were spawned in. */
   running: ConversationActivityRow[];
-  /** Finished processes, most recent first — the one just finished reads top. */
+  /** Finished processes, most recent first: the one just finished reads top. */
   completed: ConversationActivityRow[];
   /** Total across both halves; `0` means the control hides entirely. */
   total: number;
@@ -44,8 +44,8 @@ export interface ConversationActivity {
 
 /**
  * Finished subagent ids for `conversationId`. Mirrors `useActiveSubagentIds`'
- * scoping rule — including its treatment of an entry whose parent is not yet
- * known as belonging to whatever conversation is asking — inverted on status.
+ * scoping rule, including its treatment of an entry whose parent is not yet
+ * known as belonging to whatever conversation is asking, inverted on status.
  */
 export function useCompletedSubagentIds(
   conversationId: string | null,
@@ -67,9 +67,17 @@ export function useCompletedSubagentIds(
 }
 
 /**
- * Finished ACP run ids for `conversationId`. Mirrors `useActiveAcpRunIds`'
- * scoping rule (an empty `parentConversationId` can't be placed, so it stays
- * visible) inverted on status.
+ * Finished ACP run ids for `conversationId`.
+ *
+ * Ownership is required here, unlike `useActiveAcpRunIds`, which keeps a run
+ * whose `parentConversationId` is empty rather than hiding it. Rehydration
+ * stamps `""` when a persisted row carries no parent (`toRunEntry`), and the
+ * ACP store is never reset on a conversation change, so treating an empty
+ * parent as a match would leave every unattributable finished run in the list
+ * of every conversation for the rest of the session: an inflated count, and
+ * rows that open a run belonging to a different chat. A live run is worth
+ * surfacing on weaker evidence because it is short-lived and the user is
+ * waiting on it; a finished one is not.
  */
 export function useCompletedAcpRunIds(conversationId: string | null): string[] {
   return useAcpRunStore(
@@ -80,7 +88,7 @@ export function useCompletedAcpRunIds(conversationId: string | null): string[] {
           return false;
         }
         return (
-          !entry.parentConversationId ||
+          !!entry.parentConversationId &&
           entry.parentConversationId === conversationId
         );
       }),

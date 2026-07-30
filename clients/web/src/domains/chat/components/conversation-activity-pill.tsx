@@ -1,6 +1,6 @@
 /**
- * Header control listing the current conversation's agent sessions — its
- * subagents and ACP runs — so a session can be reopened after it scrolls out of
+ * Header control listing the current conversation's agent sessions (its
+ * subagents and ACP runs), so a session can be reopened after it scrolls out of
  * the transcript, running or finished.
  *
  * Deliberately a sibling of {@link ConversationAssetsPill} rather than a section
@@ -9,8 +9,8 @@
  * rows) the process registry's own `InlineProcessCardRow`, descriptors, and
  * `onOpenDetail` routing. Nothing here is a new visual primitive.
  *
- * The trigger keeps the retired sticky overlay's stacked agent chips — a
- * subagent's avatar, an ACP run's brand mark — so you can see *who* is working
+ * The trigger keeps the retired sticky overlay's stacked agent chips (a
+ * subagent's avatar, an ACP run's brand mark), so you can see *who* is working
  * without opening anything. Because this control outlives the work (unlike the
  * overlay, which only existed while something ran), the chips are split into two
  * status groups: a pulsing `ThreeDotIndicator` ahead of the running agents, and
@@ -43,7 +43,7 @@ export const COMPLETED_GROUP_TESTID = "activity-trigger-completed";
 
 /**
  * The two kinds this control covers, keyed for row lookup. Workflows and
- * background tools are intentionally absent — they keep their own surfaces.
+ * background tools are intentionally absent. They keep their own surfaces.
  */
 const DESCRIPTORS: Record<
   ConversationActivityRow["kind"],
@@ -62,7 +62,7 @@ export interface ConversationActivityPillProps {
  * Visible chips per status group before the rest collapse into `+N`. Lower than
  * the overlay's {@link MAX_VISIBLE_STACKED_CHIPS} because the trigger can carry
  * two groups at once and shares the header row with the title, Assets, and the
- * notification bell — six chips per group would crowd all of them out.
+ * notification bell. Six chips per group would crowd all of them out.
  */
 const MAX_CHIPS_PER_GROUP = 3;
 
@@ -130,11 +130,11 @@ function SectionLabel({ children }: { children: string }) {
 /**
  * One session row.
  *
- * `canStop` comes from which group the row is in — its real status in the store
- * — not from the projected card state. `InlineProcessCard` gates its stop button
+ * `canStop` comes from which group the row is in, its real status in the store,
+ * not from the projected card state. `InlineProcessCard` gates its stop button
  * on `summary.state === "loading"`, and a *finished* subagent whose timeline
  * hasn't been fetched yet deliberately projects as `loading` ("Loading", rather
- * than claiming 0 steps — see `use-subagent-card-data`). Passing `onStop` for
+ * than claiming 0 steps, see `use-subagent-card-data`). Passing `onStop` for
  * those rows would put a Stop button on an already-finished session.
  */
 function ActivityRow({
@@ -266,7 +266,7 @@ export function ConversationActivityPill({
   );
 
   // Tint drives the label/chevron colour only; the chips carry their own.
-  // Primary while live, neutral once everything has settled — the same
+  // Primary while live, neutral once everything has settled. The same
   // treatment Assets uses, so finished work stays reachable without reading as
   // in-progress.
   const tintColor = isRunning

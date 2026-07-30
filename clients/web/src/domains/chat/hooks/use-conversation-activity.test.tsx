@@ -1,5 +1,5 @@
 /**
- * Tests for `useConversationActivity` — the conversation-scoped subagent + ACP
+ * Tests for `useConversationActivity`, the conversation-scoped subagent + ACP
  * feed behind the header Activity control.
  *
  * Covers the three things the control depends on:
@@ -78,7 +78,7 @@ function spawnAcpRun(
   }
 }
 
-describe("useConversationActivity — conversation scoping", () => {
+describe("useConversationActivity: conversation scoping", () => {
   test("excludes subagents and runs owned by another conversation", () => {
     spawnSubagent("sa-mine", "running", CONV, T0);
     spawnSubagent("sa-theirs", "running", OTHER, T0 + 1);
@@ -92,6 +92,29 @@ describe("useConversationActivity — conversation scoping", () => {
     expect(total).toBe(2);
   });
 
+  test("drops a finished ACP run that carries no owning conversation", () => {
+    // Rehydration stamps `parentConversationId: ""` for a persisted row with no
+    // parent, and the ACP store is never reset between conversations. Treating
+    // that as a match would pin the run to every conversation for the rest of
+    // the session.
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "acp-orphan",
+      agent: "claude",
+      parentConversationId: "",
+      startedAt: T0,
+    });
+    useAcpRunStore.getState().setTerminal({
+      acpSessionId: "acp-orphan",
+      status: "completed",
+      completedAt: T0 + 10,
+    });
+
+    const activity = readActivity(CONV);
+
+    expect(activity.completed).toEqual([]);
+    expect(activity.total).toBe(0);
+  });
+
   test("keeps a subagent whose parent conversation is not yet known", () => {
     // Mirrors `useActiveSubagentIds`: an unplaceable entry stays visible rather
     // than disappearing from every conversation at once.
@@ -103,7 +126,7 @@ describe("useConversationActivity — conversation scoping", () => {
   });
 });
 
-describe("useConversationActivity — running/completed split", () => {
+describe("useConversationActivity: running/completed split", () => {
   test("routes each process by status", () => {
     spawnSubagent("sa-running", "running", CONV, T0);
     spawnSubagent("sa-done", "completed", CONV, T0 + 1);
@@ -131,7 +154,7 @@ describe("useConversationActivity — running/completed split", () => {
   });
 });
 
-describe("useConversationActivity — ordering", () => {
+describe("useConversationActivity: ordering", () => {
   test("merges the two kinds by start time rather than grouping by kind", () => {
     spawnAcpRun("acp-first", CONV, T0);
     spawnSubagent("sa-second", "running", CONV, T0 + 100);

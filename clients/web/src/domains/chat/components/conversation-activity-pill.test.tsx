@@ -1,5 +1,5 @@
 /**
- * Tests for `ConversationActivityPill` — the header control that reopens the
+ * Tests for `ConversationActivityPill`, the header control that reopens the
  * current conversation's subagent and ACP sessions.
  *
  * The detailed per-status card matrix belongs to the descriptor/card tests; what
@@ -119,7 +119,7 @@ function openPanel() {
   fireEvent.click(screen.getByTestId(ACTIVITY_PILL_TESTID));
 }
 
-describe("ConversationActivityPill — when it renders", () => {
+describe("ConversationActivityPill: when it renders", () => {
   test("renders nothing when the conversation has no activity", () => {
     renderPill();
     expect(screen.queryByTestId(ACTIVITY_PILL_TESTID)).toBeNull();
@@ -141,7 +141,7 @@ describe("ConversationActivityPill — when it renders", () => {
   });
 });
 
-describe("ConversationActivityPill — trigger", () => {
+describe("ConversationActivityPill: trigger", () => {
   test("shows a running group and a finished group side by side", () => {
     spawnRunningSubagent("sa-1");
     spawnUnfetchedCompletedSubagent("sa-done");
@@ -195,7 +195,7 @@ describe("ConversationActivityPill — trigger", () => {
   });
 });
 
-describe("ConversationActivityPill — panel", () => {
+describe("ConversationActivityPill: panel", () => {
   test("lists this conversation's sessions and not another's", () => {
     spawnRunningSubagent("sa-mine");
     spawnRunningSubagent("sa-theirs", OTHER);
@@ -232,7 +232,7 @@ describe("ConversationActivityPill — panel", () => {
   });
 });
 
-describe("ConversationActivityPill — stop", () => {
+describe("ConversationActivityPill: stop", () => {
   test("a running row can be stopped", () => {
     spawnRunningSubagent("sa-live");
 
@@ -263,7 +263,7 @@ describe("ConversationActivityPill — stop", () => {
   });
 });
 
-describe("ConversationActivityPill — mobile", () => {
+describe("ConversationActivityPill: mobile", () => {
   test("uses the icon-only trigger and opens the bottom sheet", () => {
     isMobileRef.value = true;
     spawnRunningSubagent("sa-live");

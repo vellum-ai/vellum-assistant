@@ -58,8 +58,13 @@ import { recordCommit } from "@/lib/commit-pressure";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
-import { OVERLAY_PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
+import {
+  OVERLAY_PROCESS_KINDS,
+  POPOUT_OVERLAY_PROCESS_KINDS,
+} from "@/domains/chat/process-registry/registry";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
+import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
+import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
@@ -209,35 +214,43 @@ export type ChatRouteContentProps = ChatMainPanelProps;
  *
  * Each descriptor's `useActiveIds()` is a zero-arg hook that resolves the
  * active conversation internally, so the hooks are called here at the
- * orchestrator level (where the conversation lives in context). They must be
- * called explicitly per-kind — the Rules of Hooks forbid iterating
- * `OVERLAY_PROCESS_KINDS` with hooks — and the results are keyed by
- * `descriptor.kind`, so the overlay row order follows the constant without
- * positional coupling.
+ * orchestrator level (where the conversation lives in context). All four run
+ * unconditionally, since the Rules of Hooks forbid both iterating a descriptor
+ * list with hooks and calling a subset of them per render. The results are
+ * keyed by `descriptor.kind`, so the overlay row order follows the kind list
+ * without positional coupling.
  *
- * Only the kinds in `OVERLAY_PROCESS_KINDS` are here: subagents and ACP runs
- * moved to the header's `ConversationActivityPill` and no longer float over the
- * transcript.
+ * `isPopout` selects that kind list. A windowed chat carries subagent and ACP
+ * sessions in the header's `ConversationActivityPill`, so its overlay row holds
+ * only workflows and background tasks. A pop-out renders no header at all, so
+ * there the overlay covers every kind and stays the one ambient surface.
  *
  * `hasAny` lets the caller omit the row entirely when nothing is active, so the
  * absolutely-positioned container never mounts empty; the overlays themselves
  * also self-gate on their own ids.
  */
-function useActiveProcessSlots() {
+function useActiveProcessSlots(isPopout: boolean) {
+  const subagentIds = SUBAGENT_DESCRIPTOR.useActiveIds();
+  const acpRunIds = ACP_RUN_DESCRIPTOR.useActiveIds();
   const workflowIds = WORKFLOW_DESCRIPTOR.useActiveIds();
   const backgroundTaskIds = BACKGROUND_TASK_DESCRIPTOR.useActiveIds();
-  // Keyed by `descriptor.kind` (not array position) so reordering
-  // `OVERLAY_PROCESS_KINDS` can't silently feed an overlay the wrong kind's ids.
-  const idsByKind: Partial<Record<ProcessKind, string[]>> = {
+  // Keyed by `descriptor.kind` (not array position) so reordering a kind list
+  // can't silently feed an overlay the wrong kind's ids.
+  const idsByKind: Record<ProcessKind, string[]> = {
+    subagent: subagentIds,
+    "acp-run": acpRunIds,
     workflow: workflowIds,
     "background-task": backgroundTaskIds,
   };
-  const hasAny = Object.values(idsByKind).some((ids) => ids.length > 0);
-  const overlays = OVERLAY_PROCESS_KINDS.map((descriptor) => (
+  const kinds = isPopout ? POPOUT_OVERLAY_PROCESS_KINDS : OVERLAY_PROCESS_KINDS;
+  const hasAny = kinds.some(
+    (descriptor) => idsByKind[descriptor.kind].length > 0,
+  );
+  const overlays = kinds.map((descriptor) => (
     <ActiveProcessOverlay
       key={descriptor.kind}
       descriptor={descriptor}
-      ids={idsByKind[descriptor.kind] ?? []}
+      ids={idsByKind[descriptor.kind]}
     />
   ));
   return { overlays, hasAny };
@@ -274,7 +287,10 @@ export function ChatMainPanel({
 }: ChatMainPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const statusBannerVisible = !isPopoutWindow(location.search);
+  // A pop-out renders no header and no status banner, which changes both what
+  // chrome is available and which kinds the overlay row has to carry.
+  const isPopout = isPopoutWindow(location.search);
+  const statusBannerVisible = !isPopout;
 
   // -------------------------------------------------------------------------
   // Derived UI state (provides assistantId, activeConversationId,
@@ -388,7 +404,7 @@ export function ChatMainPanel({
   );
 
   const { overlays: activeProcessOverlays, hasAny: hasActiveProcess } =
-    useActiveProcessSlots();
+    useActiveProcessSlots(isPopout);
 
   // Rehydrate ACP runs from the daemon on conversation load so completed and
   // in-progress runs reappear after a refresh / reconnect.

@@ -20,19 +20,24 @@ export const PROCESS_KINDS: BackgroundProcessDescriptor[] = [
 ];
 
 /**
- * The kinds that still render a floating overlay above the transcript.
+ * The kinds that float an overlay above the transcript in a windowed chat.
  *
- * Subagents and ACP runs left: their doorway is now the header's
- * `ConversationActivityPill`, which covers finished sessions too and doesn't
- * sit on top of the transcript (the floating subagent banner covered incoming
- * messages — LUM-2800). Two entry points for one process is worse than one, so
- * the overlay yields rather than duplicating it.
- *
- * Workflows and background tasks keep theirs: the Activity control does not
- * cover them, so retiring their overlay too would leave them with no ambient
- * surface at all.
+ * Workflows and background tasks only. Subagent and ACP sessions are surfaced
+ * by the header's `ConversationActivityPill`, which also covers finished
+ * sessions and keeps the transcript clear, so overlaying them as well would
+ * give one process two entry points.
  */
 export const OVERLAY_PROCESS_KINDS: BackgroundProcessDescriptor[] = [
   WORKFLOW_DESCRIPTOR,
   BACKGROUND_TASK_DESCRIPTOR,
 ];
+
+/**
+ * The kinds that float an overlay in a pop-out window: every kind.
+ *
+ * A pop-out renders no header, so it has no `ConversationActivityPill` to carry
+ * subagent and ACP sessions. The overlay is the only ambient surface there, and
+ * it covers all four kinds so running work stays visible.
+ */
+export const POPOUT_OVERLAY_PROCESS_KINDS: BackgroundProcessDescriptor[] =
+  PROCESS_KINDS;

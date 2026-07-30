@@ -2,9 +2,9 @@
  * Full-header visual matrix, built to protect the conversation header's right
  * cluster now that `ConversationActivityPill` sits in it beside Assets.
  *
- * The header is assembled here the way `ChatLayout` + `routes.tsx` assemble it —
+ * The header is assembled here the way `ChatLayout` + `routes.tsx` assemble it:
  * a long conversation title in the centre slot, and Assets / Activity /
- * Notifications in `topBarRightSlot` — because the thing worth protecting is the
+ * Notifications in `topBarRightSlot`. The thing worth protecting is the
  * *composition*: whether the title still shrinks, and whether the cluster stays
  * readable once Activity joins it.
  *
@@ -12,7 +12,7 @@
  * belongs to the home domain and `routes.tsx` injects it into the chat layout at
  * runtime, so importing it here trips the cross-domain import rule. The stand-in
  * is the same ghost icon-only `Button` with the same glyph, which is all this
- * story needs it to be — it exists to occupy the cluster, not to be exercised.
+ * story needs it to be. It exists to occupy the cluster, not to be exercised.
  *
  * Six states are covered. The per-status card matrix for subagents and ACP
  * runs belongs to their component tests, not to a header story.
@@ -48,7 +48,7 @@ const LONG_TITLE =
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** One running ACP run and one finished subagent — the mixed case. */
+/** One running ACP run and one finished subagent: the mixed case. */
 function seedMixedActivity() {
   useAcpRunStore.getState().spawnRun({
     acpSessionId: "acp-live",
@@ -91,7 +91,7 @@ function seedMixedActivity() {
   });
 }
 
-/** Finished work only — nothing running, everything still reopenable. */
+/** Finished work only. Nothing running, everything still reopenable. */
 function seedCompletedActivity() {
   for (const [i, label] of [
     "slack-thread-audit",
@@ -118,7 +118,7 @@ function seedCompletedActivity() {
 }
 
 /**
- * Several of each kind running and finished at once — the case that shows the
+ * Several of each kind running and finished at once: the case that shows the
  * stacks overlapping, the `+N` remainder, and (the point) ACP brand marks and
  * subagent avatars mixed inside the *same* stack. The groups are status groups,
  * never per-kind ones.
@@ -181,7 +181,7 @@ function resetActivity() {
 }
 
 /**
- * Placeholder for the injected `NotificationsBell` — same ghost icon-only
+ * Placeholder for the injected `NotificationsBell`: the same ghost icon-only
  * `Button` and glyph, so the cluster's spacing and shrink behavior match the
  * real header. See the file header for why the real component isn't imported.
  */
@@ -297,7 +297,7 @@ function setMatchMedia(impl: typeof window.matchMedia) {
  */
 function ForceMobile({ children }: { children: React.ReactNode }) {
   // Installed from a `useState` initializer, which runs exactly once and during
-  // this component's render — i.e. before any child samples the query. An
+  // this component's render, i.e. before any child samples the query. An
   // identity check against the saved original would not work here: `bind`
   // returns a new function object, so it never compares equal to the global.
   const [original] = useState(() => {
@@ -354,7 +354,7 @@ type Story = StoryObj<typeof Harness>;
 
 /**
  * The header with no agent activity at all: a long title, Assets, Notifications
- * — and no Activity control, because the conversation has nothing to reopen.
+ * and no Activity control, because the conversation has nothing to reopen.
  * This is the baseline the control must not disturb.
  */
 export const DesktopBaseline: Story = {
@@ -363,7 +363,7 @@ export const DesktopBaseline: Story = {
 
 /**
  * One running ACP run and one finished subagent. Closed, the trigger shows the
- * live treatment and counts only the running work — the finished session is
+ * live treatment and counts only the running work. The finished session is
  * reachable but doesn't inflate the count or make the header look busy.
  */
 export const DesktopMixedClosed: Story = {
@@ -382,7 +382,7 @@ export const DesktopMixedOpen: Story = {
 
 /**
  * Nothing running, three finished subagents. The trigger drops the pulsing dots
- * and the primary tint, keeping the green check and its stack — finished work
+ * and the primary tint, keeping the green check and its stack. Finished work
  * stays reachable without the header claiming anything is in progress.
  */
 export const DesktopCompletedClosed: Story = {
@@ -392,7 +392,7 @@ export const DesktopCompletedClosed: Story = {
 /**
  * Five running and four finished, both mixing ACP runs with subagents. Shows the
  * chips overlapping inside each stack, the `+N` remainder past three, and the
- * point that the two groups are *status* groups — a Claude brand mark and a
+ * point that the two groups are *status* groups: a Claude brand mark and a
  * subagent avatar sit in the same stack.
  */
 export const DesktopManyClosed: Story = {

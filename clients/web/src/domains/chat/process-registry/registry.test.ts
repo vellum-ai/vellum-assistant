@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   OVERLAY_PROCESS_KINDS,
+  POPOUT_OVERLAY_PROCESS_KINDS,
   PROCESS_KINDS,
 } from "@/domains/chat/process-registry/registry";
 
@@ -26,10 +27,10 @@ describe("PROCESS_KINDS registry", () => {
 });
 
 describe("OVERLAY_PROCESS_KINDS", () => {
-  it("no longer floats subagents or ACP runs over the transcript", () => {
-    // Their doorway is the header's ConversationActivityPill. Re-adding either
-    // here would give one process two entry points and put the banner back on
-    // top of incoming messages (LUM-2800).
+  it("excludes subagents and ACP runs", () => {
+    // The header's ConversationActivityPill carries them. Adding either here
+    // gives one process two entry points and puts a floating banner back on top
+    // of incoming messages (LUM-2800).
     const kinds = OVERLAY_PROCESS_KINDS.map((descriptor) => descriptor.kind);
     expect(kinds).not.toContain("subagent");
     expect(kinds).not.toContain("acp-run");
@@ -46,5 +47,21 @@ describe("OVERLAY_PROCESS_KINDS", () => {
     for (const descriptor of OVERLAY_PROCESS_KINDS) {
       expect(PROCESS_KINDS).toContain(descriptor);
     }
+  });
+});
+
+describe("POPOUT_OVERLAY_PROCESS_KINDS", () => {
+  it("covers every kind", () => {
+    // A pop-out renders no header, so the overlay is its only ambient surface.
+    // Dropping a kind here makes that work invisible in a pop-out entirely.
+    expect(POPOUT_OVERLAY_PROCESS_KINDS.map((d) => d.kind).sort()).toEqual(
+      PROCESS_KINDS.map((d) => d.kind).sort(),
+    );
+  });
+
+  it("covers the kinds the windowed overlay leaves to the header", () => {
+    const popout = POPOUT_OVERLAY_PROCESS_KINDS.map((d) => d.kind);
+    expect(popout).toContain("subagent");
+    expect(popout).toContain("acp-run");
   });
 });
