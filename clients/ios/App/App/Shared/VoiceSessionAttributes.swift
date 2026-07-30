@@ -119,10 +119,11 @@ struct VoiceSessionAttributes: ActivityAttributes {
     /// Group: a shared container solves file *sharing*, and nothing here needs
     /// a file.
     ///
-    /// Kept small by `encodeAvatarForIsland`, which scales and re-encodes
-    /// until it fits a budget well under ActivityKit's documented 4KB ceiling
-    /// for attributes plus content state. Oversize does not degrade the
-    /// avatar, it throws `attributesTooLarge` and there is no island at all,
-    /// so the web side sends nothing rather than sending too much.
+    /// Kept small by `encodeAvatarForIsland`, which scales and re-encodes until
+    /// it fits a measured budget. The real ceiling is far below the 4KB Apple
+    /// documents for attributes plus content state: 3366 bytes threw
+    /// `attributesTooLarge` on an iPhone 17 Pro simulator while 1997 rendered.
+    /// Oversize does not degrade the avatar, it kills the whole activity, so
+    /// the web side sends nothing rather than sending too much.
     var avatarImageData: Data?
 }

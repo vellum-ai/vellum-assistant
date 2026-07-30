@@ -11,11 +11,11 @@
  * travel with the activity.
  *
  * ActivityKit caps how much can travel: `Activity.request` throws
- * `ActivityAuthorizationError.attributesTooLarge`, and Apple documents the
- * ceiling as 4KB for the attributes and content state *combined*.
- * {@link ISLAND_AVATAR_MAX_BYTES} therefore claims well under half of that,
- * leaving the assistant name, phase label, accent hex and mute flag room to
- * grow without the avatar being what pushes the activity over.
+ * `ActivityAuthorizationError.attributesTooLarge` past a ceiling that is much
+ * lower in practice than the 4KB Apple documents. See
+ * {@link ISLAND_AVATAR_MAX_BYTES} for what was actually measured, and leave the
+ * assistant name, phase label, accent hex and mute flag room to grow without
+ * the avatar being what pushes the activity over.
  *
  * Going over is not a degraded avatar, it is **no Live Activity at all** — the
  * request throws and the island never appears. That asymmetry is why
@@ -25,12 +25,10 @@
  *
  * ## Why a ladder rather than one size
  *
- * The two avatar kinds compress nothing alike. A character avatar is a handful
- * of flat colors and shrinks to almost nothing as PNG, so it can afford real
- * resolution. A photographic upload does not, and needs JPEG and a smaller
- * square to fit at all. Rather than pick a lowest common denominator that
- * makes character avatars needlessly soft, try candidates from best to worst
- * and take the first that fits.
+ * The two avatar kinds compress nothing alike, and neither compresses as well
+ * as it looks like it should. Rather than pick a lowest common denominator,
+ * try candidates from best to worst and take the first that fits. See
+ * {@link CANDIDATES} for the measured sizes the ladder is built around.
  */
 
 import { rasterizeAvatar } from "@/utils/avatar-raster";
@@ -39,17 +37,34 @@ import type { AvatarRender } from "@/utils/avatar-render";
 /**
  * Byte ceiling for the encoded avatar.
  *
- * Apple documents ActivityKit's limit as 4KB across attributes plus content
- * state. This claims 1.5KB of that, which leaves well over half for everything
- * else and absorbs the overhead of however ActivityKit archives the payload —
- * a detail that is not contractual, so the headroom is deliberate rather than
- * calculated.
+ * **Measured, not derived.** Apple documents ActivityKit's limit as 4KB across
+ * attributes plus content state, but that is not the number that works: on an
+ * iPhone 17 Pro simulator (iOS 26.5), a 3366-byte avatar threw
+ * `attributesTooLarge` and produced no Live Activity at all, while 1997 bytes
+ * rendered. The effective ceiling is therefore somewhere between the two, well
+ * under what the documentation implies, presumably because ActivityKit's own
+ * archiving counts against the same budget.
+ *
+ * 2000 is the value that was verified end to end. Re-measure before raising
+ * it, on a device or simulator, by watching whether the island appears at all:
+ * there is no error to observe, because the whole activity is what fails.
  */
-export const ISLAND_AVATAR_MAX_BYTES = 1536;
+export const ISLAND_AVATAR_MAX_BYTES = 2000;
 
 /**
- * Encoding attempts, best first. Character avatars are expected to land on the
- * first or second; photographic uploads fall through to the JPEG rungs.
+ * Encoding attempts, best first.
+ *
+ * Sizes step down further than seems necessary because the avatar compresses
+ * far worse than a flat-color character suggests: measured for the default
+ * character avatar, 128px PNG is 6860 bytes, 96px is 5010, 64px is 3366, 48px
+ * is 2419, and only 40px lands under budget at 1997. The anti-aliased edges of
+ * the composited shapes, not the number of colors, are what cost.
+ *
+ * PNG rungs come first and go all the way down because they keep the avatar's
+ * transparency. JPEG is smaller per pixel but has no alpha, so
+ * {@link rasterizeAvatar} mattes it onto white, which reads as a white disc
+ * against the black Dynamic Island. It is a real fallback for photographic
+ * uploads, which PNG cannot fit at any useful size, but never a first choice.
  */
 const CANDIDATES: ReadonlyArray<{
   size: number;
@@ -59,7 +74,9 @@ const CANDIDATES: ReadonlyArray<{
   { size: 128, type: "image/png" },
   { size: 96, type: "image/png" },
   { size: 64, type: "image/png" },
-  { size: 96, type: "image/jpeg", quality: 0.75 },
+  { size: 48, type: "image/png" },
+  { size: 40, type: "image/png" },
+  { size: 32, type: "image/png" },
   { size: 64, type: "image/jpeg", quality: 0.7 },
   { size: 48, type: "image/jpeg", quality: 0.6 },
 ];
