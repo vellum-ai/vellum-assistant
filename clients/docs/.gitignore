@@ -1,0 +1,3 @@
+# Build-time agent markdown mirrors (scripts/generate-agent-markdown.ts)
+generated/
+public/docs/llms.txt
