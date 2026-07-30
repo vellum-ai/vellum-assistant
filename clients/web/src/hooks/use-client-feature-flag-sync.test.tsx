@@ -6,6 +6,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { cleanup, render, renderHook, waitFor } from "@testing-library/react";
+import { shouldRetryQuery } from "@/utils/query-retry";
 
 const originalFetch = globalThis.fetch;
 
@@ -88,6 +89,47 @@ describe("useClientFeatureFlagSync", () => {
     });
   });
 
+  test("reuses client flags when the hook remounts in the same session", async () => {
+    const queryClient = freshQueryClient();
+    const first = renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    first.unmount();
+
+    renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not retry a rate-limited client flag request", async () => {
+    const rateLimitedFetch = mock(
+      async () => new Response("slow down", { status: 429 }),
+    );
+    globalThis.fetch = rateLimitedFetch as unknown as typeof fetch;
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: shouldRetryQuery,
+          retryDelay: () => 1,
+        },
+      },
+    });
+    renderHook(() => useClientFeatureFlagSync(true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(queryClient.getQueryState(FLAG_QUERY_KEY)?.status).toBe("error");
+    });
+    expect(rateLimitedFetch).toHaveBeenCalledTimes(1);
+  });
+
   test("does not fetch platform client flags in remote-gateway mode", async () => {
     window.__VELLUM_CONFIG__ = { mode: "remote-gateway" };
     const queryClient = freshQueryClient();
@@ -123,7 +165,6 @@ describe("useClientFeatureFlagSync", () => {
       wrapper: createWrapper(queryClient),
     });
 
-    // The query retries once before giving up, so allow for its backoff.
     await waitFor(
       () => {
         expect(useClientFeatureFlagStore.getState().hydrated).toBe(true);

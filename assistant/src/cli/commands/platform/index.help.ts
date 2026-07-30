@@ -21,6 +21,8 @@ assistants.
 Examples:
   $ assistant platform status --json
   $ assistant platform credits --json
+  $ assistant platform subscription --json
+  $ assistant platform plans --json
   $ assistant platform connect
   $ assistant platform disconnect
   $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json`,
@@ -89,6 +91,59 @@ ensure VELLUM_PLATFORM_URL is set and credentials are stored).
 Examples:
   $ assistant platform credits
   $ assistant platform credits --json`,
+    },
+    {
+      name: "subscription",
+      description:
+        "Show the organization's current plan and subscription state",
+      helpText: `
+Fetches the org's plan and subscription state from the platform. Answers
+"what plan am I on?".
+
+Fields:
+  planId              Current plan: "base" or "pro"
+  status              Stripe subscription status (e.g. active, past_due) or
+                      null on the base plan
+  renewalDate         When the current period ends / the plan renews (ISO
+                      8601), or null on the base plan
+  currentPeriodEnd    Same as renewalDate; mirrors the platform field
+  cancelAtPeriodEnd   True when the subscription is set to cancel at period end
+  cancelAt            When the subscription cancels (ISO 8601), or null
+  selectedCreditTier  The selected Pro credit bundle tier, or null
+  package             The named Pro package pin ({ key, name, version,
+                      customized }), or null
+  entitlements        Plan-gated features ({ managedEmail, phoneNumber })
+
+For the credit balance (not the plan), use 'assistant platform credits'. For
+plan pricing, use 'assistant platform plans'.
+
+Requires platform credentials (run 'assistant platform connect' first or
+ensure VELLUM_PLATFORM_URL is set and credentials are stored).
+
+Examples:
+  $ assistant platform subscription
+  $ assistant platform subscription --json`,
+    },
+    {
+      name: "plans",
+      description: "Show the plan catalog with pricing",
+      helpText: `
+Fetches the platform plan catalog. Answers "how much does each plan cost?".
+
+Returns a "plans" array. Each entry has an "id" ("base" or "pro"), "name",
+"billing_interval", and "included_features". The base plan carries
+"price_cents"; the pro plan carries "base_price_cents" plus "machine_tiers",
+"storage_tiers", "credit_tiers", and "packages" (each tier priced in cents).
+
+For the org's OWN plan (not the catalog), use 'assistant platform
+subscription'. For the credit balance, use 'assistant platform credits'.
+
+Requires platform credentials (run 'assistant platform connect' first or
+ensure VELLUM_PLATFORM_URL is set and credentials are stored).
+
+Examples:
+  $ assistant platform plans
+  $ assistant platform plans --json`,
     },
     {
       name: "disconnect",

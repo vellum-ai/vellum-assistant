@@ -1499,6 +1499,34 @@ function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
   }
 }
 
+/**
+ * A persisted `services.stt` block must satisfy SttServiceSchema, whose
+ * `provider` is required. The services-level default fills the provider only
+ * when `services.stt` is wholly absent, so a sparse patch like
+ * `{ services: { stt: { language } } }` deep-merged into a config with no
+ * stt block persists a provider-less block that fails validation and trips
+ * the loader's salvage ladder: the patched value never applies and the whole
+ * `services` section can reset to defaults on the next load (the LUM-2758
+ * failure family). Seed the effective provider into any stt block that lacks
+ * a non-empty string one so every config_patch writer stays self-consistent.
+ * The seed applies to any stt key, not just language: the schema requires
+ * the provider whenever the block exists. A block carrying a non-empty
+ * string provider is left alone, even an invalid one, so an explicit
+ * provider write is never silently rewritten.
+ */
+function seedSttProviderForSparseBlock(raw: Record<string, unknown>): void {
+  const services = readPlainObject(raw.services);
+  const stt = readPlainObject(services?.stt);
+  if (!stt) {
+    return;
+  }
+  const provider = stt.provider;
+  if (typeof provider === "string" && provider.trim().length > 0) {
+    return;
+  }
+  stt.provider = getConfig().services.stt.provider;
+}
+
 async function handlePatchConfig({ body }: RouteHandlerArgs) {
   if (
     !body ||
@@ -1518,6 +1546,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   backfillNewCallSiteEntries(raw, patch);
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
+  seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
 
@@ -1617,6 +1646,11 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       written.source = "managed";
     }
   }
+  // A SET can create `services.stt` with a leaf like `language` and no
+  // `provider`, which SttServiceSchema requires whenever the block exists;
+  // the same seeding that guards PATCH keeps this write's persisted block
+  // schema-valid.
+  seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "set");
   // A `memory.v2` substrate tunable whose `memory.substrate` twin is set does

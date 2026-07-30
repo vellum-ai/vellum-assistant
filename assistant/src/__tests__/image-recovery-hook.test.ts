@@ -27,7 +27,7 @@ import {
   createConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
@@ -70,8 +70,8 @@ function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
-  db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_embeddings");
+  getMemorySqlite()?.run("DELETE FROM memory_segments");
+  getMemorySqlite()?.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }

@@ -12,9 +12,11 @@ import { getSqlite } from "../db-connection.js";
  * from the child conversation's messages) and mark any that were still in
  * flight as `interrupted` rather than silently orphaning them.
  *
- * Rows are written on spawn and on every status transition, and deleted when
- * the manager disposes the subagent during normal operation (TTL sweep or
- * parent eviction) — never on shutdown, so in-flight rows survive the restart.
+ * Rows are written on spawn and on every status transition, and live as long as
+ * the parent conversation: only the disposal paths that mean the parent's data
+ * is going away (conversation deletion, clear-all) delete them. The retention
+ * sweep frees a terminal subagent's in-memory metadata while leaving its row,
+ * and shutdown keeps rows too, so in-flight runs survive the restart.
  *
  * Idempotent (`IF NOT EXISTS`). No backfill — pre-existing subagents predate
  * the table and were already only in-memory.

@@ -146,7 +146,13 @@ import {
   createChannelIngressRevokeHandler,
 } from "./http/routes/channel-ingress.js";
 import { createPluginWebhookHandler } from "./http/routes/plugin-webhook.js";
+import {
+  createPluginWebhookWebsocketHandler,
+  getPluginWebhookWebsocketHandlers,
+  isPluginWebhookSocketData,
+} from "./http/routes/plugin-webhook-websocket.js";
 import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import { PLUGIN_WEBHOOK_PATH_PATTERN } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
@@ -505,6 +511,11 @@ async function main() {
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
     configFile: configFileCache,
   });
+  const handlePluginWebhookWs = createPluginWebhookWebsocketHandler({
+    config,
+    resolve: resolveCachedPluginIngress,
+    credentials: credentialCache,
+  });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
@@ -518,6 +529,7 @@ async function main() {
     { credentials: credentialCache },
   );
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
+  const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
@@ -703,12 +715,13 @@ async function main() {
       path: "/webhooks/mailgun",
       handler: (req) => handleMailgunWebhook(req),
     },
-    // Plugin-declared webhooks. Unauthenticated like their neighbours above;
-    // what makes them safe is that only a guardian-approved declaration
-    // creates one, and every other path here 404s. Any method — the plugin's
-    // route module decides which verbs it answers.
+    // Plugin-declared webhooks. Public like their neighbours above; what makes
+    // them safe is that only a guardian-approved declaration creates one, every
+    // other path here 404s, and each request is signature-checked. Any method —
+    // the plugin's route module decides which verbs it answers. WebSocket-kind
+    // declarations are upgraded in the pre-router, before this entry is reached.
     {
-      path: /^\/webhooks\/plugins\/([^/]+)\/(.+)$/,
+      path: PLUGIN_WEBHOOK_PATH_PATTERN,
       handler: (req, params) =>
         handlePluginWebhook(req, params[0]!, params[1]!),
     },
@@ -1761,6 +1774,10 @@ async function main() {
           twilioMediaStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isPluginWebhookSocketData(ws.data)) {
+          pluginWebhookWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.open(ws as never);
           return;
@@ -1780,6 +1797,10 @@ async function main() {
           twilioMediaStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isPluginWebhookSocketData(ws.data)) {
+          pluginWebhookWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.message(ws as never, message);
           return;
@@ -1797,6 +1818,10 @@ async function main() {
       close(ws, code, reason) {
         if (isMediaStreamSocketData(ws.data)) {
           twilioMediaStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isPluginWebhookSocketData(ws.data)) {
+          pluginWebhookWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isSttStreamSocketData(ws.data)) {
@@ -2002,6 +2027,23 @@ async function main() {
       return undefined as unknown as Response;
     }
 
+    // Plugin ingress declared as `websocket`. Claimed only for a genuine
+    // upgrade — a plain request to the same path stays with the route table,
+    // where the HTTP half 404s it for not being an approved HTTP route.
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      const match = url.pathname.match(PLUGIN_WEBHOOK_PATH_PATTERN);
+      if (match) {
+        const upgradeResult = await handlePluginWebhookWs(
+          req,
+          server,
+          match[1]!,
+          match[2]!,
+        );
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
+      }
+    }
+
     if (url.pathname === "/v1/stt/stream") {
       const upgradeResult = handleSttStreamWs(req, server);
       if (upgradeResult !== undefined) return upgradeResult;
@@ -2132,6 +2174,12 @@ async function main() {
 
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
+  // Guards concurrent startSlackSocket calls: at boot both the credential
+  // watcher's and the config-file watcher's initial polls fire it, and the
+  // second call can pass the stop() guard while the first is still awaiting
+  // credentials, leaving the first client running (open WebSocket, reconnect
+  // loop, cleanup timer) with no reference to stop it.
+  let slackStartGeneration = 0;
 
   /** Fire-and-forget: notify the platform of inbound Slack activity so the
    *  idle-sleep timer is reset for this assistant.
@@ -2183,6 +2231,7 @@ async function main() {
   }
 
   async function startSlackSocket(): Promise<void> {
+    const generation = ++slackStartGeneration;
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;
@@ -2194,6 +2243,11 @@ async function main() {
     const appToken = await credentialCache.get(
       credentialKey("slack_channel", "app_token"),
     );
+    // A newer call started while we awaited credentials, so let it own the
+    // client. Everything below is synchronous, so one check suffices.
+    if (generation !== slackStartGeneration) {
+      return;
+    }
     if (!botToken || !appToken) return;
 
     const threadModeRaw = configFileCache.getString("slack", "threadMode");
@@ -2635,6 +2689,21 @@ async function main() {
           "Failed to register email callback route after credential change",
         );
       });
+
+      // Vellum credentials are load-bearing for the Telegram webhook URL when
+      // the managed callback fallback applies: a platform connection arriving
+      // or rotating after Telegram setup must repoint Telegram at the managed
+      // callback route without waiting for an unrelated Telegram or ingress
+      // change, or a system wake. Skipped when telegram credentials changed in
+      // the same event, since that branch already reconciled above.
+      if (telegramReady && !changed.has("telegram")) {
+        reconcileTelegramWebhook(telegramCaches).catch((err) => {
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after vellum credential change",
+          );
+        });
+      }
 
       // Force an immediate per-assistant feature-flag re-sync. A `vellum`
       // credential change means a warm-pool claim / key rotation / late

@@ -95,8 +95,34 @@ const RAW_PCM_MIME_TYPE = "audio/pcm";
  * weight toward each new read (~60 Hz from the avatar's rAF); `DECAY` eases the
  * pulse back to rest between turns. These are the visual-feel knobs.
  */
-const OUTPUT_AMPLITUDE_GAIN = 4;
-const OUTPUT_AMPLITUDE_SMOOTHING = 0.3;
+/*
+ * What must match the capture path (`pcm-capture.ts`) is the *mapped* 0–1
+ * range, not the constants: the two meters measure different things. That one
+ * is a microphone in a room, this one is the output bus, and their raw RMS
+ * ranges are nowhere near each other — so identical gains would be the bug,
+ * not the fix. Both feed the same visuals (the room's wave band, the
+ * responding rings, the avatar), so what a surface tuned against one signal
+ * needs is for the other to arrive on the same scale.
+ *
+ * The original gain of 4 came from an assumed speech RMS of 0.05–0.2. Measured
+ * against the rendered band, this path actually sits an order of magnitude
+ * lower — around 0.02 — so the assistant's voice arrived at roughly a sixth of
+ * the user's for equivalent speech, and its band read as a faint smudge next
+ * to a mic band that looked right.
+ *
+ * The mapping is a saturating exponential rather than `min(1, rms * gain)`.
+ * A linear gain large enough to lift a 0.02 RMS into view hard-clips the
+ * moment speech gets louder, which trades a band that is too faint for one
+ * that is bright but stops responding — the exact pair of complaints this
+ * meter has already produced once. `1 - exp(-rms * GAIN)` approaches 1
+ * smoothly, so loud passages still separate from each other and the tuning is
+ * forgiving of the true RMS range being somewhat different again.
+ *
+ * Every consumer is decorative — no threshold, VAD, or barge-in decision reads
+ * this — so this is a display curve, not signal processing.
+ */
+const OUTPUT_AMPLITUDE_GAIN = 40;
+const OUTPUT_AMPLITUDE_SMOOTHING = 0.5;
 const OUTPUT_AMPLITUDE_DECAY = 0.85;
 
 /** Normalize a frame's `mimeType` (strip params, lowercase) for dispatch. */
@@ -626,7 +652,8 @@ export class LiveVoiceAudioPlayer {
       sumSquares += sample * sample;
     }
     const rms = Math.sqrt(sumSquares / samples.length);
-    const scaled = Math.min(1, rms * OUTPUT_AMPLITUDE_GAIN);
+    // Saturating rather than clipping — see the constant's note above.
+    const scaled = 1 - Math.exp(-rms * OUTPUT_AMPLITUDE_GAIN);
     this.smoothedOutputAmplitude =
       OUTPUT_AMPLITUDE_SMOOTHING * scaled +
       (1 - OUTPUT_AMPLITUDE_SMOOTHING) * this.smoothedOutputAmplitude;

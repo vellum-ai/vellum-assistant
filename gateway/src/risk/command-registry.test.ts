@@ -610,6 +610,7 @@ describe("command-registry", () => {
       expect(getAssistantPath("memory items create").baseRisk).toBe("medium");
       expect(getAssistantPath("memory items update").baseRisk).toBe("medium");
       expect(getAssistantPath("memory items delete").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory ingest").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins list").baseRisk).toBe("low");
       expect(getAssistantPath("plugins inspect").baseRisk).toBe("low");
       expect(getAssistantPath("plugins diff").baseRisk).toBe("low");

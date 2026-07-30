@@ -22,6 +22,14 @@ export interface ListRowProps
    */
   trailing?: ReactNode;
   /**
+   * Render `trailing` outside the interactive content area (like `leading`),
+   * so it can host its own controls - a menu trigger, a picker - without
+   * nesting interactive elements inside the row's button/anchor. When
+   * combined with a chevron, the chevron stays inside the content area and
+   * therefore renders before the trailing cluster.
+   */
+  trailingInteractive?: boolean;
+  /**
    * Render a trailing chevron affordance. Defaults to `true` when the row is
    * interactive (`onClick` or `href` set), `false` otherwise.
    */
@@ -56,6 +64,7 @@ export function ListRow({
   title,
   subtitle,
   trailing,
+  trailingInteractive,
   showChevron,
   selected,
   disabled,
@@ -68,6 +77,7 @@ export function ListRow({
 }: ListRowProps) {
   const interactive = Boolean(onClick || href);
   const chevron = showChevron ?? interactive;
+  const innerTrailing = trailingInteractive ? null : trailing;
 
   const content = (
     <>
@@ -81,9 +91,9 @@ export function ListRow({
           </span>
         ) : null}
       </div>
-      {trailing != null || chevron ? (
+      {innerTrailing != null || chevron ? (
         <div className="flex shrink-0 items-center gap-4">
-          {trailing}
+          {innerTrailing}
           {chevron ? (
             <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
           ) : null}
@@ -144,6 +154,9 @@ export function ListRow({
     >
       {leading}
       {contentNode}
+      {trailingInteractive && trailing != null ? (
+        <div className="flex shrink-0 items-center gap-4">{trailing}</div>
+      ) : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
   OAUTH_COMPLETE_DEEP_LINK_EVENT,
   parseBillingCheckoutCompleteDeepLink,
   parseOAuthCompleteDeepLink,
+  parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
 
 /**
@@ -14,9 +15,10 @@ import {
  * `useOAuthCompleteDeepLinkListener` already consumes;
  * `vellum-assistant://billing/checkout-complete?…` publishes
  * `deeplink.billingCheckoutComplete` (the same event the Electron shell
- * emits, consumed by `useGlobalDeepLinkConsumer`); any other URL
- * publishes `deeplink.unknown { url }` on the bus (query/fragment
- * stripped).
+ * emits, consumed by `useGlobalDeepLinkConsumer`);
+ * `vellum-assistant://voice?mode=…` publishes `deeplink.startVoice`; any
+ * other URL publishes `deeplink.unknown { url }` on the bus
+ * (query/fragment stripped).
  *
  * Off Capacitor the function is a no-op; Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
@@ -59,6 +61,14 @@ function handleUrl(url: string): void {
     publish("deeplink.billingCheckoutComplete", checkout);
     return;
   }
+  // Also before the `unknown` fallback: the stripped query would take `mode`
+  // with it.
+  const startVoice = parseStartVoiceDeepLink(url);
+  if (startVoice !== null) {
+    publish("deeplink.startVoice", startVoice);
+    return;
+  }
+
   // A malformed OAuth-complete URL can carry one-time auth codes in its
   // query/fragment — strip both so they never reach telemetry breadcrumbs.
   publish("deeplink.unknown", { url: sanitizeUnknownUrl(url) });

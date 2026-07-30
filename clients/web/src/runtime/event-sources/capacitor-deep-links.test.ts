@@ -200,6 +200,54 @@ describe("publishCapacitorDeepLinksSource", () => {
     }
   });
 
+  test("publishes deeplink.startVoice, keeping the mode the unknown fallback would strip", async () => {
+    const starts: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubStart = subscribe("deeplink.startVoice", (p) => {
+      starts.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant://voice?mode=resume" });
+
+      expect(starts).toEqual([{ mode: "resume", prompt: null }]);
+      expect(unknowns).toEqual([]);
+    } finally {
+      unsubStart();
+      unsubUnknown();
+    }
+  });
+
+  test("a look-alike scheme falls through to unknown rather than starting voice", async () => {
+    const starts: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubStart = subscribe("deeplink.startVoice", (p) => {
+      starts.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant-evil://voice?mode=new" });
+
+      expect(starts).toEqual([]);
+      expect(unknowns).toEqual([{ url: "vellum-assistant-evil://voice" }]);
+    } finally {
+      unsubStart();
+      unsubUnknown();
+    }
+  });
+
   test("publishes deeplink.unknown on the bus for a non-OAuth URL", async () => {
     const received: { url: string }[] = [];
     const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {

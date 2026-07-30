@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from "@capacitor/cli";
+import { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
 
 // `server.url` is baked into native Capacitor config by `cap sync`, so
 // whatever URL resolves here at sync time is what the archived mobile build
@@ -92,6 +93,27 @@ const config: CapacitorConfig = {
     // Native Android project lives as a peer to `clients/web/` at
     // `clients/android/`, matching the iOS shell layout.
     path: "../android",
+  },
+  // The plugin owns keyboard avoidance on iOS: its `load()` removes the web
+  // view's own keyboard notification observers and resizes the frame itself.
+  // Pin both iOS knobs to the behavior the app already depends on so an
+  // upstream default change cannot move them silently.
+  plugins: {
+    Keyboard: {
+      // `native` resizes the whole WKWebView frame above the keyboard, which
+      // is what `src/hooks/use-visible-viewport.ts` measures against
+      // (`innerHeight` and `visualViewport.height` shrink together). `body`,
+      // `ionic`, and `none` leave the frame at full height and break that
+      // keyboard-height derivation.
+      resize: KeyboardResize.Native,
+      // `DEFAULT` follows the device appearance. The plugin swizzles
+      // `keyboardAppearance` on `WKContentView` and `UITextInputTraits`
+      // process-wide to whatever is set here, so the soft keyboard tracks the
+      // iOS Settings appearance and never the in-app light/dark/velvet theme.
+      // No `style` value expresses "follow the in-app theme"; that needs a
+      // runtime `Keyboard.setStyle()` call.
+      style: KeyboardStyle.Default,
+    },
   },
 };
 

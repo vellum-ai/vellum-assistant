@@ -28,6 +28,43 @@ export type SubagentStatus =
 export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
   new Set<SubagentStatus>(["completed", "failed", "aborted", "interrupted"]);
 
+/**
+ * The status to report for a subagent with no live instance.
+ *
+ * Invariant: a subagent runs from an in-memory entry, so a durable row without
+ * one can only describe a run that is no longer executing. Whatever the row
+ * says, nothing is driving it, so a stale `pending`/`running`/`awaiting_input`
+ * reads as `interrupted`. A terminal status is the run's real outcome and
+ * passes through untouched.
+ *
+ * For the routes this closes a startup window rather than a steady state:
+ * `setDbReady(true)` precedes `rehydrateFromDb()` in `daemon/lifecycle.ts`, so
+ * a request can pass the DB gate while the manager is still empty and read rows
+ * the rehydration has not yet normalized. Without the coercion a client
+ * reconciling on its SSE reopen adopts `running`, and the later rehydration
+ * flips the row to `interrupted` with no status event to say so, leaving the UI
+ * stuck.
+ *
+ * Only ever applied to record-derived statuses. Live state is authoritative and
+ * never coerced.
+ */
+export function settleUnsupervisedStatus(
+  status: SubagentStatus,
+): SubagentStatus {
+  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
+}
+
+// ── Label lookup ────────────────────────────────────────────────────────
+
+/**
+ * The comparable form of a subagent label. Labels are addressed by the model,
+ * so lookups are case- and whitespace-insensitive; every label comparison, in
+ * memory or against the durable table, goes through this.
+ */
+export function normalizeSubagentLabel(label: string): string {
+  return label.toLowerCase().trim();
+}
+
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 
 export interface SubagentConfig {
@@ -123,6 +160,36 @@ export interface SubagentState {
   completedAt?: number;
   /** Cumulative token usage. */
   usage: UsageStats;
+}
+
+// ── Bounded listing ─────────────────────────────────────────────────────
+
+/** Recency key matching the durable query's `COALESCE(completed_at, created_at)`. */
+function settledAt(child: SubagentState): number {
+  return child.completedAt ?? child.createdAt;
+}
+
+/**
+ * Every non-terminal child, plus the `maxTerminal` most recently settled
+ * terminal ones. `rehydrateFromDb` seeds memory with a much larger cap, so a
+ * caller listing children has to re-bound what it actually ships.
+ */
+export function boundRecentTerminal(
+  children: SubagentState[],
+  maxTerminal: number,
+): SubagentState[] {
+  const bounded: SubagentState[] = [];
+  const terminal: SubagentState[] = [];
+  for (const child of children) {
+    if (TERMINAL_STATUSES.has(child.status)) {
+      terminal.push(child);
+    } else {
+      bounded.push(child);
+    }
+  }
+  terminal.sort((a, b) => settledAt(b) - settledAt(a));
+  bounded.push(...terminal.slice(0, maxTerminal));
+  return bounded;
 }
 
 // ── Limits ───────────────────────────────────────────────────────────────

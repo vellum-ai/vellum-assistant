@@ -7,6 +7,7 @@ import {
   CODE_DEFAULT_PROFILE_ENTRIES,
   getEffectiveProfile,
   getEffectiveProfiles,
+  PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
 import {
@@ -19,6 +20,7 @@ import {
   resolveDefaultProfileKey,
 } from "../llm-resolver.js";
 import {
+  type DefaultProviderConfig,
   type LLMCallSite,
   LLMSchema,
   type ProfileEntry,
@@ -281,11 +283,25 @@ describe("schema validation", () => {
       LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
     ).toThrow();
   });
+
+  test("defaultProvider accepts any default-capable API-key provider and drops the rest", () => {
+    expect(
+      LLMSchema.parse({ defaultProvider: { provider: "together" } })
+        .defaultProvider,
+    ).toEqual({ provider: "together" });
+    // Endpoint-supplied and keyless providers have no code-resolvable
+    // default profile implementation; the catch drops them atomically.
+    for (const provider of ["litellm", "openai-compatible", "ollama"]) {
+      expect(
+        LLMSchema.parse({ defaultProvider: { provider } }).defaultProvider,
+      ).toBeUndefined();
+    }
+  });
 });
 
 describe("resolveDefaultProfileForProvider", () => {
   const dp = (
-    provider: (typeof DEFAULT_PROFILE_PROVIDERS)[number],
+    provider: DefaultProviderConfig["provider"],
     connectionName?: string,
   ) => ({ provider, ...(connectionName ? { connectionName } : {}) });
 
@@ -309,6 +325,49 @@ describe("resolveDefaultProfileForProvider", () => {
         expect(entry?.source).toBe("managed");
       }
     }
+  });
+
+  test("a provider without a named matrix column materializes from the shared BYOK templates", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("together"),
+    );
+    expect(entry?.provider).toBe("together");
+    expect(entry?.provider_connection).toBe("together-personal");
+    // No intent table for `together`: the intent falls back to the
+    // provider's catalog defaultModel.
+    expect(entry?.model).toBe(resolveModelIntent("together", "balanced"));
+    expect(entry?.source).toBe("managed");
+  });
+
+  test("maxTokens clamps to the resolved model's catalog output cap", () => {
+    // atlascloud has no intent table: every intent resolves to its catalog
+    // defaultModel, which caps output at 8192, below the balanced template's
+    // 16000.
+    const balanced = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("atlascloud"),
+    );
+    expect(balanced?.maxTokens).toBe(8192);
+    // minimax's defaultModel caps output at 16384, below the quality
+    // template's 32000.
+    const quality = resolveDefaultProfileForProvider(
+      undefined,
+      "quality-optimized",
+      dp("minimax"),
+    );
+    expect(quality?.maxTokens).toBe(16384);
+  });
+
+  test("maxTokens stays at the template value when the model's cap allows it", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("anthropic"),
+    );
+    expect(entry?.maxTokens).toBe(PROFILE_IMPLS.balanced.anthropic.maxTokens);
   });
 
   test("BYOK columns resolve the intent to a provider-specific model and personal connection", () => {

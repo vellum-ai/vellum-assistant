@@ -14,7 +14,10 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
-import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
+import {
+  hasToolResultImages,
+  ToolResultImages,
+} from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import {
   VellumFileActionModal,
@@ -39,6 +42,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -49,6 +53,7 @@ import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useLongPress } from "@/hooks/use-long-press";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -56,6 +61,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -132,6 +138,8 @@ export function TranscriptMessageBody({
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
+  const collapseAssistantIntermediates =
+    useClientFeatureFlagStore.use.collapseAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -1019,6 +1027,71 @@ export function TranscriptMessageBody({
     );
   }
 
+  const finalResponseGroupIndex = groups.findLastIndex(
+    (group) => group.type === "text" && group.text.trim().length > 0,
+  );
+  const renderedGroups = groups.map((group, gi) => renderGroupNode(group, gi));
+  const collapsibleGroupIndexes = collapseAssistantIntermediates
+    ? groups.flatMap((group, groupIndex) => {
+        if (groupIndex >= finalResponseGroupIndex) {
+          return [];
+        }
+        if (group.type === "surface") {
+          return [];
+        }
+        if (group.type === "text") {
+          const isSurfaceAdjacent =
+            groups[groupIndex - 1]?.type === "surface" ||
+            groups[groupIndex + 1]?.type === "surface";
+          return parseInlineSurfaces(group.text) || isSurfaceAdjacent
+            ? []
+            : [groupIndex];
+        }
+
+        const { toolCalls } = activityItemsToCardData(group.items);
+        const hasVisibleOutputOrControl =
+          hasToolResultImages(toolCalls) ||
+          toolCalls.some(
+            (toolCall) =>
+              isToolCallRunning(toolCall) ||
+              toolCall.pendingConfirmation !== undefined ||
+              isSubagentSpawnCall(toolCall) ||
+              cardBackedWorkflowRunId(toolCall) !== null ||
+              cardBackedAcpRunId(toolCall) !== null ||
+              cardBackedBackgroundTaskId(toolCall) !== null ||
+              acpConnectToolUseId === toolCall.id ||
+              unknownNudgeToolCallIds?.has(toolCall.id) === true,
+          );
+        return hasVisibleOutputOrControl ? [] : [groupIndex];
+      })
+    : [];
+  const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
+  const assistantContent =
+    collapsibleGroupIndexes.length > 0
+      ? renderedGroups.map((renderedGroup, groupIndex) => {
+          if (
+            collapsibleGroupIndexSet.has(groupIndex) &&
+            !collapsibleGroupIndexSet.has(groupIndex - 1)
+          ) {
+            let runEndIndex = groupIndex + 1;
+            while (collapsibleGroupIndexSet.has(runEndIndex)) {
+              runEndIndex += 1;
+            }
+            return (
+              <AssistantContentDisclosure
+                key={`earlier-activity-${groupIndex}`}
+                isStreaming={isStreaming}
+              >
+                {renderedGroups.slice(groupIndex, runEndIndex)}
+              </AssistantContentDisclosure>
+            );
+          }
+          return collapsibleGroupIndexSet.has(groupIndex)
+            ? null
+            : renderedGroup;
+        })
+      : renderedGroups;
+
   return (
     <div
       ref={wrapperRef}
@@ -1034,7 +1107,7 @@ export function TranscriptMessageBody({
       className={wrapperClass}
     >
       <div className={columnClass}>
-        {groups.map((group, gi) => renderGroupNode(group, gi))}
+        {assistantContent}
         {hasAttachments && (
           <MessageAttachments
             attachments={message.attachments ?? []}

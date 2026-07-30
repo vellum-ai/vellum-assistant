@@ -91,6 +91,10 @@ export function useCommandPalette({
   }, [storeOpen]);
 
   const close = useCallback(() => {
+    // Focus stays where it is: item selection runs its action before closing,
+    // and actions such as "New Conversation" focus the composer. Releasing
+    // focus held inside the palette itself is the palette component's job
+    // (see `command-palette.tsx`).
     storeClose();
     setQuery("");
     setSelectedIndex(0);

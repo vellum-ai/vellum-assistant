@@ -514,8 +514,8 @@ export function ChatMainPanel({
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
-  // Draft secret detection (flag-gated) — owns the composer warning's
-  // matches/dismissal plus the pre-send gate state.
+  // Draft secret detection: owns the composer warning's matches/dismissal
+  // plus the pre-send gate state.
   // -------------------------------------------------------------------------
   const draftSecretDetection = useDraftSecretDetection({
     conversationId: activeConversationId,
@@ -882,8 +882,8 @@ export function ChatMainPanel({
     assistantId,
     activeConversationId,
     // Synchronous pre-send gate: re-scans the outgoing content so pastes
-    // sent inside the detection debounce window are still caught. Flag off
-    // or no secrets → returns true, fully inert.
+    // sent inside the detection debounce window are still caught. No
+    // secrets → returns true, fully inert.
     beforeSend: draftSecretDetection.checkBeforeSend,
   });
 

@@ -9,8 +9,12 @@ import { z } from "zod";
 
 import { getConversation } from "../../persistence/conversation-crud.js";
 import {
+  DEFER_CREATED_BY_VALUES,
+  isDeferSchedule,
+} from "../../schedule/defer-provenance.js";
+import {
   cancelSchedule,
-  createSchedule,
+  createOwnerDeferredWake,
   getSchedule,
   listSchedules,
 } from "../../schedule/schedule-store.js";
@@ -30,7 +34,7 @@ const MAX_DEFER_HORIZON_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 function countActiveDefers(conversationId?: string): number {
   const jobs = listSchedules({
     mode: "wake",
-    createdBy: "defer",
+    createdBy: DEFER_CREATED_BY_VALUES,
     conversationId,
   });
   return jobs.filter((j) => j.status === "active" || j.status === "firing")
@@ -97,14 +101,11 @@ async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const job = await createSchedule({
-    name: name ?? "Deferred wake",
-    message: hint,
-    mode: "wake",
-    wakeConversationId: conversationId,
-    nextRunAt: resolvedFireAt,
-    quiet: true,
-    createdBy: "defer",
+  const job = await createOwnerDeferredWake({
+    conversationId,
+    hint,
+    fireAt: resolvedFireAt,
+    ...(name !== undefined ? { name } : {}),
   });
 
   return {
@@ -120,7 +121,7 @@ async function handleDeferList({ body = {} }: RouteHandlerArgs) {
 
   const jobs = listSchedules({
     mode: "wake",
-    createdBy: "defer",
+    createdBy: DEFER_CREATED_BY_VALUES,
     conversationId,
   });
 
@@ -145,7 +146,7 @@ async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
 
   if (id) {
     const job = getSchedule(id);
-    if (!job || job.mode !== "wake" || job.createdBy !== "defer") {
+    if (!job || job.mode !== "wake" || !isDeferSchedule(job.createdBy)) {
       return { cancelled: 0, error: "Not a deferred wake" };
     }
     const ok = await cancelSchedule(id);
@@ -155,7 +156,7 @@ async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
   if (all) {
     const jobs = listSchedules({
       mode: "wake",
-      createdBy: "defer",
+      createdBy: DEFER_CREATED_BY_VALUES,
       conversationId,
     });
 

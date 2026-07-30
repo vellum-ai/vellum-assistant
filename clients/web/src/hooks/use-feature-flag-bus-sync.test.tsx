@@ -73,10 +73,114 @@ describe("useFeatureFlagBusSync", () => {
     });
     emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
-      });
+      expect(spy).toHaveBeenCalledWith(
+        {
+          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+        },
+        { cancelRefetch: false, throwOnError: false },
+      );
     });
+  });
+
+  test("deduplicates bursty client feature flag invalidations", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    emitOpened("error");
+    emitOpened("watchdog");
+
+    await waitFor(() => {
+      const clientCalls = (
+        spy.mock.calls as unknown as Array<
+          [{ queryKey?: readonly unknown[] }, unknown?]
+        >
+      ).filter(([options]) => {
+        const key = options.queryKey?.[0] as { _id?: string } | undefined;
+        return key?._id === "featureFlagsClientFlagValuesRetrieve";
+      });
+      expect(clientCalls).toHaveLength(1);
+    });
+  });
+
+  test("queues one refresh when invalidation races an active fetch", async () => {
+    const queryClient = freshQueryClient();
+    let finishActiveFetch: (() => void) | undefined;
+    const activeFetch = new Promise<void>((resolve) => {
+      finishActiveFetch = resolve;
+    });
+    let isFetching = true;
+    queryClient.isFetching = mock(() => (isFetching ? 1 : 0)) as never;
+    const spy = mock(() => (isFetching ? activeFetch : Promise.resolve()));
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    isFetching = false;
+    finishActiveFetch?.();
+
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  test("delays one refresh when an active fetch fails", async () => {
+    const queryClient = freshQueryClient();
+    let failActiveFetch: ((error: Error) => void) | undefined;
+    const activeFetch = new Promise<void>((_, reject) => {
+      failActiveFetch = reject;
+    });
+    let isFetching = true;
+    queryClient.isFetching = mock(() => (isFetching ? 1 : 0)) as never;
+    const spy = mock(() => (isFetching ? activeFetch : Promise.resolve()));
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    expect(spy).toHaveBeenCalledWith(
+      {
+        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+      },
+      { cancelRefetch: false, throwOnError: true },
+    );
+
+    isFetching = false;
+    const originalSetTimeout = globalThis.setTimeout;
+    let scheduledRefresh: (() => void) | undefined;
+    let scheduledDelay: number | undefined;
+    globalThis.setTimeout = mock((callback: TimerHandler, delay?: number) => {
+      if (typeof callback === "function") {
+        scheduledRefresh = () => callback();
+      }
+      scheduledDelay = delay;
+      return 1;
+    }) as unknown as typeof setTimeout;
+    try {
+      failActiveFetch?.(new Error("rate limited"));
+      await Promise.resolve();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(scheduledDelay).toBe(30_000);
+
+      globalThis.setTimeout = originalSetTimeout;
+      scheduledRefresh?.();
+      await Promise.resolve();
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
   });
 
   test("invalidates assistant feature flag query prefix on feature-flags:assistant sync tag", async () => {
@@ -105,9 +209,12 @@ describe("useFeatureFlagBusSync", () => {
     });
     emitOpened("error");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
-      });
+      expect(spy).toHaveBeenCalledWith(
+        {
+          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+        },
+        { cancelRefetch: false, throwOnError: false },
+      );
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },
@@ -126,9 +233,12 @@ describe("useFeatureFlagBusSync", () => {
     emitOpened("watchdog");
     emitOpened("resume");
     await waitFor(() => {
-      expect(spy).toHaveBeenCalledWith({
-        queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
-      });
+      expect(spy).toHaveBeenCalledWith(
+        {
+          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+        },
+        { cancelRefetch: false, throwOnError: false },
+      );
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantFeatureFlagsGetQueryKey({
           path: { assistant_id: "asst-1" },
@@ -137,7 +247,7 @@ describe("useFeatureFlagBusSync", () => {
     });
   });
 
-  test("does NOT invalidate on sse.opened (cause=fresh)", async () => {
+  test("catches up client flags on the initial sse.opened", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -145,7 +255,14 @@ describe("useFeatureFlagBusSync", () => {
       wrapper: createWrapper(queryClient),
     });
     emitOpened("fresh");
-    await Promise.resolve();
-    expect(spy).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith(
+        {
+          queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
+        },
+        { cancelRefetch: false, throwOnError: false },
+      );
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,7 +2,7 @@
  * Tests for `VoiceSessionPill`.
  *
  * The pill is purely presentational, so tests drive it directly through
- * props. The embedded `VoiceListeningWaves` is SVG + a rAF loop writing a
+ * props. The embedded `VoiceReactiveWaves` is SVG + a rAF loop writing a
  * CSS var — inert under happy-dom, so no harness is needed here.
  *
  * `useIsMobile` is mocked because the pill has two genuinely different forms

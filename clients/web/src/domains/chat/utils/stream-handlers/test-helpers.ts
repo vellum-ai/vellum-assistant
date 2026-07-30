@@ -90,6 +90,14 @@ export function makeCtx(
     shiftPendingQueuedMessageId: mock(() => {
       return queueState.pendingQueuedMessageIds.shift();
     }),
+    takePendingQueuedMessageId: mock((messageId: string) => {
+      const idx = queueState.pendingQueuedMessageIds.indexOf(messageId);
+      if (idx === -1) {
+        return undefined;
+      }
+      queueState.pendingQueuedMessageIds.splice(idx, 1);
+      return messageId;
+    }),
     setRequestIdMapping: mock((requestId: string, messageId: string) => {
       queueState.requestIdToMessageId.set(requestId, messageId);
     }),

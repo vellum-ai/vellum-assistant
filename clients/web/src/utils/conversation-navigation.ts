@@ -41,7 +41,9 @@ export function navigateToConversation(
   // a same-conversation navigation kills the inline cards for subagents
   // that are still running: the store repopulates only from live SSE
   // events, so the spawned entries can't come back mid-run (LUM-2875).
-  if (conversationId !== useConversationStore.getState().activeConversationId) {
+  if (
+    conversationId !== useConversationStore.getState().activeConversationId
+  ) {
     useSubagentStore.getState().reset();
     useWorkflowStore.getState().reset();
   }

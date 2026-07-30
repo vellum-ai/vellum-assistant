@@ -1,9 +1,6 @@
 import { isHttpAuthDisabled } from "../../config/env.js";
-import {
-  getGuardianDelivery,
-  guardianForChannel,
-} from "../../contacts/guardian-delivery-reader.js";
 import { httpError } from "../http-errors.js";
+import { matchesBoundGuardian } from "./owner-caller.js";
 import type { AuthContext } from "./types.js";
 
 /**
@@ -20,24 +17,12 @@ export async function requireBoundGuardian(
   if (isHttpAuthDisabled()) {
     return null;
   }
-  if (!authContext.actorPrincipalId) {
-    return httpError(
-      "FORBIDDEN",
-      "Actor is not the bound guardian for this channel",
-      403,
-    );
-  }
-  const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
-  if (!guardians) {
-    // Gateway unreachable — fail closed.
-    return httpError(
-      "FORBIDDEN",
-      "Actor is not the bound guardian for this channel",
-      403,
-    );
-  }
-  const guardian = guardianForChannel(guardians, "vellum");
-  if (guardian && guardian.principalId === authContext.actorPrincipalId) {
+  // Missing actor id, an unreadable binding (gateway unreachable), a
+  // non-matching principal, and a non-active row all fail closed inside
+  // `matchesBoundGuardian`. Cached read: these routes are host-proxy result
+  // callbacks on an active session, and this preserves their established
+  // semantics. The wake surface asks for a fresh binding explicitly.
+  if (await matchesBoundGuardian(authContext.actorPrincipalId)) {
     return null;
   }
   return httpError(

@@ -13,7 +13,7 @@
  * (`isLiveVoiceSessionOwnedBy`): for any active session exactly one of
  * {composer bar, title-bar pill} renders.
  *
- * The embedded `VoiceListeningWaves` is SVG + a rAF loop writing a CSS var —
+ * The embedded `VoiceReactiveWaves` is SVG + a rAF loop writing a CSS var —
  * inert under happy-dom, so no harness is needed.
  */
 

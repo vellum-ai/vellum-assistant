@@ -40,7 +40,7 @@ describe("GET /v1/config profile vision enrichment", () => {
     seedProfiles({
       "test-no-vision": {
         provider: "fireworks",
-        model: "accounts/fireworks/models/kimi-k2p5",
+        model: "accounts/fireworks/models/glm-5p2",
       },
     });
 

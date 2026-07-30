@@ -70,15 +70,8 @@
  * treats it as a retryable failure.
  */
 
-import {
-  closeSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   isMemoryV3Live,
@@ -98,9 +91,14 @@ import {
 } from "../../../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../../../runtime/background-job-runner.js";
 import { formatBufferTimestamp } from "../graph/tool-handlers.js";
-import { isProcessAlive } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
+import {
+  CONSOLIDATION_TIMEOUT_MS,
+  getConsolidationLockPath,
+  releaseLock,
+  tryAcquireLock,
+} from "./consolidation-lock.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { getPageIndex, type PageParseFailure } from "./page-index.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
@@ -151,33 +149,6 @@ const CONSOLIDATION_ALLOWED_TOOLS: readonly string[] = [
   "delete_memory_page",
   "recall",
 ];
-
-/**
- * Hard timeout for the consolidation run. Consolidation reads the buffer,
- * rewrites several files, and re-encodes essentials/threads — generous
- * upper bound so a slow run isn't killed mid-edit, but bounded so a stuck
- * provider can't pin the worker indefinitely.
- */
-const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
-
-/**
- * Age past which a lock held by an apparently-live PID is taken over anyway.
- *
- * The PID-liveness probe alone is not sufficient in containers: the daemon
- * runs as PID 1, so after a container restart `isProcessAlive(1)` reports the
- * NEW daemon as alive even though it is not the process that wrote the lock.
- * PID-1 collision means a lock left behind by a crashed/restarted run can
- * never be declared stale by liveness alone, and consolidation wedges
- * permanently (every scheduled run skips with `locked`).
- *
- * A lock older than this TTL is treated as abandoned regardless of PID
- * liveness. The bound is a large multiple of the run's hard timeout — the
- * lock timestamp is written at acquire time and a run can hold the lock for
- * at most `CONSOLIDATION_TIMEOUT_MS`, so a TTL well above that can never fire
- * against a legitimately in-flight run while still recovering a wedged lock
- * within a couple of scheduled passes.
- */
-const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
 
 /**
  * Durable checkpoint tracking consecutive consolidation run failures.
@@ -338,13 +309,12 @@ export async function memoryV2ConsolidateJob(
   }
 
   const memoryDir = join(getWorkspaceDir(), "memory");
-  // FROZEN: `memory/.v2-state/` is a persisted workspace path — never rename.
-  const lockPath = join(memoryDir, ".v2-state", "consolidation.lock");
+  const lockPath = getConsolidationLockPath(memoryDir);
   const bufferPath = join(memoryDir, "buffer.md");
 
   // Step 1: acquire lock. Bails immediately if another consolidation is
   // already in flight — the next scheduled run can pick up where we leave off.
-  const holder = tryAcquireLock(lockPath);
+  const holder = tryAcquireLock(lockPath, "consolidation");
   if (holder !== null) {
     log.warn({ lockPath, holder }, "consolidation skipped: lock already held");
     return { kind: "locked", holder };
@@ -664,182 +634,4 @@ function countNonEmptyLines(content: string): number {
     return 0;
   }
   return content.split("\n").filter((line) => line.trim().length > 0).length;
-}
-
-/**
- * Atomically create the lock file with `wx` (O_CREAT | O_EXCL) flags. Returns
- * `null` on success, or the current holder string (file contents, typically
- * `pid timestamp`) when the file already exists and the holder is still alive.
- *
- * Stale-lock takeover: if the file exists but its holder is stale (PID not
- * running, payload corrupt, or — for the container PID-1 collision — older
- * than the TTL; see {@link holderStaleReason}), unlink the stale file and
- * retry the create exactly once. This recovers automatically from a crashed
- * or restarted daemon that died with the lock held — otherwise every
- * subsequent scheduled consolidation would skip with `locked` indefinitely
- * until an operator manually removed the file.
- *
- * The simple takeover-then-retry is safe here (unlike `snapshot-lock.ts`'s
- * full rename-aside dance) because only the assistant's jobs worker calls
- * this lock, and at most one assistant process runs per workspace at any
- * time. A holder with an unparseable / empty payload is treated as stale —
- * the only writers ever produce a `<pid> <timestamp>` line, so an
- * unparseable file is corruption from a partial write that crashed.
- */
-function tryAcquireLock(lockPath: string): string | null {
-  // The workspace migration seeds `memory/.v2-state/`, but tests and
-  // ad-hoc workspaces may not have it yet. `mkdirSync({ recursive: true })`
-  // is idempotent, so the call is cheap when the dir already exists.
-  mkdirSync(dirname(lockPath), { recursive: true });
-
-  const firstHolder = tryCreate(lockPath);
-  if (firstHolder === null) {
-    return null;
-  }
-  const staleReason = holderStaleReason(firstHolder);
-  if (staleReason === null) {
-    return firstHolder;
-  }
-
-  log.info(
-    { lockPath, holder: firstHolder, reason: staleReason },
-    "consolidation: taking over stale lock",
-  );
-  try {
-    unlinkSync(lockPath);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      log.warn(
-        { err, lockPath },
-        "consolidation: failed to unlink stale lock; reporting as locked",
-      );
-      return firstHolder;
-    }
-  }
-  // After unlink, the next `wx` create should succeed. If a third party
-  // raced in and re-acquired (vanishingly unlikely with one writer per
-  // workspace), surface their holder string rather than overwriting.
-  return tryCreate(lockPath);
-}
-
-/**
- * Atomically create the lock file. Returns `null` on success, or the holder
- * string read from the file when it already exists (`"unknown"` if the read
- * itself fails). Rethrows any non-EEXIST errno from `openSync`.
- */
-function tryCreate(lockPath: string): string | null {
-  let fd: number;
-  try {
-    fd = openSync(lockPath, "wx");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
-      throw err;
-    }
-    try {
-      return readFileSync(lockPath, "utf-8").trim() || "unknown";
-    } catch {
-      return "unknown";
-    }
-  }
-  try {
-    writeSync(fd, `${process.pid} ${Date.now()}\n`);
-  } catch {
-    // best-effort — payload is advisory, the file's existence is the lock
-  } finally {
-    try {
-      closeSync(fd);
-    } catch {
-      // best-effort
-    }
-  }
-  return null;
-}
-
-/**
- * Why a lock holder is considered stale, for diagnosable takeover logs:
- *   - `unparseable`: empty / corrupt payload (partial write from a crash).
- *   - `pid_dead`: the holder's PID is no longer running.
- *   - `expired`: the lock is older than {@link STALE_LOCK_TTL_MS} even though
- *     its PID still appears alive — the PID-1 collision case in containers.
- */
-type StaleReason = "unparseable" | "pid_dead" | "expired";
-
-/**
- * Parse a `<pid> <timestamp>` holder payload (see `tryCreate`'s write).
- * Returns `null` when the PID cannot be parsed; a missing/garbled timestamp
- * yields `timestamp: null` so a partial payload still gives us the PID.
- */
-function parseHolder(
-  holder: string,
-): { pid: number; timestamp: number | null } | null {
-  const match = /^(\d+)(?:\s+(\d+))?/.exec(holder);
-  if (!match) {
-    return null;
-  }
-  const pid = Number.parseInt(match[1], 10);
-  if (!Number.isFinite(pid) || pid <= 0) {
-    return null;
-  }
-  const timestamp =
-    match[2] !== undefined ? Number.parseInt(match[2], 10) : null;
-  return {
-    pid,
-    timestamp:
-      timestamp !== null && Number.isFinite(timestamp) ? timestamp : null,
-  };
-}
-
-/**
- * Classify a holder string, returning the reason it is stale or `null` when
- * the lock is held by a live process and must be respected.
- *
- * Takeover triggers, in order:
- *   1. Unparseable / empty / `"unknown"` payload → `unparseable`. The only
- *      writer is `tryCreate`, so corruption is a partial write from a crashed
- *      prior holder, not a live writer mid-flush.
- *   2. PID not running → `pid_dead`. The fast path for a crashed daemon (or a
- *      different process now occupying that PID on a normal host).
- *   3. Lock older than {@link STALE_LOCK_TTL_MS} → `expired`. Required because
- *      the daemon runs as PID 1 in containers: after a restart the new daemon
- *      is also PID 1, so the liveness probe alone reports the holder as alive
- *      forever and could never reclaim an abandoned lock. The TTL is far above
- *      the run's hard timeout, so it never fires against an in-flight run.
- */
-function holderStaleReason(holder: string): StaleReason | null {
-  const parsed = parseHolder(holder);
-  if (parsed === null) {
-    return "unparseable";
-  }
-  if (!isProcessAlive(parsed.pid)) {
-    return "pid_dead";
-  }
-  if (
-    parsed.timestamp !== null &&
-    Date.now() - parsed.timestamp > STALE_LOCK_TTL_MS
-  ) {
-    return "expired";
-  }
-  return null;
-}
-
-/**
- * Idempotent unlink of the lock file. Called from the `finally` block so a
- * crash in the run path doesn't leave the lock stranded. ENOENT is swallowed
- * because the lock may have been released by an operator or never created
- * (acquire failed before reaching the lock-write step).
- */
-function releaseLock(lockPath: string): void {
-  try {
-    unlinkSync(lockPath);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      return;
-    }
-    log.warn(
-      { err, lockPath },
-      "consolidation: failed to release lock (best-effort)",
-    );
-  }
 }

@@ -27,14 +27,22 @@ function extensionFromMime(mimeType: string): string {
 /**
  * Build a FormData payload for the xAI `/v1/stt` endpoint.
  *
- * xAI does not require a `model` field. The xAI docs explicitly require the
- * `file` field to be appended LAST in the multipart body, so we only append
- * the file here (no other fields in v1).
+ * xAI does not require a `model` field. The optional `language` field is a
+ * plain language code (e.g. "en", "fr"). The xAI docs explicitly require the
+ * `file` field to be appended LAST in the multipart body, so every option
+ * field goes in before it.
  */
-function buildXaiFormData(audio: Buffer, mimeType: string): FormData {
+function buildXaiFormData(
+  audio: Buffer,
+  mimeType: string,
+  language?: string,
+): FormData {
   const ext = extensionFromMime(mimeType);
 
   const formData = new FormData();
+  if (language) {
+    formData.append("language", language);
+  }
   // xAI requires the `file` field to be LAST in the multipart body.
   formData.append(
     "file",
@@ -55,9 +63,10 @@ async function xaiTranscribe(
   apiKey: string,
   audio: Buffer,
   mimeType: string,
+  language?: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const formData = buildXaiFormData(audio, mimeType);
+  const formData = buildXaiFormData(audio, mimeType, language);
 
   const effectiveSignal = signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
 
@@ -79,11 +88,37 @@ async function xaiTranscribe(
   return result.text?.trim() ?? "";
 }
 
+export interface XAIProviderOptions {
+  /**
+   * Language code (e.g. "en", "fr") forwarded as the `language` form field.
+   * Omitted by default; xAI auto-detects the spoken language natively when
+   * no hint is given.
+   */
+  language?: string;
+}
+
+/**
+ * xAI constructor options implied by a language selection, for spreading
+ * into adapter constructor options (the batch adapter and the streaming
+ * resolver spread this the same way, mirroring `deepgramLanguageOptions`).
+ *
+ * `"multi"` is Deepgram's code-switching mode, not a language code, so xAI
+ * receives no language for it: the adapter falls back to xAI's native
+ * multilingual auto-detection, which needs no hint.
+ */
+export function xaiLanguageOptions(language: string | undefined): {
+  language?: string;
+} {
+  return language && language !== "multi" ? { language } : {};
+}
+
 export class XAIProvider {
   private readonly apiKey: string;
+  private readonly language: string | undefined;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, options: XAIProviderOptions = {}) {
     this.apiKey = apiKey;
+    this.language = options.language;
   }
 
   async transcribe(
@@ -91,7 +126,13 @@ export class XAIProvider {
     mimeType: string,
     signal?: AbortSignal,
   ): Promise<SttTranscribeResult> {
-    const text = await xaiTranscribe(this.apiKey, audio, mimeType, signal);
+    const text = await xaiTranscribe(
+      this.apiKey,
+      audio,
+      mimeType,
+      this.language,
+      signal,
+    );
     return { text };
   }
 }

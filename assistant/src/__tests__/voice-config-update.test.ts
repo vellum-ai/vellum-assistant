@@ -38,7 +38,7 @@ import {
   run,
   VALID_SETTINGS,
 } from "../config/bundled-skills/settings/tools/voice-config-update.js";
-import { invalidateConfigCache } from "../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { ToolContext } from "../tools/types.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
 
@@ -569,6 +569,259 @@ describe("voice_config_update — stt_provider", () => {
       { setting: "stt_provider", value: "deepgram" },
       ctx,
     );
+
+    expect(result.isError).toBe(false);
+    expect(messages).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: stt_language
+// ---------------------------------------------------------------------------
+
+describe("voice_config_update - stt_language", () => {
+  test("persists a curated code to services.stt.language", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "hi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("hi");
+  });
+
+  test("a sparse config write seeds the provider so the block survives validation", async () => {
+    // With no services.stt block on disk, a language-only write would persist
+    // { stt: { language } } without the required provider field, and the
+    // loader's validation salvage can then reset the whole services section
+    // (the LUM-2758 failure family). Assert on getConfig(), not just the raw
+    // JSON: the raw file can hold the language while validation throws it
+    // away, which is exactly the failure this guards against.
+    writeConfig({ services: { tts: { provider: "elevenlabs" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "hi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    // The effective config round-trips the language and keeps a valid provider.
+    expect(getConfig().services.stt.language).toBe("hi");
+    expect(getConfig().services.stt.provider).toBe("deepgram");
+    // Unrelated TTS settings survive (no services-section reset).
+    expect(getConfig().services.tts.provider).toBe("elevenlabs");
+    // The raw block is self-consistent on disk too.
+    const stt = (readConfig().services as any)?.stt;
+    expect(stt).toEqual({ provider: "deepgram", language: "hi" });
+  });
+
+  test("a write against an existing services.stt block is a pure language patch", async () => {
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "fr" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    // The configured provider is untouched, not re-seeded from defaults.
+    expect((readConfig().services as any)?.stt).toEqual({
+      provider: "xai",
+      language: "fr",
+    });
+    expect(getConfig().services.stt.provider).toBe("xai");
+    expect(getConfig().services.stt.language).toBe("fr");
+  });
+
+  test("normalizes a language-name alias (case-insensitive, trimmed)", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "  Hindi " },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("hi");
+  });
+
+  test("normalizes multilingual to multi", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "multilingual" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("multi");
+  });
+
+  test("normalizes extended-roster language names (tamil, korean, mandarin)", async () => {
+    // A few of the nova-3 monolingual roster's aliases, including an
+    // alternate name mapping (mandarin -> zh alongside chinese -> zh).
+    for (const [name, code] of [
+      ["tamil", "ta"],
+      ["Korean", "ko"],
+      ["mandarin", "zh"],
+    ] as const) {
+      const result = await run(
+        { setting: "stt_language", value: name },
+        makeContext(),
+      );
+      expect(result.isError).toBe(false);
+      expect((readConfig().services as any)?.stt?.language).toBe(code);
+    }
+  });
+
+  test("accepts an extended-roster code directly", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "vi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("vi");
+  });
+
+  test("accepts multi directly", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "multi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("multi");
+  });
+
+  test("deepgram accepts an extended-roster code", async () => {
+    writeConfig({ services: { stt: { provider: "deepgram" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "ta" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("ta");
+  });
+
+  test("xai rejects an extended-roster code, naming the provider and its set, and writes nothing", async () => {
+    // The extended codes are verified for Deepgram nova-3 only; persisting
+    // one under xai would have every web surface withhold it while the
+    // resolver forwards it unverified.
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "ta" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("xai");
+    expect(result.content).toContain("en, es, fr, de, hi, ru, pt, ja, it, nl");
+    expect(result.content).toContain("Deepgram/managed");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("xai rejects multi with the provider-naming error and writes nothing", async () => {
+    // Previously accepted as a silent no-op (the resolver drops "multi" for
+    // xAI); the honest rejection replaces a dead persisted value.
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "multi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("xai");
+    expect(result.content).toContain("Deepgram/managed");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("the alias path normalizes before the provider check", async () => {
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    // "Tamil" normalizes to ta first, so it fails with the provider-scoped
+    // error rather than the generic unknown-language one.
+    const rejected = await run(
+      { setting: "stt_language", value: " Tamil " },
+      makeContext(),
+    );
+    expect(rejected.isError).toBe(true);
+    expect(rejected.content).toContain("xai");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+
+    // "French" normalizes to fr, which is inside xai's verified set.
+    const accepted = await run(
+      { setting: "stt_language", value: "French" },
+      makeContext(),
+    );
+    expect(accepted.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("fr");
+  });
+
+  test("an auto-detect provider keeps the unconditional write and notes the setting is ignored", async () => {
+    writeConfig({ services: { stt: { provider: "google-gemini" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "ta" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("ta");
+    expect(result.content).toContain("google-gemini");
+    expect(result.content).toContain("auto-detects");
+  });
+
+  test("a language-forwarding provider's success carries no auto-detect note", async () => {
+    writeConfig({ services: { stt: { provider: "deepgram" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "hi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("auto-detects");
+  });
+
+  test("rejects an unknown language with the accepted set and writes nothing", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "klingon" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("stt_language must be one of");
+    expect(result.content).toContain("multi");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("rejects a non-string value and writes nothing", async () => {
+    const result = await run(
+      { setting: "stt_language", value: 42 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("stt_language must be one of");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("does not broadcast stt_language changes to the desktop client", async () => {
+    const messages: any[] = [];
+    const ctx = makeContext({
+      sendToClient: (msg: any) => messages.push(msg),
+    });
+
+    const result = await run({ setting: "stt_language", value: "fr" }, ctx);
 
     expect(result.isError).toBe(false);
     expect(messages).toHaveLength(0);
