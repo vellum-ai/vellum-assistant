@@ -1,36 +1,38 @@
 /**
  * Tests for `VoiceSessionPill`.
  *
- * The pill is purely presentational, so tests drive it directly through
- * props. The embedded `VoiceReactiveWaves` is SVG + a rAF loop writing a
- * CSS var — inert under happy-dom, so no harness is needed here.
+ * The pill is purely presentational, so tests drive it directly through props.
+ * The embedded `VoiceMeshWaves` is a canvas + a rAF loop — inert under
+ * happy-dom, so no harness is needed here.
  *
- * `useIsMobile` is mocked because the pill has two genuinely different forms
- * either side of the `md` breakpoint: an inline control row on desktop, a
- * single sheet trigger on mobile. `mockIsMobile` selects which one is under
- * test; it resets to desktop in `beforeEach`.
+ * The two layouts (`pill` in the header, `row` above it on a phone) are the
+ * same surface at two sizes, so most behaviour is asserted once; the layout
+ * describe covers only what genuinely differs — the box each one occupies.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { VoiceSurfacePaint } from "@/domains/chat/voice/voice-room/voice-surface-paint";
+import { toneForBg } from "@/utils/avatar-tone";
 
-let mockIsMobile = false;
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => mockIsMobile,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
-}));
+import {
+  VoiceSessionErrorChip,
+  VoiceSessionPill,
+} from "@/domains/chat/components/voice-session-pill";
 
-// Imported after the mock so the component picks up the mocked module.
-const { VoiceSessionErrorChip, VoiceSessionPill } =
-  await import("@/domains/chat/components/voice-session-pill");
 type VoiceSessionPillProps = React.ComponentProps<typeof VoiceSessionPill>;
 
-beforeEach(() => {
-  mockIsMobile = false;
-});
+const YELLOW_PAINT: VoiceSurfacePaint = {
+  bgHex: "#F5C518",
+  tone: toneForBg("#F5C518"),
+};
+const NAVY_PAINT: VoiceSurfacePaint = {
+  bgHex: "#17191C",
+  tone: toneForBg("#17191C"),
+};
 
 afterEach(() => {
   cleanup();
@@ -56,6 +58,7 @@ function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
   return handlers;
 }
 
+const root = () => screen.getByRole("group", { name: "Voice session" });
 const stopButton = () =>
   screen.queryByRole("button", { name: "Stop assistant response" });
 const endButton = () =>
@@ -63,18 +66,17 @@ const endButton = () =>
 const navButton = () =>
   screen.queryByRole("button", { name: "Go to voice session thread" });
 
-describe("VoiceSessionPill — textless surface", () => {
-  test("paints no visible label — state reaches AT via a live region only", () => {
+describe("VoiceSessionPill — state word", () => {
+  test("paints the label and announces it from the same node", () => {
     renderPill();
-    // The state text must exist for screen readers…
-    const live = screen.getByText("Working on App…");
-    // …but be visually hidden, so the pill stays narrow enough to leave the
-    // header's centre title its room.
-    expect(live.className).toContain("sr-only");
-    expect(live.getAttribute("aria-live")).toBe("polite");
+    const label = screen.getByText("Working on App…");
+    // One node, not a visible copy plus an sr-only one: a screen reader must
+    // announce the state once per change, not twice.
+    expect(label.className).not.toContain("sr-only");
+    expect(label.getAttribute("aria-live")).toBe("polite");
   });
 
-  test("live region announces muted in place of the state label", () => {
+  test("muted replaces the state label", () => {
     renderPill({ muted: true });
     expect(screen.getByText("Muted")).toBeTruthy();
     expect(screen.queryByText("Working on App…")).toBeNull();
@@ -86,12 +88,54 @@ describe("VoiceSessionPill — textless surface", () => {
   });
 });
 
-describe("VoiceSessionPill — title-bar constraints", () => {
-  test("root is a no-drag group capped to the header control height", () => {
+describe("VoiceSessionPill — paint", () => {
+  test("fills with the room's colour and publishes its tones", () => {
+    renderPill({ paint: YELLOW_PAINT });
+    const style = root().getAttribute("style") ?? "";
+    // The fill is an arbitrary avatar colour, so chrome on it reads these
+    // rather than theme tokens.
+    expect(style).toContain("--room-fg");
+    expect(style).toContain("--room-fg-muted");
+    expect(style).toContain("--room-wash");
+    expect(root().className).not.toContain("bg-[var(--surface-lift)]");
+  });
+
+  test("flips data-theme with the fill's polarity", () => {
+    renderPill({ paint: YELLOW_PAINT });
+    // Light fill: descendants reading plain theme tokens must go light with it.
+    expect(root().getAttribute("data-theme")).toBe("light");
+    cleanup();
+
+    renderPill({ paint: NAVY_PAINT });
+    expect(root().getAttribute("data-theme")).toBe("dark");
+  });
+
+  test("holds the app's lift surface until the paint resolves", () => {
+    // `paint` is null while the avatar query is in flight. Painting the
+    // ambient dark there would flash the surface through a colour it never
+    // settles on.
     renderPill();
-    const root = screen.getByRole("group", { name: "Voice session" });
-    expect(root.className).toContain("[-webkit-app-region:no-drag]");
-    expect(root.className).toContain("h-8");
+    expect(root().className).toContain("bg-[var(--surface-lift)]");
+    expect(root().getAttribute("data-theme")).toBeNull();
+  });
+});
+
+describe("VoiceSessionPill — layouts", () => {
+  test("pill: capped to the header control height, as a no-drag group", () => {
+    renderPill();
+    expect(root().className).toContain("[-webkit-app-region:no-drag]");
+    expect(root().className).toContain("h-8");
+    expect(root().className).toContain("rounded-full");
+  });
+
+  test("row: a full-width band that takes its own space in flow", () => {
+    renderPill({ layout: "row" });
+    // Full width and no radius: the row is the page's top edge on a phone, and
+    // `shrink-0` is what keeps it pushing the page down rather than being
+    // squeezed out of the column.
+    expect(root().className).toContain("w-full");
+    expect(root().className).toContain("shrink-0");
+    expect(root().className).not.toContain("rounded-full");
   });
 });
 
@@ -146,7 +190,7 @@ describe("VoiceSessionPill — no manual send", () => {
     }
   });
 
-  test("resting pill is exactly mute + waves + end", () => {
+  test("resting surface is exactly mute + state word + end", () => {
     renderPill({ state: "listening" });
     const names = screen
       .getAllByRole("button")
@@ -173,6 +217,12 @@ describe("VoiceSessionPill — mute toggle", () => {
     fireEvent.click(toggle);
     expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
+
+  test("stays reachable in the row layout — a hot mic keeps a one-tap mute", () => {
+    const { onToggleMute } = renderPill({ layout: "row" });
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(onToggleMute).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("VoiceSessionPill — end control", () => {
@@ -187,7 +237,7 @@ describe("VoiceSessionPill — end control", () => {
 });
 
 describe("VoiceSessionPill — navigation", () => {
-  test("the wave strip carries the tap and fires onNavigate only", () => {
+  test("the state word carries the tap and fires onNavigate only", () => {
     const { onNavigate, onStop, onEnd } = renderPill();
     fireEvent.click(navButton()!);
     expect(onNavigate).toHaveBeenCalledTimes(1);
@@ -195,80 +245,12 @@ describe("VoiceSessionPill — navigation", () => {
     expect(onEnd).not.toHaveBeenCalled();
   });
 
-  test("waves stay inert (not a button) without onNavigate", () => {
-    // A session with no conversation yet has nowhere to go — the strip must
-    // not ship as a dead target.
+  test("the state word stays inert (not a button) without onNavigate", () => {
+    // A session with no conversation yet has nowhere to go — the surface must
+    // not ship a dead target.
     renderPill({ onNavigate: undefined });
     expect(navButton()).toBeNull();
-  });
-});
-
-describe("VoiceSessionPill — condensed mobile form", () => {
-  const trigger = () =>
-    screen.getByRole("button", { name: "Voice session controls" });
-
-  test("collapses the whole cluster to one trigger", () => {
-    mockIsMobile = true;
-    renderPill();
-    // One trigger, no inline controls: three icon buttons leave the header's
-    // centre title unreadable at phone widths.
-    expect(trigger()).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Mute microphone" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "End voice session" }),
-    ).toBeNull();
-  });
-
-  test("a live mic still announces its state without opening the sheet", () => {
-    mockIsMobile = true;
-    renderPill();
-    const live = screen.getByText("Working on App…");
-    expect(live.className).toContain("sr-only");
-    expect(live.getAttribute("aria-live")).toBe("polite");
-  });
-
-  test("opening the sheet offers mute and end, and fires them", () => {
-    mockIsMobile = true;
-    const { onToggleMute, onEnd } = renderPill();
-    fireEvent.click(trigger());
-    fireEvent.click(screen.getByText("Mute microphone"));
-    expect(onToggleMute).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(trigger());
-    fireEvent.click(screen.getByText("End voice session"));
-    expect(onEnd).toHaveBeenCalledTimes(1);
-  });
-
-  test("stop row appears only while speaking", () => {
-    mockIsMobile = true;
-    const { onStop } = renderPill({ state: "speaking" });
-    fireEvent.click(trigger());
-    fireEvent.click(screen.getByText("Stop response"));
-    expect(onStop).toHaveBeenCalledTimes(1);
-    cleanup();
-
-    mockIsMobile = true;
-    renderPill({ state: "listening" });
-    fireEvent.click(trigger());
-    expect(screen.queryByText("Stop response")).toBeNull();
-  });
-
-  test("navigate row is omitted when there is no thread to return to", () => {
-    mockIsMobile = true;
-    renderPill({ onNavigate: undefined });
-    fireEvent.click(trigger());
-    expect(screen.queryByText("Go to voice session thread")).toBeNull();
-  });
-
-  test("muted swaps the trigger glyph's label target, not the control itself", () => {
-    // The trigger keeps one stable accessible name in both states — it opens
-    // a menu, it is not itself the mute toggle.
-    mockIsMobile = true;
-    renderPill({ muted: true });
-    expect(trigger()).toBeTruthy();
-    expect(screen.getByText("Muted")).toBeTruthy();
+    expect(screen.getByText("Working on App…")).toBeTruthy();
   });
 });
 

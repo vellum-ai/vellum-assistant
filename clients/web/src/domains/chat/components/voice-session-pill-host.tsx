@@ -1,15 +1,18 @@
 /**
- * Store-wiring host for the title-bar voice-session pill (Light 54).
+ * Store-wiring host for the off-conversation voice-session surface (Light 736
+ * desktop, Light 743 mobile).
  *
  * Mounted once by `ChatLayout` — composed directly with the header's
  * `topBarRightSlot` content rather than registered through
  * `useChatLayoutSlotsStore`, because slot registration is owned by per-route
  * hooks that unmount on navigation, which is exactly when the pill must
- * persist. Electron pop-out thread windows render no header at all, so
- * `ChatLayout` mounts a second host there with `variant="standalone"`, which
- * floats the same surface over the window's top-right corner — a session
- * carried to another conversation via in-window switching (Cmd+Up/Down) must
- * still have a visible control.
+ * persist. A phone gets the same surface as its own full-width row above the
+ * header (`variant="row"`) instead, since a phone header has no width for a
+ * pill beside the centre title. Electron pop-out thread windows render no
+ * header at all, so `ChatLayout` mounts a third host there with
+ * `variant="standalone"`, which floats the surface over the window's top-right
+ * corner — a session carried to another conversation via in-window switching
+ * (Cmd+Up/Down) must still have a visible control.
  *
  * Visibility is the exact complement of the owning-composer voice surface — the
  * one the full-screen voice room also renders against — so that in the main
@@ -44,7 +47,7 @@
  * A session not yet attached to a conversation (started from a draft, before
  * the server's `ready` frame) still shows the pill when the user is away from
  * the owning composer — a live mic must always have a visible control — just
- * without a navigation target, leaving its waves inert rather than a dead
+ * without a navigation target, leaving its state word inert rather than a dead
  * button.
  *
  * A `failed` session unmounts the pill (no longer active), but the failure
@@ -61,9 +64,9 @@
  * contradicting the control's "without ending the session" contract, so
  * there the pill offers only ✕ (end).
  *
- * The pill is textless and takes no thread title, so nothing here resolves
- * the owning conversation row. Only `conversationId` matters, and only to
- * decide whether the waves navigate.
+ * The pill says what the session is doing, not which thread it belongs to, so
+ * nothing here resolves the owning conversation row. Only `conversationId`
+ * matters, and only to decide whether the state word navigates.
  */
 
 import { useCallback } from "react";
@@ -88,31 +91,28 @@ import {
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
-import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { useVoiceSurfacePaint } from "@/domains/chat/voice/voice-room/use-voice-surface-paint";
 
 export interface VoiceSessionPillHostProps {
   /**
-   * Placement variant. `"header"` (default) renders the bare surface for
-   * composition into the header's right slot. `"standalone"` floats it over
-   * the window's top-right corner with its own chrome, for windows without a
-   * header (Electron pop-out thread windows). Renders nothing either way when
-   * there is neither an active session to control nor a failure to surface.
+   * Placement variant, all rendering nothing when there is neither an active
+   * session to control nor a failure to surface.
+   *
+   * - `"header"` (default) — the elongated pill, for composition into the
+   *   header's right cluster on a desktop-width window.
+   * - `"row"` — the full-bleed band a phone lays out above the thread header,
+   *   where the header row has no width to give a pill.
+   * - `"standalone"` — floats the pill over the window's top-right corner, for
+   *   windows without a header (Electron pop-out thread windows).
    */
-  variant?: "header" | "standalone";
+  variant?: "header" | "row" | "standalone";
 }
 
 /**
  * Whether this host renders anything — an active-session pill, or the failure
  * chip that replaces it.
- *
- * Exported so the header can size its right cluster against a *live* session
- * without re-deriving the rules (`ChatLayoutHeader` collapses its other
- * controls behind an overflow menu once the pill occupies the row). The host
- * consumes the same hook, so the two can never disagree about whether the
- * slot is occupied.
  */
-export function useVoiceSessionPillPresence(): {
+function useVoiceSessionPillPresence(): {
   visible: boolean;
   showFailure: boolean;
 } {
@@ -155,18 +155,12 @@ export function VoiceSessionPillHost({
   //   chip must stay up there even for the owning conversation.
   const { visible, showFailure } = useVoiceSessionPillPresence();
 
-  // Wave accent for the pill's listening waves — the same avatar-matched tint
-  // the room resolves (see wave-accent.ts). Fetch-gated to a visible pill;
-  // the query is shared with every other avatar consumer.
-  const {
-    components: avatarComponents,
-    traits: avatarTraits,
-    customImageUrl: avatarCustomImageUrl,
-  } = useAssistantAvatar(visible ? sessionAssistantId : null);
-  const waveAccentHex = resolveWaveAccentHex(
-    avatarComponents,
-    avatarTraits,
-    avatarCustomImageUrl,
+  // The room's fill for the pill to paint itself in, plus the accent its mesh
+  // band tints itself with — both from the session assistant's avatar, so the
+  // pill and the room are the same surface at two sizes. Fetch-gated to a
+  // visible pill; the query is shared with every other avatar consumer.
+  const { paint, waveAccentHex } = useVoiceSurfacePaint(
+    visible ? sessionAssistantId : null,
   );
 
   const handleNavigate = useCallback(() => {
@@ -198,6 +192,8 @@ export function VoiceSessionPillHost({
         onEnd={endLiveVoiceSession}
         onNavigate={sessionConversationId ? handleNavigate : undefined}
         waveAccentHex={waveAccentHex}
+        paint={paint}
+        layout={variant === "row" ? "row" : "pill"}
       />
     );
   }
@@ -206,20 +202,25 @@ export function VoiceSessionPillHost({
     return null;
   }
 
+  if (variant === "row") {
+    // In flow above the thread header, so a live session pushes the page down
+    // instead of covering any of it. The band paints itself edge to edge; the
+    // failure chip does not, so it gets the header's own inset to sit on.
+    return showFailure ? (
+      <div className="shrink-0 px-4 pt-2">{content}</div>
+    ) : (
+      content
+    );
+  }
+
   if (variant === "standalone") {
     // Floats over the pop-out's content (which owns its own scrolling), so an
-    // absolute corner anchor never disturbs layout. The pill needs chrome of
-    // its own here — in the header the surrounding title bar provides it —
-    // while the error chip already carries a filled background.
+    // absolute corner anchor never disturbs layout. Both the pill and the error
+    // chip carry their own fill, so the corner adds only a shadow to lift them
+    // off the content.
     return (
-      <div className="absolute right-4 top-4 z-30">
-        {showFailure ? (
-          content
-        ) : (
-          <div className="rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 pl-4 pr-1.5 shadow-md">
-            {content}
-          </div>
-        )}
+      <div className="absolute right-4 top-4 z-30 rounded-full shadow-md">
+        {content}
       </div>
     );
   }
