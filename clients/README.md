@@ -19,7 +19,8 @@ web app over HTTPS and does not consume any code from the other client
 surfaces.
 
 The Android app is a Capacitor shell that lives in [`android/`](./android/);
-it follows the same remote web app loading model as iOS.
+it follows the same remote web app loading model as iOS. Its README documents
+local variants, signed AAB builds, and Play internal-track prerequisites.
 
 ## What belongs here
 
