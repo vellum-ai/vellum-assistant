@@ -694,8 +694,14 @@ function managedBalanceClassification(): Omit<
 > {
   return {
     code: "PROVIDER_BILLING",
+    // This classification feeds two surfaces with different semantics: the
+    // terminal provider-error path (the turn ends with no reply) and the
+    // non-terminal memory-v3 degraded notice (a normal reply still follows).
+    // Keep the wording context-neutral so it is true in both places; the
+    // terminal persist site in conversation-agent-loop.ts swaps in
+    // assistant-voice copy for the synthetic assistant row.
     userMessage:
-      "You've run out of credits. Add funds to continue using the assistant.",
+      "You're out of credits. Add credits in Settings → Billing to continue.",
     retryable: false,
     errorCategory: "credits_exhausted",
   };

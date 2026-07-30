@@ -788,8 +788,9 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_BILLING");
       expect(result.errorCategory).toBe("credits_exhausted");
       expect(result.retryable).toBe(false);
-      expect(result.userMessage).toContain("Add funds");
-      expect(result.userMessage).toContain("assistant");
+      expect(result.userMessage).toBe(
+        "You're out of credits. Add credits in Settings → Billing to continue.",
+      );
     });
 
     it("classifies direct Anthropic, OpenAI, and OpenRouter 402 responses as provider_billing", () => {

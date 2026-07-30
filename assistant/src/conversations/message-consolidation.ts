@@ -32,7 +32,10 @@
  */
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
-import { isSystemCardMessage } from "../persistence/conversation-crud.js";
+import {
+  isProviderErrorMessage,
+  isSystemCardMessage,
+} from "../persistence/conversation-crud.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -46,6 +49,27 @@ const log = getLogger("message-consolidation");
  */
 export function isSystemCardRow(msg: MessageRow): boolean {
   return isSystemCardMessage(msg.role, msg.metadata);
+}
+
+/**
+ * True when a row is the synthetic assistant message the agent loop persists
+ * on the provider-error path (`messageKind: "provider_error"` metadata).
+ * Like system cards, these rows are standalone display turns: merging one
+ * into an adjacent assistant run would let the anchor's metadata win and
+ * drop the provider-error marker from the wire (or stamp it onto a bubble
+ * containing real assistant text).
+ */
+export function isProviderErrorRow(msg: MessageRow): boolean {
+  return isProviderErrorMessage(msg.role, msg.metadata);
+}
+
+/**
+ * True when an assistant row is a standalone display turn (system card or
+ * provider-error notice) that never merges with adjacent assistant rows in
+ * either direction.
+ */
+function isStandaloneAssistantRow(msg: MessageRow): boolean {
+  return isSystemCardRow(msg) || isProviderErrorRow(msg);
 }
 
 // ── Block predicates ────────────────────────────────────────────────
@@ -120,8 +144,9 @@ export function findDisplayTurnEndIndex(
   if (messages[startIdx]?.role !== "assistant") {
     return startIdx;
   }
-  // A system card is a single-row display turn — never spans neighbours.
-  if (isSystemCardRow(messages[startIdx]!)) {
+  // System cards and provider-error rows are single-row display turns that
+  // never span neighbours.
+  if (isStandaloneAssistantRow(messages[startIdx]!)) {
     return startIdx;
   }
 
@@ -131,7 +156,7 @@ export function findDisplayTurnEndIndex(
     if (!next) {
       break;
     }
-    if (next.role === "assistant" && !isSystemCardRow(next)) {
+    if (next.role === "assistant" && !isStandaloneAssistantRow(next)) {
       endIdx += 1;
       continue;
     }
@@ -297,15 +322,15 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
 
   for (const msg of messages) {
     const lastIdx = result.length - 1;
-    // System cards stay standalone in both directions: a card never folds
-    // into the preceding assistant run, and the following assistant row
-    // never folds into a card.
+    // System cards and provider-error rows stay standalone in both
+    // directions: neither folds into the preceding assistant run, and the
+    // following assistant row never folds into them.
     const isConsecutiveAssistant =
       msg.role === "assistant" &&
-      !isSystemCardRow(msg) &&
+      !isStandaloneAssistantRow(msg) &&
       lastIdx >= 0 &&
       result[lastIdx].role === "assistant" &&
-      !isSystemCardRow(result[lastIdx]);
+      !isStandaloneAssistantRow(result[lastIdx]);
 
     if (!isConsecutiveAssistant) {
       result.push(msg);

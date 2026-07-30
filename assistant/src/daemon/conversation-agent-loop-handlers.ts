@@ -224,6 +224,13 @@ export interface EventHandlerState {
    * path.
    */
   providerErrorCode: string | null;
+  /**
+   * Classified category of the most recent provider error
+   * (`classifyConversationError(...).errorCategory`). Stamped onto the
+   * synthetic error row's metadata alongside {@link providerErrorCode} when
+   * the loop persists the failure as an assistant message.
+   */
+  providerErrorCategory: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
   /**
@@ -560,6 +567,7 @@ export function createEventHandlerState(): EventHandlerState {
     model: "",
     providerErrorUserMessage: null,
     providerErrorCode: null,
+    providerErrorCategory: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -2582,6 +2590,7 @@ function handleError(
   );
   state.providerErrorUserMessage = classified.userMessage;
   state.providerErrorCode = classified.code;
+  state.providerErrorCategory = classified.errorCategory;
   state.persistProviderErrorAsAssistantMessage =
     shouldPersistProviderErrorAsAssistantMessage(classified);
 }

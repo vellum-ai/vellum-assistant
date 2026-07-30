@@ -586,6 +586,17 @@ export const ConversationMessageSchema = z.object({
    *  system notices — no avatar, no persona bubble — and never group them
    *  with adjacent assistant turns. */
   systemCard: z.boolean().optional(),
+  /** Present when this assistant row is a daemon-persisted provider-failure
+   *  notice (`metadata.messageKind === "provider_error"`); clients may render
+   *  a themed card instead of a persona bubble. `code` is the stable
+   *  classified error code (e.g. `"PROVIDER_BILLING"`), `category` the
+   *  classified category (e.g. `"credits_exhausted"`). */
+  providerError: z
+    .object({
+      code: z.string().optional(),
+      category: z.string().optional(),
+    })
+    .optional(),
   slackMessage: ConversationSlackMessageSchema.optional(),
   /**
    * Queue state for a user message that is still waiting in the daemon's

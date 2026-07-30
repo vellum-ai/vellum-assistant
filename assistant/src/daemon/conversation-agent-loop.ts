@@ -47,6 +47,7 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
+  PROVIDER_ERROR_MESSAGE_KIND,
   resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
@@ -131,6 +132,17 @@ const log = getLogger("conversation-agent-loop");
 
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
+
+/**
+ * Assistant-voice wording persisted as the synthetic assistant row when a
+ * turn terminates because managed credits ran out. The shared classification
+ * (`managedBalanceClassification` in conversation-error.ts) keeps its
+ * `userMessage` context-neutral because it also feeds the non-terminal
+ * memory-v3 degraded notice, where a normal reply still follows; here the
+ * turn truly ends with no reply, so first-person copy is accurate.
+ */
+const OUT_OF_CREDITS_ASSISTANT_REPLY =
+  "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.";
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -1343,10 +1355,23 @@ export async function runAgentLoopImpl(
             capturedTurnInterfaceContext.userMessageInterface,
           assistantMessageInterface:
             capturedTurnInterfaceContext.assistantMessageInterface,
+          // Mark the synthetic row as a provider-failure notice so clients
+          // can render it as a themed card instead of persona speech
+          // (`isProviderErrorMetadata` -> the wire `providerError` field).
+          messageKind: PROVIDER_ERROR_MESSAGE_KIND,
+          providerErrorCode: state.providerErrorCode ?? undefined,
+          providerErrorCategory: state.providerErrorCategory ?? undefined,
         };
-        const errorAssistantMessage = createAssistantMessage(
-          state.providerErrorUserMessage,
-        );
+        // The persisted row re-enters LLM history and is displayed as
+        // assistant speech, so managed-credits exhaustion swaps the
+        // context-neutral classification copy for assistant-voice wording.
+        const persistedErrorText =
+          state.providerErrorCode === "PROVIDER_BILLING" &&
+          state.providerErrorCategory === "credits_exhausted"
+            ? OUT_OF_CREDITS_ASSISTANT_REPLY
+            : state.providerErrorUserMessage;
+        const errorAssistantMessage =
+          createAssistantMessage(persistedErrorText);
         const errorRow = await addMessage(
           ctx.conversationId,
           "assistant",
