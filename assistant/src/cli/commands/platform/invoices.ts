@@ -23,12 +23,37 @@ interface PlatformInvoicesListResult {
   has_more: boolean;
 }
 
-/** Amounts are in the currency's minor units (cents); render as major units. */
+/**
+ * Amounts are in the currency's minor units; render as major units using the
+ * currency's own minor-unit scale (2 for USD, 0 for JPY, 3 for BHD), e.g.
+ * "USD 12.34". Unknown currency codes fall back to the raw minor-unit amount.
+ */
+function formatInvoiceAmount(
+  amountMinorUnits: number,
+  currency: string,
+): string {
+  try {
+    const formatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+      currencyDisplay: "code",
+    });
+    const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
+    // Intl separates the code and number with U+00A0; use a plain space.
+    return formatter
+      .format(amountMinorUnits / 10 ** digits)
+      .replace(/\u00a0/g, " ");
+  } catch {
+    // Intl.NumberFormat throws a RangeError on invalid currency codes.
+    return `${amountMinorUnits} ${currency.toUpperCase()} (minor units)`;
+  }
+}
+
 function logInvoice(invoice: PlatformInvoice, includePdf: boolean): void {
   log.info(invoice.number ?? invoice.id);
   log.info(`  Status:  ${invoice.status ?? "unknown"}`);
   log.info(
-    `  Amount:  $${(invoice.amount_due / 100).toFixed(2)} ${invoice.currency.toUpperCase()}`,
+    `  Amount:  ${formatInvoiceAmount(invoice.amount_due, invoice.currency)}`,
   );
   log.info(
     `  Created: ${new Date(invoice.created * 1000).toISOString().slice(0, 10)}`,

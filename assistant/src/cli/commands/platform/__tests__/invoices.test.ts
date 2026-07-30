@@ -133,11 +133,11 @@ describe("assistant platform invoices list", () => {
 
     expect(text).toContain("INV-0001");
     expect(text).toContain("Status:  paid");
-    expect(text).toContain("Amount:  $12.34 USD");
+    expect(text).toContain("Amount:  USD 12.34");
     expect(text).toContain("https://pay.example.com/in_a");
     // Invoice with a null number falls back to its id.
     expect(text).toContain("in_b");
-    expect(text).toContain("Amount:  $56.00 USD");
+    expect(text).toContain("Amount:  USD 56.00");
     // Not JSON output.
     expect(() => JSON.parse(text.trim())).toThrow();
   });
@@ -194,8 +194,41 @@ describe("assistant platform invoices get", () => {
 
     expect(text).toContain("INV-0001");
     expect(text).toContain("Status:  paid");
-    expect(text).toContain("Amount:  $12.34 USD");
+    expect(text).toContain("Amount:  USD 12.34");
     expect(text).toContain("PDF:     https://pay.example.com/in_a.pdf");
+  });
+
+  test("plain text mode scales zero-decimal currencies without dividing by 100", async () => {
+    mockResponse = {
+      ok: true,
+      result: { ...invoiceA, currency: "jpy", amount_due: 1200 },
+    };
+
+    const out = await runInvoices(["get", "in_a"]);
+
+    expect(out.join("")).toContain("Amount:  JPY 1,200");
+  });
+
+  test("plain text mode uses three decimals for three-decimal currencies", async () => {
+    mockResponse = {
+      ok: true,
+      result: { ...invoiceA, currency: "bhd", amount_due: 12345 },
+    };
+
+    const out = await runInvoices(["get", "in_a"]);
+
+    expect(out.join("")).toContain("Amount:  BHD 12.345");
+  });
+
+  test("plain text mode falls back to raw minor units for invalid currency codes", async () => {
+    mockResponse = {
+      ok: true,
+      result: { ...invoiceA, currency: "zz", amount_due: 1234 },
+    };
+
+    const out = await runInvoices(["get", "in_a"]);
+
+    expect(out.join("")).toContain("Amount:  1234 ZZ (minor units)");
   });
 });
 
