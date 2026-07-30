@@ -59,9 +59,10 @@ The launcher and splash colors distinguish installed environments:
 | `staging` | Orange |
 | `dev` | Blue |
 
-Adaptive, round, and monochrome launcher icons are included. Transparent
-system bars, display cutouts, rotation, keyboard resizing, and web safe-area
-insets are handled by the Android theme and Capacitor shell.
+Adaptive, round, and monochrome launcher icons are included. The Android theme
+handles transparent system bars, display cutouts, rotation, and keyboard
+resizing. Target SDK 36 supplies platform edge-to-edge behavior on Android 15
+and later without disabling `adjustResize` on older devices.
 
 ## Native Auth
 
@@ -221,4 +222,6 @@ Complete the following setup before enabling internal-track uploads:
 After setup, verify an internal-track install on a physical device. Confirm the
 package ID, display name, icon color, splash color, web origin, authentication
 callback, Firebase project, version name, and version code all match the chosen
-environment.
+environment. On Android 11 through 14, rotate the device and open the keyboard
+to confirm that the composer remains visible. Smoke-test authentication, push
+registration, file sharing, and the file provider from the shrunk release AAB.

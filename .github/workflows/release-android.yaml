@@ -98,7 +98,7 @@ jobs:
           fi
           printf '%s' "$ANDROID_FIREBASE_CONFIG_B64" | base64 --decode > clients/android/app/google-services.json
           if ! jq -e --arg package_id "$EXPECTED_PACKAGE_ID" \
-            '.client[]?.client_info.android_client_info.package_name == $package_id' \
+            'any(.client[]?; .client_info.android_client_info.package_name == $package_id)' \
             clients/android/app/google-services.json >/dev/null; then
             echo "::error::Firebase configuration does not contain $EXPECTED_PACKAGE_ID"
             exit 1

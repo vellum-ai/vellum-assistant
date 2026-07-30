@@ -24,8 +24,7 @@ def signingValues = [
 ]
 def configuredSigningValues = signingValues.values().count { !it.isEmpty() }
 def requireSigning = buildText('VELLUM_ANDROID_REQUIRE_SIGNING', 'false').toBoolean()
-def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
-if ((releaseRequested || requireSigning) && configuredSigningValues > 0 && configuredSigningValues < signingValues.size()) {
+if (configuredSigningValues > 0 && configuredSigningValues < signingValues.size()) {
     throw new GradleException('Android signing requires keystore path, store password, key alias, and key password')
 }
 if (requireSigning && configuredSigningValues != signingValues.size()) {
