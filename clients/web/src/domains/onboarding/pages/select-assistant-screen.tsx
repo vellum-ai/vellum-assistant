@@ -1,5 +1,12 @@
-import { Check, Cloud, Laptop } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  ArrowLeft,
+  Check,
+  Cloud,
+  EllipsisVertical,
+  Laptop,
+  Plus,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
@@ -10,6 +17,7 @@ import {
 } from "@/lib/auth/gateway-session";
 import {
   isCliWakeableAssistant,
+  removePlatformAssistantFromLockfile,
   UnresolvedLocalGatewayError,
 } from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
@@ -30,6 +38,8 @@ import {
 } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Menu } from "@vellumai/design-library/components/menu";
 
 function assistantLabel(a: ResolvedAssistant): string {
   if (a.name) {
@@ -38,11 +48,12 @@ function assistantLabel(a: ResolvedAssistant): string {
   return a.isLocal ? "Local Assistant" : "Cloud Assistant";
 }
 
-function assistantSubtitle(a: ResolvedAssistant): string | undefined {
+function assistantSubtitle(a: ResolvedAssistant): string {
+  const hosting = a.isLocal ? "On this computer" : "Cloud-hosted";
   if (!a.hatchedAt) {
-    return undefined;
+    return hosting;
   }
-  return `Created ${formatRelativeDate(a.hatchedAt)}`;
+  return `${hosting} · Created ${formatRelativeDate(a.hatchedAt)}`;
 }
 
 export function SelectAssistantScreen() {
@@ -67,8 +78,10 @@ export function SelectAssistantScreen() {
 
   const accessibleAssistants = assistants.filter(isAccessible);
 
-  const hasPlatformAssistants = assistants.some((a) => a.isPlatformHosted);
-  const showLogin = hasPlatformAssistants && !hasPlatformSession;
+  // A locked platform entry can be forgotten on this device (dropped from the
+  // lockfile) only where a local-mode host can rewrite the lockfile.
+  const canRemoveLockedAssistants =
+    !hasPlatformSession && isLocalModeHostAvailable();
 
   const [selected, setSelected] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -80,6 +93,16 @@ export function SelectAssistantScreen() {
     useState<ResolvedAssistant | null>(null);
   const [recoveryPending, setRecoveryPending] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  // Target of the "Remove from this device" confirmation dialog.
+  const [removeTarget, setRemoveTarget] = useState<ResolvedAssistant | null>(
+    null,
+  );
+  const [removePending, setRemovePending] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  // After a manual removal the user is mid-management on this screen — a
+  // sudden auto-connect to the sole remaining assistant would be jarring, so
+  // the auto-skip stands down for the rest of the visit.
+  const removedThisVisitRef = useRef(false);
 
   // Default selection: the app's known selected assistant when accessible,
   // else the first accessible assistant.
@@ -192,12 +215,41 @@ export function SelectAssistantScreen() {
     setRecoveryPending(false);
   };
 
+  const closeRemoveDialog = () => {
+    if (removePending) {
+      return;
+    }
+    setRemoveTarget(null);
+    setRemoveError(null);
+  };
+
+  const handleRemoveConfirm = async () => {
+    if (!removeTarget || removePending) {
+      return;
+    }
+    setRemovePending(true);
+    setRemoveError(null);
+    try {
+      const result = await removePlatformAssistantFromLockfile(removeTarget.id);
+      if (result.ok) {
+        removedThisVisitRef.current = true;
+        setRemoveTarget(null);
+      } else {
+        setRemoveError(result.error ?? "Failed to remove. Please try again.");
+      }
+    } catch (err) {
+      console.error("selectAssistant.removeFromDevice failed", err);
+      setRemoveError("Failed to remove. Please try again.");
+    }
+    setRemovePending(false);
+  };
+
   // Auto-skip when there's exactly one assistant and it's accessible.
   // Don't skip when the user just logged in or navigated here deliberately
   // (e.g. from settings or the Developer menu) — let them see the chooser.
   // Reactive to assistants so it fires when the store populates after mount.
   useEffect(() => {
-    if (fromLogin || noAutoSkip) {
+    if (fromLogin || noAutoSkip || removedThisVisitRef.current) {
       return;
     }
     if (connecting || autoSkipping) {
@@ -245,22 +297,31 @@ export function SelectAssistantScreen() {
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-16"} text-[var(--content-default)]`}
       >
+        <div
+          className="w-full"
+          style={{ animation: "fadeInUp 0.5s ease-out both" }}
+        >
+          <Button
+            variant="ghost"
+            size="compact"
+            className="-ml-2 text-[var(--content-tertiary)]"
+            leftIcon={<ArrowLeft />}
+            onClick={onBack}
+            disabled={connecting || loginLoading}
+          >
+            Back
+          </Button>
+        </div>
         <h1
-          className={
+          className={`${
             electron
               ? "text-title-large"
               : "text-3xl font-semibold tracking-tight"
-          }
+          } ${electron ? "mt-4" : "mt-6"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Choose an Assistant
         </h1>
-        <p
-          className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-3"}`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
-        >
-          Select which assistant you&rsquo;d like to use.
-        </p>
 
         {displayError && (
           <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
@@ -269,8 +330,10 @@ export function SelectAssistantScreen() {
         )}
 
         <div
+          role="radiogroup"
+          aria-label="Assistants"
           className={`flex w-full flex-col ${electron ? "mt-8 gap-2" : "mt-10 gap-3"}`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
+          style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
           {assistants.map((assistant) => {
             const accessible = isAccessible(assistant);
@@ -279,27 +342,65 @@ export function SelectAssistantScreen() {
                 key={assistant.id}
                 assistant={assistant}
                 selected={selected === assistant.id}
-                disabled={!accessible}
-                badge={
-                  !accessible && assistant.isPlatformHosted
-                    ? "Requires Account"
-                    : undefined
-                }
+                locked={!accessible}
                 onSelect={() => {
                   if (accessible) {
                     setSelected(assistant.id);
                   }
                 }}
+                loginLabel={loginLoading ? "Cancel" : "Log in to use"}
+                loginDisabled={connecting}
+                onLogin={
+                  !accessible && assistant.isPlatformHosted
+                    ? loginLoading
+                      ? cancelLogin
+                      : () => void login()
+                    : undefined
+                }
+                onRemove={
+                  assistant.isPlatformHosted && canRemoveLockedAssistants
+                    ? () => setRemoveTarget(assistant)
+                    : undefined
+                }
               />
             );
           })}
+          <button
+            type="button"
+            onClick={() =>
+              void navigate(
+                `${routes.onboarding.hosting}?from=select-assistant`,
+              )
+            }
+            disabled={connecting || loginLoading}
+            className={[
+              "group flex w-full items-center border border-dashed border-[var(--border-element)] text-left",
+              electron ? "gap-3 rounded-lg p-3" : "gap-4 rounded-2xl px-5 py-4",
+              "cursor-pointer transition-all duration-200 ease-out",
+              "text-[var(--content-tertiary)] hover:bg-[var(--surface-secondary)] hover:text-[var(--content-default)]",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+            ].join(" ")}
+          >
+            <div
+              className={[
+                "flex shrink-0 items-center justify-center",
+                electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
+                "bg-[var(--surface-tertiary)] text-[var(--content-secondary)]",
+              ].join(" ")}
+            >
+              <Plus className="h-5 w-5" />
+            </div>
+            <span className="text-body-medium-default">
+              Create a new assistant
+            </span>
+          </button>
         </div>
 
-        <div
-          className={`mt-8 flex w-full flex-col ${electron ? "gap-2.5" : "gap-2"}`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
-        >
-          {accessibleAssistants.length > 0 && (
+        {accessibleAssistants.length > 0 && (
+          <div
+            className="mt-8 w-full"
+            style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
+          >
             <Button
               variant="primary"
               size="regular"
@@ -310,44 +411,8 @@ export function SelectAssistantScreen() {
             >
               {connecting ? "Connecting…" : "Continue"}
             </Button>
-          )}
-          <Button
-            variant="outlined"
-            size="regular"
-            fullWidth
-            className={electron ? undefined : "h-11 text-base"}
-            onClick={() =>
-              void navigate(
-                `${routes.onboarding.hosting}?from=select-assistant`,
-              )
-            }
-            disabled={connecting || loginLoading}
-          >
-            Create New Assistant
-          </Button>
-          {showLogin && (
-            <Button
-              variant="outlined"
-              size="regular"
-              fullWidth
-              className={electron ? undefined : "h-11 text-base"}
-              onClick={loginLoading ? cancelLogin : () => void login()}
-              disabled={connecting}
-            >
-              {loginLoading ? "Cancel" : "Log In"}
-            </Button>
-          )}
-          <Button
-            variant="outlined"
-            size="regular"
-            fullWidth
-            className={electron ? undefined : "h-11 text-base"}
-            onClick={onBack}
-            disabled={connecting || loginLoading}
-          >
-            Back
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
       <ConnectRecoveryDialog
         open={recoveryAssistant != null}
@@ -360,6 +425,28 @@ export function SelectAssistantScreen() {
         onRepair={() => void handleRecoveryRepair()}
         onRetire={() => void handleRecoveryRetire()}
       />
+      <ConfirmDialog
+        open={removeTarget != null}
+        title="Remove from this device?"
+        message={
+          <>
+            This won&rsquo;t delete{" "}
+            {removeTarget ? assistantLabel(removeTarget) : "the assistant"} —
+            it only removes it from this device. Logging in will make it
+            available again.
+            {removeError && (
+              <span className="mt-2 block text-[var(--system-negative-strong)]">
+                {removeError}
+              </span>
+            )}
+          </>
+        }
+        confirmLabel="Remove"
+        destructive
+        isPending={removePending}
+        onConfirm={() => void handleRemoveConfirm()}
+        onCancel={closeRemoveDialog}
+      />
     </OnboardingLayout>
   );
 }
@@ -367,15 +454,24 @@ export function SelectAssistantScreen() {
 function AssistantCard({
   assistant,
   selected,
-  disabled,
-  badge,
+  locked,
   onSelect,
+  loginLabel,
+  loginDisabled,
+  onLogin,
+  onRemove,
 }: {
   assistant: ResolvedAssistant;
   selected: boolean;
-  disabled: boolean;
-  badge?: string;
+  /** Not selectable in this session (platform-hosted without a login). */
+  locked: boolean;
   onSelect: () => void;
+  loginLabel: string;
+  loginDisabled: boolean;
+  /** Present only on locked platform cards: log in to unlock this assistant. */
+  onLogin?: () => void;
+  /** Present when the entry can be forgotten on this device: opens the confirm. */
+  onRemove?: () => void;
 }) {
   const subtitle = assistantSubtitle(assistant);
   // Electron compacts the card to the Swift client's onboarding-card metrics
@@ -384,18 +480,29 @@ function AssistantCard({
   const electron = isElectron();
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      disabled={disabled}
+    <div
+      role={locked ? undefined : "radio"}
+      aria-checked={locked ? undefined : selected}
+      tabIndex={locked ? undefined : 0}
+      onClick={locked ? undefined : onSelect}
+      onKeyDown={
+        locked
+          ? undefined
+          : (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect();
+              }
+            }
+      }
       className={[
         "group flex w-full items-center border text-left",
         electron ? "gap-3 rounded-lg p-3" : "gap-4 rounded-2xl px-5 py-4",
         "transition-all duration-200 ease-out",
-        disabled
-          ? "cursor-not-allowed opacity-50"
-          : "cursor-pointer hover:bg-[var(--surface-secondary)]",
-        selected && !disabled
+        locked
+          ? ""
+          : "cursor-pointer hover:bg-[var(--surface-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary-base)]",
+        selected && !locked
           ? "border-[var(--primary-base)] bg-[var(--primary-base)]/[0.08] shadow-[inset_0_0_0_1px_var(--primary-base)]"
           : "border-[var(--border-element)] bg-transparent",
       ].join(" ")}
@@ -404,7 +511,7 @@ function AssistantCard({
         className={[
           "flex shrink-0 items-center justify-center transition-colors duration-200",
           electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
-          selected && !disabled
+          selected && !locked
             ? "bg-[var(--primary-base)]/15 text-[var(--primary-base)]"
             : "bg-[var(--surface-tertiary)] text-[var(--content-secondary)]",
         ].join(" ")}
@@ -417,28 +524,52 @@ function AssistantCard({
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-body-medium-default text-[var(--content-default)]">
-            {assistantLabel(assistant)}
-          </span>
-          {badge && (
-            <span
-              className={`rounded-full bg-[var(--surface-tertiary)] px-2 py-0.5 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
-            >
-              {badge}
-            </span>
-          )}
-        </div>
-        {subtitle && (
-          <span
-            className={`mt-0.5 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
-          >
-            {subtitle}
-          </span>
-        )}
+        <span
+          className={`block text-body-medium-default ${locked ? "text-[var(--content-secondary)]" : "text-[var(--content-default)]"}`}
+        >
+          {assistantLabel(assistant)}
+        </span>
+        <span
+          className={`mt-0.5 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
+        >
+          {subtitle}
+        </span>
       </div>
 
-      {!disabled && (
+      {locked ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {onLogin && (
+            <Button
+              variant="outlined"
+              size="compact"
+              onClick={onLogin}
+              disabled={loginDisabled}
+            >
+              {loginLabel}
+            </Button>
+          )}
+          {onRemove && (
+            <Menu.Root>
+              <Menu.Trigger asChild>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  iconOnly={<EllipsisVertical />}
+                  aria-label={`Actions for ${assistantLabel(assistant)}`}
+                />
+              </Menu.Trigger>
+              <Menu.Content align="end" sideOffset={4}>
+                <Menu.Item
+                  onSelect={onRemove}
+                  className="text-[var(--system-negative-strong)] data-[highlighted]:text-[var(--system-negative-strong)]"
+                >
+                  Remove from this device…
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Root>
+          )}
+        </div>
+      ) : (
         <div
           className={[
             "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200",
@@ -455,6 +586,6 @@ function AssistantCard({
           )}
         </div>
       )}
-    </button>
+    </div>
   );
 }
