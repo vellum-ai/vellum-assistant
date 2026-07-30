@@ -1,4 +1,4 @@
-import { registerPlugin } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 
 import { isNativePlatform } from "@/runtime/native-auth";
 import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
@@ -138,6 +138,10 @@ export function isBiometricEnabled(): boolean {
 /** Persist the biometric login preference. */
 export function setBiometricEnabled(enabled: boolean): void {
   setDeviceBool("biometricEnabled", enabled);
+}
+
+export function supportsDevicePasscodeFallback(): boolean {
+  return Capacitor.getPlatform() === "ios";
 }
 
 /** Returns the biometric type label (e.g. "Face ID", "Touch ID"). */

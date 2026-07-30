@@ -12,6 +12,7 @@ import {
   isBiometricEnabled,
   setBiometricEnabled,
   storeBiometricToken,
+  supportsDevicePasscodeFallback,
 } from "@/runtime/native-biometric";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -40,8 +41,10 @@ export function BiometricSettingsCard() {
       const next = !enabled;
       if (next) {
         const token = getSessionTokenFromCookies();
-        if (token) {
-          await storeBiometricToken(token);
+        if (!token || !(await storeBiometricToken(token))) {
+          setBiometricEnabled(false);
+          setEnabled(false);
+          return;
         }
         setBiometricEnabled(true);
         setEnabled(true);
@@ -63,8 +66,9 @@ export function BiometricSettingsCard() {
             Use {biometricLabel} for sign-in
           </div>
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-            When your session expires, verify with {biometricLabel} or your
-            device passcode instead of signing in again.
+            When your session expires, verify with {biometricLabel}
+            {supportsDevicePasscodeFallback() && " or your device passcode"}
+            {" instead of signing in again."}
           </p>
         </div>
         <Toggle
