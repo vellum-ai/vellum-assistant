@@ -20,7 +20,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getDefaultPluginSkillRoots } from "../../plugins/defaults/main.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
-import { discoverPluginResidentSkills } from "../skills.js";
+import {
+  discoverDefaultPluginResidentSkills,
+  discoverPluginResidentSkills,
+  mergePluginResidentSkills,
+} from "../skills.js";
 
 let tempRoot: string;
 
@@ -86,7 +90,7 @@ describe("default plugin resident skills", () => {
   test("surfaces a default plugin's resident skill, owned by its default- name", () => {
     const root = defaultPluginRoot("fixture", [{ id: "qa-fixture-skill" }]);
 
-    const skills = discoverPluginResidentSkills([root]);
+    const skills = discoverDefaultPluginResidentSkills([root]);
 
     expect(skills).toHaveLength(1);
     expect(skills[0]!.id).toBe("qa-fixture-skill");
@@ -102,7 +106,7 @@ describe("default plugin resident skills", () => {
     const root = defaultPluginRoot("fixture", [{ id: "qa-fixture-skill" }]);
     disablePlugin("default-fixture");
 
-    expect(discoverPluginResidentSkills([root])).toEqual([]);
+    expect(discoverDefaultPluginResidentSkills([root])).toEqual([]);
   });
 
   test("an installed plugin's skill of the same id overrides the default one", () => {
@@ -112,7 +116,12 @@ describe("default plugin resident skills", () => {
     ]);
     writeWorkspacePlugin("installed-fixture", ["qa-shared-skill"]);
 
-    const skills = discoverPluginResidentSkills([root]);
+    // The installed side comes from the real zero-arg discovery (the shipped
+    // defaults tree contributes nothing), the default side from the fixture.
+    const skills = mergePluginResidentSkills(
+      discoverDefaultPluginResidentSkills([root]),
+      discoverPluginResidentSkills(),
+    );
     const shared = skills.filter((skill) => skill.id === "qa-shared-skill");
 
     expect(shared).toHaveLength(1);
@@ -133,7 +142,7 @@ describe("default plugin resident skills", () => {
       { id: "qa-valid-skill" },
     ]);
 
-    const skills = discoverPluginResidentSkills([root]);
+    const skills = discoverDefaultPluginResidentSkills([root]);
 
     expect(skills.map((skill) => skill.id)).toEqual(["qa-valid-skill"]);
   });

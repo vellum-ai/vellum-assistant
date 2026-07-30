@@ -762,7 +762,7 @@ function hasLoadablePluginManifest(pluginDir: string): boolean {
  * time, the same read-time check the hook, tool, and route surfaces use, so a
  * CLI toggle applies on the next turn without a daemon restart.
  */
-function discoverDefaultPluginResidentSkills(
+export function discoverDefaultPluginResidentSkills(
   roots: readonly { pluginName: string; skillsDir: string }[],
 ): SkillSummary[] {
   const summaries: SkillSummary[] = [];
@@ -802,19 +802,23 @@ function discoverDefaultPluginResidentSkills(
  * the catalog's first-wins `seenIds` pass, which would otherwise let whichever
  * group is emitted first win.
  *
- * `defaultPluginSkillRoots` is injectable for tests; production callers use the
- * shipped defaults tree.
  */
-export function discoverPluginResidentSkills(
-  defaultPluginSkillRoots: readonly {
-    pluginName: string;
-    skillsDir: string;
-  }[] = getDefaultPluginSkillRoots(),
-): SkillSummary[] {
-  const defaultSkills = discoverDefaultPluginResidentSkills(
-    defaultPluginSkillRoots,
+export function discoverPluginResidentSkills(): SkillSummary[] {
+  return mergePluginResidentSkills(
+    discoverDefaultPluginResidentSkills(getDefaultPluginSkillRoots()),
+    discoverInstalledPluginResidentSkills(),
   );
-  const installedSkills = discoverInstalledPluginResidentSkills();
+}
+
+/**
+ * Merge the two plugin skill groups, dropping any default-plugin skill whose
+ * id an installed plugin also ships. Kept separate from the discovery walks so
+ * the shadowing rule is testable with synthetic summaries.
+ */
+export function mergePluginResidentSkills(
+  defaultSkills: readonly SkillSummary[],
+  installedSkills: readonly SkillSummary[],
+): SkillSummary[] {
   const installedIds = new Set(installedSkills.map((skill) => skill.id));
 
   const survivingDefaults = defaultSkills.filter((skill) => {
