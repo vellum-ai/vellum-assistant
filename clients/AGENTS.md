@@ -10,11 +10,14 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
   pinning is enforced repo-wide; see root `AGENTS.md` for the dependency,
   license, and tool-version rules.
 - All current client apps use bundlers (`clients/web/` via Vite,
-  `clients/macos/` via electron-vite) and therefore use
-  `moduleResolution: "Bundler"` with `module: "ESNext"`. Bundler-mode apps
-  omit `.js` extensions on imports. If a future client compiles without a
-  bundler, use NodeNext with `.js` extensions (matching `assistant/`,
-  `gateway/`, `cli/`).
+  `clients/macos/` via electron-vite, `clients/docs/` via Next.js) and
+  therefore use `moduleResolution: "Bundler"` with `module: "ESNext"`.
+  Bundler-mode apps omit `.js` extensions on imports. If a future client
+  compiles without a bundler, use NodeNext with `.js` extensions (matching
+  `assistant/`, `gateway/`, `cli/`).
+- `clients/docs/` is the public docs site: an SSR Next.js app serving
+  www.vellum.ai/docs. Like `clients/web/` and `clients/macos/`, it is a
+  member of the root bun workspace (root `bun.lock`).
 
 ## Adding a new client
 

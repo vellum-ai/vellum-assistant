@@ -6,6 +6,7 @@
 !bun.lock
 !patches/
 !patches/**
+!clients/docs/package.json
 !clients/macos/package.json
 !clients/web/package.json
 !cli/package.json

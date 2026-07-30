@@ -8,6 +8,7 @@ and desktop wrappers that users interact with directly.
 ```
 clients/
 ├── web/               # Web app (Vite)
+├── docs/              # Public docs site: SSR Next.js app serving www.vellum.ai/docs
 ├── ios/               # iOS Capacitor shell
 ├── macos/             # macOS desktop wrapper (Electron / electron-vite)
 └── chrome-extension/  # MV3 Chrome browser extension
