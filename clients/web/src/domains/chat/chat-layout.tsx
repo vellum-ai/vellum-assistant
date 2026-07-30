@@ -325,19 +325,29 @@ export function ChatLayout({
   // lags the SideMenu nav's live drag-resize and, with the wrapper's
   // overflow clip, pins the visible edge at the stale width whenever the
   // nav is dragged wider.
-  const sideMenuAsideRef = useRef<HTMLElement | null>(null);
+  // The node lives in state (callback ref) so the effect re-runs when the
+  // desktop aside leaves and re-enters the tree (mobile layout swaps), not
+  // only when the focus flag flips.
+  const [sideMenuAside, setSideMenuAside] = useState<HTMLElement | null>(null);
   const railFocusAnimationsRef = useRef<Animation[]>([]);
   const prevChatFocusRef = useRef(chatFocusActive);
   useEffect(() => {
-    const aside = sideMenuAsideRef.current;
-    if (!aside) {
+    if (!sideMenuAside) {
+      // Drop animations that target the departed node so a remount
+      // reinitializes from scratch.
+      for (const animation of railFocusAnimationsRef.current) {
+        animation.cancel();
+      }
+      railFocusAnimationsRef.current = [];
       return;
     }
+    const aside = sideMenuAside;
     const prev = prevChatFocusRef.current;
     prevChatFocusRef.current = chatFocusActive;
     if (prev === chatFocusActive) {
       if (chatFocusActive && railFocusAnimationsRef.current.length === 0) {
-        // Mounted while already focused: hold the hidden state, no motion.
+        // Mounted (or remounted) while already focused: hold the hidden
+        // state, no motion.
         railFocusAnimationsRef.current = [
           aside.animate(
             { width: "0px", opacity: "0", marginRight: "-16px" },
@@ -392,7 +402,7 @@ export function ChatLayout({
         }),
       ];
     }
-  }, [chatFocusActive]);
+  }, [chatFocusActive, sideMenuAside]);
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
@@ -1072,7 +1082,7 @@ export function ChatLayout({
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
             id="chat-side-menu"
-            ref={sideMenuAsideRef}
+            ref={setSideMenuAside}
             // No width of its own: the wrapper shrink-wraps the SideMenu
             // nav, which owns the rail width (drag-resize mutates it outside
             // React until pointer-up). The tour's slide-away effect animates
