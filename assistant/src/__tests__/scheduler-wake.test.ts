@@ -105,14 +105,16 @@ describe("scheduler wake mode", () => {
     // WHEN the scheduler fires
     await runDueSchedulesOnce();
 
-    // THEN the wake runs with no trust context at all, so the turn resolves the
-    // fail-closed `unknown` class and sensitive tools stay denied
+    // THEN the wake states that it recovered nothing, which pins the
+    // fail-closed `unknown` class on the woken turn so sensitive tools stay
+    // denied even if the target is still resident from a guardian turn
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
       conversationId: "conv-telegram",
       hint: "Follow up",
       source: "defer",
       persistTriggerAsEvent: true,
+      trustContext: null,
     });
   });
 

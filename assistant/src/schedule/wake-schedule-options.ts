@@ -70,6 +70,17 @@ function hasOwnerAuthoredWakeTarget(
  *   rise above its target: a remote-channel conversation recovers nothing and
  *   its turn resolves the fail-closed `unknown` class.
  *
+ * When either half is missing, the firing states so: `trustContext: null` runs
+ * the turn at the fail-closed `unknown` class instead of leaving whatever trust
+ * the conversation is resting at. Every class of row that recovers nothing goes
+ * out this way (a legacy defer, a wake schedule that was never a defer, a
+ * marked row whose source binding is missing or no longer matches its target,
+ * and any target whose stored origin is not positively local), because a target
+ * still resident from an earlier guardian turn is resting AT guardian: leaving
+ * its trust in place would hand those rows the guardian's sensitive tools,
+ * while a cold hydrate of the same row is denied them. Residency is a cache
+ * detail; it decides nothing about what a firing may do.
+ *
  * Callers are separately responsible for authorizing the firing itself. The
  * scheduler's due-tick has no caller to authorize; `schedules/:id/run` refuses
  * a non-owner before reaching this function.
@@ -86,7 +97,7 @@ export function buildWakeScheduleOptions(
     hint: job.message,
     source: "defer",
     persistTriggerAsEvent: true,
-    ...(trustContext ? { trustContext } : {}),
+    trustContext,
     ...(job.inferenceProfile
       ? { forceOverrideProfile: job.inferenceProfile }
       : {}),

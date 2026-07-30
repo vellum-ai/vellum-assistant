@@ -31,11 +31,12 @@ const INTERNAL_ORIGIN_CHANNEL = "vellum";
  * empty, and the class the tool-approval gate reads to let the guardian's own
  * sensitive tools run.
  *
- * Everything else returns `null`, and the caller runs the turn under no
- * reconstructed context rather than a fabricated one, which would either grant
- * a low-trust conversation guardian capability or bury the reply under
- * `unknown` provenance. "Everything else" is deliberately the whole remainder,
- * not just the recognized remote channels:
+ * Everything else returns `null`: nothing is reconstructed, and the caller
+ * decides what an unrecoverable target means for its turn (a wake schedule runs
+ * it at the fail-closed class). What is never returned is a fabricated context,
+ * which would either grant a low-trust conversation guardian capability or bury
+ * the reply under `unknown` provenance. "Everything else" is deliberately the
+ * whole remainder, not just the recognized remote channels:
  *
  * - A **missing conversation row** recovers nothing. Callers reject it on their
  *   own path anyway (`wakeAgentForOpportunity` returns `not_found`), so this is

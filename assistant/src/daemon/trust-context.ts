@@ -39,6 +39,27 @@ export const FALLBACK_TURN_TRUST: TrustContext = {
 };
 
 /**
+ * The trust a turn actually runs under: the snapshot pinned for this turn when
+ * there is one, the conversation's resting trust otherwise, and
+ * {@link FALLBACK_TURN_TRUST} when neither exists.
+ *
+ * The per-turn snapshot wins so a concurrent write to the live `trustContext`
+ * (an owner meta command, a wake landing on the conversation) cannot change
+ * what an in-flight turn may do, and so a turn that pins a class can hold it
+ * for exactly its own duration. Resolved here rather than at each gate: the
+ * tool executor and the loop must never disagree about which actor's
+ * capabilities a turn is running with.
+ */
+export function resolveEffectiveTurnTrust(turn: {
+  currentTurnTrustContext?: TrustContext;
+  trustContext?: TrustContext;
+}): TrustContext {
+  return (
+    turn.currentTurnTrustContext ?? turn.trustContext ?? FALLBACK_TURN_TRUST
+  );
+}
+
+/**
  * Resolve the effective trust class for an actor.
  *
  * Trust is a property of the actor, never of the deployment's auth posture.

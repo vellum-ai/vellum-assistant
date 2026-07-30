@@ -71,9 +71,11 @@ function writeRawOriginChannel(conversationId: string, raw: string): void {
 
 /**
  * The decision the sensitive-tool gate reaches for an invocation with the given
- * resting trust, with no channel approval cell to lift the floor. Absent trust
- * is what a wake with no `trustContext` resolves at tool-setup time
- * (`currentTurnTrustContext ?? trustContext ?? FALLBACK_TURN_TRUST`).
+ * resting trust, with no channel approval cell to lift the floor. A firing that
+ * recovered nothing carries `trustContext: null`, which the wake pins as
+ * {@link FALLBACK_TURN_TRUST} on the woken turn; the trust each row class then
+ * shows tool setup on a resident target is covered end to end in
+ * `wake-schedule-resident-trust.test.ts`.
  */
 function gateDecision(
   trustContext: TrustContext | null | undefined,
@@ -156,7 +158,7 @@ describe("a row without owner provenance recovers nothing", () => {
     // they never recover trust.
     const options = buildWakeScheduleOptions(LEGACY_WAKE_JOB, TARGET);
 
-    expect(options).not.toHaveProperty("trustContext");
+    expect(options.trustContext).toBeNull();
     expect(wakeGateDecision(options)).toBe("deny");
   });
 
@@ -166,7 +168,7 @@ describe("a row without owner provenance recovers nothing", () => {
       TARGET,
     );
 
-    expect(options).not.toHaveProperty("trustContext");
+    expect(options.trustContext).toBeNull();
     expect(wakeGateDecision(options)).toBe("deny");
   });
 
@@ -176,7 +178,7 @@ describe("a row without owner provenance recovers nothing", () => {
       TARGET,
     );
 
-    expect(options).not.toHaveProperty("trustContext");
+    expect(options.trustContext).toBeNull();
     expect(wakeGateDecision(options)).toBe("deny");
   });
 
@@ -190,7 +192,7 @@ describe("a row without owner provenance recovers nothing", () => {
       TARGET,
     );
 
-    expect(options).not.toHaveProperty("trustContext");
+    expect(options.trustContext).toBeNull();
     expect(wakeGateDecision(options)).toBe("deny");
   });
 });
@@ -215,10 +217,9 @@ describe("target provenance still bounds an owner-authored defer", () => {
       "conv-remote",
     );
 
-    // Absent, not `undefined`: a fabricated context would either hand a
-    // remote-origin conversation the guardian's capabilities or bury the reply
-    // under `unknown` provenance.
-    expect(options).not.toHaveProperty("trustContext");
+    // Fail-closed, not fabricated: a recovered context would hand a
+    // remote-origin conversation the guardian's capabilities.
+    expect(options.trustContext).toBeNull();
     expect(wakeGateDecision(options)).toBe("deny");
   });
 
@@ -232,8 +233,9 @@ describe("target provenance still bounds an owner-authored defer", () => {
 
     expect(recoverRestingTrustContext("conv-future")).toBeNull();
     expect(
-      buildWakeScheduleOptions(ownerJobFor("conv-future"), "conv-future"),
-    ).not.toHaveProperty("trustContext");
+      buildWakeScheduleOptions(ownerJobFor("conv-future"), "conv-future")
+        .trustContext,
+    ).toBeNull();
   });
 
   test("an empty-string origin recovers nothing", () => {
@@ -249,7 +251,8 @@ describe("target provenance still bounds an owner-authored defer", () => {
     // an absent row must never be one.
     expect(recoverRestingTrustContext("conv-missing")).toBeNull();
     expect(
-      buildWakeScheduleOptions(ownerJobFor("conv-missing"), "conv-missing"),
-    ).not.toHaveProperty("trustContext");
+      buildWakeScheduleOptions(ownerJobFor("conv-missing"), "conv-missing")
+        .trustContext,
+    ).toBeNull();
   });
 });

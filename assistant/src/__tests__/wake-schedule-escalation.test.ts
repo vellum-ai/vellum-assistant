@@ -122,6 +122,15 @@ function trustOfLastWake(): unknown {
   return (call?.[0] as Record<string, unknown> | undefined)?.trustContext;
 }
 
+/**
+ * A firing that recovered nothing states it: `null` pins the fail-closed class
+ * on the woken turn, so a target still resident at guardian from an earlier
+ * turn cannot lend the firing its capability.
+ */
+function expectLastWakeRanFailClosed(): void {
+  expect(trustOfLastWake()).toBeNull();
+}
+
 function resetAll(): void {
   const db = getDb();
   db.run("DELETE FROM cron_runs");
@@ -408,7 +417,7 @@ describe("the due tick honors durable row provenance", () => {
     await runDueSchedulesOnce();
 
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-    expect(trustOfLastWake()).toBeUndefined();
+    expectLastWakeRanFailClosed();
   });
 
   test("a marked row whose target was corrupted in the DB fires without trust", async () => {
@@ -431,6 +440,6 @@ describe("the due tick honors durable row provenance", () => {
         >
       ).conversationId,
     ).toBe("conv-other-guardian-owned");
-    expect(trustOfLastWake()).toBeUndefined();
+    expectLastWakeRanFailClosed();
   });
 });

@@ -88,6 +88,7 @@ import type {
   SubagentToolGateMode,
   WakeToolContextPin,
 } from "../daemon/tool-setup-types.js";
+import { FALLBACK_TURN_TRUST } from "../daemon/trust-context.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { resolveTurnCallSite } from "../daemon/turn-call-site.js";
 import {
@@ -180,14 +181,31 @@ export interface WakeOptions {
   hint: string;
   source: string;
   /**
-   * Optional trust context to apply to the conversation before the agent
-   * loop runs. Required for internal background jobs that need elevated
-   * trust to invoke side-effect tools — without it the loop falls back to
-   * `trustClass: "unknown"` and side-effect tools are blocked. Caller
-   * should pass `{ sourceChannel: "vellum", trustClass: "guardian" }` for
-   * assistant-self-maintenance jobs.
+   * Trust to run the woken turn under. Three states, and the difference
+   * between the last two is what a wake on an already-resident conversation
+   * turns on:
+   *
+   * - **A context** applies that trust to the conversation before the agent
+   *   loop runs and pins it for the turn. Required for internal background
+   *   jobs that need elevated trust to invoke side-effect tools; pass
+   *   `{ sourceChannel: "vellum", trustClass: "guardian" }` for
+   *   assistant-self-maintenance jobs.
+   * - **`null`** pins {@link FALLBACK_TURN_TRUST} for the turn: the wake
+   *   states that it recovered no trust, so the turn runs at the fail-closed
+   *   `unknown` class and side-effect tools are blocked. The conversation's
+   *   own resting trust is left untouched, so a queued turn draining behind
+   *   the wake still reads it. Callers whose grant is conditional (a wake
+   *   schedule, whose row either proves an owner chose its target or does
+   *   not) pass this rather than omitting the field: a conversation still
+   *   resident from an earlier guardian turn is resting at guardian, so
+   *   omission would hand it the guardian's tools on exactly the rows that
+   *   failed the check, while a cold hydrate of the same row denies them.
+   * - **Omitted** leaves the conversation's own trust in place for the turn,
+   *   whatever residency it is at. For wakes that continue work the
+   *   conversation was already doing (a backgrounded command reporting back),
+   *   which must keep the capability the turn that started them had.
    */
-  trustContext?: TrustContext;
+  trustContext?: TrustContext | null;
   /**
    * Explicit local-owner metadata for rare direct wakes that are allowed to run
    * in cleanup mode. Omit for background jobs; they are paused under disk
@@ -462,8 +480,12 @@ async function defaultResolveTarget(
     // snapshot reads. Without this, fork-based memory retrospectives see
     // an empty history because loadFromDb ran with trustClass="unknown"
     // and filtered out every guardian-provenance message.
+    // A `null` trustContext is a fail-closed decision about the turn, not a
+    // context to hydrate under: hydration keeps the same no-context behavior
+    // omission has, so the conversation's stored provenance and resting trust
+    // are read exactly as they are.
     const conversation = await getOrCreateConversation(conversationId, {
-      trustContext: opts.trustContext,
+      trustContext: opts.trustContext ?? undefined,
     });
     return conversation;
   } catch (err) {
@@ -516,6 +538,20 @@ function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
 }
 
 /**
+ * The trust to pin on the woken turn, or `null` to leave the conversation's
+ * own in place — see {@link WakeOptions.trustContext} for what each state
+ * means. A caller that recovered no trust (`trustContext: null`) still pins:
+ * the fail-closed class is a decision the wake made, not an absence, and only
+ * a pinned value survives a target that is already resident at guardian.
+ */
+function resolveWakeTurnTrust(opts: WakeOptions): TrustContext | null {
+  if (opts.trustContext === undefined) {
+    return null;
+  }
+  return opts.trustContext ?? FALLBACK_TURN_TRUST;
+}
+
+/**
  * Trust snapshot the wake hands to the agent loop. The wake's loop run has
  * no in-loop compaction path (it runs with overflow recovery disabled; the
  * wake compacts via the pre-run gate instead, which resolves trust from the
@@ -535,7 +571,7 @@ function buildWakeTrust(
     };
   }
   return (
-    opts.trustContext ??
+    resolveWakeTurnTrust(opts) ??
     ({
       sourceChannel: opts.sourceChannel ?? "vellum",
       trustClass: "guardian",
@@ -1343,10 +1379,15 @@ export async function wakeAgentForOpportunity(
       if (opts.clientless) {
         conversation.hasNoClient = true;
       }
-      // Per-turn guardian elevation for the wake's tools, set after the pre-run
-      // reads so a pre-run failure can't leak it; restored in the finally.
-      if (opts.trustContext) {
-        conversation.currentTurnTrustContext = opts.trustContext;
+      // The trust the wake's tools run under, set after the pre-run reads so a
+      // pre-run failure can't leak it; restored in the finally. A wake that
+      // states its trust (an elevation, or the fail-closed class of a wake that
+      // recovered none) overwrites whatever snapshot the conversation is
+      // carrying, so a target still resident from an earlier guardian turn
+      // resolves the same class a cold hydrate of it would.
+      const wakeTurnTrust = resolveWakeTurnTrust(opts);
+      if (wakeTurnTrust) {
+        conversation.currentTurnTrustContext = wakeTurnTrust;
       }
 
       let updatedHistory: Message[];

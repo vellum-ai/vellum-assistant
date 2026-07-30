@@ -79,7 +79,10 @@ import {
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
-import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
+import {
+  resolveEffectiveTurnTrust,
+  resolveTrustClass,
+} from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
@@ -345,8 +348,7 @@ export function createToolExecutor(
     // Per-turn trust snapshot: prefer the snapshot captured at turn start so
     // a concurrent owner meta command (/status, /clean) that mutates the live
     // trustContext cannot elevate the in-flight turn to guardian.
-    const turnTrust =
-      ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+    const turnTrust = resolveEffectiveTurnTrust(ctx);
 
     const toolContext: ToolContext = {
       workingDir: ctx.workingDir,
