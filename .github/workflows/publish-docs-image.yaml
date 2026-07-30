@@ -29,10 +29,13 @@ on:
           - staging
           - production
 
-# Serialize publishes per environment so an older build cannot finish last
-# and overwrite the mutable `latest` tag from a newer commit.
+# Cancel superseded publishes per environment: concurrency groups run in
+# arbitrary order, so cancelling older runs is what guarantees the newest
+# commit's build is the one that tags `latest`. A cancelled run skips its
+# SHA tag; only the newest image matters in this registry.
 concurrency:
   group: publish-docs-image-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: true
 
 env:
   DOCS_IMAGE_NAME: sandbox-images/docs-site
