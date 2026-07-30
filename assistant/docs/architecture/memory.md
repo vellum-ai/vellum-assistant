@@ -124,7 +124,10 @@ source material rather than its size:
 
 Both stage pages on disk and write them through the `assistant memory ingest`
 CLI (`src/cli/commands/memory/memory-ingest.ts`: staging directory, JSON
-manifest, or stdin; dry-run; overwrite; 200-page batches).
+manifest, or stdin; dry-run; overwrite; 200-page batches). The one exception
+is a migration yielding only a handful of approved facts: assistant-migration
+saves those through the normal `remember` tool, so they enter via the buffer
+like any organic capture instead of the ingest route.
 
 Ingested pages carry provenance frontmatter with distinct consumers:
 
