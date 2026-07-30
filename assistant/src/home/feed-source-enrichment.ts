@@ -57,6 +57,11 @@ export interface FeedSourceEnrichmentDeps {
 export function classifyConversationSource(
   source: string | null | undefined,
 ): FeedItemSourceType {
+  // Imported history (`import:<provider>`) is a user conversation that
+  // happened elsewhere; present it like any other user conversation.
+  if (source?.startsWith("import:")) {
+    return "user";
+  }
   switch (source) {
     case "heartbeat":
       return "heartbeat";
