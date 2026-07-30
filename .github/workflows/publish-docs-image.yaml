@@ -1,13 +1,10 @@
 name: Publish Docs Image
 
-# Builds and publishes the docs-site image to the environment's Artifact
-# Registry. Pushes to main publish to `dev`; `workflow_dispatch` keeps the
-# staging/production registries manually reachable until the Phase 2/3
-# environment wiring lands.
-#
-# The image lives under the existing `sandbox-images` AR repo to avoid a
-# Phase 1 Terraform change; a dedicated repo can move to the Phase 2
-# Terraform PR if preferred.
+# Builds and publishes the docs-site image to the target environment's
+# Artifact Registry. Pushes to main publish to `dev`; `workflow_dispatch`
+# can target the staging or production environments, which publish once
+# their registry vars are configured. The image lives under the existing
+# `sandbox-images` AR repo.
 
 on:
   push:

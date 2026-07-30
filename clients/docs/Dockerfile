@@ -19,7 +19,7 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-RUN bun install --frozen-lockfile --ignore-scripts --filter='./clients/docs'
+RUN bun install --frozen-lockfile --ignore-scripts --filter=@vellumai/docs
 
 # Copy source after installing dependencies for better layer caching.
 COPY packages/design-library ./packages/design-library
