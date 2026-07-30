@@ -120,7 +120,7 @@ function SearchButton() {
       iconOnly={<Search />}
       aria-label="Search (⌘K)"
       title="Search (⌘K)"
-      className={NATIVE_IOS_BARE_ICON_BUTTON}
+      className={`pointer-events-auto ${NATIVE_IOS_BARE_ICON_BUTTON}`}
       onClick={handleClick}
     />
   );
@@ -410,13 +410,16 @@ export function AssistantSideMenu({
           {variant === "overlay" ? (
             /* Close on the left, Search pinned to the right so it stays put
                and always reads as the persistent search affordance
-               (Figma 6788:6749). */
-            <div className="flex items-center justify-between gap-2">
+               (Figma 6788:6749). On the Capacitor iOS shell the row floats
+               over the scrollport so list content travels beneath the bare
+               glyphs; `pointer-events-none` keeps the empty span between the
+               two buttons scrollable. */
+            <div className="flex items-center justify-between gap-2 native-ios:pointer-events-none native-ios:absolute native-ios:inset-x-4 native-ios:top-4 native-ios:z-10">
               <Button
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
-                className={NATIVE_IOS_BARE_ICON_BUTTON}
+                className={`pointer-events-auto ${NATIVE_IOS_BARE_ICON_BUTTON}`}
                 onClick={() => onClose?.()}
               />
               <SearchButton />
@@ -430,8 +433,10 @@ export function AssistantSideMenu({
           className={
             variant === "overlay"
               ? /* pb-24 is a coarse floating-column reserve until the measured
-                 inline padding below is applied. */
-                "gap-4 pt-3 pb-24 max-md:pt-4"
+                 inline padding below is applied. pt-14 on iOS clears the 40px
+                 the floating icon row covers plus a 16px gap, so the first
+                 row starts below the glyphs at rest. */
+                "gap-4 pt-3 pb-24 native-ios:pt-14 max-md:pt-4"
               : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */
