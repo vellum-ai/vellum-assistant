@@ -148,6 +148,7 @@ export function CommandPaletteWindowPage() {
         onClose={commandPalette.close}
         query={commandPalette.query}
         onQueryChange={commandPalette.setQuery}
+        highlightQuery={commandPalette.searchTerm}
         selectedIndex={commandPalette.selectedIndex}
         sections={mergedSections}
         isSearching={commandPalette.isSearching}

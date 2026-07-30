@@ -46,32 +46,6 @@ const MOBILE_SHEET_EXITING_STYLE: CSSProperties = {
   pointerEvents: "none",
 };
 
-// Filter tokens the daemon's search endpoint strips from the query before
-// matching (parseSearchQuery in global-search-routes.ts). Unknown filters
-// like "is:starred" stay in the term there, so they stay here too.
-const SEARCH_FILTER_TOKENS = new Set([
-  "is:archived",
-  "archive:yes",
-  "archive:true",
-  "is:unarchived",
-  "archive:no",
-  "archive:false",
-]);
-
-/**
- * Strip supported search filters so snippet highlighting targets the
- * effective term the daemon matched on, not the raw input.
- */
-function stripSearchFilters(query: string): string {
-  return query
-    .split(/\s+/)
-    .filter(
-      (token) =>
-        token.length > 0 && !SEARCH_FILTER_TOKENS.has(token.toLowerCase()),
-    )
-    .join(" ");
-}
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -101,6 +75,11 @@ export interface CommandPaletteProps {
   query: string;
   /** Update the search query. */
   onQueryChange: (value: string) => void;
+  /**
+   * Term the server matched on (supported filters stripped), used to
+   * highlight matches inside result snippets.
+   */
+  highlightQuery?: string;
   /** Currently selected index (flat across all sections). */
   selectedIndex: number;
   /** Sections of results to display. */
@@ -191,6 +170,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   onClose,
   query,
   onQueryChange,
+  highlightQuery,
   selectedIndex,
   sections,
   isSearching = false,
@@ -247,8 +227,6 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
 
   // Flatten all items to compute the global index for each item.
   let flatIndex = 0;
-
-  const highlightTerm = stripSearchFilters(query);
 
   const searchInputRow = (
     <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
@@ -376,7 +354,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   title={item.title}
                   subtitle={item.subtitle}
                   snippet={item.snippet}
-                  query={highlightTerm}
+                  highlightQuery={highlightQuery}
                   shortcutHint={useMobileLayout ? undefined : item.shortcutHint}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}

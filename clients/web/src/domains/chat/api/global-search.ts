@@ -12,6 +12,15 @@ import type { SearchGlobalGetResponse } from "@/generated/daemon/types.gen";
  */
 export type GlobalSearchResponse = SearchGlobalGetResponse["results"];
 
+/**
+ * A search outcome: the results plus the term the daemon actually matched
+ * on (the input with supported filters like `is:archived` stripped).
+ */
+export interface GlobalSearchOutcome {
+  query: string;
+  results: GlobalSearchResponse;
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -21,6 +30,11 @@ const EMPTY_RESULTS: GlobalSearchResponse = {
   memories: [],
   schedules: [],
   contacts: [],
+};
+
+const EMPTY_OUTCOME: GlobalSearchOutcome = {
+  query: "",
+  results: EMPTY_RESULTS,
 };
 
 /**
@@ -33,7 +47,7 @@ export async function searchGlobal(
   assistantId: string,
   query: string,
   options?: { limit?: number; signal?: AbortSignal },
-): Promise<GlobalSearchResponse> {
+): Promise<GlobalSearchOutcome> {
   const limit = options?.limit ?? 10;
 
   try {
@@ -49,16 +63,16 @@ export async function searchGlobal(
     });
 
     if (!response?.ok || !data) {
-      return EMPTY_RESULTS;
+      return EMPTY_OUTCOME;
     }
 
-    return data.results;
+    return { query: data.query, results: data.results };
   } catch (err) {
     // AbortError is expected when debounced queries supersede each other.
     if (err instanceof DOMException && err.name === "AbortError") {
-      return EMPTY_RESULTS;
+      return EMPTY_OUTCOME;
     }
     console.error("[global-search] search failed", { assistantId, query, err });
-    return EMPTY_RESULTS;
+    return EMPTY_OUTCOME;
   }
 }

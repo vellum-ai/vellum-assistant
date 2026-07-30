@@ -109,7 +109,7 @@ describe("CommandPalette", () => {
     expect(row.textContent).toContain("we compared alpha and beta");
   });
 
-  test("highlights the match when the query contains search filters", () => {
+  test("highlights via the server term when the input contains search filters", () => {
     render(
       <CommandPalette
         isOpen
@@ -117,6 +117,7 @@ describe("CommandPalette", () => {
         onClose={() => undefined}
         query="is:archived alpha"
         onQueryChange={() => undefined}
+        highlightQuery="alpha"
         selectedIndex={0}
         sections={[
           {
@@ -127,6 +128,38 @@ describe("CommandPalette", () => {
                 id: "search-conv-c1",
                 title: "Trip planning",
                 snippet: "…we compared alpha and beta itineraries…",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlight = row.querySelector("span.font-medium");
+    expect(highlight?.textContent).toBe("alpha");
+  });
+
+  test("keeps highlight offsets aligned when lowercasing changes string length", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha"
+        onQueryChange={() => undefined}
+        highlightQuery="alpha"
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Travel notes",
+                snippet: "İstanbul alpha itinerary",
               },
             ],
           },

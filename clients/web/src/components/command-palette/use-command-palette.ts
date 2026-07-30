@@ -32,6 +32,11 @@ export interface UseCommandPaletteReturn {
   isSearching: boolean;
   /** Server search results, grouped by category. */
   searchResults: GlobalSearchResponse | null;
+  /**
+   * Term the server actually matched on (supported filters stripped),
+   * aligned with `searchResults`. Use this for match highlighting.
+   */
+  searchTerm: string;
   open: () => void;
   close: () => void;
   toggle: () => void;
@@ -65,6 +70,7 @@ export function useCommandPalette({
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] =
     useState<GlobalSearchResponse | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const itemCountGetterRef = useRef<() => number>(() => 0);
   useLayoutEffect(() => {
@@ -100,6 +106,7 @@ export function useCommandPalette({
     setSelectedIndex(0);
     setIsSearching(false);
     setSearchResults(null);
+    setSearchTerm("");
     cancelSearch();
     onClose?.();
   }, [storeClose, cancelSearch, onClose]);
@@ -120,6 +127,7 @@ export function useCommandPalette({
       setSelectedIndex(0);
       setIsSearching(false);
       setSearchResults(null);
+      setSearchTerm("");
       cancelSearch();
     }
   }, [isOpen, cancelSearch]);
@@ -136,6 +144,7 @@ export function useCommandPalette({
       if (trimmed.length < MIN_QUERY_LENGTH || !assistantId) {
         setIsSearching(false);
         setSearchResults(null);
+        setSearchTerm("");
         return;
       }
 
@@ -151,9 +160,10 @@ export function useCommandPalette({
         abortControllerRef.current = controller;
 
         searchGlobal(assistantId, trimmed, { signal: controller.signal })
-          .then((results) => {
+          .then((outcome) => {
             if (abortControllerRef.current === controller) {
-              setSearchResults(results);
+              setSearchResults(outcome.results);
+              setSearchTerm(outcome.query);
               setIsSearching(false);
             }
           })
@@ -228,6 +238,7 @@ export function useCommandPalette({
     selectedIndex,
     isSearching,
     searchResults,
+    searchTerm,
     open,
     close,
     toggle,

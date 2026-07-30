@@ -9,31 +9,44 @@ export interface CommandPaletteItemProps {
   subtitle?: string;
   /** Longer match excerpt rendered as a second line under the title. */
   snippet?: string;
-  /** Current search query, used to highlight the match inside the snippet. */
-  query?: string;
+  /** Search term used to highlight the match inside the snippet. */
+  highlightQuery?: string;
   shortcutHint?: ReactNode;
   isSelected: boolean;
   onClick: () => void;
   surface?: "overlay" | "window";
 }
 
-/** Emphasize the first case-insensitive occurrence of the query. */
-function highlightMatch(snippet: string, query: string | undefined): ReactNode {
-  const q = query?.trim().toLowerCase();
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Emphasize the first case-insensitive occurrence of the query. Matching
+ * runs on the original snippet so offsets stay aligned even when
+ * lowercasing would change string length (e.g. Turkish dotted I).
+ */
+function highlightMatch(
+  snippet: string,
+  highlightQuery: string | undefined,
+): ReactNode {
+  const q = highlightQuery?.trim();
   if (!q) {
     return snippet;
   }
-  const idx = snippet.toLowerCase().indexOf(q);
-  if (idx === -1) {
+  const match = new RegExp(escapeRegExp(q), "i").exec(snippet);
+  if (!match) {
     return snippet;
   }
+  const start = match.index;
+  const end = start + match[0].length;
   return (
     <>
-      {snippet.slice(0, idx)}
+      {snippet.slice(0, start)}
       <span className="font-medium text-[var(--content-default)]">
-        {snippet.slice(idx, idx + q.length)}
+        {snippet.slice(start, end)}
       </span>
-      {snippet.slice(idx + q.length)}
+      {snippet.slice(end)}
     </>
   );
 }
@@ -46,7 +59,7 @@ export function CommandPaletteItem({
   title,
   subtitle,
   snippet,
-  query,
+  highlightQuery,
   shortcutHint,
   isSelected,
   onClick,
@@ -97,7 +110,7 @@ export function CommandPaletteItem({
           </span>
           {snippet ? (
             <span className="truncate text-xs font-normal text-[var(--content-tertiary)]">
-              {highlightMatch(snippet, query)}
+              {highlightMatch(snippet, highlightQuery)}
             </span>
           ) : null}
         </span>
@@ -125,7 +138,7 @@ export function CommandPaletteItem({
           </span>
           {snippet ? (
             <span className="truncate text-[var(--content-tertiary)] text-body-small-default">
-              {highlightMatch(snippet, query)}
+              {highlightMatch(snippet, highlightQuery)}
             </span>
           ) : null}
         </span>
