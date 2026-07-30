@@ -80,7 +80,7 @@ const GLOSSARY_ENTRIES: GlossaryEntry[] = [
   {
     term: "Home",
     definition:
-      "Where the assistant runs: Vellum’s managed platform, a self-hosted machine, a Docker container, or a local daemon on a desktop. The home determines the assistant’s networking, security boundary, capabilities, and available resources. Distinct from a client, which is how the guardian reaches the assistant.",
+      "Where the assistant runs: Vellum’s managed platform, a self-hosted machine, a Docker container, or directly on a desktop. The home determines the assistant’s networking, security boundary, capabilities, and available resources. Distinct from a client, which is how the guardian reaches the assistant.",
   },
   {
     term: "Memory",

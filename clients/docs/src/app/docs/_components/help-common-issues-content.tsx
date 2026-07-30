@@ -171,7 +171,7 @@ export function HelpCommonIssuesContent() {
             <li>Make sure you&apos;re on macOS 14 (Sonoma) or later.</li>
             <li>
               Check the menu bar for the Vellum icon. If it&apos;s
-              missing, the assistant daemon isn&apos;t running.
+              missing, the assistant isn&apos;t running.
               Relaunch the app.
             </li>
             <li>
@@ -375,7 +375,7 @@ export function HelpCommonIssuesContent() {
             </li>
             <li>
               If you&apos;re running a local install, confirm your Mac
-              is on and the assistant daemon is running. Cloud
+              is on and the assistant is running. Cloud
               installs don&apos;t need this.
             </li>
             <li>

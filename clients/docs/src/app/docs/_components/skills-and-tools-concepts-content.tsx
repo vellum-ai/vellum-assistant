@@ -150,7 +150,7 @@ export function SkillsAndToolsConceptsContent() {
           <p className="mb-4 text-zinc-600">
             Skill tools become available when their skill is loaded. For
             example, loading the Browser skill enables{" "}
-            <code>assistant browser</code> commands — navigate, click,
+            <code>assistant browser</code> commands: navigate, click,
             type, snapshot, extract, and others. Loading the Gmail skill
             adds tools for archiving, labeling, drafting, sending,
             unsubscribing, and more.
@@ -174,7 +174,7 @@ export function SkillsAndToolsConceptsContent() {
               <strong>Tool</strong> = &quot;I can draft an email&quot;
             </li>
             <li>
-              <strong>Skill</strong> = &quot;I know how to browse the web —
+              <strong>Skill</strong> = &quot;I know how to browse the web:
               the Browser skill drives <code>assistant browser</code> commands
               to navigate pages, click elements, fill forms, extract content,
               take screenshots, and handle authentication&quot;

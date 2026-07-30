@@ -102,8 +102,8 @@ export function SchedulingContent() {
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                 fired
               </code>{" "}
-              and disabled. This is what used to be called &ldquo;reminders&rdquo;
-              — now it&apos;s a unified concept.
+              and disabled. This is what used to be called &ldquo;reminders&rdquo;.
+              Now it&apos;s a unified concept.
             </p>
             <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
               <li>
@@ -128,7 +128,7 @@ export function SchedulingContent() {
             <p className="mb-4 text-zinc-600">
               Tasks that repeat on a cadence. Under the hood, these use
               standard cron expressions (5-field) or RRULE recurrence rules
-              (RFC 5545), but you don&apos;t need to know that — just describe
+              (RFC 5545), but you don&apos;t need to know that: just describe
               what you want in plain language and the assistant translates it.
             </p>
             <p className="mb-4 text-zinc-600">
@@ -206,14 +206,14 @@ export function SchedulingContent() {
               <li>
                 <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                   heartbeat.enabled
-                </code>{" "}
-                — toggle on/off (requires restart)
+                </code>:
+                toggle on/off (requires restart)
               </li>
               <li>
                 <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                   heartbeat.intervalMs
-                </code>{" "}
-                — milliseconds between runs (default: 1 hour)
+                </code>:
+                milliseconds between runs (default: 1 hour)
               </li>
               <li>
                 <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
@@ -222,13 +222,13 @@ export function SchedulingContent() {
                 /{" "}
                 <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                   activeHoursEnd
-                </code>{" "}
-                — restrict runs to certain hours (0–23, both must be set
+                </code>:
+                restrict runs to certain hours (0–23, both must be set
                 together)
               </li>
             </ul>
             <p className="mb-0 text-zinc-600">
-              The default checklist focuses on your user relationship —
+              The default checklist focuses on your user relationship:
               reviewing the scratchpad, thinking about follow-ups from recent
               conversations, and reaching out when there&apos;s something
               worth sharing. You can customize{" "}
@@ -261,15 +261,15 @@ export function SchedulingContent() {
                 Calendar, or Linear)
               </li>
               <li>
-                <strong>Action prompt</strong> — LLM instructions for handling
+                <strong>Action prompt</strong>: LLM instructions for handling
                 detected events
               </li>
               <li>
-                <strong>Poll interval</strong> — how often to check (minimum
+                <strong>Poll interval</strong>: how often to check (minimum
                 15 seconds, default 60 seconds)
               </li>
               <li>
-                <strong>Watermark</strong> — tracks what&apos;s already been
+                <strong>Watermark</strong>: tracks what&apos;s already been
                 seen so events are never processed twice
               </li>
             </ul>
@@ -302,7 +302,7 @@ export function SchedulingContent() {
               Playbooks
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
-              Playbooks are trigger-action automation rules — not time-based
+              Playbooks are trigger-action automation rules, not time-based
               like schedules, but event-based. They tell your assistant how to
               handle incoming messages that match a pattern.
             </p>
@@ -311,22 +311,22 @@ export function SchedulingContent() {
             </p>
             <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
               <li>
-                <strong>Trigger</strong> — pattern or description that
+                <strong>Trigger</strong>: pattern or description that
                 activates the rule
               </li>
               <li>
-                <strong>Action</strong> — what to do when triggered (natural
+                <strong>Action</strong>: what to do when triggered (natural
                 language)
               </li>
               <li>
-                <strong>Channel</strong> — which channel it applies to (
+                <strong>Channel</strong>: which channel it applies to (
                 <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                   *
                 </code>{" "}
                 for all, or a specific channel)
               </li>
               <li>
-                <strong>Autonomy level</strong> —{" "}
+                <strong>Autonomy level</strong>:{" "}
                 <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                   auto
                 </code>{" "}
@@ -341,7 +341,7 @@ export function SchedulingContent() {
                 (alert only)
               </li>
               <li>
-                <strong>Priority</strong> — numeric priority for overlapping
+                <strong>Priority</strong>: numeric priority for overlapping
                 rules (higher wins)
               </li>
             </ul>
@@ -472,19 +472,19 @@ export function SchedulingContent() {
           </p>
           <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
             <li>
-              <strong>All channels</strong> (default) — deliver to every
+              <strong>All channels</strong> (default): deliver to every
               available channel
             </li>
             <li>
-              <strong>Single channel</strong> — deliver to one specific channel
+              <strong>Single channel</strong>: deliver to one specific channel
               (&ldquo;remind me on Telegram&rdquo;)
             </li>
             <li>
-              <strong>Multi channel</strong> — deliver to a subset of channels
+              <strong>Multi channel</strong>: deliver to a subset of channels
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
-            You can also pass routing hints to influence delivery — for
+            You can also pass routing hints to influence delivery, for
             example, preferred channels or exclusions. Most of the time, the
             default (all channels) is what you want.
           </p>
@@ -502,26 +502,26 @@ export function SchedulingContent() {
             <li>
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                 active
-              </code>{" "}
-              — enabled and waiting for the next trigger time
+              </code>:
+              enabled and waiting for the next trigger time
             </li>
             <li>
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                 firing
-              </code>{" "}
-              — currently executing
+              </code>:
+              currently executing
             </li>
             <li>
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                 fired
-              </code>{" "}
-              — one-shot schedule that has completed (automatically disabled)
+              </code>:
+              one-shot schedule that has completed (automatically disabled)
             </li>
             <li>
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                 cancelled
-              </code>{" "}
-              — cancelled before it could fire
+              </code>:
+              cancelled before it could fire
             </li>
           </ul>
           <p className="mb-4 text-zinc-600">
@@ -554,36 +554,36 @@ export function SchedulingContent() {
           </p>
           <ul className="mb-0 list-disc space-y-4 pl-6 text-zinc-600">
             <li>
-              <strong>Morning briefing</strong> — recurring schedule at 8am,
+              <strong>Morning briefing</strong>: recurring schedule at 8am,
               execute mode. The assistant checks your calendar, email, and
               Slack, then sends you a digest.
             </li>
             <li>
-              <strong>Follow-up tracking</strong> — one-shot schedule set 3
+              <strong>Follow-up tracking</strong>: one-shot schedule set 3
               days out, execute mode. &ldquo;If Marina hasn&apos;t replied by
               Thursday, draft a follow-up.&rdquo;
             </li>
             <li>
-              <strong>Inbox monitoring</strong> — Gmail watcher with a 60s
+              <strong>Inbox monitoring</strong>: Gmail watcher with a 60s
               poll interval. &ldquo;When an important email arrives, notify me
               on Telegram.&rdquo;
             </li>
             <li>
-              <strong>GitHub triage</strong> — GitHub watcher monitoring a
+              <strong>GitHub triage</strong>: GitHub watcher monitoring a
               repo. &ldquo;When a new issue is assigned to me, summarize it
               and add it to my task list.&rdquo;
             </li>
             <li>
-              <strong>Auto-responder</strong> — playbook on the email channel.
+              <strong>Auto-responder</strong>: playbook on the email channel.
               &ldquo;When I get a meeting request, draft a polite decline with
               my availability link.&rdquo;
             </li>
             <li>
-              <strong>Simple reminders</strong> — one-shot schedule, notify
+              <strong>Simple reminders</strong>: one-shot schedule, notify
               mode. &ldquo;Remind me to call the vet at 3pm.&rdquo;
             </li>
             <li>
-              <strong>Relationship check-ins</strong> — heartbeat running
+              <strong>Relationship check-ins</strong>: heartbeat running
               every hour during work hours. Reviews the scratchpad, checks for
               pending follow-ups, reaches out when there&apos;s something
               worth sharing.
@@ -604,26 +604,26 @@ export function SchedulingContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-4 pl-6 text-zinc-600">
             <li>
-              <strong>Skills</strong> — scheduled tasks can use any skill the
+              <strong>Skills</strong>: scheduled tasks can use any skill the
               assistant has access to. A morning briefing schedule can use
               Gmail, Google Calendar, and Slack skills in a single run.
               Watchers rely on connected integrations (Gmail, GitHub, etc.)
               for their providers.
             </li>
             <li>
-              <strong>Channels</strong> — notify-mode schedules and watchers
+              <strong>Channels</strong>: notify-mode schedules and watchers
               deliver through the notification pipeline, which routes to your
               connected channels. Playbooks can be scoped to specific
               channels.
             </li>
             <li>
-              <strong>Memory</strong> — schedule and watcher execution
+              <strong>Memory</strong>: schedule and watcher execution
               happens in background conversations that have full access to the
               assistant&apos;s memory. The assistant remembers context from
               previous runs.
             </li>
             <li>
-              <strong>Tasks</strong> — schedules can create, update, or
+              <strong>Tasks</strong>: schedules can create, update, or
               check tasks. A recurring schedule might review your task queue
               and flag overdue items.
             </li>
@@ -640,7 +640,7 @@ export function SchedulingContent() {
             On Vellum Cloud (the default), the assistant runs 24/7, so
             schedules, watchers, and heartbeats fire reliably regardless of
             whether your desktop is on. For self-hosted installs, the Vellum
-            daemon on your machine needs to be active.
+            assistant on your machine needs to be active.
           </p>
           <p className="mb-4 text-zinc-600">
             The scheduler ticks every 15 seconds, so schedules fire within
@@ -650,7 +650,7 @@ export function SchedulingContent() {
             If the assistant was offline when a schedule was supposed to fire,
             missed one-shot schedules will fire on the next startup.
             Recurring schedules compute their next run from the current time,
-            so they don&apos;t replay missed runs — they just resume on
+            so they don&apos;t replay missed runs. They just resume on
             cadence.
           </p>
         </section>
@@ -673,7 +673,7 @@ export function SchedulingContent() {
           <p className="mb-4 text-zinc-600">
             The assistant handles the translation to cron/RRULE expressions,
             watcher configurations, or playbook rules. You can also manage
-            everything programmatically — schedules, watchers, and playbooks
+            everything programmatically: schedules, watchers, and playbooks
             all have full CRUD tools (
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
               schedule_create

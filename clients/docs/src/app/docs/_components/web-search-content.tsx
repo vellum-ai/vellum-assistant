@@ -380,7 +380,7 @@ export function WebSearchContent() {
             Vellum&apos;s managed search. On a <strong>BYOK provider</strong>,
             your assistant tries the provider you selected first; if it has no
             key configured or its request fails with a retryable error, the
-            daemon walks the fallback chain in this order:
+            assistant walks the fallback chain in this order:
           </p>
           <ol className="mb-4 list-decimal space-y-1 pl-6 text-stone-600 dark:text-stone-400 marker:text-stone-400 dark:marker:text-stone-500">
             <li>Perplexity</li>

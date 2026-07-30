@@ -134,7 +134,7 @@ export function HostingOptionsContent() {
             </p>
             <ul className="mb-4 list-disc space-y-4 pl-6 text-stone-600 dark:text-stone-400">
               <li>
-                <strong>Native</strong> — The assistant runs directly as a
+                <strong>Native</strong>: The assistant runs directly as a
                 process on your Mac. It&apos;s the simplest local setup and
                 gives the assistant full access to your system.
               </li>
@@ -142,8 +142,8 @@ export function HostingOptionsContent() {
                 <strong>Docker</strong>{" "}
                 <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-900 dark:bg-amber-500/20 dark:text-amber-200">
                   Coming soon
-                </span>{" "}
-                — The assistant runs inside a Docker container on your Mac.
+                </span>
+                . The assistant runs inside a Docker container on your Mac.
                 Better isolation than native, but requires Docker to be
                 installed and running.
               </li>
@@ -151,8 +151,8 @@ export function HostingOptionsContent() {
                 <strong>Apple Container</strong>{" "}
                 <span className="ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-900 dark:bg-amber-500/20 dark:text-amber-200">
                   Coming soon
-                </span>{" "}
-                — Runs on native Apple virtual machines. No Docker required.
+                </span>
+                . Runs on native Apple virtual machines. No Docker required.
                 You get isolation plus Apple&apos;s hardware optimizations and
                 native security features.
               </li>

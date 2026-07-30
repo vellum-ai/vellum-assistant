@@ -124,7 +124,7 @@ export function EnvironmentsContent() {
             </code>
           </div>
           <p className="mb-6 text-stone-600 dark:text-stone-400">
-            When running locally, the assistant daemon and gateway both start on
+            When running locally, the assistant and gateway both start on
             your machine. Latency is low and your assistant has direct access to
             local files and tools.
           </p>

@@ -147,12 +147,12 @@ export function GettingStartedContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Sign in with Vellum (default)</strong> — Authenticate with your Vellum
+              <strong>Sign in with Vellum (default)</strong>: Authenticate with your Vellum
               account for the managed experience. Your assistant runs in Vellum Cloud, billing
               is handled through your account, no API keys to manage.
             </li>
             <li>
-              <strong>Bring your own API key</strong> — Self-host the runtime and connect it to
+              <strong>Bring your own API key</strong>: Self-host the runtime and connect it to
               your own Anthropic API key. Useful if you want to run everything on your own
               machine. Your key is stored in your macOS Keychain.
             </li>
@@ -191,7 +191,7 @@ export function GettingStartedContent() {
           </p>
           <p className="mb-6 text-zinc-600">
             Session logs are stored in{" "}
-            <code>~/Library/Application Support/vellum-assistant/logs/</code>. The daemon binary
+            <code>~/Library/Application Support/vellum-assistant/logs/</code>. The assistant binary
             lives inside the <code>.app</code> bundle, not in <code>~/.vellum/</code>.
           </p>
         </section>

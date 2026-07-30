@@ -104,7 +104,7 @@ export function DeveloperGuideGetStartedContent() {
           <p className="mb-4 text-zinc-600">
             Most developer work happens in{" "}
             <strong>vellum-assistant</strong>, the open-source repo that
-            holds the assistant daemon and everything that ships with
+            holds the assistant runtime and everything that ships with
             it:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
@@ -203,7 +203,7 @@ export function DeveloperGuideGetStartedContent() {
             <p className="mb-3 text-zinc-600">
               The <code>vellum</code> CLI is the highest-level
               interface. It reads your local credentials and routes
-              commands to the running daemon.
+              commands to the running assistant.
             </p>
             <pre className="mb-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
               <code>{`# send a message and stream the response
@@ -231,7 +231,7 @@ vellum ps`}</code>
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
               The runtime exposes a versioned REST API at{" "}
-              <code>/v1</code>. On a local install the daemon listens
+              <code>/v1</code>. On a local install the assistant listens
               on a loopback port; the CLI handles auth for you, but you
               can also call the API directly with a JWT bearer token.
             </p>

@@ -8,9 +8,9 @@ import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 
 const TOC_ITEMS = [
   { id: "three-layers-of-memory", label: "Three layers of memory", level: 2 },
-  { id: "workspace-files-the-baseline", label: "1. Workspace files — the baseline", level: 3 },
-  { id: "knowledge-base-the-curated-layer", label: "2. Knowledge base — the curated layer", level: 3 },
-  { id: "long-term-memory", label: "3. Long-term memory — the auto-extracted layer", level: 3 },
+  { id: "workspace-files-the-baseline", label: "1. Workspace files: the baseline", level: 3 },
+  { id: "knowledge-base-the-curated-layer", label: "2. Knowledge base: the curated layer", level: 3 },
+  { id: "long-term-memory", label: "3. Long-term memory: the auto-extracted layer", level: 3 },
   { id: "kinds-of-memory", label: "Kinds of memory", level: 2 },
   { id: "how-it-decides-what-to-remember", label: "How it decides what to remember", level: 2 },
   { id: "how-it-corrects-itself", label: "How it corrects itself", level: 2 },

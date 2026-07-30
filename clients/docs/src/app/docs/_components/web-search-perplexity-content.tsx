@@ -97,7 +97,7 @@ export function WebSearchPerplexityContent() {
             </li>
           </ol>
           <p className="mb-3 text-zinc-600">
-            Prefer the CLI? Two commands from any shell where the assistant daemon is running:
+            Prefer the CLI? Two commands from any shell where the assistant is running:
           </p>
           <div className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4">
             <pre className="font-[family-name:var(--font-dm-mono)] text-sm text-zinc-100">

@@ -276,7 +276,7 @@ export function OauthIntegrationsContent() {
             </li>
             <li>
               <strong>LLM isolation:</strong> The LLM never receives raw tokens. When a
-              skill needs to call an API, the daemon retrieves the token and injects it
+              skill needs to call an API, the assistant runtime retrieves the token and injects it
               into the HTTP request at the transport layer.
             </li>
             <li>
@@ -345,7 +345,7 @@ export function OauthIntegrationsContent() {
                     Managed OAuth (billed)
                   </td>
                   <td className="py-3 pr-4">
-                    Twitter (X) — Vellum manages the OAuth app, but the underlying API usage is billed per call.
+                    Twitter (X): Vellum manages the OAuth app, but the underlying API usage is billed per call.
                   </td>
                   <td className="py-3">
                     API calls are billed through Vellum credits at the platform rate.

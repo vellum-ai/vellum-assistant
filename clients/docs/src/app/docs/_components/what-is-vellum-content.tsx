@@ -55,7 +55,7 @@ export function WhatIsVellumContent() {
             <strong>It has tools, not just words.</strong> Your assistant can browse
             the web, read your files, run code, send emails, manage your calendar,
             and interact with dozens of services. It can also see your screen and
-            control your Mac directly — clicking, typing, and navigating apps on
+            control your Mac directly: clicking, typing, and navigating apps on
             your behalf through macOS accessibility APIs. Sensitive actions always
             require your approval first. It doesn&apos;t describe what you{" "}
             <em>could</em> do. It does it.
@@ -98,69 +98,69 @@ export function WhatIsVellumContent() {
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">💬 Communication</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Gmail</strong> — Manage your inbox, draft replies, archive, label, and unsubscribe</li>
-            <li><strong>Email (Agent Mail)</strong> — Give your assistant its own email address to send and receive mail</li>
-            <li><strong>Messaging</strong> — Read, search, and send messages across multiple platforms</li>
-            <li><strong>Phone Calls</strong> — Make and receive phone calls via Twilio</li>
-            <li><strong>Slack</strong> — Scan channels, summarize threads, send and manage messages</li>
-            <li><strong>Contacts</strong> — Manage contacts, communication channels, and access control</li>
-            <li><strong>Notifications</strong> — Send notifications through the unified notification router</li>
+            <li><strong>Gmail</strong>: Manage your inbox, draft replies, archive, label, and unsubscribe</li>
+            <li><strong>Email (Agent Mail)</strong>: Give your assistant its own email address to send and receive mail</li>
+            <li><strong>Messaging</strong>: Read, search, and send messages across multiple platforms</li>
+            <li><strong>Phone Calls</strong>: Make and receive phone calls via Twilio</li>
+            <li><strong>Slack</strong>: Scan channels, summarize threads, send and manage messages</li>
+            <li><strong>Contacts</strong>: Manage contacts, communication channels, and access control</li>
+            <li><strong>Notifications</strong>: Send notifications through the unified notification router</li>
           </ul>
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">📅 Productivity</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Google Calendar</strong> — Check schedules, create events, and coordinate availability</li>
-            <li><strong>Tasks</strong> — Reusable task templates and a prioritized work queue</li>
-            <li><strong>Schedule</strong> — Recurring and one-shot scheduling with cron, RRULE, or single fire-at time</li>
-            <li><strong>Followups</strong> — Track sent messages awaiting responses across channels</li>
-            <li><strong>Playbooks</strong> — Trigger-action automation rules for handling incoming messages</li>
-            <li><strong>Document</strong> — Write and edit long-form content like blog posts, articles, and reports</li>
-            <li><strong>Start the Day</strong> — Get a personalized daily briefing with weather, calendar, news, and tasks</li>
+            <li><strong>Google Calendar</strong>: Check schedules, create events, and coordinate availability</li>
+            <li><strong>Tasks</strong>: Reusable task templates and a prioritized work queue</li>
+            <li><strong>Schedule</strong>: Recurring and one-shot scheduling with cron, RRULE, or single fire-at time</li>
+            <li><strong>Followups</strong>: Track sent messages awaiting responses across channels</li>
+            <li><strong>Playbooks</strong>: Trigger-action automation rules for handling incoming messages</li>
+            <li><strong>Document</strong>: Write and edit long-form content like blog posts, articles, and reports</li>
+            <li><strong>Start the Day</strong>: Get a personalized daily briefing with weather, calendar, news, and tasks</li>
           </ul>
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">🖥️ Automation &amp; Control</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Computer Use</strong> — Control your Mac directly: click, type, and navigate apps via macOS accessibility APIs</li>
-            <li><strong>Browser</strong> — Navigate and interact with web pages using a headless browser</li>
-            <li><strong>Screen Watch</strong> — Observe the screen at regular intervals with OCR</li>
-            <li><strong>Watcher</strong> — Poll and monitor external sources for changes</li>
-            <li><strong>Subagent</strong> — Spawn autonomous background agents for parallel work</li>
+            <li><strong>Computer Use</strong>: Control your Mac directly (click, type, and navigate apps via macOS accessibility APIs)</li>
+            <li><strong>Browser</strong>: Navigate and interact with web pages using a headless browser</li>
+            <li><strong>Screen Watch</strong>: Observe the screen at regular intervals with OCR</li>
+            <li><strong>Watcher</strong>: Poll and monitor external sources for changes</li>
+            <li><strong>Subagent</strong>: Spawn autonomous background agents for parallel work</li>
           </ul>
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">🛠️ Development</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>App Builder</strong> — Build interactive apps, dashboards, tools, and data visualizations</li>
-            <li><strong>Frontend Design</strong> — Create distinctive, production-grade frontend interfaces with high design quality</li>
-            <li><strong>ACP</strong> — Delegate coding tasks to external coding agents via the Agent Client Protocol</li>
+            <li><strong>App Builder</strong>: Build interactive apps, dashboards, tools, and data visualizations</li>
+            <li><strong>Frontend Design</strong>: Create distinctive, production-grade frontend interfaces with high design quality</li>
+            <li><strong>ACP</strong>: Delegate coding tasks to external coding agents via the Agent Client Protocol</li>
           </ul>
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">🎨 Media</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Image Studio</strong> — Generate and edit images using AI</li>
-            <li><strong>Media Processing</strong> — Ingest and process video, audio, and image files</li>
-            <li><strong>Transcribe</strong> — Turn audio and video into text with Whisper</li>
+            <li><strong>Image Studio</strong>: Generate and edit images using AI</li>
+            <li><strong>Media Processing</strong>: Ingest and process video, audio, and image files</li>
+            <li><strong>Transcribe</strong>: Turn audio and video into text with Whisper</li>
           </ul>
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">🛍️ Services</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Amazon</strong> — Shop on Amazon and Amazon Fresh</li>
-            <li><strong>DoorDash</strong> — Order food, groceries, and convenience items</li>
-            <li><strong>Weather</strong> — Get current conditions and forecasts for any location</li>
+            <li><strong>Amazon</strong>: Shop on Amazon and Amazon Fresh</li>
+            <li><strong>DoorDash</strong>: Order food, groceries, and convenience items</li>
+            <li><strong>Weather</strong>: Get current conditions and forecasts for any location</li>
           </ul>
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">🧠 Knowledge &amp; Identity</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Memory</strong> — Remembers your preferences, projects, and context across conversations</li>
-            <li><strong>SOUL.md / IDENTITY.md / USER.md</strong> — Editable files that shape your assistant&apos;s personality and knowledge of you</li>
-            <li><strong>Skill Management</strong> — Create and manage custom skills as your needs evolve</li>
+            <li><strong>Memory</strong>: Remembers your preferences, projects, and context across conversations</li>
+            <li><strong>SOUL.md / IDENTITY.md / USER.md</strong>: Editable files that shape your assistant&apos;s personality and knowledge of you</li>
+            <li><strong>Skill Management</strong>: Create and manage custom skills as your needs evolve</li>
           </ul>
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">🔗 Integrations</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>OAuth Integrations</strong> — Connect to third-party services like GitHub, Notion, Linear, Airtable, Spotify, and more</li>
-            <li><strong>MCP Servers</strong> — Add Model Context Protocol servers for extended tool access</li>
-            <li><strong>ChatGPT Import</strong> — Import conversation history from ChatGPT</li>
-            <li><strong>Voice Input</strong> — Hold Fn to talk to your assistant</li>
+            <li><strong>OAuth Integrations</strong>: Connect to third-party services like GitHub, Notion, Linear, Airtable, Spotify, and more</li>
+            <li><strong>MCP Servers</strong>: Add Model Context Protocol servers for extended tool access</li>
+            <li><strong>ChatGPT Import</strong>: Import conversation history from ChatGPT</li>
+            <li><strong>Voice Input</strong>: Hold Fn to talk to your assistant</li>
           </ul>
           <p className="mb-0 text-zinc-600">
             And if it can&apos;t do something? You can teach it. Skills are modular and
@@ -229,9 +229,9 @@ export function WhatIsVellumContent() {
               channels, so it&apos;s available wherever you are.
             </p>
             <ul className="list-disc space-y-1 pl-6 text-zinc-600">
-              <li><strong>Telegram</strong> — Chat with your assistant from any device via a Telegram bot</li>
-              <li><strong>Slack</strong> — Message your assistant directly in Slack, useful for work contexts</li>
-              <li><strong>Phone</strong> — Call your assistant or have it take calls on your behalf via Twilio</li>
+              <li><strong>Telegram</strong>: Chat with your assistant from any device via a Telegram bot</li>
+              <li><strong>Slack</strong>: Message your assistant directly in Slack, useful for work contexts</li>
+              <li><strong>Phone</strong>: Call your assistant or have it take calls on your behalf via Twilio</li>
             </ul>
           </div>
         </section>
@@ -255,7 +255,7 @@ export function WhatIsVellumContent() {
               (reading a file, sending an email, building an app, or controlling
               your desktop), your assistant uses its tools to make it happen. For
               desktop actions, it sees your screen, plans the steps, and executes
-              them automatically. But it won&apos;t go rogue — your assistant
+              them automatically. But it won&apos;t go rogue: your assistant
               always asks for permission before taking sensitive actions like sending
               emails, making purchases, or accessing new services. You stay in
               control, and you can configure exactly what requires approval and what

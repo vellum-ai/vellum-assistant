@@ -15,7 +15,7 @@ import "@/app/docs/docs-theme.css";
 
 export const metadata: Metadata = {
   description:
-    "Documentation for Vellum — learn how to build, configure, and deploy AI assistants with skills, channels, and more.",
+    "Documentation for Vellum: learn how to build, configure, and deploy AI assistants with skills, channels, and more.",
 };
 
 interface DocsLayoutProps {

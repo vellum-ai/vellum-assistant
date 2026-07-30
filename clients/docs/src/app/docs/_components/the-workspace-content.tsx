@@ -86,7 +86,7 @@ export function TheWorkspaceContent() {
     ├── qdrant/            ← Memory embeddings (vector DB)
     ├── apps/              ← User-built apps
     ├── avatar/            ← Avatar image
-    └── logs/              ← Daemon logs`}
+    └── logs/              ← Assistant logs`}
             </pre>
           </div>
           <p className="mb-0 text-zinc-600">
@@ -429,7 +429,7 @@ export function TheWorkspaceContent() {
                 <tr>
                   <td className="px-4 py-3 font-medium text-zinc-800">logs/</td>
                   <td className="px-4 py-3 text-zinc-600">
-                    Daemon logs (useful for debugging)
+                    Assistant logs (useful for debugging)
                   </td>
                 </tr>
                 <tr>

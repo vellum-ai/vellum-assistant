@@ -180,14 +180,14 @@ export function PricingContent() {
                     <td className="py-3 pr-6 font-medium text-zinc-700">
                       Email &amp; subdomain
                     </td>
-                    <td className="px-6 py-3 text-zinc-400">—</td>
+                    <td className="px-6 py-3 text-zinc-400">-</td>
                     <td className="px-6 py-3 text-zinc-600">Included</td>
                   </tr>
                   <tr>
                     <td className="py-3 pr-6 font-medium text-zinc-700">
                       Monthly platform fee
                     </td>
-                    <td className="px-6 py-3 text-zinc-400">—</td>
+                    <td className="px-6 py-3 text-zinc-400">-</td>
                     <td className="px-6 py-3 text-zinc-600">
                       $10/mo{" "}
                       <span className="text-zinc-400">
@@ -266,7 +266,7 @@ export function PricingContent() {
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
               Persistent disk for files, notes, and conversation history.
-              Storage grows online — no assistant restart needed.
+              Storage grows online, no assistant restart needed.
             </p>
             <div className="not-prose mb-10 overflow-x-auto">
               <table className="w-full border-collapse text-sm">
