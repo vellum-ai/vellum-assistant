@@ -61,9 +61,30 @@ export function captureStdout(fn: () => Promise<void>): Promise<string[]> {
 }
 
 /** Run 'assistant platform <args>' against a fresh program, capturing stdout. */
-export function runPlatform(args: string[]): Promise<string[]> {
-  return captureStdout(async () => {
+export async function runPlatform(args: string[]): Promise<string[]> {
+  const { out, thrown } = await runPlatformCaught(args);
+  if (thrown !== undefined) {
+    throw thrown;
+  }
+  return out;
+}
+
+/**
+ * Like {@link runPlatform}, but capture whatever the parse throws instead of
+ * propagating it (the mocked exitFromIpcResult error, Commander's exitOverride
+ * on --help), so tests can assert on both the output and the thrown value.
+ */
+export async function runPlatformCaught(
+  args: string[],
+): Promise<{ out: string[]; thrown: unknown }> {
+  let thrown: unknown;
+  const out = await captureStdout(async () => {
     const program = await buildPlatformProgram();
-    await program.parseAsync(["node", "assistant", "platform", ...args]);
+    try {
+      await program.parseAsync(["node", "assistant", "platform", ...args]);
+    } catch (err) {
+      thrown = err;
+    }
   });
+  return { out, thrown };
 }

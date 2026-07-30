@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  buildPlatformProgram,
-  captureStdout,
   runPlatform,
+  runPlatformCaught,
   setupPlatformIpcMock,
 } from "./helpers.js";
 
@@ -203,43 +202,18 @@ describe("assistant platform invoices error handling", () => {
   });
 
   test("list exits via exitFromIpcResult on IPC failure without writing output", async () => {
-    let thrown: unknown;
-    const out = await captureStdout(async () => {
-      const program = await buildPlatformProgram();
-      try {
-        await program.parseAsync([
-          "node",
-          "assistant",
-          "platform",
-          "invoices",
-          "list",
-        ]);
-      } catch (err) {
-        thrown = err;
-      }
-    });
+    const { out, thrown } = await runPlatformCaught(["invoices", "list"]);
 
     expect((thrown as Error).message).toBe("exitFromIpcResult called");
     expect(out.join("")).toBe("");
   });
 
   test("get exits via exitFromIpcResult on IPC failure without writing output", async () => {
-    let thrown: unknown;
-    const out = await captureStdout(async () => {
-      const program = await buildPlatformProgram();
-      try {
-        await program.parseAsync([
-          "node",
-          "assistant",
-          "platform",
-          "invoices",
-          "get",
-          "in_missing",
-        ]);
-      } catch (err) {
-        thrown = err;
-      }
-    });
+    const { out, thrown } = await runPlatformCaught([
+      "invoices",
+      "get",
+      "in_missing",
+    ]);
 
     expect((thrown as Error).message).toBe("exitFromIpcResult called");
     expect(out.join("")).toBe("");
@@ -248,20 +222,7 @@ describe("assistant platform invoices error handling", () => {
 
 describe("assistant platform invoices --help", () => {
   test("group help renders both subcommands", async () => {
-    const out = await captureStdout(async () => {
-      const program = await buildPlatformProgram();
-      try {
-        await program.parseAsync([
-          "node",
-          "assistant",
-          "platform",
-          "invoices",
-          "--help",
-        ]);
-      } catch {
-        // exitOverride throws on --help; ignore
-      }
-    });
+    const { out } = await runPlatformCaught(["invoices", "--help"]);
     const text = out.join("");
 
     expect(text).toContain("list");
@@ -270,21 +231,7 @@ describe("assistant platform invoices --help", () => {
   });
 
   test("list help renders the --starting-after option", async () => {
-    const out = await captureStdout(async () => {
-      const program = await buildPlatformProgram();
-      try {
-        await program.parseAsync([
-          "node",
-          "assistant",
-          "platform",
-          "invoices",
-          "list",
-          "--help",
-        ]);
-      } catch {
-        // exitOverride throws on --help; ignore
-      }
-    });
+    const { out } = await runPlatformCaught(["invoices", "list", "--help"]);
 
     expect(out.join("")).toContain("--starting-after <invoice-id>");
   });
