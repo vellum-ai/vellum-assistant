@@ -1191,6 +1191,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
       // / 1.5x output / 2x cache-read+write for the whole request, per
       // OpenAI's model cards.
+      //
+      // Rates are OpenRouter's own card (https://openrouter.ai/api/v1/models),
+      // which discounts Terra and Luna below OpenAI's direct list price; Sol
+      // matches direct pricing.
       {
         id: "openai/gpt-5.6-sol",
         displayName: "GPT-5.6 Sol",
@@ -1260,17 +1264,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 2.0,
-          outputPer1mTokens: 12.0,
-          cacheWritePer1mTokens: 2.5,
-          cacheReadPer1mTokens: 0.2,
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 4,
-              outputPer1mTokens: 18,
-              cacheWritePer1mTokens: 5,
-              cacheReadPer1mTokens: 0.4,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
             },
           ],
         },
@@ -1288,17 +1292,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 2.0,
-          outputPer1mTokens: 12.0,
-          cacheWritePer1mTokens: 2.5,
-          cacheReadPer1mTokens: 0.2,
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 4,
-              outputPer1mTokens: 18,
-              cacheWritePer1mTokens: 5,
-              cacheReadPer1mTokens: 0.4,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
             },
           ],
         },
@@ -1316,17 +1320,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 0.2,
-          outputPer1mTokens: 1.2,
-          cacheWritePer1mTokens: 0.25,
-          cacheReadPer1mTokens: 0.02,
+          inputPer1mTokens: 0.1,
+          outputPer1mTokens: 0.6,
+          cacheWritePer1mTokens: 0.125,
+          cacheReadPer1mTokens: 0.01,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 0.4,
-              outputPer1mTokens: 1.8,
-              cacheWritePer1mTokens: 0.5,
-              cacheReadPer1mTokens: 0.04,
+              inputPer1mTokens: 0.2,
+              outputPer1mTokens: 0.9,
+              cacheWritePer1mTokens: 0.25,
+              cacheReadPer1mTokens: 0.02,
             },
           ],
         },
@@ -1344,17 +1348,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 0.2,
-          outputPer1mTokens: 1.2,
-          cacheWritePer1mTokens: 0.25,
-          cacheReadPer1mTokens: 0.02,
+          inputPer1mTokens: 0.1,
+          outputPer1mTokens: 0.6,
+          cacheWritePer1mTokens: 0.125,
+          cacheReadPer1mTokens: 0.01,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 0.4,
-              outputPer1mTokens: 1.8,
-              cacheWritePer1mTokens: 0.5,
-              cacheReadPer1mTokens: 0.04,
+              inputPer1mTokens: 0.2,
+              outputPer1mTokens: 0.9,
+              cacheWritePer1mTokens: 0.25,
+              cacheReadPer1mTokens: 0.02,
             },
           ],
         },
