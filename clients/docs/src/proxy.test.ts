@@ -40,7 +40,7 @@ function request(
   const req = new NextRequest(url, {
     headers: { "user-agent": userAgent, ...headers },
   });
-  // host, cookie, and referer are Fetch-spec forbidden request headers —
+  // host, cookie, and referer are Fetch-spec forbidden request headers;
   // Request() may strip them during construction. Set them after via
   // Headers.set(). Cookies must also be set on NextRequest's internal cookie
   // jar via req.cookies.set() since it doesn't re-read the raw header.
@@ -218,6 +218,15 @@ describe("docs proxy UTM/click-ID capture", () => {
     });
   });
 
+  test("an empty click ID param does not infer paid attribution", () => {
+    proxy(request("https://www.vellum.ai/docs?gclid="));
+
+    const [entry] = pageViewLogs();
+    expect(entry?.utm_resolution).toBeUndefined();
+    expect(entry?.utm_source).toBeUndefined();
+    expect(entry?.gclid).toBeUndefined();
+  });
+
   test("overlong click ID values are truncated to 512 chars", () => {
     proxy(request(`https://www.vellum.ai/docs?gclid=${"x".repeat(600)}`));
 
@@ -238,6 +247,24 @@ describe("docs proxy UTM/click-ID capture", () => {
       utm_resolution: "referrer",
     });
   });
+
+  test.each([
+    ["https://www.google.com/", "google", "organic"],
+    ["https://www.google.co.uk/", "google", "organic"],
+    ["https://notgoogle.com/", "notgoogle.com", "referral"],
+    ["https://x.com.example.org/", "x.com.example.org", "referral"],
+  ])(
+    "referrer %s classifies as source=%s medium=%s",
+    (referrer, source, medium) => {
+      proxy(request("https://www.vellum.ai/docs", { referrer }));
+
+      expect(pageViewLogs()[0]).toMatchObject({
+        utm_source: source,
+        utm_medium: medium,
+        utm_resolution: "referrer",
+      });
+    },
+  );
 
   test("utm_source=chatgpt without utm_medium gets geo backfilled", () => {
     proxy(request("https://www.vellum.ai/docs?utm_source=chatgpt"));
@@ -263,7 +290,7 @@ describe("docs proxy UTM/click-ID capture", () => {
 
 describe("docs proxy JSON log contract", () => {
   // Key order copied from a platform page_view log line (the platform's
-  // emitPageViewLog in vellum-assistant-platform web/src/proxy.ts) — the
+  // emitPageViewLog in vellum-assistant-platform web/src/proxy.ts); the
   // BigQuery sink + dbt stg_marketing_events__page_views parse this shape.
   const PLATFORM_FIXTURE = {
     source: "marketing",

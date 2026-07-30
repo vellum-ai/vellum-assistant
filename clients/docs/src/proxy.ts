@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
  * (vellum-assistant-platform `web/src/proxy.ts`): page_view logging, the
  * `vellum_vid` visitor cookie, and UTM/click-ID capture. The page_view JSON
  * contract is parsed downstream (BigQuery log sink + dbt
- * `stg_marketing_events__page_views`) — field names must not change.
+ * `stg_marketing_events__page_views`); field names must not change.
  *
  * NEXT.JS MIDDLEWARE WORKAROUND: `request.nextUrl.hostname` returns the server
  * bind address (0.0.0.0) behind a reverse proxy (GKE L7 load balancer), not the
@@ -75,7 +75,7 @@ function buildUTMPayload(request: NextRequest): Record<string, string> | null {
 
 /**
  * Paid click IDs appended by ad platforms when auto-tagging is enabled.
- * A URL with one of these — even without explicit utm_* params — is paid traffic.
+ * A URL with one of these, even without explicit utm_* params, is paid traffic.
  */
 const PAID_CLICK_IDS: ReadonlyArray<{
   params: readonly string[];
@@ -121,7 +121,9 @@ function inferUTMFromClickIds(
   const searchParams = request.nextUrl.searchParams;
   for (const rule of PAID_CLICK_IDS) {
     for (const param of rule.params) {
-      if (searchParams.has(param)) {
+      // Nonempty only, matching pickClickIds: a bare `?gclid=` must not
+      // produce a paid row with no supporting click ID in the payload.
+      if (searchParams.get(param)) {
         return {
           utm_source: rule.source,
           utm_medium: rule.medium,
@@ -138,6 +140,16 @@ function hostMatches(host: string, domain: string): boolean {
   return host === domain || host.endsWith(`.${domain}`);
 }
 
+function hostMatchesAny(host: string, domains: readonly string[]): boolean {
+  return domains.some((domain) => hostMatches(host, domain));
+}
+
+// Google search spans ccTLDs (google.com, google.co.uk, google.de, ...), so a
+// suffix match against a fixed domain can't cover it. Match the "google" label
+// at a dot boundary followed by at most two trailing labels, which rejects
+// lookalikes (notgoogle.com) and embedded brands (google.com.evil.org).
+const GOOGLE_SEARCH_HOST = /(^|\.)google\.[a-z]{2,}(\.[a-z]{2,})?$/;
+
 function inferUTMFromReferrer(
   request: NextRequest,
 ): Record<string, string> | null {
@@ -148,7 +160,9 @@ function inferUTMFromReferrer(
 
   let host = "";
   try {
-    host = new URL(referrer).host.toLowerCase();
+    // hostname, not host: an explicit port would defeat the exact/suffix
+    // matches below.
+    host = new URL(referrer).hostname.toLowerCase();
   } catch {
     return null;
   }
@@ -165,19 +179,25 @@ function inferUTMFromReferrer(
   let medium: string | undefined;
 
   // Search engines
-  if (host.includes("google.") && !host.includes("gemini.google.com")) {
+  if (
+    GOOGLE_SEARCH_HOST.test(host) &&
+    !hostMatches(host, "gemini.google.com")
+  ) {
     source = "google";
     medium = "organic";
-  } else if (host.includes("bing.com") && !host.includes("copilot.")) {
+  } else if (
+    hostMatches(host, "bing.com") &&
+    !hostMatches(host, "copilot.bing.com")
+  ) {
     source = "bing";
     medium = "organic";
-  } else if (host.includes("duckduckgo.com")) {
+  } else if (hostMatches(host, "duckduckgo.com")) {
     source = "duckduckgo";
     medium = "organic";
-  } else if (host.includes("search.yahoo.com")) {
+  } else if (hostMatches(host, "search.yahoo.com")) {
     source = "yahoo";
     medium = "organic";
-  } else if (host.includes("baidu.com")) {
+  } else if (hostMatches(host, "baidu.com")) {
     source = "baidu";
     medium = "organic";
   } else if (hostMatches(host, "search.brave.com")) {
@@ -195,43 +215,34 @@ function inferUTMFromReferrer(
   }
   // AI engines (GEO = generative engine optimization)
   else if (
-    host.includes("chat.openai.com") ||
-    host.includes("chatgpt.com") ||
-    host.includes("r.openai.com")
+    hostMatchesAny(host, ["chat.openai.com", "chatgpt.com", "r.openai.com"])
   ) {
     source = "chatgpt";
     medium = "geo";
-  } else if (host.includes("claude.ai") || host.includes("anthropic.com")) {
+  } else if (hostMatchesAny(host, ["claude.ai", "anthropic.com"])) {
     source = "claude";
     medium = "geo";
-  } else if (host.includes("perplexity.ai")) {
+  } else if (hostMatches(host, "perplexity.ai")) {
     source = "perplexity";
     medium = "geo";
-  } else if (host.includes("gemini.google.com")) {
+  } else if (hostMatches(host, "gemini.google.com")) {
     source = "gemini";
     medium = "geo";
-  } else if (host.includes("copilot.microsoft.com")) {
+  } else if (hostMatches(host, "copilot.microsoft.com")) {
     source = "copilot";
     medium = "geo";
-  } else if (host.includes("grok.com")) {
+  } else if (hostMatches(host, "grok.com")) {
     source = "grok";
     medium = "geo";
-  } else if (
-    host.includes("chat.deepseek.com") ||
-    host.includes("deepseek.com")
-  ) {
+  } else if (hostMatches(host, "deepseek.com")) {
     source = "deepseek";
     medium = "geo";
-  } else if (host.includes("meta.ai")) {
+  } else if (hostMatches(host, "meta.ai")) {
     source = "meta-ai";
     medium = "geo";
   }
   // Social
-  else if (
-    host.includes("x.com") ||
-    host.includes("twitter.com") ||
-    host === "t.co"
-  ) {
+  else if (hostMatchesAny(host, ["x.com", "twitter.com", "t.co"])) {
     source = "x";
     medium = "social";
   } else if (
@@ -242,31 +253,31 @@ function inferUTMFromReferrer(
   ) {
     source = "linkedin";
     medium = "social";
-  } else if (host.includes("facebook.com") || host.includes("instagram.com")) {
+  } else if (hostMatchesAny(host, ["facebook.com", "instagram.com"])) {
     source = "facebook";
     medium = "social";
-  } else if (host.includes("youtube.com")) {
+  } else if (hostMatches(host, "youtube.com")) {
     source = "youtube";
     medium = "social";
-  } else if (host.includes("reddit.com")) {
+  } else if (hostMatches(host, "reddit.com")) {
     source = "reddit";
     medium = "social";
-  } else if (host.includes("tiktok.com")) {
+  } else if (hostMatches(host, "tiktok.com")) {
     source = "tiktok";
     medium = "social";
-  } else if (host.includes("threads.net")) {
+  } else if (hostMatches(host, "threads.net")) {
     source = "threads";
     medium = "social";
-  } else if (host.includes("bsky.app")) {
+  } else if (hostMatches(host, "bsky.app")) {
     source = "bluesky";
     medium = "social";
-  } else if (host.includes("news.ycombinator.com")) {
+  } else if (hostMatches(host, "news.ycombinator.com")) {
     source = "hackernews";
     medium = "social";
-  } else if (host.includes("producthunt.com")) {
+  } else if (hostMatches(host, "producthunt.com")) {
     source = "producthunt";
     medium = "social";
-  } else if (host.includes("github.com")) {
+  } else if (hostMatches(host, "github.com")) {
     source = "github";
     medium = "referral";
   } else if (
@@ -395,7 +406,7 @@ function resolveEntryAttribution(
   const explicit = buildUTMPayload(request);
   // Click IDs ride along on the payload regardless of how source/medium
   // resolve, so the warehouse can attribute paid entries. They can only be
-  // present in the first two branches — any click ID in the URL makes
+  // present in the first two branches; any nonempty click ID in the URL makes
   // inferUTMFromClickIds match.
   const clickIds = pickClickIds(request);
 
@@ -420,7 +431,7 @@ function resolveEntryAttribution(
 
   const inferred = inferUTMFromReferrer(request);
 
-  // Explicit UTM params without source (e.g. just ?utm_campaign=...) — use
+  // Explicit UTM params without source (e.g. just ?utm_campaign=...): use
   // referrer inference to fill in source/medium when available
   if (explicit) {
     return {
