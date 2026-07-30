@@ -51,7 +51,7 @@ export function TheWorkspaceContent() {
 
         <div className="mb-12 overflow-hidden rounded-xl border border-stone-200 bg-white dark:border-moss-600/50 dark:bg-moss-700">
           <Image
-            src="/docs-workspace-files.png"
+            src="/docs/docs-workspace-files.webp"
             alt="The Workspace tab on the About your assistant screen, showing the file tree on the left and IDENTITY.md open in preview on the right"
             width={3590}
             height={2100}

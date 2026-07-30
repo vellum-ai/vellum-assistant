@@ -36,7 +36,7 @@ export function MemoryAndContextContent() {
 
         <div className="mb-12 overflow-hidden rounded-xl border border-stone-200 bg-white dark:border-moss-600/50 dark:bg-moss-700">
           <Image
-            src="/docs-memory-lifecycle.png"
+            src="/docs/docs-memory-lifecycle.webp"
             alt="Diagram of the Vellum memory lifecycle. Step 1 Conversation: you and your assistant talking across chat, voice, or mobile. Step 2 Extraction: after each chat, an LLM pulls out what matters and creates, updates, or reinforces memories. Step 3 Memory graph: memories are nodes connected by labeled edges, with kinds shown as Event, Feeling, Knowledge, Plan, and Pattern, plus a decay and reinforcement note. Step 4 Recall: in the next conversation, relevant memories surface automatically. A continuous loop arrow runs back from Recall into Conversation."
             width={1323}
             height={791}

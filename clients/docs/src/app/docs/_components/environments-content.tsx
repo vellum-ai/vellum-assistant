@@ -61,10 +61,10 @@ export function EnvironmentsContent() {
           </p>
           <div className="mb-8 overflow-x-auto rounded-xl border border-stone-200 bg-white p-4 dark:border-moss-600/50 dark:bg-moss-700">
             <Image
-              src="/architecture-diagram.png"
+              src="/docs/architecture-diagram.webp"
               alt="Architecture diagram showing the relationship between channels, environments, and external providers"
-              width={1200}
-              height={800}
+              width={5484}
+              height={3481}
               unoptimized
               className="w-full rounded-lg"
             />
