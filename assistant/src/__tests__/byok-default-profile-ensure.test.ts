@@ -389,6 +389,65 @@ describe("ensureByokDefaultProfiles", () => {
     expectSecondRunNoop();
   });
 
+  test("stubs carrying the migration-097 thinking stamp are deleted (real-world shape)", () => {
+    const config = uneditedByokConfig();
+    const profs = (config.llm as Record<string, unknown>).profiles as Record<
+      string,
+      Record<string, unknown>
+    >;
+    // Migration 097 / repairAdaptiveThinkingOnManagedProfiles stamp thinking
+    // onto the anthropic-backed managed entries; live BYOK stubs carry it on
+    // balanced and quality-optimized (confirmed on a real workspace).
+    profs["balanced"].thinking = { enabled: true, streamThinking: true };
+    profs["quality-optimized"].thinking = {
+      enabled: true,
+      streamThinking: true,
+    };
+    writeConfig(config);
+    // Real installs booted with the completion pass baking the copies first.
+    ensureCompleteCustomProfiles(workspaceDir);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    const p = profiles();
+    for (const name of [
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+      "custom-balanced",
+      "custom-quality-optimized",
+      "custom-cost-optimized",
+    ]) {
+      expect(p[name]).toBeUndefined();
+    }
+    expect(llm().activeProfile).toBe("balanced");
+    expect(llm().advisorProfile).toBe("quality-optimized");
+    expectSecondRunNoop();
+  });
+
+  test("a stub with a non-repair thinking value survives and the advisor still lands on the dispatchable class", () => {
+    const config = uneditedByokConfig();
+    const profs = (config.llm as Record<string, unknown>).profiles as Record<
+      string,
+      Record<string, unknown>
+    >;
+    profs["quality-optimized"].thinking = {
+      enabled: false,
+      streamThinking: false,
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    const p = profiles();
+    expect(p["quality-optimized"]).toBeDefined();
+    expect(p["custom-quality-optimized"]).toBeUndefined();
+    // The surviving disabled stub still dispatches the catalog body, so the
+    // advisor repair must not skip past quality to a lower class.
+    expect(llm().advisorProfile).toBe("quality-optimized");
+    expectSecondRunNoop();
+  });
+
   test("a historical model pinned on the wrong key does not convert", () => {
     // claude-opus-4-7 was only ever the quality intent; on custom-balanced it
     // is a user edit.

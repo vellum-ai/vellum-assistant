@@ -73,12 +73,23 @@ const log = getLogger("byok-default-profile-ensure");
  * any other key (a platform overlay body) is not a stub and is likewise
  * left alone.
  */
-const STUB_ONLY_KEYS = new Set(["source", "status", "label"]);
+const STUB_ONLY_KEYS = new Set(["source", "status", "label", "thinking"]);
 const HATCH_STUB_LABELS: Record<DefaultProfileKey, string> = {
   balanced: "Balanced (Managed)",
   "quality-optimized": "Quality (Managed)",
   "cost-optimized": "Speed (Managed)",
 };
+
+/**
+ * Migration 097 and `repairAdaptiveThinkingOnManagedProfiles` stamp exactly
+ * this `thinking` value onto managed anthropic-backed entries, hatch stubs
+ * included, so live stubs commonly carry it (confirmed on real workspaces).
+ * A stub's `thinking` must equal this frozen shape byte-for-byte to count as
+ * machinery-written; any other value is treated as user state and keeps the
+ * entry. The carry arm never writes `thinking`, so the idempotency invariant
+ * (deletion predicate matches nothing the carry arm can produce) holds.
+ */
+const REPAIR_WRITTEN_THINKING = { enabled: true, streamThinking: true };
 
 function isHatchStub(
   key: DefaultProfileKey,
@@ -88,6 +99,8 @@ function isHatchStub(
     entry.source === "managed" &&
     Object.keys(entry).every((k) => STUB_ONLY_KEYS.has(k)) &&
     (!("status" in entry) || entry.status === "disabled") &&
+    (!("thinking" in entry) ||
+      isDeepStrictEqual(entry.thinking, REPAIR_WRITTEN_THINKING)) &&
     entry.label === HATCH_STUB_LABELS[key]
   );
 }
@@ -229,6 +242,7 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
   const completionBase = LLMConfigBase.safeParse(llm.default ?? {}).data;
 
   const retired = new Map<string, string>();
+  const carriedDisables = new Set<DefaultProfileKey>();
   for (const key of DEFAULT_PROFILE_KEYS) {
     const name = `custom-${key}`;
     const entry = readObject(profiles[name]);
@@ -252,6 +266,9 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
       }
       if (Object.keys(stub).length > 1) {
         profiles[key] = stub;
+        if (stub.status === "disabled") {
+          carriedDisables.add(key);
+        }
       }
     }
     retired.set(name, key);
@@ -270,7 +287,7 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
     return;
   }
 
-  repairProfileSelections(llm, profiles, parsedDefault.data);
+  repairProfileSelections(llm, profiles, parsedDefault.data, carriedDisables);
 
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   // The lifecycle call site runs before the first loadConfig() of this boot;
@@ -490,6 +507,7 @@ function repairProfileSelections(
   llm: Record<string, unknown>,
   profiles: Record<string, unknown>,
   defaultProvider: DefaultProviderConfig,
+  carriedDisables: ReadonlySet<DefaultProfileKey>,
 ): void {
   const effectiveEntry = (name: string): ProfileEntry | undefined =>
     resolveDefaultProfileForProvider(
@@ -505,9 +523,31 @@ function repairProfileSelections(
     advisorEntry === undefined ||
     (advisorEntry.source === "managed" && advisorEntry.status === "disabled");
   if (advisorUnusable) {
+    // A default key whose surviving workspace entry is a disabled managed
+    // stub still dispatches the pure catalog body (`providerAwareEntry` in
+    // llm-resolver.ts treats such stubs as stale hatch-era state), so it is
+    // a better advisor than a lower class whose stub happens to be gone.
+    // Judge usability by dispatch semantics, EXCEPT for a disable this very
+    // write carried off the user's retired copy: that one is user intent,
+    // not hatch residue, and the advisor must not land on it.
     const fallback = ADVISOR_FALLBACK_ORDER.find((key) => {
       const entry = effectiveEntry(key);
-      return entry !== undefined && entry.status !== "disabled";
+      if (entry === undefined) {
+        return false;
+      }
+      if (entry.status !== "disabled") {
+        return true;
+      }
+      if (carriedDisables.has(key)) {
+        return false;
+      }
+      const workspace = readObject(profiles[key]);
+      return (
+        workspace !== null &&
+        workspace.source === "managed" &&
+        resolveDefaultProfileForProvider(undefined, key, defaultProvider)
+          ?.status !== "disabled"
+      );
     });
     if (fallback !== undefined) {
       llm.advisorProfile = fallback;
