@@ -30,8 +30,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN cd clients/docs && bun run build
 
 # Next standalone output omits public/ and the request-time markdown mirrors
-# (generated/md, served by the _md route). Ensure both exist so the runner
-# COPY works before the prebuild scripts that populate them land.
+# (generated/md, served by the _md route). The prebuild scripts populate both;
+# the mkdir guards the runner COPY against a build that emits neither.
 RUN mkdir -p clients/docs/public clients/docs/generated/md
 
 # Runtime stage

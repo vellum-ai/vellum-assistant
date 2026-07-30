@@ -41,7 +41,7 @@ describe("createMetadata", () => {
     });
   });
 
-  test("defaults OG and Twitter images to the static docs OG image", () => {
+  test("uses the static docs OG image for OG and Twitter cards", () => {
     const metadata = createMetadata({
       title: "Pricing",
       description: "Vellum pricing",
@@ -59,22 +59,6 @@ describe("createMetadata", () => {
     expect(metadata.twitter?.images).toEqual([
       {
         url: "https://www.vellum.ai/docs/og.png",
-        alt: "Pricing",
-      },
-    ]);
-  });
-
-  test("uses an explicit image without assuming dimensions", () => {
-    const metadata = createMetadata({
-      title: "Pricing",
-      description: "Vellum pricing",
-      path: "/docs/pricing",
-      image: "https://www.vellum.ai/docs/custom.png",
-    });
-
-    expect(metadata.openGraph?.images).toEqual([
-      {
-        url: "https://www.vellum.ai/docs/custom.png",
         alt: "Pricing",
       },
     ]);

@@ -16,7 +16,7 @@ Ingress only routes `/docs/*` to this app. Every URL the app emits publicly MUST
 
 ## The `%5Fmd` folder encoding trick
 
-The markdown mirror route lives at `src/app/docs/%5Fmd/[[...slug]]/route.ts` and serves `/docs/_md`. A folder literally named `_md` is private to the app router (underscore prefix) and would be excluded from routing; `%5F` is the URL-encoded `_`, which registers the public route while generators, the sitemap walk, and the attribution proxy still treat `/docs/_md` as an excluded internal path. Do not "fix" the folder name.
+The markdown mirror route lives at `src/app/docs/%5Fmd/[[...slug]]/route.ts` and serves `/docs/_md`. A folder literally named `_md` is private to the app router (underscore prefix) and would be excluded from routing; `%5F` is the URL-encoded `_`, which registers the public route. The filesystem walkers (sitemap route discovery, the markdown/search generators) treat `%5F`-encoded names as private the same as a literal underscore prefix, and the attribution proxy excludes the `/docs/_md` URL path. Do not "fix" the folder name.
 
 ## Authoring content
 
@@ -54,6 +54,14 @@ Both run automatically via `predev`/`prebuild`. All outputs are gitignored. Next
 - Placeholder people are Alice and Bob; emails use `user@example.com`-style reserved domains (root `AGENTS.md` "Generic Examples").
 - Keep copy accurate to product behavior: telemetry/diagnostics sharing is opt-out (on by default, disableable by the user), and the LLM provider is configurable (do not write copy implying a single fixed provider).
 - Present tense; describe what the product does now, not what changed.
+
+## Deviations from the platform source
+
+Behavior ported from the platform app that intentionally differs:
+
+- Attribution referrer/click-id classification is stricter than the platform emitter: empty click-id params (e.g. a bare `?gclid=`) emit no paid attribution, referrer domains match at hostname boundaries (exact host or dot-suffix, never substring), and `copilot.bing.com` classifies as GEO. The emitted JSON key set is unchanged.
+- Search extraction/ranking adds element-boundary spacing during text extraction, indexes standalone headings unconditionally as their own chunks with level-aware scoping, and returns matched-term snippets.
+- Tailwind has no class-keyed dark variant. The pre-hydration bootstrap stamps both `.dark` and `data-theme="dark"` on `<html>`; `dark:` utilities key off `data-theme` (the design-library `tokens.css` custom variant) while `docs-theme.css` selectors key off `.dark`.
 
 ## Deferred items and known divergences from the platform app
 
