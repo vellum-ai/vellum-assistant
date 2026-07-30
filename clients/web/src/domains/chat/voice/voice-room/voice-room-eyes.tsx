@@ -833,16 +833,25 @@ export function VoiceRoomEyes({
   const { w, h } = viewport;
   const playEntrance = !reduce;
 
-  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  // The parallax offset and the blink are decorative, so both drive the DOM
+  // through a ref rather than React state: a pointer-rate or frame-rate
+  // updater in the commit stream is what walks React's nested-update counter
+  // to its limit. See docs/CONVENTIONS.md, "Keep decorative animation out of
+  // the commit stream". The rendered values below stay constant so a re-render
+  // never clobbers the imperative write.
+  const parallaxRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (reduce) {
       return;
     }
     const onMove = (e: MouseEvent) => {
-      setPointer({
-        x: (e.clientX / window.innerWidth - 0.5) * 2,
-        y: (e.clientY / window.innerHeight - 0.5) * 2,
-      });
+      const node = parallaxRef.current;
+      if (!node) {
+        return;
+      }
+      const x = (e.clientX / window.innerWidth - 0.5) * 2;
+      const y = (e.clientY / window.innerHeight - 0.5) * 2;
+      node.style.transform = `translate(${x * CURSOR_MAX_X}px, ${y * CURSOR_MAX_Y}px)`;
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
@@ -850,7 +859,14 @@ export function VoiceRoomEyes({
 
   // Two settle blinks once the entrance lands, then a slow random idle blink —
   // onboarding's entrance blink choreography.
-  const [blinking, setBlinking] = useState(false);
+  const eyelidsRef = useRef<SVGGElement | null>(null);
+  const setBlink = useCallback((closed: boolean) => {
+    const node = eyelidsRef.current;
+    if (node) {
+      node.style.transform = closed ? "scaleY(0.1)" : "scaleY(1)";
+    }
+  }, []);
+
   const [entranceDone, setEntranceDone] = useState(!playEntrance);
   useEffect(() => {
     if (reduce || !entranceDone) {
@@ -862,12 +878,12 @@ export function VoiceRoomEyes({
       if (cancelled) {
         return;
       }
-      setBlinking(true);
+      setBlink(true);
       t = setTimeout(() => {
         if (cancelled) {
           return;
         }
-        setBlinking(false);
+        setBlink(false);
         t = setTimeout(next, 140);
       }, 140);
     };
@@ -875,18 +891,21 @@ export function VoiceRoomEyes({
       t = setTimeout(() => blink(idle), 2500 + Math.random() * 4000);
     };
     blink(() => blink(idle));
+    // Leaving the lids open on teardown keeps a torn-down or re-armed loop
+    // from stranding the eyes mid-blink.
     return () => {
       cancelled = true;
       clearTimeout(t);
+      setBlink(false);
     };
-  }, [reduce, entranceDone]);
+  }, [reduce, entranceDone, setBlink]);
 
   // Poke-the-eyes delight: clicking the eyes fires a single blink and a quick
-  // springy wobble that settles back. The blink drives the same `blinking`
-  // state the idle loop uses (its own timeout is tracked so rapid clicks don't
-  // leak), and the wobble rides a dedicated controls-driven layer so it can't
-  // fight the entrance keyframes or the per-state scale tween. Reduced motion
-  // keeps the discrete blink and skips the wobble.
+  // springy wobble that settles back. The blink goes through the same
+  // `setBlink` the idle loop uses (its own timeout is tracked so rapid clicks
+  // don't leak), and the wobble rides a dedicated controls-driven layer so it
+  // can't fight the entrance keyframes or the per-state scale tween. Reduced
+  // motion keeps the discrete blink and skips the wobble.
   const wobble = useAnimationControls();
   const manualBlinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -898,11 +917,11 @@ export function VoiceRoomEyes({
     [],
   );
   const reactToClick = useCallback(() => {
-    setBlinking(true);
+    setBlink(true);
     if (manualBlinkTimeout.current) {
       clearTimeout(manualBlinkTimeout.current);
     }
-    manualBlinkTimeout.current = setTimeout(() => setBlinking(false), 140);
+    manualBlinkTimeout.current = setTimeout(() => setBlink(false), 140);
     if (reduce) {
       return;
     }
@@ -912,7 +931,7 @@ export function VoiceRoomEyes({
       rotate: [0, -2.5, 1.5, 0],
       transition: { duration: 0.5, ease: "easeOut" },
     });
-  }, [reduce, wobble]);
+  }, [reduce, wobble, setBlink]);
 
   const originX = entranceOrigin?.x ?? w / 2;
   const originY = entranceOrigin?.y ?? (ENTER_FROM_CENTER_VH / 100) * h;
@@ -1029,8 +1048,9 @@ export function VoiceRoomEyes({
                 cursor — a few px only, so they stay visually centered on the
                 room's spine (see CURSOR_MAX_X / CURSOR_MAX_Y). */}
             <div
+              ref={parallaxRef}
               style={{
-                transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
+                transform: "translate(0px, 0px)",
                 transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
               }}
             >
@@ -1041,8 +1061,9 @@ export function VoiceRoomEyes({
                 style={{ overflow: "visible", display: "block" }}
               >
                 <g
+                  ref={eyelidsRef}
                   style={{
-                    transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
+                    transform: "scaleY(1)",
                     transformOrigin: `${cx}px ${cy}px`,
                     transition: "transform 0.14s ease-in-out",
                   }}
