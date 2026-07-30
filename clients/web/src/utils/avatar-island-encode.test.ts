@@ -1,10 +1,10 @@
 /**
- * Tests for `encodeAvatarForIsland` — fitting the assistant avatar inside
+ * Tests for `encodeAvatarForIsland`, fitting the assistant avatar inside
  * ActivityKit's payload ceiling.
  *
  * The rasterizer is injected rather than stubbed with `mock.module`: it needs a
  * canvas, and what matters here is the ladder's decision-making, not the
- * pixels. Injection also keeps the stub local — mocking the module would
+ * pixels. Injection also keeps the stub local, because mocking the module would
  * replace the whole of `avatar-raster` for every test file sharing the process,
  * stripping `coverCropSquare` out from under `avatar-raster.test.ts`.
  *

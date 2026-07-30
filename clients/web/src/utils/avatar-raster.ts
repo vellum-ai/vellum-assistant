@@ -14,7 +14,7 @@
  */
 
 /**
- * The largest centered square of a `srcW`×`srcH` source — the source rect for
+ * The largest centered square of a `srcW`×`srcH` source, the source rect for
  * an `object-cover` draw, matching the in-app `ChatAvatar` so non-square
  * uploads render identically on the icon surfaces instead of being stretched.
  * Returns null for a degenerate (zero-dimension) source so the caller draws

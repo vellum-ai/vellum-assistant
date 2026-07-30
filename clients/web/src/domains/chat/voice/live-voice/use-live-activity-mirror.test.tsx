@@ -43,6 +43,31 @@ const updateVoiceLiveActivity = mock(
 );
 const endVoiceLiveActivity = mock(async (): Promise<void> => undefined);
 
+// Holds the avatar encode open so a phase change can land between `start`
+// being requested and the bridge actually being called. Stubbed rather than
+// delegating to the real encoder: the real one needs a canvas, and importing
+// the module here in order to wrap it deadlocks module init.
+let encodeGate: Promise<void> | null = null;
+
+mock.module("@/utils/avatar-island-encode", () => ({
+  ISLAND_AVATAR_MAX_BYTES: 2000,
+  encodeAvatarForIsland: async () => {
+    if (encodeGate) {
+      await encodeGate;
+    }
+    return null;
+  },
+}));
+
+mock.module("@/hooks/use-island-avatar-source", () => ({
+  useIslandAvatarSource: () => undefined,
+  getIslandAvatarSource: () => ({
+    kind: "character",
+    svg: "<svg/>",
+    dataUri: "d",
+  }),
+}));
+
 mock.module("@/runtime/native-live-activity", () => ({
   startVoiceLiveActivity,
   updateVoiceLiveActivity,
@@ -167,6 +192,59 @@ describe("starting the activity", () => {
       assistantName: "Ada",
     });
     expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
+  });
+
+  // The encode is a canvas draw, so `start` is not synchronous with the store
+  // transition that requested it. A phase landing inside that window pushes an
+  // `update` the native side drops for want of an activity to update, so the
+  // island would open on the stale phase and stay there until something else
+  // changed.
+  test("opens on the newest phase when one lands during the avatar encode", async () => {
+    let openGate = () => undefined as void;
+    encodeGate = new Promise<void>((resolve) => {
+      openGate = () => {
+        resolve();
+      };
+    });
+
+    renderMirror();
+    await setPhase("connecting");
+    expect(startVoiceLiveActivity).not.toHaveBeenCalled();
+
+    // Moves on while the encode is still pending.
+    await setPhase("listening");
+
+    await act(async () => {
+      openGate();
+      await Promise.resolve();
+    });
+
+    expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
+    expect(lastStartPayload()).toMatchObject({ phase: "listening" });
+    encodeGate = null;
+  });
+
+  // The same window, but the session ends inside it. A late `start` would
+  // strand an island that only the next launch could clear.
+  test("does not start at all when the session ends during the encode", async () => {
+    let openGate = () => undefined as void;
+    encodeGate = new Promise<void>((resolve) => {
+      openGate = () => {
+        resolve();
+      };
+    });
+
+    renderMirror();
+    await setPhase("connecting");
+    await setPhase("idle");
+
+    await act(async () => {
+      openGate();
+      await Promise.resolve();
+    });
+
+    expect(startVoiceLiveActivity).not.toHaveBeenCalled();
+    encodeGate = null;
   });
 
   test("a session already running at mount is picked up (controller remount)", async () => {

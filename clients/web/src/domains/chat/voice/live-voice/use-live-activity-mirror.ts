@@ -114,24 +114,35 @@ async function islandAvatarBase64(): Promise<string | undefined> {
 }
 
 /**
- * Start the activity once the avatar is encoded, unless the session ended
- * while that was happening.
+ * Start the activity once the avatar is encoded.
  *
  * The encode is a canvas draw, so `start` is no longer synchronous with the
- * store transition that triggered it. A session that ends inside that window
- * would otherwise have its `end` overtaken by this `start` and strand an
- * island nothing is driving, which is the one failure the plugin's
- * single-activity handle cannot clean up until the next launch.
+ * store transition that triggered it, and the session can move underneath it.
+ * `currentStart` is therefore resolved *after* the await rather than captured
+ * before it, and answers both questions the delay creates:
+ *
+ * - **The session ended.** It returns `null`, so `end` is not overtaken by a
+ *   late `start` that would strand an island nothing is driving. That is the
+ *   one failure the plugin's single-activity handle cannot clean up until the
+ *   next launch.
+ * - **The phase moved on.** It returns the *latest* content, not the phase that
+ *   opened the window. Any `update` pushed while this was pending was dropped
+ *   natively, because there was no activity to update yet, so starting from the
+ *   captured payload would leave the island showing "Connecting…" until the
+ *   next phase change happened to repaint it.
  */
 async function startWithAvatar(
-  start: VoiceLiveActivityStart,
-  stillWanted: () => boolean,
+  currentStart: () => VoiceLiveActivityStart | null,
 ): Promise<void> {
   const avatarBase64 = await islandAvatarBase64();
-  if (!stillWanted()) {
+  const start = currentStart();
+  if (start === null) {
     return;
   }
-  await startVoiceLiveActivity({ ...start, ...(avatarBase64 ? { avatarBase64 } : {}) });
+  await startVoiceLiveActivity({
+    ...start,
+    ...(avatarBase64 ? { avatarBase64 } : {}),
+  });
 }
 
 /** Whether two payloads would render the same island. */
@@ -180,18 +191,23 @@ export function useLiveActivityMirror(): void {
         pushed = content;
         generation += 1;
         const started = generation;
-        void startWithAvatar(
-          {
-            ...content,
-            // An `ActivityAttributes` field, not `ContentState`: fixed for the
-            // activity's lifetime, so it is read once here and never pushed
-            // again. The avatar is added by `startWithAvatar` for the same
-            // reason.
-            assistantName: assistantDisplayName(
-              useAssistantIdentityStore.getState().name,
-            ),
-          },
-          () => generation === started && pushed !== null,
+        void startWithAvatar(() =>
+          // Read at start time, not capture time. `pushed` tracks the newest
+          // content, so a phase that landed during the avatar encode is what
+          // the island opens on; its own `update` was dropped natively for
+          // want of an activity to update.
+          generation === started && pushed !== null
+            ? {
+                ...pushed,
+                // An `ActivityAttributes` field, not `ContentState`: fixed for
+                // the activity's lifetime, so it is read once here and never
+                // pushed again. The avatar is added by `startWithAvatar` for
+                // the same reason.
+                assistantName: assistantDisplayName(
+                  useAssistantIdentityStore.getState().name,
+                ),
+              }
+            : null,
         );
         return;
       }

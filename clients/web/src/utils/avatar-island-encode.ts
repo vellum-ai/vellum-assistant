@@ -5,8 +5,8 @@
  * ## Why bytes, and why so few
  *
  * A Live Activity view renders from a snapshot in the widget extension's
- * process. There is no async image loading there — `AsyncImage` only ever
- * draws its placeholder — so an avatar cannot be handed over as a URL for the
+ * process. There is no async image loading there (`AsyncImage` only ever
+ * draws its placeholder), so an avatar cannot be handed over as a URL for the
  * extension to fetch. It has to arrive already decoded, which means the bytes
  * travel with the activity.
  *
@@ -17,7 +17,7 @@
  * assistant name, phase label, accent hex and mute flag room to grow without
  * the avatar being what pushes the activity over.
  *
- * Going over is not a degraded avatar, it is **no Live Activity at all** — the
+ * Going over is not a degraded avatar, it is **no Live Activity at all**: the
  * request throws and the island never appears. That asymmetry is why
  * {@link encodeAvatarForIsland} returns null rather than its smallest attempt
  * when nothing fits: an island with a waveform glyph is fine, and an island
@@ -81,7 +81,7 @@ const CANDIDATES: ReadonlyArray<{
   { size: 48, type: "image/jpeg", quality: 0.6 },
 ];
 
-/** Base64 for bytes, without a data-URI prefix — the bridge carries the payload raw. */
+/** Base64 for bytes, without a data-URI prefix: the bridge carries the payload raw. */
 function toBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
