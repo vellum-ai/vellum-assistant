@@ -12,6 +12,9 @@ const PREV_KEYS = new Set(["ArrowUp", "ArrowLeft"]);
  * semantics for standard dot-and-label radios, but their fixed layout cannot
  * wrap these card surfaces, so the chooser cards reproduce them instead.
  *
+ * Only events originating on one of the group's radios are handled; arrows
+ * pressed on other controls inside the group (a create row, a card's inline
+ * buttons) keep their default behavior and never move the selection.
  * Selection is applied by clicking the target card, so each card's own
  * select handler stays the single source of truth.
  */
@@ -19,22 +22,21 @@ export function handleRadioCardArrowNav(e: KeyboardEvent<HTMLElement>): void {
   if (!NEXT_KEYS.has(e.key) && !PREV_KEYS.has(e.key)) {
     return;
   }
+  const origin = (e.target as HTMLElement).closest<HTMLElement>(
+    '[role="radio"]',
+  );
+  if (!origin) {
+    return;
+  }
   const radios = Array.from(
     e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'),
   );
-  if (radios.length === 0) {
+  const current = radios.indexOf(origin);
+  if (current < 0) {
     return;
   }
-  const forward = NEXT_KEYS.has(e.key);
-  const focused = radios.indexOf(document.activeElement as HTMLElement);
-  const current =
-    focused >= 0
-      ? focused
-      : radios.findIndex((r) => r.getAttribute("aria-checked") === "true");
-  const next =
-    current < 0
-      ? radios[forward ? 0 : radios.length - 1]
-      : radios[(current + (forward ? 1 : -1) + radios.length) % radios.length];
+  const delta = NEXT_KEYS.has(e.key) ? 1 : -1;
+  const next = radios[(current + delta + radios.length) % radios.length];
   e.preventDefault();
   next.focus();
   next.click();

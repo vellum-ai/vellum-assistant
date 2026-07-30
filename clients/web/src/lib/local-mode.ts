@@ -347,8 +347,18 @@ export async function removePlatformAssistantFromLockfile(
   if (!entry || !isPlatformAssistant(entry)) {
     return { ok: false, error: "This assistant isn't in the local list." };
   }
+  // Only the target org's entries ride the replace payload: the host treats
+  // every supplied id as replaced-by-payload, and the renderer's parsed copies
+  // drop host-only fields, so other orgs' on-disk records must stay out of the
+  // payload to survive raw. A legacy org-less entry can't be scoped; its
+  // unscoped replace resends every platform entry (minus the target).
   const remaining = getPlatformAssistants()
     .filter((a) => a.assistantId !== assistantId)
+    .filter(
+      (a) =>
+        entry.organizationId == null ||
+        a.organizationId === entry.organizationId,
+    )
     .map((a) => ({ ...a }));
   const result = await replacePlatformAssistantsHost(
     remaining,

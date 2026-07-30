@@ -189,9 +189,21 @@ describe("removePlatformAssistantFromLockfile", () => {
     organizationId: "org-1",
   } as LockfileAssistant;
 
+  const platformOtherOrg: LockfileAssistant = {
+    assistantId: "platform-c",
+    cloud: "vellum",
+    organizationId: "org-2",
+  } as LockfileAssistant;
+
   test("rewrites the remaining platform entries scoped to the entry's org and commits", async () => {
-    setLockfile({ assistants: [localA, platformA, platformB], activeAssistant: "local-a" });
-    const resulting = { assistants: [localA, platformB], activeAssistant: "local-a" };
+    setLockfile({
+      assistants: [localA, platformA, platformB, platformOtherOrg],
+      activeAssistant: "local-a",
+    });
+    const resulting = {
+      assistants: [localA, platformB, platformOtherOrg],
+      activeAssistant: "local-a",
+    };
     replacePlatformAssistantsHost.mockResolvedValueOnce({
       ok: true as const,
       lockfile: resulting,
@@ -203,6 +215,9 @@ describe("removePlatformAssistantFromLockfile", () => {
     expect(replacePlatformAssistantsHost).toHaveBeenCalledTimes(1);
     const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
     expect(org).toBe("org-1");
+    // Other orgs' entries stay out of the payload so the host preserves
+    // their on-disk records raw instead of replacing them with the
+    // renderer's parsed copies.
     expect(entries).toEqual([expect.objectContaining({ assistantId: "platform-b" })]);
     expect(useLockfileStore.getState().lockfile).toEqual(resulting);
     expect(useLockfileStore.getState().committed).toBe(true);

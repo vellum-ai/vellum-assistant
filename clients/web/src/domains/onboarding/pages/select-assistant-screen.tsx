@@ -107,9 +107,20 @@ export function SelectAssistantScreen() {
   const removedThisVisitRef = useRef(false);
 
   // Default selection: the app's known selected assistant when accessible,
-  // else the first accessible assistant.
+  // else the first accessible assistant. Also reconciles an existing
+  // selection that stops being accessible (an in-place logout locks the
+  // platform cards), so Continue can never target a locked assistant.
   useEffect(() => {
-    if (selected != null || accessibleAssistants.length === 0) {
+    if (accessibleAssistants.length === 0) {
+      if (selected != null) {
+        setSelected(null);
+      }
+      return;
+    }
+    if (
+      selected != null &&
+      accessibleAssistants.some((a) => a.id === selected)
+    ) {
       return;
     }
     const resolved = resolveSelectedAssistantId(currentOrganizationId);
