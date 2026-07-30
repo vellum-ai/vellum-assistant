@@ -8,7 +8,7 @@
  *
  * The headline output is {@link SidebarState.sections}: one flat, ordered
  * list of every renderable section (Pinned, Chats, each channel, each custom
- * group) as a discriminated union. The sidebar walks that list in order —
+ * group) as a discriminated union. The sidebar walks that list in order -
  * it does not know which section types exist or where they "belong", which
  * is what lets the user put a custom group above Recents.
  *
@@ -61,7 +61,7 @@ import { getChannelLabel } from "@/utils/channel-presentation";
 export const SIDEBAR_CONVERSATION_LIMIT = 5;
 
 /**
- * Shared empty array for the "no attention anywhere" case — the common one.
+ * Shared empty array for the "no attention anywhere" case - the common one.
  * Returning a fresh `[]` would give every dependent memo a new identity on
  * each render.
  */
@@ -137,7 +137,7 @@ function buildPaginatedSection(
 
 interface SidebarSectionBase {
   /**
-   * Collapse key *and* section-order key — one namespace, so the two can
+   * Collapse key *and* section-order key - one namespace, so the two can
    * never disagree about what a section is called.
    */
   key: string;
@@ -170,7 +170,7 @@ export interface SidebarState {
   customGroups: CustomGroup[];
 
   /**
-   * Every section in the user's chosen order — the list the sidebar renders.
+   * Every section in the user's chosen order - the list the sidebar renders.
    * Sections the user has never touched fall back to the default order
    * (Pinned, custom groups, Chats, channel sections).
    */
@@ -181,14 +181,14 @@ export interface SidebarState {
    */
   onReorderSections: (orderedKeys: string[]) => void;
   /**
-   * Nudge one section one slot up (`-1`) or down (`+1`) — the keyboard- and
+   * Nudge one section one slot up (`-1`) or down (`+1`) - the keyboard- and
    * touch-reachable equivalent of dragging it, since HTML5 drag events fire
    * for neither.
    */
   onMoveSection: (key: string, delta: -1 | 1) => void;
 
   /**
-   * Open keys for the single accordion root that holds *every* section —
+   * Open keys for the single accordion root that holds *every* section -
    * merged from the primary, category, and custom-group storage buckets.
    * One root keeps section spacing uniform and lets the three section types
    * interleave in any order.
@@ -329,9 +329,9 @@ export function useSidebarState({
   // --- Section order ---
 
   // Default layout: Pinned, then the user's custom groups, then Chats and the
-  // channel sections. Groups lead because they're the deliberate, curated
-  // organization layer — burying them under channel sections that come and go
-  // with traffic was the complaint behind LUM-2909.
+  // channel sections. Groups lead because they are the deliberate, curated
+  // organization layer, and they hold their place while channel sections come
+  // and go with traffic.
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
     if (grouped.pinned.length > 0) {
@@ -421,7 +421,7 @@ export function useSidebarState({
   );
 
   // Sections a conversation needing attention forces open, whatever the user
-  // last chose. One pass over `sections` covers every type — each section
+  // last chose. One pass over `sections` covers every type - each section
   // already carries its own conversations, so there's nothing type-specific
   // left to special-case here.
   const attentionOpenKeys = useMemo(() => {

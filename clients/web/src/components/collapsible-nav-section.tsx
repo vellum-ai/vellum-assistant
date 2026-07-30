@@ -115,8 +115,8 @@ function LongPressHeaderMenu({
 /**
  * Drag-to-reorder wiring for a whole section.
  *
- * Every handler goes on the **header** — it is both the drag handle and the
- * drop target — while the visual state (`dragging`, `dropEdge`) styles the
+ * Every handler goes on the **header** - it is both the drag handle and the
+ * drop target - while the visual state (`dragging`, `dropEdge`) styles the
  * whole section box.
  *
  * The header, not the section root, owns the handlers deliberately.
@@ -128,7 +128,7 @@ function LongPressHeaderMenu({
  * removes that class of bug: leaves between the header's own children always
  * resolve to a descendant and are correctly ignored.
  *
- * Structural on purpose — this component sits in shared `components/` and
+ * Structural on purpose - this component sits in shared `components/` and
  * shouldn't reach into the chat domain's drag hook for a type.
  */
 export interface CollapsibleNavSectionDrag {
@@ -289,7 +289,7 @@ function CollapsibleNavSectionSection({
       ref={ref}
       data-slot="collapsible-nav-section-section"
       value={value}
-      /* Visual state only — the handlers live on the header (see
+      /* Visual state only - the handlers live on the header (see
          {@link CollapsibleNavSectionDrag}). Drawing the insertion line on the
          whole section box, rather than on the header strip, keeps "lands after
          this section" from reading as "lands inside it" when the section is
@@ -306,9 +306,8 @@ function CollapsibleNavSectionSection({
       {...itemProps}
     >
       {header}
-      {/* One indent for every section's content, here rather than at each call
-          site — a section whose rows don't nest under its header is the whole
-          reason the boundaries were hard to see. */}
+      {/* One indent for every section's content, defined here rather than at
+          each call site so no section can nest differently from the rest. */}
       <Collapsible.Content
         className={contentClassName}
         style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}

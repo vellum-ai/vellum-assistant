@@ -12,7 +12,7 @@
  *   keyed per assistant. This mirrors the Radix Accordion `value` prop
  *   for `type="multiple"`.
  * - Section order is a third `string[]`, an advisory preference list over
- *   the same key namespace — see `utils/sidebar-section-order.ts`.
+ *   the same key namespace - see `utils/sidebar-section-order.ts`.
  * - Reads happen synchronously from localStorage on `setAssistantId`;
  *   writes happen on every toggle via `persist` helpers.
  * - Defaults to no open built-in categories, no open custom groups, and the
@@ -52,14 +52,14 @@ export interface SidebarLayoutState {
    */
   openPrimary: string[];
   /**
-   * The user's section order preference — a sparse, advisory list of section
+   * The user's section order preference - a sparse, advisory list of section
    * keys, not the set of sections that render. Empty means "no preference
    * yet, use the default order". Resolved against the live sections by
    * `mergeSectionOrder`.
    */
   sectionOrder: string[];
   /**
-   * Whether the user has revealed the Background section this session —
+   * Whether the user has revealed the Background section this session -
    * either by expanding it in the full sidebar or opening its rail flyout.
    * Gates the lazy background conversation fetch so it never runs on the
    * initial load path. Transient (not persisted) and reset when the active
@@ -69,7 +69,7 @@ export interface SidebarLayoutState {
   /**
    * Whether the user has revealed the Scheduled section this session.
    * Tracked independently from `backgroundActivated` so revealing one
-   * section never triggers the other section's lazy fetch — the Scheduled
+   * section never triggers the other section's lazy fetch - the Scheduled
    * and Background lists are separate queries.
    */
   scheduledActivated: boolean;
@@ -125,7 +125,7 @@ const useSidebarLayoutStoreBase = create<SidebarLayoutStore>()(
         sectionOrder: loadSectionOrder(assistantId),
         // A persisted expanded section counts as a reveal, so each lazy
         // fetch resumes for assistants the user already had that section
-        // open on — tracked per section so they stay independent.
+        // open on - tracked per section so they stay independent.
         backgroundActivated: openCategories.includes("background"),
         scheduledActivated: openCategories.includes("scheduled"),
       });

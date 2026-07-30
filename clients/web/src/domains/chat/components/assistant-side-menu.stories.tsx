@@ -2,7 +2,7 @@
  * Visual reference for the sidebar's conversation sections.
  *
  * The section list is the one place where spacing, dividers, and header-menu
- * parity are easy to regress — Pinned, Chats, the per-channel sections, and
+ * parity are easy to regress - Pinned, Chats, the per-channel sections, and
  * custom groups all render through one path but carry different data. This
  * story mounts the real `AssistantSideMenu` with a fixed conversation set so
  * those boundaries can be eyeballed side by side.
@@ -41,11 +41,11 @@ const CONVERSATIONS: Conversation[] = [
     originChannel: "telegram",
   }),
 
-  conversation("g1", "Auth rewrite — PR #412", {
+  conversation("g1", "Auth rewrite - PR #412", {
     groupId: "grp-reviews",
     displayOrder: 0,
   }),
-  conversation("g2", "Search relevance — PR #418", {
+  conversation("g2", "Search relevance - PR #418", {
     groupId: "grp-reviews",
     displayOrder: 1,
   }),
@@ -86,7 +86,7 @@ export const ConversationSections: Story = {
   /* `--surface-base` is the app backdrop the sidebar sits on; `SideMenu`
      paints its own `--surface-overlay`, so the wrapper must not paint over
      it. (This previously read `--surface-default` / `--border-default`,
-     neither of which is a real token — the background silently fell through
+     neither of which is a real token - the background silently fell through
      to transparent and `border-[var(--border-default)]` resolved to
      `currentColor`, drawing a near-black rule that looks nothing like the
      app.) The sidebar's own type and row metrics switch at `md`, so view

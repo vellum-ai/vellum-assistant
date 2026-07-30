@@ -3,10 +3,10 @@
  *
  * Pure and exhaustive on purpose: it is the one place that answers "what does
  * this section look like", so the expanded list and the collapsed rail can't
- * disagree, and adding a section type turns into a compile error here rather
- * than a bare header somewhere.
+ * disagree, and adding a section type is a compile error here rather than a
+ * bare header somewhere.
  *
- * Resolution goes through the same two registries every other surface uses —
+ * Resolution goes through the same two registries every other surface uses -
  * `channel-presentation` for origin channels, `group-icon-registry` for the
  * icon a user picked for a custom group.
  */

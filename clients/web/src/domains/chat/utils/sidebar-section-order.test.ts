@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  isConditionalSectionKey,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
@@ -36,7 +35,7 @@ describe("mergeSectionOrder", () => {
   test("slots an unknown section after its default-order predecessor", () => {
     // The user has dragged Chats above their group; a *new* group is then
     // created. Its default position is beside the existing group, and that's
-    // where it should land — not swept to either end.
+    // where it should land - not swept to either end.
     expect(
       mergeSectionOrder(
         ["grp-a", "grp-new", "recents"],
@@ -67,17 +66,6 @@ describe("mergeSectionOrder", () => {
   });
 });
 
-describe("isConditionalSectionKey", () => {
-  test.each([
-    ["pinned", true],
-    ["channel:slack", true],
-    ["recents", false],
-    ["3f9c1e2a-group-id", false],
-  ])("%s → %p", (key, expected) => {
-    expect(isConditionalSectionKey(key)).toBe(expected);
-  });
-});
-
 describe("nextStoredOrder", () => {
   test("stores the live order verbatim when nothing was preserved", () => {
     expect(nextStoredOrder([], ["recents", "grp-a"])).toEqual([
@@ -100,16 +88,38 @@ describe("nextStoredOrder", () => {
 
   test("keeps an empty Pinned section's slot", () => {
     // Pinned led the stored order and has no surviving predecessor to trail,
-    // so it goes back to the front — where it was.
+    // so it goes back to the front - where it was.
     expect(
       nextStoredOrder(["pinned", "grp-a", "recents"], ["recents", "grp-a"]),
     ).toEqual(["pinned", "recents", "grp-a"]);
   });
 
-  test("drops a deleted group instead of preserving it", () => {
+  // A key can be absent because the section was deleted, because it is empty,
+  // or because the groups query has not resolved yet. Those are
+  // indistinguishable here, so absence never prunes: a reorder performed
+  // before groups load must not wipe out the user's stored group positions.
+  test("keeps a group's slot when the groups query has not resolved", () => {
     expect(
-      nextStoredOrder(["grp-gone", "recents"], ["recents", "grp-a"]),
-    ).toEqual(["recents", "grp-a"]);
+      nextStoredOrder(
+        ["grp-a", "recents", "channel:slack"],
+        ["recents", "channel:slack"],
+      ),
+    ).toEqual(["grp-a", "recents", "channel:slack"]);
+  });
+
+  test("a stale key survives but stays inert on read", () => {
+    const stored = nextStoredOrder(["grp-gone", "recents"], ["recents"]);
+    expect(stored).toEqual(["grp-gone", "recents"]);
+    // mergeSectionOrder only ever returns keys naming a live section.
+    expect(mergeSectionOrder(["recents"], stored)).toEqual(["recents"]);
+  });
+
+  test("trims absent keys once the list outgrows its cap", () => {
+    const stale = Array.from({ length: 120 }, (_, i) => `grp-old-${i}`);
+    const result = nextStoredOrder([...stale, "recents"], ["recents"]);
+    expect(result.length).toBe(100);
+    // The live section keeps its slot regardless of how much is trimmed.
+    expect(result).toContain("recents");
   });
 
   test("keeps a run of absent conditional keys in their stored order", () => {

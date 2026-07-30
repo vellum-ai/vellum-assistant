@@ -2,21 +2,21 @@
  * One sidebar conversation section, whatever its type.
  *
  * This is the single render path for Pinned, Chats, every origin-channel
- * section, and every custom group — which is what keeps their spacing and
+ * section, and every custom group - which is what keeps their spacing and
  * header treatment identical and lets the user interleave them freely
  * (LUM-2909). Only three things vary by type, and they're all here:
  *
  * - **What the row list shows.** Chats and channel sections paginate
  *   ("Show more"); Pinned and custom groups show everything.
  * - **Whether rows drag.** Only the sections that honor `displayOrder`
- *   (Pinned, custom groups) offer row-level reordering — the rest stay
+ *   (Pinned, custom groups) offer row-level reordering - the rest stay
  *   recency-sorted, so dragging a row in them would have nothing to persist.
  * - **Whether the header carries a visible "…" button.** Custom groups own
  *   rename/delete, so their actions get a permanent affordance rather than
  *   living only behind right-click.
  *
- * Everything else — the icon, the collapse behavior, the header menu, the
- * section drag wiring — is uniform, and comes in already resolved.
+ * Everything else - the icon, the collapse behavior, the header menu, the
+ * section drag wiring - is uniform, and comes in already resolved.
  */
 
 import type { ReactNode } from "react";

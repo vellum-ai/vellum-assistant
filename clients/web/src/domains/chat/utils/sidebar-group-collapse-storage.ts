@@ -8,8 +8,8 @@
 // because they have different defaults: primary sections default to OPEN, the
 // other two to closed.
 //
-// Storage buckets are not accordion roots. Every section — Pinned, Chats, the
-// channel sections, and the custom groups — renders in a *single*
+// Storage buckets are not accordion roots. Every section - Pinned, Chats, the
+// channel sections, and the custom groups - renders in a *single*
 // CollapsibleNavSection.Root, because the user can order them freely and a
 // custom group may sit between two built-in sections. The sidebar splits that
 // root's one value array back into these three buckets with
@@ -54,7 +54,7 @@ export function channelSectionKey(channelId: string): string {
  * True for the built-in collapsible categories (Scheduled, Background, and
  * every `channel:` section). Exported so the sidebar can route a key from the
  * shared accordion root into the right storage bucket: primary, category, or
- * — matching neither — a custom group id.
+ * - matching neither - a custom group id.
  */
 export function isKnownCategoryKey(category: string): boolean {
   return (

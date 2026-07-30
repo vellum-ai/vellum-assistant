@@ -70,7 +70,7 @@ export interface GroupMenuItemsProps {
    * disabled state, so the menu never offers a move that does nothing.
    *
    * These are the pointer-free path to the same reordering the header's
-   * drag handle performs — HTML5 drag events fire on neither touch nor the
+   * drag handle performs - HTML5 drag events fire on neither touch nor the
    * keyboard, so without them section layout would be mouse-only.
    */
   onMoveUp?: () => void;

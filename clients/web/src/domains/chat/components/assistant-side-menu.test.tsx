@@ -687,7 +687,7 @@ function sectionLabels(container: HTMLElement): (string | undefined)[] {
 
 describe("AssistantSideMenu · section spacing", () => {
   // One accordion root holds every section, so its gap is the only thing
-  // separating them — no boundary can pick up the Body's larger gap instead,
+  // separating them - no boundary can pick up the Body's larger gap instead,
   // and a custom group can sit between two built-in sections.
   test("every section type shares a single accordion root", () => {
     const container = parse(
@@ -705,7 +705,7 @@ describe("AssistantSideMenu · section spacing", () => {
       "Slack",
     ]);
 
-    // All four are siblings — one shared parent, so one shared gap.
+    // All four are siblings - one shared parent, so one shared gap.
     const parents = new Set(sections.map((s) => s.parentElement));
     expect(parents.size).toBe(1);
     expect([...parents][0]?.className).toContain("gap-3");
@@ -751,7 +751,7 @@ describe("AssistantSideMenu · default section order", () => {
 });
 
 describe("AssistantSideMenu · equal section treatment", () => {
-  // Custom groups are peers of Pinned, Chats, and the channel sections — not
+  // Custom groups are peers of Pinned, Chats, and the channel sections - not
   // a separate class. Nothing in the list may imply a grouping the user
   // didn't create, because they order these however they like.
   test("no dividers separate the sections", () => {
@@ -771,7 +771,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
     expect(separatorsInList).toHaveLength(0);
   });
 
-  // Same shell, same drag wiring, same header treatment for every type — a
+  // Same shell, same drag wiring, same header treatment for every type - a
   // group must not be distinguishable from a built-in section by its chrome.
   test("every section renders through the same component with the same affordances", () => {
     const container = parse(
@@ -815,7 +815,7 @@ describe("AssistantSideMenu · section reordering", () => {
     );
   });
 
-  test("a lone section isn't draggable — there's nothing to reorder against", () => {
+  test("a lone section isn't draggable - there's nothing to reorder against", () => {
     const container = parse(
       renderMenu({
         conversations: [makeConversation({ conversationId: "r1" })],
@@ -833,7 +833,7 @@ describe("AssistantSideMenu · section reordering", () => {
 
   // Regression guard. The handlers first sat on the section root, where
   // `dragleave` bubbling up from the section's own conversation rows cleared
-  // the indicator every time the pointer crossed one — so dragging over an
+  // the indicator every time the pointer crossed one - so dragging over an
   // expanded section showed no drop target at all. Keeping them on the header
   // is what fixes it, and only an event-level test can tell the difference.
   test("dragging over a section header marks it as the drop target", async () => {
@@ -876,7 +876,7 @@ describe("AssistantSideMenu · section reordering", () => {
       // so the insertion line lands on the trailing edge.
       expect(chatsSection?.className).toContain("inset_0_-2px");
 
-      // The dragged section dims — deferred one tick past `dragstart` on
+      // The dragged section dims - deferred one tick past `dragstart` on
       // purpose, because re-rendering the dragged node inside the dragstart
       // dispatch cancels the drag in Chromium.
       await waitFor(() => {

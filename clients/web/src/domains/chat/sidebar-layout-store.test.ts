@@ -147,7 +147,7 @@ describe("SidebarLayoutStore", () => {
   });
 });
 
-describe("SidebarLayoutStore — independent lazy-section activation", () => {
+describe("SidebarLayoutStore - independent lazy-section activation", () => {
   test("both activation flags default to false", () => {
     const state = useSidebarLayoutStore.getState();
     expect(state.backgroundActivated).toBe(false);

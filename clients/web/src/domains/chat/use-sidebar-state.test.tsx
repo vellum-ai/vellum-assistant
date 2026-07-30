@@ -218,7 +218,7 @@ describe("useSidebarState open-section persistence", () => {
 
 describe("useSidebarState custom-group open-section persistence", () => {
   // Custom groups share the one accordion root with every other section, and
-  // attention forces them open the same way — so their writes need the same
+  // attention forces them open the same way - so their writes need the same
   // filter, or a group the user never opened stays expanded once the
   // attention clears. The write must also land in the custom-group bucket,
   // not the primary or category bucket the same array carries.
@@ -327,7 +327,7 @@ describe("useSidebarState section order", () => {
       "channel:slack",
     ]);
 
-    // Already first — nothing to persist, and nothing moves.
+    // Already first - nothing to persist, and nothing moves.
     act(() => result.current.onMoveSection("recents", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
       "recents",

@@ -126,9 +126,9 @@ function SearchButton() {
  *     • Your Assistant → Intelligence view
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
- *     • Pinned ▾       — when non-empty
- *     • Group ▾        — one collapsible section per custom group
- *     • Chats ▾        — recent conversations, with Show more/less
+ *     • Pinned ▾       - when non-empty
+ *     • Group ▾        - one collapsible section per custom group
+ *     • Chats ▾        - recent conversations, with Show more/less
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
  *   Footer
@@ -138,7 +138,7 @@ function SearchButton() {
  *
  * This component does **not** know that order. `useSidebarState` hands it one
  * flat `sections` array already sorted by the user's stored preference, and
- * every section renders through the same path — which is what lets a custom
+ * every section renders through the same path - which is what lets a custom
  * group sit above Recents, and what keeps the spacing between any two
  * sections identical.
  *
@@ -333,8 +333,8 @@ export function AssistantSideMenu({
 
   // Header actions for one section: the bulk actions every section shares,
   // the move-up/down pair its position allows (absent at either end, which is
-  // how the menu avoids offering a move that does nothing), and — for custom
-  // groups only — rename/delete/copy-id.
+  // how the menu avoids offering a move that does nothing), and - for custom
+  // groups only - rename/delete/copy-id.
   const sectionMenu = (
     section: SidebarSection,
     index: number,
@@ -493,7 +493,7 @@ export function AssistantSideMenu({
           {variant === "overlay" ? builtInNav : null}
           {isCollapsedRail ? (
             /* The rail shows the same sections in the same order, as icons.
-               Nothing here is type-aware — order and labels come straight
+               Nothing here is type-aware - order and labels come straight
                from `sidebar.sections`, so the rail can't drift from the
                expanded list the way two hand-maintained orders would. */
             <div className="flex flex-col items-center gap-2">
@@ -520,7 +520,7 @@ export function AssistantSideMenu({
               ))}
             </div>
           ) : (
-            /* Every section — Pinned, Chats, channels, custom groups — shares
+            /* Every section - Pinned, Chats, channels, custom groups - shares
                one accordion root, so its gap is the only thing between any
                two of them and the spacing is uniform by construction. Their
                open state lives in three storage buckets with different
@@ -536,7 +536,7 @@ export function AssistantSideMenu({
               {/* No dividers between sections. A custom group is a peer of
                   Pinned, Chats, and a channel section, not a different class
                   of thing, so nothing here may hint at a grouping the user
-                  didn't create — they order these however they like. The
+                  didn't create - they order these however they like. The
                   header's own indent (SIDEBAR_SECTION_INDENT) is what marks
                   where a section starts. */}
               {sidebar.sections.map((section, index) => (

@@ -28,8 +28,8 @@ export const SIDEBAR_CHIP_GAP = 6;
  *
  * Without it, a section header's label sits at
  * `SIDEBAR_ROW_PADDING_X + SIDEBAR_CHIP_SIZE + SIDEBAR_CHIP_GAP` (32px) while
- * its rows start at `SIDEBAR_ROW_PADDING_X` (6px) — the rows *outdent* past
- * their own header, which is what made section boundaries hard to pick out.
+ * its rows start at `SIDEBAR_ROW_PADDING_X` (6px), so the rows *outdent* past
+ * their own header and section boundaries are hard to pick out.
  *
  * Deliberately a partial step rather than the full 26px that would align row
  * text under the header label: full alignment reads as a heading over a list

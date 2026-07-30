@@ -1,8 +1,8 @@
 /**
  * Visual reference for `CollapsibleNavSection`.
  *
- * Everything here renders through the real components — `SideMenu`,
- * `SideMenu.SubList`, `SideMenu.Item` — inside a real `SideMenu` shell, with
+ * Everything here renders through the real components - `SideMenu`,
+ * `SideMenu.SubList`, `SideMenu.Item` - inside a real `SideMenu` shell, with
  * no story-local styling. That is deliberate: this story previously drew its
  * rows with a private `NavRow` helper (its own padding, its own type token,
  * its own hover) wrapped in a hand-rolled `flex flex-col gap-0.5 pl-6` div, so
@@ -11,7 +11,7 @@
  * components it claims to document.
  *
  * If a section ever needs a layout this story can't express with the shipped
- * primitives, that's the signal to add the missing primitive — not to
+ * primitives, that's the signal to add the missing primitive - not to
  * hand-roll it here.
  */
 
@@ -35,10 +35,10 @@ const meta: Meta<NavSectionStoryArgs> = {
   parameters: {
     layout: "padded",
     /* NOTE: section headers and rows carry `max-md:` variants for the mobile
-       drawer — 16px type, 46px rows instead of 14px/30px. Those key off the
+       drawer - 16px type, 46px rows instead of 14px/30px. Those key off the
        *viewport*, and the Docs canvas iframe runs ~300px narrower than the
        browser window, so on a window under roughly 1070px these stories render
-       the mobile drawer's metrics while still showing the `rail` variant — a
+       the mobile drawer's metrics while still showing the `rail` variant - a
        combination the app never ships. Pinning a viewport needs
        `@storybook/addon-viewport`, which isn't installed; tracked in LUM-2921.
        Until then, read these at a wide window. */
@@ -117,7 +117,7 @@ export const MultipleSections: Story = {
     docs: {
       description: {
         story:
-          'Multiple sections sharing a single root — `type="multiple"` lets several stay open at once, and the root\'s gap is the only thing between them, so every section boundary is spaced identically.',
+          'Multiple sections sharing a single root - `type="multiple"` lets several stay open at once, and the root\'s gap is the only thing between them, so every section boundary is spaced identically.',
       },
     },
   },
@@ -185,7 +185,7 @@ export const NoIcon: Story = {
         >
           <SideMenu.SubList>
             {/* `icon` and `indent` are the shipped way to align rows with and
-                without a leading glyph — the reason this story doesn't need
+                without a leading glyph - the reason this story doesn't need
                 a margin utility of its own. */}
             <SideMenu.Item icon={MessageSquare} label="First conversation" />
             <SideMenu.Item label="Second conversation" indent />
