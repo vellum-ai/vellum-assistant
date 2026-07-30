@@ -539,11 +539,11 @@ function AssistantCard({
       </div>
 
       {locked ? (
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-2">
           {onLogin && (
             <Button
-              variant="outlined"
-              size="compact"
+              variant="primary"
+              size="regular"
               onClick={onLogin}
               disabled={loginDisabled}
             >
@@ -555,7 +555,8 @@ function AssistantCard({
               <Menu.Trigger asChild>
                 <Button
                   variant="ghost"
-                  size="compact"
+                  size="regular"
+                  className="text-[var(--content-tertiary)]"
                   iconOnly={<EllipsisVertical />}
                   aria-label={`Actions for ${assistantLabel(assistant)}`}
                 />
