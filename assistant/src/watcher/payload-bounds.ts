@@ -45,7 +45,63 @@ const ELIDED = "[...elided]";
  * so downstream readers of `payload_json` keep working. `sequence/reply-matcher.ts`
  * reads `payload.from` and `payload.threadId`, both far under the cap.
  */
-export function capPayloadForStorage(value: unknown, depth = 0): unknown {
+export function capPayloadForStorage(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  return capRecord(payload, 0);
+}
+
+/**
+ * Cap one object, returning a record whose top-level shape is earned rather
+ * than asserted, so the engine needs no type assertion where provider data
+ * crosses into the daemon.
+ *
+ * Fields are defined rather than assigned. Assignment runs setters, and a
+ * payload can carry an own `__proto__` key: `JSON.parse` makes it an own
+ * property, but `capped.__proto__ = value` hands it to the prototype setter
+ * instead, which drops the field from the serialized row and reparents the
+ * object, so a reader such as `sequence/reply-matcher.ts` could then inherit a
+ * `from` the provider never set. `defineProperty` keeps it an ordinary field.
+ *
+ * Keys are truncated, so two long keys can arrive at the same prefix. That is
+ * resolved deterministically rather than by last-write-wins, since bounding a
+ * payload must not be able to replace one of its fields with another.
+ */
+function capRecord(value: object, depth: number): Record<string, unknown> {
+  const capped: Record<string, unknown> = {};
+  const taken = new Set<string>();
+  const entries = Object.entries(value);
+
+  for (const [rawKey, entry] of entries.slice(
+    0,
+    WATCHER_PAYLOAD_FIELD_COUNT_MAX,
+  )) {
+    const key = disambiguate(
+      truncate(rawKey, WATCHER_PAYLOAD_KEY_MAX_CHARS),
+      taken,
+    );
+    taken.add(key);
+    define(capped, key, capValue(entry, depth + 1));
+  }
+
+  if (entries.length > WATCHER_PAYLOAD_FIELD_COUNT_MAX) {
+    const dropped = entries.length - WATCHER_PAYLOAD_FIELD_COUNT_MAX;
+    define(capped, disambiguate(ELIDED, taken), `${dropped} more field(s)`);
+  }
+  return capped;
+}
+
+/** Add an own enumerable field, whatever its name. See {@link capRecord}. */
+function define(target: Record<string, unknown>, key: string, value: unknown) {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function capValue(value: unknown, depth: number): unknown {
   if (typeof value === "string") {
     return truncate(value, WATCHER_PAYLOAD_TEXT_MAX_CHARS);
   }
@@ -63,7 +119,7 @@ export function capPayloadForStorage(value: unknown, depth = 0): unknown {
   if (Array.isArray(value)) {
     const kept = value
       .slice(0, WATCHER_PAYLOAD_FIELD_COUNT_MAX)
-      .map((entry) => capPayloadForStorage(entry, depth + 1));
+      .map((entry) => capValue(entry, depth + 1));
     if (value.length > WATCHER_PAYLOAD_FIELD_COUNT_MAX) {
       kept.push(
         `${ELIDED} ${value.length - WATCHER_PAYLOAD_FIELD_COUNT_MAX} more`,
@@ -72,20 +128,7 @@ export function capPayloadForStorage(value: unknown, depth = 0): unknown {
     return kept;
   }
 
-  const capped: Record<string, unknown> = {};
-  let seen = 0;
-  for (const [key, entry] of Object.entries(value)) {
-    if (seen >= WATCHER_PAYLOAD_FIELD_COUNT_MAX) {
-      capped[ELIDED] = `${Object.keys(value).length - seen} more field(s)`;
-      break;
-    }
-    capped[truncate(key, WATCHER_PAYLOAD_KEY_MAX_CHARS)] = capPayloadForStorage(
-      entry,
-      depth + 1,
-    );
-    seen++;
-  }
-  return capped;
+  return capRecord(value, depth);
 }
 
 /** Cost in characters of an entry once serialized into a JSON object body. */
@@ -94,8 +137,14 @@ function entryCost(key: string, serializedValue: string): number {
   return JSON.stringify(key).length + 1 + serializedValue.length + 1;
 }
 
+/** Smallest entry worth rendering: `"k":"v",`. */
+const MIN_ENTRY_CHARS = 8;
+
+/** Suffix that keeps two keys distinct when truncation collapses them. */
+const KEY_DISAMBIGUATOR = "~";
+
 /**
- * Serialize `text` as a JSON string of at most `limit` characters.
+ * Longest prefix of `text` whose JSON string form fits `limit` characters.
  *
  * Allowances here are denominated in serialized characters, and JSON escaping
  * expands as it serializes: a quote or a backslash doubles, a control character
@@ -109,10 +158,9 @@ function entryCost(key: string, serializedValue: string): number {
  * than a plain one. That is the honest outcome: what the fence budget spends is
  * what the model actually reads, and an escape costs what it costs.
  */
-function serializeWithinLimit(text: string, limit: number): string {
-  const full = JSON.stringify(text);
-  if (full.length <= limit) {
-    return full;
+function prefixWithinLimit(text: string, limit: number): string {
+  if (JSON.stringify(text).length <= limit) {
+    return text;
   }
 
   let low = 0;
@@ -125,13 +173,18 @@ function serializeWithinLimit(text: string, limit: number): string {
       high = mid - 1;
     }
   }
-  // `""` at minimum, which can exceed a limit below 2. The caller's backstop
-  // covers that; a budget that tight has no room for the field either way.
-  return JSON.stringify(truncate(text, low));
+  // Empty at minimum, so the JSON form is `""`, which exceeds a limit below 2.
+  // `MIN_ENTRY_CHARS` keeps the callers above that.
+  return truncate(text, low);
+}
+
+/** {@link prefixWithinLimit}, as the JSON string the object body carries. */
+function serializeWithinLimit(text: string, limit: number): string {
+  return JSON.stringify(prefixWithinLimit(text, limit));
 }
 
 /**
- * Share `budget` across `entries` so no entry can starve another.
+ * Share `budget` across entries of the given costs so none can starve another.
  *
  * Repeatedly hands every unsatisfied entry an equal slice of what is left; any
  * entry that fits inside its slice takes only what it needs and returns the
@@ -139,42 +192,98 @@ function serializeWithinLimit(text: string, limit: number): string {
  * result is that a field is only ever truncated when the payload genuinely has
  * no room for it, never merely because a bigger field was serialized first.
  *
- * Returns the per-key character allowance for each entry's serialized value.
+ * A cost is the entry's whole serialized width, key included, and allowances
+ * come back the same way. Sharing only across values would let keys spend
+ * budget nobody accounted for: the storage pass permits 100 keys of 100
+ * characters, whose keys alone outrun a 4,000-character render budget.
+ *
+ * Allowances are returned by index, not keyed by name, since two keys can
+ * collide once they are truncated.
  */
-function shareBudget(
-  entries: ReadonlyArray<{ key: string; serialized: string }>,
-  budget: number,
-): Map<string, number> {
-  const allowance = new Map<string, number>();
+function shareBudget(costs: readonly number[], budget: number): number[] {
+  const allowance = new Array<number>(costs.length).fill(0);
   let remaining = budget;
-  let unsatisfied = entries;
+  let unsatisfied = costs.map((cost, index) => ({ cost, index }));
 
   while (unsatisfied.length > 0) {
     const share = Math.floor(remaining / unsatisfied.length);
-    const fits = unsatisfied.filter(
-      (e) => entryCost(e.key, e.serialized) <= share,
-    );
+    const fits = unsatisfied.filter((e) => e.cost <= share);
 
     if (fits.length === 0) {
       // Nothing else fits in its share, so every remaining entry is truncated
       // to it. This is the only path that loses content, and it loses the same
       // proportion from each entry rather than all of it from the last ones.
       for (const entry of unsatisfied) {
-        const overhead = entryCost(entry.key, "");
-        allowance.set(entry.key, Math.max(0, share - overhead));
+        allowance[entry.index] = share;
       }
       return allowance;
     }
 
     for (const entry of fits) {
-      allowance.set(entry.key, entry.serialized.length);
-      remaining -= entryCost(entry.key, entry.serialized);
+      allowance[entry.index] = entry.cost;
+      remaining -= entry.cost;
     }
-    const satisfied = new Set(fits.map((e) => e.key));
-    unsatisfied = unsatisfied.filter((e) => !satisfied.has(e.key));
+    const satisfied = new Set(fits.map((e) => e.index));
+    unsatisfied = unsatisfied.filter((e) => !satisfied.has(e.index));
   }
 
   return allowance;
+}
+
+/**
+ * Render one entry within `allowance` characters, key and value together.
+ *
+ * The key takes at most half the allowance, so a wide key cannot squeeze its
+ * value out of the object entirely, and both sides are measured after JSON
+ * escaping rather than before. A key that has to be shortened can collide with
+ * one already rendered, which would silently drop a field when the result is
+ * parsed, so collisions are disambiguated rather than left to chance.
+ */
+function renderEntry(
+  key: string,
+  raw: unknown,
+  serialized: string,
+  allowance: number,
+  taken: Set<string>,
+): string {
+  const keyJson = JSON.stringify(key);
+  const fits = entryCost(key, serialized) <= allowance;
+
+  const keyText = fits
+    ? key
+    : prefixWithinLimit(key, Math.max(2, Math.floor(allowance / 2)));
+  const uniqueKeyText = disambiguate(keyText, taken);
+  taken.add(uniqueKeyText);
+
+  const uniqueKeyJson = JSON.stringify(uniqueKeyText);
+  if (fits && uniqueKeyJson.length === keyJson.length) {
+    return `${uniqueKeyJson}:${serialized}`;
+  }
+
+  // Two characters for the colon and the trailing comma `entryCost` charges.
+  const valueLimit = Math.max(0, allowance - uniqueKeyJson.length - 2);
+  const value =
+    serialized.length <= valueLimit
+      ? serialized
+      : serializeWithinLimit(stringify(raw), valueLimit);
+  return `${uniqueKeyJson}:${value}`;
+}
+
+/** Make `key` distinct from everything in `taken`, without growing it. */
+function disambiguate(key: string, taken: Set<string>): string {
+  if (!taken.has(key)) {
+    return key;
+  }
+  for (let n = 2; ; n++) {
+    const suffix = `${KEY_DISAMBIGUATOR}${n}`;
+    // Replacing the tail rather than appending keeps the width, and the
+    // replacement never escapes, so the serialized key cannot grow either.
+    const candidate =
+      key.slice(0, Math.max(0, key.length - suffix.length)) + suffix;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
+  }
 }
 
 /**
@@ -210,12 +319,15 @@ export function capPayloadForRender(
     return fallback();
   }
 
+  // Bound the parsed row before walking it. The storage pass bounds what this
+  // daemon writes from now on, but this reads rows back, including ones written
+  // before that pass existed, so the shape here is whatever a provider once
+  // returned. Unbounded nesting would otherwise overflow the stack in the
+  // escape walk below and fail the same pending row on every tick.
+  const bounded = capRecord(parsed, 0);
+
   const entries: Array<{ key: string; serialized: string; raw: unknown }> = [];
-  let seen = 0;
-  for (const [rawKey, value] of Object.entries(parsed)) {
-    if (seen >= WATCHER_PAYLOAD_FIELD_COUNT_MAX) {
-      break;
-    }
+  for (const [rawKey, value] of Object.entries(bounded)) {
     // Keys are provider-authored in practice, but this payload was parsed back
     // out of the database, so treat them with the same suspicion as values.
     const key = truncate(
@@ -227,30 +339,46 @@ export function capPayloadForRender(
       serialized: JSON.stringify(escapeStrings(value)),
       raw: value,
     });
-    seen++;
   }
 
-  // Reserve the enclosing braces, plus room for the trailing-comma slack that
-  // `entryCost` charges to the final entry.
-  const allowance = shareBudget(entries, Math.max(0, budget - 4));
+  // A budget can be too small to render every field at any width. Decide that
+  // up front, by count, and record it in the payload: dropping fields off the
+  // end silently is the failure this function exists to prevent, and it is not
+  // improved by happening for a different reason.
+  const capacity = Math.floor(Math.max(0, budget - 2) / MIN_ENTRY_CHARS);
+  const dropped = Math.max(0, entries.length - capacity);
+  const kept =
+    dropped > 0 ? entries.slice(0, Math.max(0, capacity - 1)) : entries;
+  const marker =
+    dropped > 0
+      ? `${JSON.stringify(ELIDED)}:${JSON.stringify(`${dropped} more field(s)`)}`
+      : "";
 
-  const parts: string[] = [];
-  for (const entry of entries) {
-    const limit = allowance.get(entry.key) ?? 0;
-    const serialized =
-      entry.serialized.length <= limit
-        ? entry.serialized
-        : // Over its allowance: keep the value as a truncated JSON *string* so
-          // the rendered payload stays parseable, rather than emitting a value
-          // cut off mid-literal.
-          serializeWithinLimit(stringify(entry.raw), limit);
-    parts.push(`${JSON.stringify(entry.key)}:${serialized}`);
+  // Two characters for the enclosing braces. Entry costs each carry a trailing
+  // comma, which over-charges the last entry by one.
+  const allowances = shareBudget(
+    kept.map((entry) => entryCost(entry.key, entry.serialized)),
+    Math.max(0, budget - 2 - (marker ? marker.length + 1 : 0)),
+  );
+
+  const taken = new Set<string>();
+  const parts = kept.map((entry, index) =>
+    renderEntry(
+      entry.key,
+      entry.raw,
+      entry.serialized,
+      allowances[index] ?? 0,
+      taken,
+    ),
+  );
+  if (marker) {
+    parts.push(marker);
   }
 
-  // Backstop. The arithmetic above is bounded by construction and every value
-  // is measured in serialized characters, so this should never bite; the fence
+  // Backstop. The arithmetic above is bounded by construction and every part is
+  // measured in serialized characters, so this should never bite; the fence
   // budget is derived from this ceiling, so enforce it rather than trust it.
-  // Reaching it costs parseability, which is the signal a test would catch.
+  // Reaching it costs parseability, which is what the tests assert on.
   return truncate(`{${parts.join(",")}}`, budget);
 }
 
@@ -273,7 +401,7 @@ function escapeStrings(value: unknown): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
-    out[escapeContentBoundaries(key)] = escapeStrings(entry);
+    define(out, escapeContentBoundaries(key), escapeStrings(entry));
   }
   return out;
 }

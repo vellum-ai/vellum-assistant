@@ -293,10 +293,7 @@ export async function runWatchersOnce(
       let newEvents = 0;
       const newPayloads: Array<Record<string, unknown>> = [];
       for (const item of result.items) {
-        const payload = capPayloadForStorage(item.payload) as Record<
-          string,
-          unknown
-        >;
+        const payload = capPayloadForStorage(item.payload);
         const inserted = insertWatcherEvent({
           watcherId: watcher.id,
           externalId: item.externalId,

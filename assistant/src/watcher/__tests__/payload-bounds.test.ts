@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 import {
   WATCHER_EVENT_PAYLOAD_MAX_CHARS,
   WATCHER_PAYLOAD_FIELD_COUNT_MAX,
+  WATCHER_PAYLOAD_KEY_MAX_CHARS,
   WATCHER_PAYLOAD_TEXT_MAX_CHARS,
 } from "../constants.js";
 import {
@@ -93,7 +94,39 @@ describe("capPayloadForStorage", () => {
       deep = { next: deep };
     }
     // Serializing the depth-capped result terminates and stays small.
-    expect(JSON.stringify(capPayloadForStorage(deep)).length).toBeLessThan(200);
+    expect(
+      JSON.stringify(capPayloadForStorage({ nested: deep })).length,
+    ).toBeLessThan(200);
+  });
+
+  test("an own __proto__ key stays a field instead of reparenting the payload", () => {
+    // `JSON.parse` makes `__proto__` an own property, so a provider response
+    // can carry one. Assigning it would run the prototype setter: the field
+    // would vanish from the stored row and its contents would be inherited
+    // instead, which `sequence/reply-matcher.ts` reads through.
+    const hostile = JSON.parse(
+      '{"from":"real@example.com","__proto__":{"from":"spoofed@example.com"}}',
+    ) as Record<string, unknown>;
+
+    const capped = capPayloadForStorage(hostile);
+
+    expect(Object.hasOwn(capped, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(capped)).toBe(Object.prototype);
+    expect(capped.from).toBe("real@example.com");
+    expect(JSON.stringify(capped)).toContain("__proto__");
+  });
+
+  test("keys that collide once truncated both survive", () => {
+    // Bounding a payload must not be able to replace one of its fields with
+    // another, so a collision is resolved rather than left to last-write-wins.
+    const prefix = "p".repeat(WATCHER_PAYLOAD_KEY_MAX_CHARS);
+    const capped = capPayloadForStorage({
+      [`${prefix}-one`]: "first",
+      [`${prefix}-two`]: "second",
+    });
+
+    expect(Object.keys(capped)).toHaveLength(2);
+    expect(Object.values(capped).sort()).toEqual(["first", "second"]);
   });
 });
 
@@ -239,6 +272,57 @@ describe("capPayloadForRender", () => {
       // Still parseable, and the small field survived alongside the greedy ones.
       expect(JSON.parse(rendered).c).toBe("sentinel");
     }
+  });
+
+  test("holds at the largest shape the storage pass permits", () => {
+    // 100 keys of 100 characters is exactly what `capPayloadForStorage`
+    // allows, and the keys alone outrun the render budget. Sharing the budget
+    // across values only would overflow it, and the backstop would then slice
+    // the object mid-key: unparseable, and the tail fields gone by key order.
+    const wide: Record<string, string> = {};
+    for (let i = 0; i < WATCHER_PAYLOAD_FIELD_COUNT_MAX; i++) {
+      const key = `k${String(i).padStart(3, "0")}${"x".repeat(
+        WATCHER_PAYLOAD_KEY_MAX_CHARS - 4,
+      )}`;
+      wide[key] = "V".repeat(2_000);
+    }
+
+    const rendered = capPayloadForRender(
+      JSON.stringify(capPayloadForStorage(wide)),
+      WATCHER_EVENT_PAYLOAD_MAX_CHARS,
+    );
+
+    expect(rendered.length).toBeLessThanOrEqual(
+      WATCHER_EVENT_PAYLOAD_MAX_CHARS,
+    );
+    const parsed = JSON.parse(rendered) as Record<string, unknown>;
+    // Every field is represented, including the last one.
+    expect(Object.keys(parsed)).toHaveLength(WATCHER_PAYLOAD_FIELD_COUNT_MAX);
+    expect(rendered).toContain("k000");
+    expect(rendered).toContain(
+      `k${String(WATCHER_PAYLOAD_FIELD_COUNT_MAX - 1).padStart(3, "0")}`,
+    );
+  });
+
+  test("a row nested deeper than the storage cap renders instead of throwing", () => {
+    // Rows written before the storage pass existed carry whatever shape the
+    // provider returned. An unbounded walk of one overflows the stack, and the
+    // same pending row would then fail its watcher on every tick.
+    let deep: unknown = "bottom";
+    for (let i = 0; i < 20_000; i++) {
+      deep = { next: deep };
+    }
+    const legacyRow = JSON.stringify({ payload: deep });
+
+    const rendered = capPayloadForRender(
+      legacyRow,
+      WATCHER_EVENT_PAYLOAD_MAX_CHARS,
+    );
+
+    expect(rendered.length).toBeLessThanOrEqual(
+      WATCHER_EVENT_PAYLOAD_MAX_CHARS,
+    );
+    expect(() => JSON.parse(rendered)).not.toThrow();
   });
 
   test("falls back to plain truncation for non-object payloads", () => {
