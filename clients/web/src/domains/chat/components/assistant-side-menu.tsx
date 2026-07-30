@@ -82,7 +82,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
   /**
-   * Create a new, empty custom group — the sidebar's own "New group…", as
+   * Create a new, empty custom group - the sidebar's own "New group…", as
    * opposed to {@link AssistantSideMenuProps.onCreateGroupInto}, which creates
    * a group around an existing conversation. Omit to drop the affordance.
    */

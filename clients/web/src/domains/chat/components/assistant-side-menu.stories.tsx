@@ -64,7 +64,7 @@ export const ConversationSections: Story = {
     activeConversationId: "r1",
     onSelectConversation: () => {},
     onStartNewConversation: () => {},
-    // Wires the list's right-click "New group…" — omitting it drops the
+    // Wires the list's right-click "New group…" - omitting it drops the
     // affordance entirely, so the story has to pass it to show the menu.
     onCreateGroup: () => {},
     // Wiring the bulk handlers is what puts the header menu on every

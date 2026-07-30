@@ -42,7 +42,7 @@ type TriggerProps = ComponentProps<typeof ContextMenuPrimitive.Trigger>;
  * Radix's own handler calls `preventDefault()` but not `stopPropagation()`, so
  * a trigger inside another trigger's subtree lets the event keep bubbling and
  * **both** menus open at once. Stopping it here makes nesting safe for every
- * consumer rather than leaving each call site to remember — a region menu (a
+ * consumer rather than leaving each call site to remember - a region menu (a
  * list, a canvas) can wrap rows that have menus of their own.
  *
  * `composeEventHandlers` runs same-element listeners regardless, so Radix

@@ -1,11 +1,10 @@
 /**
  * Right-click menu for the sidebar's conversation list as a whole.
  *
- * Until now a group could only be created from a conversation's "New group…",
- * which meant you had to already have something to file before you could make
- * somewhere to file it. This is the standalone entry point: right-click
- * anywhere in the list — including the empty space below the last section —
- * and create an empty group.
+ * The standalone way to create a group: right-click anywhere in the list,
+ * including the empty space below the last section, and make an empty one.
+ * The other entry point, a conversation's own "New group…", requires
+ * something to file first.
  *
  * Two details make it safe to layer over a list whose rows and section headers
  * already have their own context menus:

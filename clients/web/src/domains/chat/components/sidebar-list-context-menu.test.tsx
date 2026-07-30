@@ -1,5 +1,5 @@
 /**
- * Tests for {@link SidebarListContextMenu} — the sidebar's own right-click
+ * Tests for {@link SidebarListContextMenu} - the sidebar's own right-click
  * menu, and the standalone group-creation entry point.
  *
  * The interesting property is that it layers over rows and section headers
@@ -73,7 +73,7 @@ describe("SidebarListContextMenu", () => {
   });
 
   // The whole reason `ContextMenu.Trigger` stops propagation: a row inside the
-  // list has its own menu, and a right-click there must open that one only —
+  // list has its own menu, and a right-click there must open that one only -
   // not both.
   test("a nested row menu wins; the list menu stays closed", async () => {
     const { container } = render(

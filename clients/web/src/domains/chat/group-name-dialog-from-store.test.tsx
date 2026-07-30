@@ -1,8 +1,8 @@
 /**
  * Tests for {@link GroupNameDialogFromStore}.
  *
- * One dialog serves three requests — create-and-file, create-empty, and
- * rename — so what matters is that each submit runs exactly the right
+ * One dialog serves three requests - create-and-file, create-empty, and
+ * rename - so what matters is that each submit runs exactly the right
  * mutations. Creating an empty group in particular must not move anything.
  */
 
@@ -83,7 +83,7 @@ describe("GroupNameDialogFromStore", () => {
     renderDialog(harness);
 
     act(() => {
-      // No conversation — the sidebar's own "New group…".
+      // No conversation - the sidebar's own "New group…".
       useGroupNameRequestStore.getState().requestCreateGroup();
     });
     await submit("Reviews");
