@@ -211,7 +211,18 @@ export const TranscriptRow = memo(function TranscriptRow({
     case "creditsUpsell":
       // Substituted in place of a credits-exhausted provider-error row by
       // `buildTranscriptItems`: a standalone card, outside the persona
-      // bubble/avatar/hover-action machinery like `SystemCardRow`.
+      // bubble/avatar/hover-action machinery like `SystemCardRow`. Substituted
+      // items carry the underlying row's `messageId`, so they keep the
+      // `msg-<id>` DOM anchor that `TranscriptHandle.scrollToMessage` and the
+      // `?message=<id>` deep link resolve via `getElementById`; the proactive
+      // tail card has no backing message and needs no anchor.
+      if (item.messageId) {
+        return (
+          <div id={`msg-${item.messageId}`} data-message-id={item.messageId}>
+            <CreditsUpsellCard />
+          </div>
+        );
+      }
       return <CreditsUpsellCard />;
 
     default: {

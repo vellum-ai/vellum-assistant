@@ -53,6 +53,20 @@ export interface BuildTranscriptItemsInput {
    * its provider-error row, so an open conversation never shows two cards.
    */
   appendCreditsUpsell?: boolean;
+  /**
+   * Whether the org's credit balance is currently exhausted (from the same
+   * `useBillingBalanceStatus().isExhausted` read that drives
+   * `appendCreditsUpsell`). Gates the per-row card substitution for
+   * credits-exhausted provider-error rows: only while true does a tagged row
+   * render as a `creditsUpsell` card. When false, tagged rows keep the normal
+   * message rendering, whose persisted assistant-voice text reads as
+   * historical context. That covers both a balance that has since been topped
+   * up and contexts where the billing hook is inert (self-hosted/gated
+   * assistants, no platform session), so the card, which renders nothing when
+   * platform billing is unreachable, is never substituted for a visible
+   * bubble it cannot replace.
+   */
+  creditsExhausted?: boolean;
 }
 
 /**
@@ -165,15 +179,19 @@ export function buildTranscriptItems(
       continue;
     }
 
-    // Persisted credits-exhausted provider-error rows render as the friendly
+    // While the balance is currently exhausted (`creditsExhausted`),
+    // persisted credits-exhausted provider-error rows render as the friendly
     // upsell card instead of a plain persona bubble. The row itself stays in
     // `messages` (history and the LLM context keep the text); only its
     // transcript rendering is substituted. Classification goes through the
     // shared `isCreditsExhaustedProviderError`, so a bare
     // `PROVIDER_BILLING` code with no category substitutes too. Provider
-    // errors of any other category, and untagged rows, keep the normal
-    // message rendering.
-    if (isCreditsExhaustedProviderError(message.providerError)) {
+    // errors of any other category, untagged rows, and tagged rows without
+    // the live flag keep the normal message rendering.
+    if (
+      input.creditsExhausted &&
+      isCreditsExhaustedProviderError(message.providerError)
+    ) {
       items.push(toCreditsUpsellItem(message));
       continue;
     }

@@ -5,10 +5,7 @@ import { useNavigate } from "react-router";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
-import {
-  resolveCreditPaywallCta,
-  type CreditPaywallCtaMode,
-} from "@/domains/chat/utils/credit-paywall-cta";
+import { resolveCreditPaywallCta } from "@/domains/chat/utils/credit-paywall-cta";
 import {
   isBillingCtaUpgradeArm,
   useBillingCtaExperimentArm,
@@ -26,25 +23,16 @@ const AddCreditsModal = lazy(() =>
   })),
 );
 
-// Both add-credits modes share one copy set: the card's soft-sell wording
-// does not vary by plan, only the upgrade experiment arm changes the CTA.
+const UPGRADE_COPY = {
+  title: "You’re out of Free credits",
+  subtitle: "Upgrade your plan to keep the conversation going.",
+  ctaLabel: "View plans",
+};
+
 const ADD_CREDITS_COPY = {
   title: "You’re out of credits",
   subtitle: "Add credits to pick up where you left off.",
   ctaLabel: "Add credits",
-};
-
-const COPY: Record<
-  CreditPaywallCtaMode,
-  { title: string; subtitle: string; ctaLabel: string }
-> = {
-  upgrade: {
-    title: "You’re out of Free credits",
-    subtitle: "Upgrade your plan to keep the conversation going.",
-    ctaLabel: "View plans",
-  },
-  "add-credits-free": ADD_CREDITS_COPY,
-  "add-credits-paid": ADD_CREDITS_COPY,
 };
 
 /**
@@ -71,13 +59,15 @@ export function CreditsUpsellCard() {
     isUpgradeArm: isBillingCtaUpgradeArm(billingCtaArm),
     isFreePlan,
   });
-  const copy = COPY[mode];
+  const copy = mode === "upgrade" ? UPGRADE_COPY : ADD_CREDITS_COPY;
 
   if (platformGate === "gated") {
-    // Self-hosted active assistant: managed-credits billing has no meaning
-    // here, and every recovery action the card could offer targets the
-    // platform. (Credits-exhausted rows are only persisted by managed
-    // billing, so this state is a defensive rail, not a normal path.)
+    // Self-hosted active assistant: every recovery action the card could
+    // offer targets the platform, so there is nothing useful to render.
+    // Defensive rail: every mount point (transcript substitution, proactive
+    // tail, empty state) keys off `useBillingBalanceStatus().isExhausted`,
+    // which stays false without a platform billing read, so gated contexts
+    // never mount the card through a normal path.
     return null;
   }
 
