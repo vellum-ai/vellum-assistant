@@ -1353,6 +1353,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
         '502':
           content:
             application/json:
@@ -6404,6 +6410,16 @@ components:
           type: boolean
           description: True when a daily limit is set and today's spend has reached
             it.
+        low_balance_threshold_usd:
+          type: string
+          description: Effective low-balance alert threshold in USD as a decimal string
+            (per-org override when set, else the global default). Same threshold that
+            gates the low-balance warning email.
+        low_balance_warning:
+          type: boolean
+          description: True when the balance is above zero but below the low-balance
+            threshold and auto-top-up is not enabled. Drives the in-app low-credits
+            banner.
       required:
       - allowed_top_up_amounts
       - daily_credit_limit_usd
@@ -6412,6 +6428,8 @@ components:
       - effective_balance
       - effective_balance_usd
       - is_degraded
+      - low_balance_threshold_usd
+      - low_balance_warning
       - maximum_balance
       - maximum_balance_usd
       - maximum_top_up
