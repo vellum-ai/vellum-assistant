@@ -50,18 +50,25 @@ tools, backups, and retrieval flows.
 
 ```bash
 cd "$VELLUM_WORKSPACE_DIR"
-# 1. Screen the source for secret-bearing files; review every hit with the
-#    user before deciding what to exclude.
+# 1a. Screen for secret-bearing FILE NAMES; review every hit with the user.
 find /path/to/raw-corpus \( -name '.env*' -o -name '*.key' -o -name '*.pem' \
   -o -name '*credential*' -o -name '*secret*' -o -name 'cookies*' \
   -o -path '*tokens*' -o -path '*oauth*' \) -print
-rg -l -i "api[_-]?key|access[_-]?token|BEGIN [A-Z ]*PRIVATE KEY" /path/to/raw-corpus | head -20
 
-# 2. Copy with secret-bearing paths excluded (rsync exclusions mirror the hits
-#    confirmed above; extend the list with whatever the screen found).
+# 1b. Screen file CONTENTS for credential shapes. Capture the FULL list
+#     (no truncation): every file named here must be excluded below or
+#     cleaned with the user before it lands.
+rg -l -i "api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password\s*[=:]|passwd|bearer |AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY" \
+  /path/to/raw-corpus > /tmp/corpus-secret-hits.txt
+cat /tmp/corpus-secret-hits.txt
+
+# 2. Build rsync exclusions from the content hits (paths relative to the
+#    corpus root), then copy with ALL flagged paths excluded.
+sed 's|^/path/to/raw-corpus/||' /tmp/corpus-secret-hits.txt > /tmp/corpus-secret-exclusions.txt
 mkdir -p imports/<source>
 rsync -a --exclude='.env*' --exclude='*.key' --exclude='*.pem' \
   --exclude='tokens/' --exclude='oauth/' --exclude='cookies*' \
+  --exclude-from=/tmp/corpus-secret-exclusions.txt \
   /path/to/raw-corpus/ imports/<source>/
 ```
 

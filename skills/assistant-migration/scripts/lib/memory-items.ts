@@ -94,6 +94,20 @@ export function toIsoDate(value: unknown): string | undefined {
       return toIsoDate(Number(trimmed));
     }
     if (/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(trimmed)) {
+      // Reject impossible calendar dates before Date normalizes them:
+      // 2025-02-30 would otherwise silently become March 2 and emit a
+      // valid-looking ISO stamp that downstream parsers cannot flag.
+      const year = Number(trimmed.slice(0, 4));
+      const month = Number(trimmed.slice(5, 7));
+      const day = Number(trimmed.slice(8, 10));
+      const probe = new Date(Date.UTC(year, month - 1, day));
+      if (
+        probe.getUTCFullYear() !== year ||
+        probe.getUTCMonth() !== month - 1 ||
+        probe.getUTCDate() !== day
+      ) {
+        return undefined;
+      }
       const parsed = new Date(trimmed);
       if (!Number.isNaN(parsed.getTime())) {
         return parsed.toISOString();
