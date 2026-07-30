@@ -141,6 +141,38 @@ describe("CommandPalette", () => {
     expect(highlight?.textContent).toBe("alpha");
   });
 
+  test("highlights each token independently for multi-token queries", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha beta"
+        onQueryChange={() => undefined}
+        highlightQuery="alpha beta"
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "…we compared alpha and beta itineraries…",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlights = [...row.querySelectorAll("span.font-medium")];
+    expect(highlights.map((el) => el.textContent)).toEqual(["alpha", "beta"]);
+  });
+
   test("keeps highlight offsets aligned when lowercasing changes string length", () => {
     render(
       <CommandPalette

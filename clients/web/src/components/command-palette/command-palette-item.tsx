@@ -22,33 +22,44 @@ function escapeRegExp(text: string): string {
 }
 
 /**
- * Emphasize the first case-insensitive occurrence of the query. Matching
- * runs on the original snippet so offsets stay aligned even when
- * lowercasing would change string length (e.g. Turkish dotted I).
+ * Emphasize query-token matches. Lexical search matches tokens
+ * independently, so each token is highlighted wherever it occurs, not
+ * only when the full query appears contiguously. Matching runs on the
+ * original snippet so offsets stay aligned even when lowercasing would
+ * change string length (e.g. Turkish dotted I).
  */
 function highlightMatch(
   snippet: string,
   highlightQuery: string | undefined,
 ): ReactNode {
-  const q = highlightQuery?.trim();
-  if (!q) {
+  const tokens = [
+    ...new Set(highlightQuery?.trim().toLowerCase().split(/\s+/) ?? []),
+  ]
+    .filter((token) => token.length > 0)
+    .sort((a, b) => b.length - a.length);
+  if (tokens.length === 0) {
     return snippet;
   }
-  const match = new RegExp(escapeRegExp(q), "i").exec(snippet);
-  if (!match) {
+  const matcher = new RegExp(tokens.map(escapeRegExp).join("|"), "gi");
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  for (const match of snippet.matchAll(matcher)) {
+    parts.push(snippet.slice(cursor, match.index));
+    parts.push(
+      <span
+        key={match.index}
+        className="font-medium text-[var(--content-default)]"
+      >
+        {match[0]}
+      </span>,
+    );
+    cursor = match.index + match[0].length;
+  }
+  if (parts.length === 0) {
     return snippet;
   }
-  const start = match.index;
-  const end = start + match[0].length;
-  return (
-    <>
-      {snippet.slice(0, start)}
-      <span className="font-medium text-[var(--content-default)]">
-        {snippet.slice(start, end)}
-      </span>
-      {snippet.slice(end)}
-    </>
-  );
+  parts.push(snippet.slice(cursor));
+  return <>{parts}</>;
 }
 
 /**
