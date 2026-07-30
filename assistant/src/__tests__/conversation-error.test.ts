@@ -789,7 +789,7 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("credits_exhausted");
       expect(result.retryable).toBe(false);
       expect(result.userMessage).toBe(
-        "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
+        "You're out of credits. Add credits in Settings → Billing to continue.",
       );
     });
 

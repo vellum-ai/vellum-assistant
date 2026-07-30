@@ -418,7 +418,7 @@ describe("selectPool — infrastructure failures throw", () => {
       source: "memory_v3",
       code: "PROVIDER_BILLING",
       userMessage:
-        "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
+        "You're out of credits. Add credits in Settings → Billing to continue.",
       errorCategory: "credits_exhausted",
     });
   });

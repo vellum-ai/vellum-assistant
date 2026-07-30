@@ -2232,7 +2232,7 @@ describe("session-agent-loop", () => {
       mockConversationErrorClassification = {
         code: "PROVIDER_BILLING",
         userMessage:
-          "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
+          "You're out of credits. Add credits in Settings → Billing to continue.",
         retryable: false,
         errorCategory: "credits_exhausted",
       };
@@ -2255,6 +2255,15 @@ describe("session-agent-loop", () => {
         { metadata?: Record<string, unknown> },
       ];
       expect(addCall[1]).toBe("assistant");
+      // The persisted row swaps the context-neutral classification copy for
+      // assistant-voice wording, since this turn truly ends with no reply.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(
+        "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
+      );
       expect(addCall[3]?.metadata).toMatchObject({
         messageKind: "provider_error",
         providerErrorCode: "PROVIDER_BILLING",

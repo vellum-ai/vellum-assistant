@@ -694,11 +694,14 @@ function managedBalanceClassification(): Omit<
 > {
   return {
     code: "PROVIDER_BILLING",
-    // This text is persisted as a real assistant message (it re-enters LLM
-    // history and is what older/native clients display), so it must read as
-    // the assistant speaking, not UI chrome.
+    // This classification feeds two surfaces with different semantics: the
+    // terminal provider-error path (the turn ends with no reply) and the
+    // non-terminal memory-v3 degraded notice (a normal reply still follows).
+    // Keep the wording context-neutral so it is true in both places; the
+    // terminal persist site in conversation-agent-loop.ts swaps in
+    // assistant-voice copy for the synthetic assistant row.
     userMessage:
-      "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
+      "You're out of credits. Add credits in Settings → Billing to continue.",
     retryable: false,
     errorCategory: "credits_exhausted",
   };

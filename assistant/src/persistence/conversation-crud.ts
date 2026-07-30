@@ -439,6 +439,28 @@ export function isSystemCardMessage(
 }
 
 /**
+ * Row-level variant of {@link isProviderErrorMetadata} for callers holding
+ * the raw persisted `metadata` JSON string. The single place the parse lives
+ * so display merging and wire projection agree on which rows carry the
+ * provider-error marker.
+ */
+export function isProviderErrorMessage(
+  role: string,
+  metadata: string | null,
+): boolean {
+  if (role !== "assistant" || !metadata) {
+    return false;
+  }
+  try {
+    return isProviderErrorMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Parse a persisted message's metadata JSON against {@link messageMetadataSchema}
  * — the single source of truth for its shape — returning the validated fields,
  * or `undefined` when the column is absent, not valid JSON, or fails validation.

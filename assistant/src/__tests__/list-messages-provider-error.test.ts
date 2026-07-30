@@ -5,9 +5,9 @@
  * classified error text as a synthetic assistant row stamped with
  * `metadata.messageKind: "provider_error"` (plus the classified
  * code/category). The history projection must surface that marker as the
- * wire `providerError` field — asserted against the FINAL response payload,
- * because a field carried only on the intermediate object is silently
- * dropped by the final projection (the historical `systemCard` bug).
+ * wire `providerError` field, asserted against the FINAL response payload:
+ * the final projection rebuilds each message object field by field, so a
+ * field carried only on the intermediate object is silently dropped.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
