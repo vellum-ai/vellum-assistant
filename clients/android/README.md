@@ -63,6 +63,29 @@ current Gradle flavor's `vellum_auth_host` resource. This mirrors the iOS
 target-level host guard and prevents a non-production shell from driving
 production SSO.
 
+## Self-Hosted Assistants
+
+Android accepts environment-specific connect links in this form:
+
+```text
+vellum-assistant-dev://connect?url=https%3A%2F%2Fassistant.example.com&code=device-code
+```
+
+The production and staging builds use their matching auth schemes from the
+Build Variants table. Scanning a connect link switches the native shell to the
+validated server, opens `<server>/assistant/pair`, and keeps an existing server
+path prefix intact. Cold and warm app launches use the same route.
+
+Only the validated server base is saved after the pairing page loads. The
+one-time device code is kept out of app preferences and the generated
+Capacitor configuration. HTTPS is required except for `localhost`, `127.0.0.1`,
+and the Android emulator host alias `10.0.2.2`. Use `adb reverse` when a physical
+development device needs to reach a service through `localhost`.
+
+If a saved or newly scanned server cannot load, the native recovery dialog can
+retry it or clear the saved server and return to Vellum Cloud. A failed new
+server is never promoted over the last server that loaded successfully.
+
 ## Structure
 
 ```
@@ -77,8 +100,10 @@ clients/
     │   └── src/main/
     │       ├── AndroidManifest.xml
     │       ├── java/ai/vocify/vellumassistant/
+    │       │   ├── ConnectDeepLink.java
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
+    │       │   ├── SelfHostedServer.java
     │       │   └── WorkOSAuth.java
     │       └── res/              # Vellum icon, splash, colors, file paths
     ├── build.gradle
