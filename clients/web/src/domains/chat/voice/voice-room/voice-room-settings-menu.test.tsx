@@ -217,10 +217,12 @@ describe("VoiceRoomSettingsMenu", () => {
     // The popover closes (its Captions toggle unmounts) so the picker isn't
     // stacked inside the popover's transformed wrapper...
     expect(screen.queryByLabelText("Show captions")).toBeNull();
-    // ...and the modal opens outside it, caption and options included.
+    // ...and the modal opens outside it: search field, caption, and grouped
+    // options included.
     expect(
-      screen.getByRole("listbox", { name: "Listening language" }),
+      screen.getByRole("combobox", { name: "Search languages" }),
     ).toBeTruthy();
+    expect(screen.getByRole("listbox", { name: "Languages" })).toBeTruthy();
     expect(
       screen.getByText("Applies from your next spoken turn."),
     ).toBeTruthy();
@@ -238,45 +240,37 @@ describe("VoiceRoomSettingsMenu", () => {
     );
     expect(languagePicks).toEqual(["fr"]);
     // A pick hot-applies (nothing to save), so it also dismisses the picker.
-    expect(
-      screen.queryByRole("listbox", { name: "Listening language" }),
-    ).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Languages" })).toBeNull();
   });
 
-  test("arrow keys walk the language options and Enter picks the focused one", async () => {
+  test("typing filters the list and Enter picks the match", () => {
     languageSelection = { ...languageSelection, available: true };
-    const user = userEvent.setup();
     openMenu();
     fireEvent.click(screen.getByText("Listening language"));
-    // The options are buttons, so Tab reaches them; arrows then rove focus.
-    const options = screen.getAllByRole("option");
-    options[0].focus();
-    await user.keyboard("{ArrowDown}");
-    expect(document.activeElement).toBe(options[1]);
-    // Enter activates the focused option like a click: the pick lands and the
-    // picker closes. Option 1 is Multilingual ("multi") for the vellum
+    const search = screen.getByRole("combobox", { name: "Search languages" });
+    fireEvent.change(search, { target: { value: "korean" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(languagePicks).toEqual(["ko"]);
+    expect(screen.queryByRole("listbox", { name: "Languages" })).toBeNull();
+  });
+
+  test("arrow keys move the highlight from the search field and Enter picks it", () => {
+    languageSelection = { ...languageSelection, available: true };
+    openMenu();
+    fireEvent.click(screen.getByText("Listening language"));
+    // Focus stays in the search input (aria-activedescendant pattern); two
+    // steps land on Multilingual, the second featured row for the vellum
     // provider with no language set.
-    await user.keyboard("{Enter}");
+    const search = screen.getByRole("combobox", { name: "Search languages" });
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    fireEvent.keyDown(search, { key: "Enter" });
     expect(languagePicks).toEqual(["multi"]);
-    expect(
-      screen.queryByRole("listbox", { name: "Listening language" }),
-    ).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Languages" })).toBeNull();
   });
 
-  test("Home and End jump focus to the first and last language option", async () => {
-    languageSelection = { ...languageSelection, available: true };
-    const user = userEvent.setup();
-    openMenu();
-    fireEvent.click(screen.getByText("Listening language"));
-    const options = screen.getAllByRole("option");
-    options[0].focus();
-    await user.keyboard("{End}");
-    expect(document.activeElement).toBe(options[options.length - 1]);
-    await user.keyboard("{Home}");
-    expect(document.activeElement).toBe(options[0]);
-  });
-
-  test("opening the picker focuses the selected option, the list's one tab stop", () => {
+  test("opening the picker focuses the search field with the selection marked", () => {
     languageSelection = {
       ...languageSelection,
       available: true,
@@ -284,20 +278,15 @@ describe("VoiceRoomSettingsMenu", () => {
     };
     openMenu();
     fireEvent.click(screen.getByText("Listening language"));
-    // Focus starts on the configured language, not the first option: from
-    // here Enter re-picks Spanish instead of overwriting it with English.
+    // Focus starts in the search field so the first keystroke filters; the
+    // configured language stays visibly marked (and pinned in Featured).
+    expect(document.activeElement).toBe(
+      screen.getByRole("combobox", { name: "Search languages" }),
+    );
     const spanish = screen.getByRole("option", {
       name: /Spanish \(Español\)/,
     });
-    expect(document.activeElement).toBe(spanish);
-    // Roving tabindex anchored on the selection: only the selected option is
-    // tabbable, the rest are reached with the arrow keys.
-    expect(spanish.tabIndex).toBe(0);
-    for (const option of screen.getAllByRole("option")) {
-      if (option !== spanish) {
-        expect(option.tabIndex).toBe(-1);
-      }
-    }
+    expect(spanish.getAttribute("aria-selected")).toBe("true");
   });
 
   test("a slow write keeps picks serialized across picker close and reopen", async () => {
@@ -314,9 +303,7 @@ describe("VoiceRoomSettingsMenu", () => {
       screen.getByRole("option", { name: /Spanish \(Español\)/ }),
     );
     expect(patchCalls).toEqual([{ language: "es" }]);
-    expect(
-      screen.queryByRole("listbox", { name: "Listening language" }),
-    ).toBeNull();
+    expect(screen.queryByRole("listbox", { name: "Languages" })).toBeNull();
 
     // Reopen and pick again while the first write is still unresolved. The
     // hook state survived the picker unmount: the reopened list shows the

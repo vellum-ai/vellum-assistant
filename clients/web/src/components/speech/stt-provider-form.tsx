@@ -32,10 +32,9 @@ import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/lib/provider-catalogs";
-import {
-  sttLanguageLabel,
-  sttLanguageOptionsFor,
-} from "@/lib/stt/language-catalog";
+import { sttLanguageLabelForCode } from "@/lib/stt/language-catalog";
+import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
+import { SttLanguagePickerModal } from "@/components/speech/stt-language-picker-modal";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 /**
@@ -169,7 +168,12 @@ export function SttProviderForm({
     currentCode: languageCode,
     configuredProviderId: languageProviderId,
     selectLanguage,
+    selecting: languageSelecting,
   } = useSttLanguageSelection(assistantId);
+  // The language catalog is ~50 entries, so the control is a trigger row
+  // opening the shared search-first picker modal; a pick hot-applies through
+  // the hook above, independent of this form's Save.
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   // A language pick hot-applies to the daemon's CONFIGURED provider (the
   // hook's `configuredProviderId`, which its `available` already vets), so
   // the picker binds to that provider and hides while the dropdown holds an
@@ -384,24 +388,27 @@ export function SttProviderForm({
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Spoken language
           </label>
-          <Dropdown
-            value={languageCode}
-            onChange={selectLanguage}
-            options={sttLanguageOptionsFor(
-              languageCode,
-              languageProviderId,
-            ).map((l) => ({
-              value: l.code,
-              label: sttLanguageLabel(l),
-              // The design-library Dropdown has no visible per-option
-              // description line, so the copy rides the hover tooltip.
-              tooltip: l.description,
-            }))}
+          {/* A trigger row (current value + chevron) opening the shared
+              search-first picker: mirrors the Dropdown trigger's field
+              styling so the form reads uniformly, but opens a dialog. */}
+          <SelectTriggerRow
             aria-label="Spoken language"
+            aria-haspopup="dialog"
+            onClick={() => setLanguagePickerOpen(true)}
+            value={sttLanguageLabelForCode(languageCode, languageProviderId)}
           />
           <p className="text-body-small-default text-[var(--content-tertiary)]">
             Applies from your next spoken turn.
           </p>
+          <SttLanguagePickerModal
+            open={languagePickerOpen}
+            onOpenChange={setLanguagePickerOpen}
+            title="Spoken language"
+            currentCode={languageCode}
+            configuredProviderId={languageProviderId}
+            selectLanguage={selectLanguage}
+            selecting={languageSelecting}
+          />
         </div>
       )}
 

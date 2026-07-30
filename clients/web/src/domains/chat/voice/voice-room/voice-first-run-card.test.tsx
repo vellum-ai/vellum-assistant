@@ -270,7 +270,10 @@ describe("VoiceFirstRunCard", () => {
   describe("listening language row", () => {
     const ROW_LABEL = "Listening language";
 
-    /** The language dropdown's option rows, in render order. */
+    /**
+     * Open the language sub-view through the row and return the picker's
+     * option rows, in render order (Featured first, then A-Z).
+     */
     function languageOptions(getByLabelText: (label: string) => HTMLElement) {
       fireEvent.click(getByLabelText(ROW_LABEL));
       return Array.from(
@@ -305,11 +308,125 @@ describe("VoiceFirstRunCard", () => {
       );
 
       const options = languageOptions(getByLabelText);
-      // The suggestion sits directly after the current (default) value and
-      // carries the annotation; the rest of the catalog is unshuffled.
+      // The Featured group pins the current (default) value first with the
+      // annotated suggestion beside it; the rest of the catalog follows A-Z.
       expect(options[0]?.textContent).toContain("English (default)");
       expect(options[1]?.textContent).toContain("Multilingual");
       expect(options[1]?.textContent).toContain("Suggested");
+    });
+
+    test("under xai a multi-roster locale falls back to the monolingual suggestion", () => {
+      // xai's option set omits Multilingual, so the suggestion degrades to
+      // the Hindi pin (which every language-selectable provider offers)
+      // instead of vanishing or naming a row the picker withholds.
+      stubLocale("hi-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        configuredProviderId: "xai",
+      };
+      const { getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      const options = languageOptions(getByLabelText);
+      expect(options[0]?.textContent).toContain("Auto-detect (default)");
+      expect(options[1]?.textContent).toContain("Hindi");
+      expect(options[1]?.textContent).toContain("Suggested");
+      expect(options.some((o) => o.textContent?.includes("Multilingual"))).toBe(
+        false,
+      );
+    });
+
+    test("an extended-roster locale under xai sees no row: nothing valid to suggest", () => {
+      // xai never offers "ta", so a row would render with no suggestion and
+      // no matching language; the provider-aware suggestion hides it.
+      stubLocale("ta-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        configuredProviderId: "xai",
+      };
+      const { queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      expect(queryByLabelText(ROW_LABEL)).toBeNull();
+    });
+
+    test("the row opens the language sub-view in place: one dialog, no stack", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const { getByLabelText, baseElement } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      expect(dialogTitle()).toBe("Listening language");
+      expect(baseElement.querySelectorAll('[role="dialog"]').length).toBe(1);
+      // The shared picker's search field is the sub-view's first control.
+      expect(document.querySelector('input[role="combobox"]')).not.toBeNull();
+    });
+
+    test("Escape in the language sub-view returns to the intro, not a dismiss", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const onDismiss = mock(() => {});
+      const { getByLabelText, getByText } = render(
+        <VoiceFirstRunCard
+          assistantId="asst_test"
+          onStart={() => {}}
+          onDismiss={onDismiss}
+        />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      expect(dialogTitle()).toBe("Listening language");
+      // Dispatch on the picker's search field, the element that holds focus
+      // in the sub-view: keying off a queried in-dialog target (the file's
+      // selector convention for the search field) keeps the test independent
+      // of environment-specific autofocus timing.
+      const search = document.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      expect(search).not.toBeNull();
+      // With text in the search field the stakes are highest: Escape must
+      // discard at most the query, never the whole card.
+      fireEvent.change(search!, { target: { value: "tam" } });
+      fireEvent.keyDown(search!, { key: "Escape" });
+      // Back on the intro with the card still open and un-consumed.
+      expect(getByText("Start talking")).toBeTruthy();
+      expect(onDismiss).not.toHaveBeenCalled();
+      expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+    });
+
+    test("picking Tamil from search calls selectLanguage with its code", () => {
+      stubLocale("hi-IN");
+      const selectLanguage = mock((_code: string) => {});
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        selectLanguage,
+      };
+      const { getByLabelText, getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      const search = document.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      expect(search).not.toBeNull();
+      fireEvent.change(search!, { target: { value: "tamil" } });
+      const options = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      );
+      expect(options).toHaveLength(1);
+      fireEvent.click(options[0]!);
+
+      expect(selectLanguage).toHaveBeenCalledTimes(1);
+      expect(selectLanguage).toHaveBeenCalledWith("ta");
+      // The pick returns to the intro (hot-applies; nothing else to do).
+      expect(getByText("Start talking")).toBeTruthy();
     });
 
     test("a pick writes the language; merely rendering writes nothing", () => {

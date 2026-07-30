@@ -10,8 +10,11 @@ describe("deepgramLanguageOptions", () => {
     });
   });
 
-  test("a specific language returns only the language, keeping the caller's default model", () => {
-    expect(deepgramLanguageOptions("hi")).toEqual({ language: "hi" });
+  test("a specific language pins nova-3 alongside it (the model the roster is verified for)", () => {
+    expect(deepgramLanguageOptions("hi")).toEqual({
+      model: "nova-3",
+      language: "hi",
+    });
   });
 
   test("an unset language returns no options at all", () => {

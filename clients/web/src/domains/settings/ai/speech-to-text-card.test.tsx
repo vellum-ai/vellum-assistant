@@ -8,9 +8,10 @@
  *   3. A persisted native choice on a build without the capability falls
  *      back to the default provider instead of an empty dropdown.
  *
- * Plus the "Spoken language" dropdown: shown only when the daemon reports
- * the configured provider as manually language-selectable, hidden for
- * auto-detecting providers and old daemons that omit the capability field.
+ * Plus the "Spoken language" control: a trigger row opening the shared
+ * search-first picker, shown only when the daemon reports the configured
+ * provider as manually language-selectable, hidden for auto-detecting
+ * providers and old daemons that omit the capability field.
  *
  * The native-dictation runtime module is mocked (its real implementation
  * imports a Vite `?worker&url` asset and probes `window.vellum`); the
@@ -376,7 +377,7 @@ describe("SpeechToTextCard — Vellum provider", () => {
   });
 });
 
-describe("SpeechToTextCard: Spoken language dropdown", () => {
+describe("SpeechToTextCard: Spoken language picker", () => {
   beforeEach(() => {
     localStorage.clear();
     nativeDictationSupported = false;
@@ -395,9 +396,15 @@ describe("SpeechToTextCard: Spoken language dropdown", () => {
   });
 
   function languageTrigger(): HTMLButtonElement | null {
+    // A trigger row opening the search-first picker modal (not a combobox).
     return document.querySelector<HTMLButtonElement>(
-      'button[role="combobox"][aria-label="Spoken language"]',
+      'button[aria-label="Spoken language"]',
     );
+  }
+
+  /** The picker modal's search field, present only while the picker is open. */
+  function pickerSearch(): HTMLInputElement | null {
+    return document.querySelector<HTMLInputElement>('input[role="combobox"]');
   }
 
   test("renders for a manually language-selectable provider and lists Multilingual", async () => {
@@ -415,7 +422,49 @@ describe("SpeechToTextCard: Spoken language dropdown", () => {
 
     await waitFor(() => expect(languageTrigger()).not.toBeNull());
     fireEvent.click(languageTrigger()!);
-    expect(visibleOptions()).toContain("Multilingual");
+    // Option rows render their description inline, so match on the prefix.
+    expect(visibleOptions().some((o) => o.startsWith("Multilingual"))).toBe(
+      true,
+    );
+    // The extended nova-3 roster is offered under deepgram.
+    expect(visibleOptions()).toContain("Tamil (தமிழ்)");
+  });
+
+  test("the trigger opens the picker and a searched pick writes the code", async () => {
+    daemonConfigData = { services: { stt: { provider: "deepgram" } } };
+    providerCatalogData = {
+      providers: [
+        {
+          id: "deepgram",
+          displayName: "Deepgram",
+          languageSelection: "manual",
+        },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    // The trigger row is a button into the picker dialog, not a combobox.
+    expect(languageTrigger()!.getAttribute("aria-haspopup")).toBe("dialog");
+    fireEvent.click(languageTrigger()!);
+
+    // Search narrows the list; picking the match hot-applies the code
+    // through the language hook's config PATCH.
+    const search = pickerSearch();
+    expect(search).not.toBeNull();
+    fireEvent.change(search!, { target: { value: "tamil" } });
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(options).toHaveLength(1);
+    fireEvent.click(options[0]!);
+
+    await waitFor(() => expect(configPatchCalls.length).toBe(1));
+    expect(configPatchCalls[0]!.body).toMatchObject({
+      services: { stt: { language: "ta" } },
+    });
+    // A pick hot-applies (nothing to save), so it also closes the picker.
+    expect(pickerSearch()).toBeNull();
   });
 
   test("does not render for an auto-detecting provider", () => {
@@ -526,7 +575,7 @@ describe("SpeechToTextCard: Spoken language dropdown", () => {
     await waitFor(() => expect(languageTrigger()).not.toBeNull());
     fireEvent.click(languageTrigger()!);
     const options = visibleOptions();
-    expect(options).not.toContain("Multilingual");
+    expect(options.some((o) => o.startsWith("Multilingual"))).toBe(false);
     expect(options).toContain("Spanish (Español)");
     // Unset language under xai is native auto-detection, so the default row
     // is Auto-detect and an explicit English entry makes the pin writable.

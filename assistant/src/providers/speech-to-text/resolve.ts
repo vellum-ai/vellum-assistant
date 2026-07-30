@@ -453,8 +453,10 @@ interface CreateStreamingTranscriberOptions {
    *
    * Unset is NOT auto-detect on Deepgram: omitting the param makes Deepgram
    * decode as English, so non-English speech comes back as English-sounding
-   * nonsense rather than failing loudly. `"multi"` selects nova-3's
-   * code-switching mode (the managed relay pins nova-3).
+   * nonsense rather than failing loudly. Any configured language pins
+   * nova-3 on BYOK Deepgram (see `deepgramLanguageOptions`); `"multi"`
+   * selects nova-3's code-switching mode (the managed relay pins nova-3
+   * server-side).
    */
   language?: string;
 }

@@ -11,11 +11,9 @@
 
 import { useState } from "react";
 
-import { ChevronDown } from "lucide-react";
-
-import { cn } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 
+import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { VoiceList } from "@/components/speech/voice-list";
 import { voiceTraitsLabel } from "@/lib/tts/managed-voice-catalog";
@@ -52,22 +50,13 @@ export function VoicePickerField({
       <Popover.Trigger asChild>
         {/* Mirrors the design-library Dropdown trigger exactly so the Voice
             field reads as a sibling of the Provider dropdown above it. */}
-        <button
-          type="button"
+        <SelectTriggerRow
           aria-label="Voice"
-          className={cn(
-            "flex h-9 w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 text-left text-body-medium-lighter text-[var(--content-default)] transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)]",
-            className,
-          )}
-        >
-          <span className="min-w-0 flex-1 truncate">
-            {current ? voiceTraitsLabel(current.description) : "Select a voice"}
-          </span>
-          <ChevronDown
-            className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
-            aria-hidden
-          />
-        </button>
+          value={
+            current ? voiceTraitsLabel(current.description) : "Select a voice"
+          }
+          className={className}
+        />
       </Popover.Trigger>
       <Popover.Content
         side="bottom"

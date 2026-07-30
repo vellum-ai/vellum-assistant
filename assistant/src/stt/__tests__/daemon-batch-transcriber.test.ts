@@ -294,9 +294,10 @@ describe("createDaemonBatchTranscriber", () => {
     expect(deepgramProviderCtorCalls).toHaveLength(1);
     expect(deepgramProviderCtorCalls[0]?.options).toMatchObject({
       language: "hi",
+      // Any configured language pins nova-3, the model the roster is
+      // verified for; the provider default (nova-2) covers only a subset.
+      model: "nova-3",
     });
-    // A specific language keeps the provider's default model untouched.
-    expect(deepgramProviderCtorCalls[0]?.options).not.toHaveProperty("model");
   });
 
   test("pins nova-3 on the Deepgram provider when language is 'multi'", async () => {

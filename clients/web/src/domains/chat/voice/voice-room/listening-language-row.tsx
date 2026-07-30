@@ -1,7 +1,7 @@
 /**
  * The "Listening language" row shown in the voice-room settings popover: the
- * current language with a chevron, leading to the
- * {@link ListeningLanguagePickerModal} the parent hosts. Renders nothing when
+ * current language with a chevron, leading to the shared
+ * {@link SttLanguagePickerModal} the parent hosts. Renders nothing when
  * the daemon doesn't offer manual language selection for the configured STT
  * provider (auto-detecting providers, old daemons), so the popover never shows
  * a control the daemon would ignore.
@@ -13,7 +13,7 @@
  *
  * The picker is a modal rather than an inline dropdown on purpose: the radix
  * popover positions its content through a transformed wrapper, which becomes
- * the containing block for fixed-position descendants, so the Dropdown menu's
+ * the containing block for fixed-position descendants, so an inline menu's
  * viewport coordinates land relative to the already-offset popover and the
  * options render far from the trigger. Like the Voice row, this row only
  * reports the click via `onOpen`; the parent closes the popover and opens the

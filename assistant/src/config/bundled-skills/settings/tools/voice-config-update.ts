@@ -1,6 +1,9 @@
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import { managedSpeechAvailable } from "../../../../platform/managed-speech.js";
-import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../../../providers/speech-to-text/deepgram.js";
+import {
+  DEEPGRAM_MULTI_LANGUAGE_CODES,
+  DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
+} from "../../../../providers/speech-to-text/deepgram.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -63,38 +66,120 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
 };
 
 /**
- * Curated spoken-language codes for `services.stt.language`: Deepgram
- * nova-3's `multi` (code-switching) roster plus `multi` itself, derived from
- * the daemon's single roster source (`DEEPGRAM_MULTI_LANGUAGE_CODES`, which
+ * Curated spoken-language codes for `services.stt.language`: the verified
+ * Deepgram nova-3 monolingual roster plus `multi` itself, derived from the
+ * daemon's single roster source (`DEEPGRAM_NOVA3_MONOLINGUAL_CODES`, which
  * the web settings catalog mirrors under a parity test). The config schema
  * accepts any non-empty string, but this tool only offers the curated set so
  * a conversational request cannot persist an unvalidated code.
  */
 const VALID_STT_LANGUAGES = [
-  ...DEEPGRAM_MULTI_LANGUAGE_CODES,
+  ...DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
   "multi",
 ] as const;
+
+/**
+ * Codes accepted when the effective STT provider is xai: the pre-expansion
+ * multi-roster monolinguals (which include "en"), the set xAI was verified
+ * with. The extended nova-3 codes are verified against Deepgram's docs only,
+ * and "multi" is a Deepgram nova-3 mode the resolver never forwards to xAI,
+ * so both are rejected here rather than persisted as unverified or dead
+ * values. Derived from the daemon's roster source, same as the web catalog's
+ * provider scoping (`sttLanguageOptionsFor`).
+ */
+const XAI_STT_LANGUAGES: readonly string[] = DEEPGRAM_MULTI_LANGUAGE_CODES;
+
+/**
+ * Rejection copy when a roster code is valid in general but not for xai. It
+ * names the provider and the accepted set so the model can steer the user
+ * instead of retrying blindly.
+ */
+const XAI_STT_LANGUAGE_ERROR = `the configured STT provider is xai, which supports: ${XAI_STT_LANGUAGES.join(
+  ", ",
+)}. Multilingual (multi) and the extended language codes are Deepgram/managed (vellum) only; switch stt_provider to use them`;
+
+/**
+ * STT providers that auto-detect the spoken language natively and take no
+ * language parameter (the resolver's value is ignored). A language write is
+ * still allowed for them (it applies after a later provider switch), but the
+ * success message notes the setting has no effect while they are active.
+ */
+const AUTO_DETECT_STT_PROVIDERS: ReadonlySet<string> = new Set([
+  "google-gemini",
+  "openai-whisper",
+]);
+
+/**
+ * Rejection copy for stt_language. The roster is too long to enumerate in an
+ * error message, so it names the count and a few examples; the full set is
+ * `VALID_STT_LANGUAGES`.
+ */
+const STT_LANGUAGE_ERROR = `stt_language must be one of the ${VALID_STT_LANGUAGES.length - 1} supported language codes (e.g. en, es, hi, ta, zh, ko) or multi for code-switching; language names like "hindi", "tamil", and "multilingual" are also accepted`;
 
 /**
  * Forgiving aliases normalized (after trim + lowercase) to a curated code, so
  * a natural value like "Hindi" or "multilingual" is accepted rather than
  * rejected. Mirrors the alias treatment stt_provider gets in the config
- * schema (openai/whisper -> openai-whisper).
+ * schema (openai/whisper -> openai-whisper). Common alternate names map to
+ * the same code (mandarin -> zh, farsi -> fa, filipino -> tl).
  */
 const STT_LANGUAGE_ALIASES: Record<
   string,
   (typeof VALID_STT_LANGUAGES)[number]
 > = {
+  arabic: "ar",
+  belarusian: "be",
+  bengali: "bn",
+  bangla: "bn",
+  bosnian: "bs",
+  bulgarian: "bg",
+  catalan: "ca",
+  chinese: "zh",
+  mandarin: "zh",
+  croatian: "hr",
+  czech: "cs",
+  danish: "da",
+  dutch: "nl",
   english: "en",
-  spanish: "es",
+  estonian: "et",
+  finnish: "fi",
   french: "fr",
   german: "de",
+  greek: "el",
+  gujarati: "gu",
+  hebrew: "he",
   hindi: "hi",
-  russian: "ru",
-  portuguese: "pt",
-  japanese: "ja",
+  hungarian: "hu",
+  indonesian: "id",
   italian: "it",
-  dutch: "nl",
+  japanese: "ja",
+  kannada: "kn",
+  korean: "ko",
+  latvian: "lv",
+  lithuanian: "lt",
+  macedonian: "mk",
+  malay: "ms",
+  marathi: "mr",
+  norwegian: "no",
+  persian: "fa",
+  farsi: "fa",
+  polish: "pl",
+  portuguese: "pt",
+  romanian: "ro",
+  russian: "ru",
+  serbian: "sr",
+  slovak: "sk",
+  slovenian: "sl",
+  spanish: "es",
+  swedish: "sv",
+  tagalog: "tl",
+  filipino: "tl",
+  tamil: "ta",
+  telugu: "te",
+  thai: "th",
+  turkish: "tr",
+  ukrainian: "uk",
+  vietnamese: "vi",
   multilingual: "multi",
   auto: "multi",
   mixed: "multi",
@@ -105,6 +190,7 @@ function validateSetting(
   setting: string,
   value: unknown,
   activeTtsProviderId?: string,
+  activeSttProviderId?: string,
 ):
   | { ok: true; coerced: string | boolean | number }
   | { ok: false; error: string } {
@@ -196,9 +282,7 @@ function validateSetting(
       if (typeof value !== "string") {
         return {
           ok: false,
-          error: `stt_language must be one of: ${VALID_STT_LANGUAGES.join(
-            ", ",
-          )} (language names like "hindi" and "multilingual" are also accepted)`,
+          error: STT_LANGUAGE_ERROR,
         };
       }
       const normalized = value.trim().toLowerCase();
@@ -206,10 +290,22 @@ function validateSetting(
       if (!(VALID_STT_LANGUAGES as readonly string[]).includes(coerced)) {
         return {
           ok: false,
-          error: `stt_language must be one of: ${VALID_STT_LANGUAGES.join(
-            ", ",
-          )} (language names like "hindi" and "multilingual" are also accepted)`,
+          error: STT_LANGUAGE_ERROR,
         };
+      }
+      // Provider scoping, after alias normalization so "Tamil" and "ta" fail
+      // the same way: the extended roster and "multi" are verified for
+      // Deepgram nova-3 (BYOK deepgram and the managed relay) only. Under
+      // xai, persisting them would mean every web surface withholds the code
+      // while the resolver forwards it unverified (or, for "multi", drops it
+      // silently), so the write is an honest rejection instead. Auto-detect
+      // providers keep the unconditional write (the value applies after a
+      // later provider switch); the success message carries the caveat.
+      if (
+        activeSttProviderId === "xai" &&
+        !XAI_STT_LANGUAGES.includes(coerced)
+      ) {
+        return { ok: false, error: XAI_STT_LANGUAGE_ERROR };
       }
       return { ok: true, coerced };
     }
@@ -295,7 +391,18 @@ export async function run(
   const activeTtsProviderId =
     setting === "tts_voice_id" ? getConfig().services.tts.provider : undefined;
 
-  const validation = validateSetting(setting, value, activeTtsProviderId);
+  // An stt_language change is scoped by the *effective* STT provider (the
+  // same source the sparse-config write-seeding below reads): the extended
+  // roster and "multi" are only valid where nova-3 runs.
+  const activeSttProviderId =
+    setting === "stt_language" ? getConfig().services.stt.provider : undefined;
+
+  const validation = validateSetting(
+    setting,
+    value,
+    activeTtsProviderId,
+    activeSttProviderId,
+  );
   if (!validation.ok) {
     return { content: `Error: ${validation.error}`, isError: true };
   }
@@ -382,9 +489,11 @@ export async function run(
     invalidateConfigCache();
   }
 
-  // The write is unconditional across providers: the daemon resolver already
-  // forwards the language only to adapters that accept one (and drops "multi"
-  // for xAI), matching how stt_provider does not cross-validate credentials.
+  // Provider scoping happened in validation (xai only accepts its verified
+  // set); for the remaining providers the write is unconditional. Auto-detect
+  // providers ignore the value at resolve time, so writing it is harmless and
+  // the success note below says so, matching how stt_provider does not
+  // cross-validate credentials.
   if (setting === "stt_language") {
     // A sparse raw config may lack `services.stt.provider` entirely. Writing
     // only the language would persist `{ stt: { language } }`, and
@@ -412,10 +521,18 @@ export async function run(
     meta.userDefaultsKey && !skipClientBroadcast
       ? " The change has been broadcast to the desktop client."
       : "";
+  // A language written while an auto-detecting provider is active persists
+  // but has no effect until the provider changes; say so in the same
+  // provider-aware voice the tool description uses.
+  const autoDetectNote =
+    activeSttProviderId !== undefined &&
+    AUTO_DETECT_STT_PROVIDERS.has(activeSttProviderId)
+      ? ` Note: the configured STT provider (${activeSttProviderId}) auto-detects the spoken language natively and ignores this setting.`
+      : "";
   return {
     content: `${friendlyName} updated to ${JSON.stringify(
       validation.coerced,
-    )}.${broadcastNote}`,
+    )}.${broadcastNote}${autoDetectNote}`,
     isError: false,
   };
 }

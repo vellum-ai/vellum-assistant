@@ -1134,15 +1134,19 @@ describe("resolveStreamingTranscriber language plumbing", () => {
     });
   });
 
-  test("BYOK Deepgram sessions with a specific language keep the adapter's default model", async () => {
+  test("BYOK Deepgram sessions with a specific language pin nova-3 too", async () => {
+    // The roster is verified against nova-3; the adapter default (nova-2)
+    // supports only a subset of it, so any configured language pins nova-3.
     mockProviderKeys = { deepgram: "dg-key" };
     applyConfig({ provider: "deepgram", language: "hi" });
 
     await resolveStreamingTranscriber({ sampleRate: 16000 });
 
     expect(deepgramCtorCalls).toHaveLength(1);
-    expect(deepgramCtorCalls[0]?.options).toMatchObject({ language: "hi" });
-    expect(deepgramCtorCalls[0]?.options).not.toHaveProperty("model");
+    expect(deepgramCtorCalls[0]?.options).toMatchObject({
+      language: "hi",
+      model: "nova-3",
+    });
   });
 
   test("xAI sessions never receive 'multi' (a Deepgram-specific value, not BCP-47)", async () => {
@@ -1220,8 +1224,8 @@ describe("resolveStreamingTranscriber language plumbing", () => {
     expect(deepgramBatchCtorCalls).toHaveLength(1);
     expect(deepgramBatchCtorCalls[0]?.options).toMatchObject({
       language: "hi",
+      model: "nova-3",
     });
-    expect(deepgramBatchCtorCalls[0]?.options).not.toHaveProperty("model");
   });
 
   test("batch resolution with 'multi' pins nova-3 on the Deepgram provider", async () => {

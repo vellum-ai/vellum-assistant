@@ -14,10 +14,10 @@
  *   a bring-your-own provider gets the disabled row and its Settings link (see
  *   {@link VoiceSettingRow}).
  * - **Listening language**: the spoken language STT recognizes, as a row that
- *   opens a small picker modal (mirroring the Voice row: the popover's radix
- *   wrapper is transformed, which makes it the containing block for the
- *   Dropdown menu's fixed-position coordinates, so an inline menu here lands
- *   far from its trigger). Writes `services.stt.language` through
+ *   opens the shared search-first picker modal (mirroring the Voice row: the
+ *   popover's radix wrapper is transformed, which makes it the containing
+ *   block for fixed-position coordinates, so an inline menu here lands far
+ *   from its trigger). Writes `services.stt.language` through
  *   `useSttLanguageSelection`, which hot-applies from the user's next
  *   spoken turn. The hook is called once here, in a component that stays
  *   mounted for the whole voice-room session, and its state is passed down
@@ -27,7 +27,7 @@
  *   close/reopen. Only rendered when the daemon reports the configured STT
  *   provider as manually language-selectable; auto-detecting providers and
  *   old daemons get no row. See {@link ListeningLanguageRow} and
- *   {@link ListeningLanguagePickerModal}.
+ *   {@link SttLanguagePickerModal}.
  *
  * Captions are bound to the same `voice-prefs` store the Settings page uses;
  * voice and listening language are bound to daemon config, the source of
@@ -42,9 +42,9 @@ import { cn } from "@vellumai/design-library";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+import { SttLanguagePickerModal } from "@/components/speech/stt-language-picker-modal";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { VoicePickerModal } from "@/components/speech/voice-picker-modal";
-import { ListeningLanguagePickerModal } from "@/domains/chat/voice/voice-room/listening-language-picker-modal";
 import { ListeningLanguageRow } from "@/domains/chat/voice/voice-room/listening-language-row";
 import { VoiceSettingRow } from "@/domains/chat/voice/voice-room/voice-setting-row";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
@@ -172,9 +172,10 @@ export function VoiceRoomSettingsMenu({
         open={voiceModalOpen}
         onOpenChange={setVoiceModalOpen}
       />
-      <ListeningLanguagePickerModal
+      <SttLanguagePickerModal
         open={languageModalOpen}
         onOpenChange={setLanguageModalOpen}
+        title="Listening language"
         currentCode={currentCode}
         configuredProviderId={configuredProviderId}
         selectLanguage={selectLanguage}
