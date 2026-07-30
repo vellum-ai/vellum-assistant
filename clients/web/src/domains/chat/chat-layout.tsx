@@ -318,6 +318,82 @@ export function ChatLayout({
     setLocalNumber(SIDEBAR_WIDTH_STORAGE_KEY, Math.round(width));
   }, []);
 
+  // The tour's focused stage slides the whole rail away and bounces it back
+  // on reveal. Driven with the Web Animations API rather than a standing
+  // inline width + transition on the rail's wrapper: React only learns new
+  // widths when a drag commits on pointer-up, so a standing wrapper width
+  // lags the SideMenu nav's live drag-resize and, with the wrapper's
+  // overflow clip, pins the visible edge at the stale width whenever the
+  // nav is dragged wider.
+  const sideMenuAsideRef = useRef<HTMLElement | null>(null);
+  const railFocusAnimationsRef = useRef<Animation[]>([]);
+  const prevChatFocusRef = useRef(chatFocusActive);
+  useEffect(() => {
+    const aside = sideMenuAsideRef.current;
+    if (!aside) {
+      return;
+    }
+    const prev = prevChatFocusRef.current;
+    prevChatFocusRef.current = chatFocusActive;
+    if (prev === chatFocusActive) {
+      if (chatFocusActive && railFocusAnimationsRef.current.length === 0) {
+        // Mounted while already focused: hold the hidden state, no motion.
+        railFocusAnimationsRef.current = [
+          aside.animate(
+            { width: "0px", opacity: "0", marginRight: "-16px" },
+            { duration: 0, fill: "forwards" },
+          ),
+        ];
+      }
+      return;
+    }
+    // Sample mid-flight values before cancelling so a reversal starts from
+    // where the rail visually is.
+    const style = getComputedStyle(aside);
+    const fromWidth = style.width;
+    const fromMargin = style.marginRight;
+    const fromOpacity = style.opacity;
+    for (const animation of railFocusAnimationsRef.current) {
+      animation.cancel();
+    }
+    if (chatFocusActive) {
+      // Hide: ease away smoothly and hold width 0 while focused. The
+      // negative margin cancels the row gap so the chat goes full-width.
+      railFocusAnimationsRef.current = [
+        aside.animate(
+          [
+            { width: fromWidth, marginRight: fromMargin },
+            { width: "0px", marginRight: "-16px" },
+          ],
+          { duration: 500, easing: "ease-in-out", fill: "forwards" },
+        ),
+        aside.animate([{ opacity: fromOpacity }, { opacity: "0" }], {
+          duration: 300,
+          easing: "ease-in-out",
+          fill: "forwards",
+        }),
+      ];
+    } else {
+      // Reveal: a back-ease so the rail lands with a slight bounce. The
+      // hidden rail's inner menu keeps its full layout width, so scrollWidth
+      // gives the landing width up front; no fill, so the wrapper returns to
+      // shrink-wrapping the nav the moment the animation ends.
+      railFocusAnimationsRef.current = [
+        aside.animate(
+          [
+            { width: fromWidth, marginRight: fromMargin },
+            { width: `${aside.scrollWidth}px`, marginRight: "0px" },
+          ],
+          { duration: 550, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+        ),
+        aside.animate([{ opacity: fromOpacity }, { opacity: "1" }], {
+          duration: 250,
+          easing: "ease-out",
+        }),
+      ];
+    }
+  }, [chatFocusActive]);
+
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
   // True while a left-edge swipe is dragging the drawer in from off-screen but
@@ -996,25 +1072,14 @@ export function ChatLayout({
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
             id="chat-side-menu"
-            className="shrink-0 overflow-hidden"
+            ref={sideMenuAsideRef}
+            // No width of its own: the wrapper shrink-wraps the SideMenu
+            // nav, which owns the rail width (drag-resize mutates it outside
+            // React until pointer-up). The tour's slide-away effect animates
+            // this element imperatively; overflow-hidden clips the nav
+            // mid-slide.
+            className="w-fit shrink-0 overflow-hidden"
             aria-label="Navigation"
-            // Explicit width (matching the rail's own) so the onboarding
-            // prototype's focused stage can slide the whole rail away; the
-            // negative margin cancels the row gap so the chat goes full-width.
-            // Hiding eases smoothly; revealing uses a back-ease so the rail
-            // lands with a slight bounce (the tour's takeover moment).
-            style={{
-              width: chatFocusActive
-                ? 0
-                : effectiveCollapsed
-                  ? 48
-                  : sidebarWidth,
-              opacity: chatFocusActive ? 0 : 1,
-              marginRight: chatFocusActive ? -16 : 0,
-              transition: chatFocusActive
-                ? "width 500ms ease-in-out, opacity 300ms ease-in-out, margin-right 500ms ease-in-out"
-                : "width 550ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 250ms ease-out, margin-right 550ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-            }}
           >
             {renderSideMenu({
               collapsed: effectiveCollapsed,
