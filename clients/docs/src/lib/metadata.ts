@@ -4,10 +4,10 @@ import { agentMarkdownPathForPage } from "@/lib/agent-markdown-paths";
 import { WWW_DOMAIN } from "@/lib/domains";
 
 export const SITE_URL = `https://${WWW_DOMAIN}`;
-export const DEFAULT_OG_IMAGE = `${SITE_URL}/og-cover-v2.jpg`;
+export const DEFAULT_OG_IMAGE = `${SITE_URL}/docs/og.png`;
 export const TWITTER_HANDLE = "@vellum_ai";
 
-// The default dynamic OG endpoint at /api/og renders a 1200x630 PNG.
+// The default OG image is a static 1200x630 PNG served from public/.
 // Declaring dimensions on the meta tags helps unfurlers (especially
 // LinkedIn) render previews on first share without re-probing.
 const DEFAULT_OG_IMAGE_WIDTH = 1200;
@@ -42,11 +42,10 @@ export function createMetadata({
 }: CreateMetadataOptions): Metadata {
   const url = `${SITE_URL}${path}`;
   const usingDefaultOgImage = !image;
-  const ogImage =
-    image ?? `${SITE_URL}/api/og?title=${encodeURIComponent(title)}`;
+  const ogImage = image ?? DEFAULT_OG_IMAGE;
   const ogImageAlt = imageAlt ?? title;
-  // Only assume dimensions for the default endpoint. Custom images may be
-  // arbitrary sizes (showcase avatars, blog hero art, etc.).
+  // Only assume dimensions for the default image. Custom images may be
+  // arbitrary sizes.
   const width =
     imageWidth ?? (usingDefaultOgImage ? DEFAULT_OG_IMAGE_WIDTH : undefined);
   const height =

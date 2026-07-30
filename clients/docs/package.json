@@ -3,10 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "bun run generate:agent-markdown",
+    "predev": "bun run docs:search:index && bun run generate:agent-markdown",
     "dev": "next dev --port 3005",
-    "prebuild": "bun run generate:agent-markdown",
+    "prebuild": "bun run docs:search:index && bun run generate:agent-markdown",
     "build": "next build",
+    "docs:search:index": "bun scripts/generate-docs-search-index.ts",
     "start": "next start",
     "generate:agent-markdown": "bun scripts/generate-agent-markdown.ts",
     "lint": "eslint",

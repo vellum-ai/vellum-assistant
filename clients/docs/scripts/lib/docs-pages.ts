@@ -67,40 +67,65 @@ export interface RenderedPage {
   metadata: Metadata | undefined;
 }
 
+export async function loadPageModule(pageFile: string): Promise<Record<string, unknown>> {
+  return (await import(pathToFileURL(pageFile).href)) as Record<string, unknown>;
+}
+
 /** Import a page module and return its exported metadata without rendering.
- *  Useful as a fallback for pages that import cleanly but fail to render
- *  (e.g. components that suspend during static rendering). */
+ *  Used for pages that cannot be statically rendered (request-time pages and
+ *  redirect stubs) so generators can still emit metadata-only entries. */
 export async function loadPageMetadata(pageFile: string): Promise<Metadata | undefined> {
   try {
-    const pageModule = await import(pathToFileURL(pageFile).href);
+    const pageModule = await loadPageModule(pageFile);
     return pageModule.metadata as Metadata | undefined;
   } catch {
     return undefined;
   }
 }
 
+function isRedirectError(error: unknown): boolean {
+  const digest = (error as { digest?: unknown })?.digest;
+  if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) {
+    return true;
+  }
+  return error instanceof Error && error.message.includes("NEXT_REDIRECT");
+}
+
+// Request-time pages suspend during static rendering: React either throws a
+// thenable or reports the suspension as a synchronous-input error.
+function isSuspenseSignal(error: unknown): boolean {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    typeof (error as { then?: unknown }).then === "function"
+  ) {
+    return true;
+  }
+  return error instanceof Error && error.message.includes("A component suspended");
+}
+
 /** Import a page module and render its default export to static HTML.
- *  Returns null for pages that redirect or fail to render. Only the page
- *  component is rendered; layouts (nav, header, footer) are not included. */
+ *  Returns null for pages that redirect, suspend (request-time content), or
+ *  lack a default export; any other render failure propagates to the caller.
+ *  Only the page component is rendered: layouts (nav, header, footer) are not
+ *  included. */
 export async function renderPage(pageFile: string): Promise<RenderedPage | null> {
+  const pageModule = await loadPageModule(pageFile);
+  const Page = pageModule.default as React.ComponentType | undefined;
+
+  if (!Page) {
+    return null;
+  }
+
   try {
-    const pageModule = await import(pathToFileURL(pageFile).href);
-    const Page = pageModule.default as React.ComponentType;
-
-    if (!Page) {
-      return null;
-    }
-
     return {
       html: renderToStaticMarkup(React.createElement(Page)),
       metadata: pageModule.metadata as Metadata | undefined,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown render error";
-    if (message.includes("NEXT_REDIRECT")) {
+    if (isRedirectError(error) || isSuspenseSignal(error)) {
       return null;
     }
-    console.warn(`[docs-pages] Failed to render ${pageFile}: ${message}`);
-    return null;
+    throw error;
   }
 }
