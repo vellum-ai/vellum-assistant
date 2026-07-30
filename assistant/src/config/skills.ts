@@ -69,9 +69,9 @@ const SkillMetadataSchema = z
  * - `workspace`: user-authored skill living in a conversation's working dir.
  * - `extra`: third-party directory roots passed via `loadSkillCatalog`'s
  *   `extraDirs` argument (primarily for tests).
- * - `plugin`: shipped on disk inside a plugin — an installed one at
+ * - `plugin`: shipped on disk inside a plugin: an installed one at
  *   `<workspaceDir>/plugins/<name>/skills/<id>/SKILL.md`, or an in-process
- *   default at `plugins/defaults/<dir>/skills/<id>/SKILL.md` — attributed back
+ *   default at `plugins/defaults/<dir>/skills/<id>/SKILL.md`, attributed back
  *   to the owning plugin via its `owner` descriptor.
  */
 export type SkillSource =
@@ -751,7 +751,7 @@ function hasLoadablePluginManifest(pluginDir: string): boolean {
  * plugin lives in the assistant's own source tree rather than under
  * `<workspaceDir>/plugins/`, so its skills are enumerated from the roots
  * {@link getDefaultPluginSkillRoots} reports (`defaults/<dir>/skills/`) instead
- * of a workspace scan — there is no `package.json` gate because a default
+ * of a workspace scan; there is no `package.json` gate because a default
  * plugin's manifest is the one the daemon compiles in.
  *
  * `roots` is injectable so tests can exercise the walk against a temp tree; in
@@ -759,7 +759,7 @@ function hasLoadablePluginManifest(pluginDir: string): boolean {
  *
  * A default plugin's disabled sentinel lives in the workspace and is keyed by
  * its `default-<dir>` name, so the gate is {@link isPluginDisabled} at read
- * time — the same read-time check the hook, tool, and route surfaces use, so a
+ * time, the same read-time check the hook, tool, and route surfaces use, so a
  * CLI toggle applies on the next turn without a daemon restart.
  */
 function discoverDefaultPluginResidentSkills(
@@ -790,7 +790,7 @@ function discoverDefaultPluginResidentSkills(
  * `<workspaceDir>/plugins/` (a directory recognized by
  * {@link hasLoadablePluginManifest}), each of which may ship skills at
  * `skills/<id>/SKILL.md`. Returned summaries are attributed to the owning
- * plugin via their `owner` descriptor — `{ kind: "plugin", id: <plugin dir
+ * plugin via their `owner` descriptor: `{ kind: "plugin", id: <plugin dir
  * name> }` for an installed plugin, `{ kind: "plugin", id: "default-<dir>" }`
  * for a default one.
  *
@@ -1057,7 +1057,7 @@ export function loadSkillCatalog(
     catalog.push(skill);
   }
 
-  // Discover skills shipped on disk inside plugins — in-process defaults and
+  // Discover skills shipped on disk inside plugins, in-process defaults and
   // installed plugins alike. They sit above bundled/extra but below managed and
   // workspace so a user-authored filesystem skill can override a
   // plugin-provided skill by declaring the same id under
