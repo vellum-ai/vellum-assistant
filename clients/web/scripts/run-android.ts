@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
@@ -245,11 +246,52 @@ function connectedDevices(adb: string, env: NodeJS.ProcessEnv): string[] {
     .map(([serial]) => serial);
 }
 
+function isDeviceBooted(
+  adb: string,
+  serial: string,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  return (
+    capture(
+      adb,
+      ["-s", serial, "shell", "getprop", "sys.boot_completed"],
+      env,
+    ) === "1"
+  );
+}
+
 function availableAvds(emulator: string, env: NodeJS.ProcessEnv): string[] {
   return (capture(emulator, ["-list-avds"], env) ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function avdConfigPath(avdName: string, env: NodeJS.ProcessEnv): string {
+  const avdHome =
+    env.ANDROID_AVD_HOME ??
+    join(env.ANDROID_USER_HOME ?? join(homedir(), ".android"), "avd");
+  return join(avdHome, `${avdName}.avd`, "config.ini");
+}
+
+function enableAvdKeyboard(
+  avdName: string,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  const configPath = avdConfigPath(avdName, env);
+  if (!existsSync(configPath)) {
+    return false;
+  }
+  const config = readFileSync(configPath, "utf8");
+  const updated = /^hw\.keyboard=/m.test(config)
+    ? config.replace(/^hw\.keyboard=.*$/m, "hw.keyboard=yes")
+    : `${config.trimEnd()}\nhw.keyboard=yes\n`;
+  if (updated === config) {
+    return false;
+  }
+  writeFileSync(configPath, updated);
+  console.log(`Enabled keyboard input for Android emulator ${avdName}.`);
+  return true;
 }
 
 function startEmulator(
@@ -290,6 +332,39 @@ async function waitForEmulator(
   throw new Error("Android emulator did not finish booting within 3 minutes.");
 }
 
+async function waitForDeviceToStop(
+  adb: string,
+  serial: string,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (!connectedDevices(adb, env).includes(serial)) {
+      return;
+    }
+    await Bun.sleep(1_000);
+  }
+  throw new Error(`Android emulator ${serial} did not stop within 30 seconds.`);
+}
+
+async function waitForDeviceReadyOrStop(
+  adb: string,
+  serial: string,
+  env: NodeJS.ProcessEnv,
+): Promise<"ready" | "stopped"> {
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    if (!connectedDevices(adb, env).includes(serial)) {
+      return "stopped";
+    }
+    if (isDeviceBooted(adb, serial, env)) {
+      return "ready";
+    }
+    await Bun.sleep(1_000);
+  }
+  throw new Error(`Android device ${serial} was not ready within 3 minutes.`);
+}
+
 function ensureAvd(sdkRoot: string, env: NodeJS.ProcessEnv): string {
   const emulator = join(
     sdkRoot,
@@ -298,9 +373,11 @@ function ensureAvd(sdkRoot: string, env: NodeJS.ProcessEnv): string {
   );
   const avds = availableAvds(emulator, env);
   if (avds.includes(AVD_NAME)) {
+    enableAvdKeyboard(AVD_NAME, env);
     return AVD_NAME;
   }
   if (avds.length > 0) {
+    enableAvdKeyboard(avds[0], env);
     return avds[0];
   }
 
@@ -320,6 +397,7 @@ function ensureAvd(sdkRoot: string, env: NodeJS.ProcessEnv): string {
     env,
     "no\n",
   );
+  enableAvdKeyboard(AVD_NAME, env);
   return AVD_NAME;
 }
 
@@ -364,7 +442,37 @@ async function main(): Promise<void> {
     "platform-tools",
     process.platform === "win32" ? "adb.exe" : "adb",
   );
-  let deviceSerial = connectedDevices(adb, env)[0];
+  const emulator = join(
+    sdkRoot,
+    "emulator",
+    process.platform === "win32" ? "emulator.exe" : "emulator",
+  );
+  const keyboardUpdated = availableAvds(emulator, env).includes(AVD_NAME)
+    ? enableAvdKeyboard(AVD_NAME, env)
+    : false;
+  let devices = connectedDevices(adb, env);
+  const runningVellumEmulator = devices.find((serial) => {
+    if (!serial.startsWith("emulator-")) {
+      return false;
+    }
+    const runningAvd = capture(adb, ["-s", serial, "emu", "avd", "name"], env);
+    return runningAvd?.split(/\r?\n/)[0] === AVD_NAME;
+  });
+  if (keyboardUpdated && runningVellumEmulator) {
+    console.log(`Restarting ${AVD_NAME} to enable keyboard input.`);
+    run(adb, ["-s", runningVellumEmulator, "emu", "kill"], env);
+    await waitForDeviceToStop(adb, runningVellumEmulator, env);
+    devices = connectedDevices(adb, env);
+  }
+
+  let deviceSerial = devices.find((serial) => isDeviceBooted(adb, serial, env));
+  if (!deviceSerial && devices[0]) {
+    const pendingSerial = devices[0];
+    const state = await waitForDeviceReadyOrStop(adb, pendingSerial, env);
+    if (state === "ready") {
+      deviceSerial = pendingSerial;
+    }
+  }
   if (!deviceSerial) {
     ensureSdkPackages(sdkRoot, env, [
       {
@@ -387,11 +495,6 @@ async function main(): Promise<void> {
       },
     ]);
     const avdName = ensureAvd(sdkRoot, env);
-    const emulator = join(
-      sdkRoot,
-      "emulator",
-      process.platform === "win32" ? "emulator.exe" : "emulator",
-    );
     startEmulator(emulator, avdName, env);
     deviceSerial = await waitForEmulator(adb, env);
   }
@@ -404,6 +507,20 @@ async function main(): Promise<void> {
   );
 
   env.ANDROID_SERIAL = deviceSerial;
+  run(
+    adb,
+    [
+      "-s",
+      deviceSerial,
+      "shell",
+      "settings",
+      "put",
+      "secure",
+      "show_ime_with_hard_keyboard",
+      "1",
+    ],
+    env,
+  );
   run(
     join(androidRoot, process.platform === "win32" ? "gradlew.bat" : "gradlew"),
     ["-p", androidRoot, ":app:installDevDebug"],
