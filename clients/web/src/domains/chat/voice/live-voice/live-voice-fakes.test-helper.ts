@@ -242,6 +242,7 @@ export function makeControlsSpies() {
     release: mock(() => {}),
     interrupt: mock(() => {}),
     setMuted: mock((_muted: boolean) => {}),
+    setOutputMuted: mock((_muted: boolean) => {}),
     updateConfig: mock(
       (_config: {
         silenceThresholdMs?: number;

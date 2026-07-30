@@ -660,17 +660,64 @@ describe("VoiceRoom — exit", () => {
   });
 });
 
+// The three things a caller does mid-call sit in one centred row: mute the
+// mic, stop the assistant talking, show the transcript. Ending the session is
+// deliberately NOT among them.
+describe("VoiceRoom: centred session controls", () => {
+  const controlRow = () => screen.getByTestId("voice-room-controls");
+
+  test("the row is centred, not pinned to a corner", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(controlRow().className).toContain("justify-center");
+    expect(controlRow().className).toContain("inset-x-0");
+  });
+
+  test("carries exactly the three mid-call controls", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const row = controlRow();
+    expect(row.querySelectorAll("button")).toHaveLength(3);
+    for (const name of [
+      "Mute microphone",
+      "Mute assistant",
+      "Show transcript",
+    ]) {
+      expect(row.contains(screen.getByRole("button", { name }))).toBe(true);
+    }
+  });
+
+  test("ending the session stays out of the row, in the top-right", () => {
+    // Grouping a destructive control with three reversible toggles invites the
+    // one mis-tap that cannot be undone.
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const exit = screen.getByRole("button", { name: "Exit voice session" });
+    expect(controlRow().contains(exit)).toBe(false);
+  });
+});
+
 describe("VoiceRoom — minimize (session keeps running)", () => {
   const minimizeButton = () =>
-    screen.queryByRole("button", { name: "Minimize voice room" });
+    screen.queryByRole("button", { name: "Show transcript" });
 
-  test("the minimize control dismisses the room without ending the session", () => {
+  test("show transcript dismisses the room without ending the session", () => {
+    // Minimizing IS revealing the conversation, so the control is named for
+    // what the user wants rather than for what the window does.
     startOwnedSession("listening");
     render(<VoiceRoom />);
     fireEvent.click(minimizeButton()!);
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(controls.stop).not.toHaveBeenCalled();
+  });
+
+  test("no bare minimize control remains", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(
+      screen.queryByRole("button", { name: "Minimize voice room" }),
+    ).toBeNull();
   });
 
   test("Escape minimizes instead of ending the session", () => {
@@ -711,16 +758,16 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
   });
 });
 
-describe("VoiceRoom — settings gear", () => {
-  // The captions toggle + pause slider now live in the settings-gear popover
-  // (see voice-room-settings-menu.test.tsx for their behavior). The room just
-  // renders the gear in place of the old direct captions button.
-  test("renders the voice-settings gear, not a bare captions button", () => {
+describe("VoiceRoom: top-right corner", () => {
+  test("holds the exit and nothing else", () => {
+    // The corner is down to one control. A cluster of small chrome competed
+    // with the room's own cast, so the in-session settings gear left with the
+    // minimize it sat beside. See voice-room-settings-menu.test.tsx: the menu
+    // itself still works, it just has no home in the room.
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    expect(
-      screen.getByRole("button", { name: "Voice settings" }),
-    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Exit voice session" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Voice settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
   });
 });
@@ -744,32 +791,58 @@ describe("VoiceRoom — mute toggle", () => {
   });
 });
 
-describe("VoiceRoom — stop response", () => {
-  const stopButton = () =>
-    screen.queryByRole("button", { name: "Stop assistant response" });
+// Muting the assistant replaced the turn-scoped stop. The stop read as
+// ambiguous, and it was transient, so the row changed shape whenever a reply
+// started or ended. A mute is a persistent toggle and the mirror of the mic
+// mute beside it: one control per direction of the conversation.
+describe("VoiceRoom: mute the assistant", () => {
+  const assistantMute = () =>
+    screen.queryByRole("button", { name: /(Unm|M)ute assistant/ });
 
-  test("■ renders while speaking hands-free and drives the interrupt control", () => {
+  test("drives the registered setOutputMuted control", () => {
     startOwnedSession("speaking");
     useLiveVoiceStore.setState({ handsFree: true });
     render(<VoiceRoom />);
-    fireEvent.click(stopButton()!);
-    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+    fireEvent.click(assistantMute()!);
+    expect(controls.setOutputMuted).toHaveBeenCalledWith(true);
+    // Muting is not stopping: the reply keeps running underneath.
+    expect(controls.interrupt).not.toHaveBeenCalled();
     expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("no ■ outside speaking, or for a manual (fallback) session", () => {
-    startOwnedSession("listening");
-    useLiveVoiceStore.setState({ handsFree: true });
-    const { unmount } = render(<VoiceRoom />);
-    expect(stopButton()).toBeNull();
-    unmount();
-
-    // Manual session (version-skew fallback): interrupt would end the whole
-    // session, so the room must not offer the turn-scoped control.
+  test("muted: offers unmute and reports pressed", () => {
     startOwnedSession("speaking");
-    useLiveVoiceStore.setState({ handsFree: false });
+    useLiveVoiceStore.setState({ outputMuted: true });
     render(<VoiceRoom />);
-    expect(stopButton()).toBeNull();
+    const button = screen.getByRole("button", { name: "Unmute assistant" });
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(button);
+    expect(controls.setOutputMuted).toHaveBeenCalledWith(false);
+  });
+
+  test("present in every state, including a manual session", () => {
+    // Unlike the stop it replaced, this is not turn-scoped: you can silence
+    // the assistant before it ever opens its mouth.
+    for (const [state, handsFree] of [
+      ["listening", true],
+      ["thinking", true],
+      ["speaking", false],
+    ] as const) {
+      startOwnedSession(state);
+      useLiveVoiceStore.setState({ handsFree });
+      const { unmount } = render(<VoiceRoom />);
+      expect(assistantMute()).not.toBeNull();
+      unmount();
+    }
+  });
+
+  test("the old stop control is gone", () => {
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: true });
+    render(<VoiceRoom />);
+    expect(
+      screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
   });
 });
 
