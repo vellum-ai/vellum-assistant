@@ -23,10 +23,11 @@ function escapeRegExp(text: string): string {
 
 /**
  * Emphasize query-token matches. The tokens come from the daemon's own
- * lexical tokenizer, so what gets highlighted is exactly what the sparse
- * index matched on. Matching runs on the original snippet so offsets stay
- * aligned even when lowercasing would change string length (e.g. Turkish
- * dotted I).
+ * lexical tokenizer and are matched only at its alphanumeric boundaries,
+ * so what gets highlighted is exactly what the sparse index matched on,
+ * never a substring of a larger word. Matching runs on the original
+ * snippet so offsets stay aligned even when lowercasing would change
+ * string length (e.g. Turkish dotted I).
  */
 function highlightMatch(
   snippet: string,
@@ -38,7 +39,11 @@ function highlightMatch(
   if (tokens.length === 0) {
     return snippet;
   }
-  const matcher = new RegExp(tokens.map(escapeRegExp).join("|"), "gi");
+  const alternation = tokens.map(escapeRegExp).join("|");
+  const matcher = new RegExp(
+    `(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`,
+    "giu",
+  );
   const parts: ReactNode[] = [];
   let cursor = 0;
   for (const match of snippet.matchAll(matcher)) {

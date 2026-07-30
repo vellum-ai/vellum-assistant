@@ -954,8 +954,11 @@ function escapeRegExp(value: string): string {
  * Earliest case-insensitive match of the query in `text`: the contiguous
  * query when present, otherwise the earliest of its lexical tokens (same
  * tokenizer as the sparse index, which matches tokens independently).
- * Matching runs on the original string so offsets stay aligned even when
- * lowercasing would change string length (e.g. Turkish dotted I).
+ * Token matches are anchored to the tokenizer's alphanumeric boundaries so
+ * a token never matches inside a larger word the index would tokenize
+ * differently. Matching runs on the original string so offsets stay
+ * aligned even when lowercasing would change string length (e.g. Turkish
+ * dotted I).
  */
 function findEarliestMatch(
   text: string,
@@ -971,7 +974,11 @@ function findEarliestMatch(
   if (tokens.length === 0) {
     return null;
   }
-  const match = new RegExp(tokens.map(escapeRegExp).join("|"), "i").exec(text);
+  const alternation = tokens.map(escapeRegExp).join("|");
+  const match = new RegExp(
+    `(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`,
+    "iu",
+  ).exec(text);
   return match ? { index: match.index, length: match[0].length } : null;
 }
 

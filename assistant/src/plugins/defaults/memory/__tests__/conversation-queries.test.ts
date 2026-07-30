@@ -169,6 +169,16 @@ describe("buildExcerpt", () => {
     expect(excerpt.startsWith("…")).toBe(true);
   });
 
+  test("ignores token substrings inside larger words when centering", () => {
+    const filler = "party planning notes ".repeat(10);
+    const excerpt = buildExcerpt(
+      JSON.stringify([{ type: "text", text: `${filler}alpha appears here` }]),
+      "alpha art",
+    );
+
+    expect(excerpt).toContain("alpha");
+  });
+
   test("keeps the excerpt window aligned when lowercasing changes string length", () => {
     const prefix = "İ".repeat(120);
     const excerpt = buildExcerpt(

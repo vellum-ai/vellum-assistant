@@ -173,6 +173,38 @@ describe("CommandPalette", () => {
     expect(highlights.map((el) => el.textContent)).toEqual(["alpha", "beta"]);
   });
 
+  test("does not highlight token substrings inside larger words", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha art"
+        onQueryChange={() => undefined}
+        highlightTokens={["alpha", "art"]}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "party starts before alpha",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlights = [...row.querySelectorAll("span.font-medium")];
+    expect(highlights.map((el) => el.textContent)).toEqual(["alpha"]);
+  });
+
   test("keeps highlight offsets aligned when lowercasing changes string length", () => {
     render(
       <CommandPalette
