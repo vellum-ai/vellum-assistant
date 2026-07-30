@@ -15,8 +15,19 @@
 // higher than its host app's fails to install on the OS versions the
 // app still claims to support.
 //
-// BUNDLE_URL_SCHEME is the one app-target variable each per-environment
-// extension xcconfig does restate. The Live Activity's widgetURL has to
+// BUNDLE_URL_SCHEME and BUNDLE_DISPLAY_NAME are the app-target variables
+// each per-environment extension xcconfig does restate. Both are copied
+// verbatim from the matching App*.xcconfig.
+//
+// BUNDLE_DISPLAY_NAME reaches the appex's Info.plist as CFBundleDisplayName.
+// It is not optional: App Store validation rejects an embedded bundle that
+// omits the key (ITMS-90360), and because these values are per-target, an
+// appex that references $(BUNDLE_DISPLAY_NAME) without defining it here gets
+// an empty string rather than the containing app's name, which is the same
+// rejection. The name is also user-visible, since this bundle ships the
+// StartVoiceControl Control Center control.
+//
+// The Live Activity's widgetURL has to
 // deep-link into its *own* containing app, so the value must be copied
 // verbatim from the matching App*.xcconfig — a mismatch sends a Dev
 // build's island tap into the production app. It reaches Swift as the
