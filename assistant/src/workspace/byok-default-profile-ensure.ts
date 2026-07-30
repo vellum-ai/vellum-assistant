@@ -11,7 +11,6 @@ import {
   DEFAULT_PROFILE_KEYS,
   type DefaultProfileKey,
 } from "../config/default-profile-names.js";
-import { resolveDefaultConnectionName } from "../config/default-provider-resolution.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { invalidateConfigCache } from "../config/loader.js";
 import {
@@ -25,14 +24,22 @@ import { completedProfileBody } from "./custom-profile-ensure.js";
 
 const log = getLogger("byok-default-profile-ensure");
 
-// Converts BYOK installs from the hatch-era profile layout (disabled managed
-// stubs for the default keys plus editable `custom-*` copies) onto the
-// code-defined default profiles: the stubs and unedited copies are removed so
-// `balanced`/`quality-optimized`/`cost-optimized` resolve active and
-// read-only from the default provider's column of the intent x provider
+// Converts BYOK-hatched installs from the hatch-era profile layout (disabled
+// managed stubs for the default keys plus editable `custom-*` copies) onto
+// the code-defined default profiles: the stubs and unedited copies are
+// removed so `balanced`/`quality-optimized`/`cost-optimized` resolve active
+// and read-only from the default provider's column of the intent x provider
 // matrix, and every named reference to a removed `custom-*` entry is
 // repointed at the bare key. A `custom-*` copy the user edited is kept
 // untouched as an ordinary user profile, references included.
+//
+// The pass runs regardless of the CURRENT default provider: an install that
+// hatched BYOK and later connected to platform (default provider `vellum`)
+// carries the same hatch residue and converts the same way — its default
+// keys then resolve from the vellum column instead. That is why "unedited"
+// is judged against the provider recorded in each copy's own body, not the
+// current default: the copy was materialized once at hatch from the hatch
+// provider's column, and the default provider may have changed since.
 //
 // "Unedited" is judged against what hatch seeding actually left on disk, not
 // the raw template: both the copy and the template are normalized through the
@@ -61,17 +68,20 @@ const log = getLogger("byok-default-profile-ensure");
 /**
  * The exact stub shapes BYOK hatching left on each default key: thin (only
  * the workspace-owned overlay fields), `source: "managed"`, the frozen
- * per-key label, and either `status: "disabled"` (seeded at hatch, #30367)
- * or no `status` key at all (installs that already existed when #30367
- * landed got only the label rewrite; migration 126 thinned those bodies to
- * `{ source, label }`). Deletion requires the full shape: a thin managed
- * entry differing in any other way (a re-enabled stub with
- * `status: "active"`, a guard-side edit on the bare key, or a non-frozen
- * label or status carried off a retired copy by this pass) is user overlay
- * state and stays. The carry arm below never writes a stub matching this
- * shape, so a match is always hatch-written. A managed-source entry with
- * any other key (a platform overlay body) is not a stub and is likewise
- * left alone.
+ * per-key label, and a `status` of `"disabled"` (seeded at hatch, #30367),
+ * `"active"` (the hatch disable toggled back on through the UI — the only
+ * writable field on a managed stub, and only meaningful while the
+ * stub-vs-active split existed; post-conversion the bare key resolves
+ * active anyway, so deleting it preserves the enable), or no `status` key
+ * at all (installs that already existed when #30367 landed got only the
+ * label rewrite; migration 126 thinned those bodies to `{ source, label }`).
+ * Deletion requires the full shape: a thin managed entry differing in any
+ * other way (a guard-side edit on the bare key, or a non-frozen label or
+ * status carried off a retired copy by this pass) is user overlay state and
+ * stays. The carry arm below never writes the frozen label, so a match is
+ * always hatch-written modulo the status toggle. A managed-source entry
+ * with any other key (a platform overlay body) is not a stub and is
+ * likewise left alone.
  */
 const STUB_ONLY_KEYS = new Set(["source", "status", "label", "thinking"]);
 const HATCH_STUB_LABELS: Record<DefaultProfileKey, string> = {
@@ -98,7 +108,9 @@ function isHatchStub(
   return (
     entry.source === "managed" &&
     Object.keys(entry).every((k) => STUB_ONLY_KEYS.has(k)) &&
-    (!("status" in entry) || entry.status === "disabled") &&
+    (!("status" in entry) ||
+      entry.status === "disabled" ||
+      entry.status === "active") &&
     (!("thinking" in entry) ||
       isDeepStrictEqual(entry.thinking, REPAIR_WRITTEN_THINKING)) &&
     entry.label === HATCH_STUB_LABELS[key]
@@ -208,8 +220,11 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
   if (llm === null) {
     return;
   }
+  // The parsed default provider is only needed to resolve the
+  // post-conversion selections; conversion itself judges copies against
+  // their own recorded provider, so a vellum default does not gate it.
   const parsedDefault = DefaultProviderSchema.safeParse(llm.defaultProvider);
-  if (!parsedDefault.success || parsedDefault.data.provider === "vellum") {
+  if (!parsedDefault.success) {
     return;
   }
   const profiles = readObject(llm.profiles);
@@ -221,8 +236,8 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
   // Deleting a hatch stub makes the default key resolve active from the
   // default provider's catalog column (and drops the stub's suffixed label).
-  // Only the exact frozen hatch shapes are classified hatch-written;
-  // anything else (including a stub the user re-enabled through the guard)
+  // Only the exact frozen hatch shapes — modulo the status toggle the guard
+  // exposes on managed stubs — are classified hatch-written; anything else
   // stays.
   for (const key of DEFAULT_PROFILE_KEYS) {
     const entry = readObject(profiles[key]);
@@ -246,10 +261,7 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
   for (const key of DEFAULT_PROFILE_KEYS) {
     const name = `custom-${key}`;
     const entry = readObject(profiles[name]);
-    if (
-      entry === null ||
-      !isKnownUneditedBody(entry, key, parsedDefault.data, completionBase)
-    ) {
+    if (entry === null || !isKnownUneditedBody(entry, key, completionBase)) {
       continue;
     }
     const overlay = userOverlayState(entry, key);
@@ -298,10 +310,17 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 function isKnownUneditedBody(
   entry: Record<string, unknown>,
   key: DefaultProfileKey,
-  defaultProvider: DefaultProviderConfig,
   completionBase: LLMConfigBase | undefined,
 ): boolean {
   if (typeof entry.model !== "string") {
+    return false;
+  }
+  // Hatch seeding materialized the copy from the HATCH provider's column and
+  // recorded that provider on the body; the current default provider may
+  // have changed since (most commonly to `vellum` after connecting to
+  // platform), so the copy is compared against its own recorded provider.
+  const copyProvider = entry.provider;
+  if (typeof copyProvider !== "string") {
     return false;
   }
   const template = USER_PROFILE_TEMPLATES[`custom-${key}`];
@@ -310,14 +329,12 @@ function isKnownUneditedBody(
   }
   const materialized = materializeProfile(
     template,
-    defaultProvider.provider,
-    resolveDefaultConnectionName(defaultProvider),
+    copyProvider as NonNullable<ProfileEntry["provider"]>,
+    `${copyProvider}-personal`,
   ) as Record<string, unknown>;
   if (
     entry.model !== materialized.model &&
-    !(HISTORICAL_INTENT_MODELS[key][defaultProvider.provider] ?? []).includes(
-      entry.model,
-    )
+    !(HISTORICAL_INTENT_MODELS[key][copyProvider] ?? []).includes(entry.model)
   ) {
     return false;
   }
@@ -333,7 +350,7 @@ function isKnownUneditedBody(
   const known = comparableBody(
     withCompletionBaked(materialized, completionBase),
   );
-  return hatchBodyVariants(known, key).some((variant) =>
+  return hatchBodyVariants(known, key, copyProvider).some((variant) =>
     isDeepStrictEqual(body, variant),
   );
 }
@@ -349,15 +366,24 @@ function isKnownUneditedBody(
  * - absent `provider_connection`: hatches before #30232 (2026-05-10) never
  *   stamped one, and migration 133 drops the conventional
  *   `<provider>-personal` stamp from every entry (dispatch auto-resolves
- *   the same row from `provider`). A body carrying any other connection
- *   value is a user edit and never matches.
+ *   the same row from `provider`).
+ * - `provider_connection` naming the bare provider: web onboarding before
+ *   #39516 (2026-07-29) created the connection as `name: "<provider>"` and
+ *   stamped that name onto the copy it authored, while daemon-side seeding
+ *   independently wrote `<provider>-personal` — real workspaces carry both
+ *   stamps side by side. Safe to accept: an api-key connection named
+ *   exactly the provider resolves the same `credential/<provider>/api_key`
+ *   slot as the conventional row, so retiring the copy cannot switch keys.
+ *   A body carrying any other connection value is a user edit and never
+ *   matches.
  *
- * The third hatch-written deviation, `source: "managed"` from the earliest
+ * The final hatch-written deviation, `source: "managed"` from the earliest
  * templates, is handled by the caller's source normalization.
  */
 function hatchBodyVariants(
   known: Record<string, unknown>,
   key: DefaultProfileKey,
+  copyProvider: string,
 ): Record<string, unknown>[] {
   let variants = [known];
   if (key === "quality-optimized") {
@@ -365,7 +391,7 @@ function hatchBodyVariants(
   }
   return variants.flatMap((v) => {
     const { provider_connection: _pc, ...bare } = v;
-    return [v, bare];
+    return [v, bare, { ...v, provider_connection: copyProvider }];
   });
 }
 
