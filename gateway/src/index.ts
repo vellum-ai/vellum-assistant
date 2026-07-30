@@ -174,7 +174,7 @@ import {
 import { downloadSlackFile } from "./slack/download.js";
 import { slackBotContactNote } from "./slack/actor.js";
 import { DiscordGatewayClient } from "./discord/gateway-socket.js";
-import { parseAllowedChannelIds } from "./discord/admit.js";
+import { readDiscordAllowedChannelIds } from "./discord/allowed-channels.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -2552,9 +2552,7 @@ async function main() {
         // Read live (the config cache is TTL'd) so an allow-list edit applies
         // without a client restart, which would spend an IDENTIFY.
         readAllowedChannelIds: () =>
-          parseAllowedChannelIds(
-            configFileCache.getString("discord", "allowedChannelIds"),
-          ),
+          readDiscordAllowedChannelIds(configFileCache),
       },
       (event) => {
         // Reset the platform idle-sleep timer — inbound Discord activity

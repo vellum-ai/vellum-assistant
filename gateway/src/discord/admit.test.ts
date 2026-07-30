@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   admitDiscordMessage,
-  parseAllowedChannelIds,
   type AdmissionCandidate,
   type AdmissionPolicy,
 } from "./admit.js";
@@ -168,23 +167,7 @@ describe("admitDiscordMessage", () => {
   });
 });
 
-describe("parseAllowedChannelIds", () => {
-  test("parses a comma-separated list, trimming entries", () => {
-    expect(
-      parseAllowedChannelIds(` ${ALLOWED_CHANNEL} , ${OTHER_CHANNEL} `),
-    ).toEqual(new Set([ALLOWED_CHANNEL, OTHER_CHANNEL]));
-  });
-
-  test("yields an empty set for undefined, blank, and comma-only values", () => {
-    expect(parseAllowedChannelIds(undefined)).toEqual(new Set());
-    expect(parseAllowedChannelIds("")).toEqual(new Set());
-    expect(parseAllowedChannelIds("   ")).toEqual(new Set());
-    expect(parseAllowedChannelIds(",,")).toEqual(new Set());
-  });
-
-  test("drops blanks rather than admitting an empty-string channel", () => {
-    expect(parseAllowedChannelIds(`${ALLOWED_CHANNEL},,`)).toEqual(
-      new Set([ALLOWED_CHANNEL]),
-    );
-  });
-});
+// Allow-list parsing moved to `ConfigFileCache.getStringArray` (shape) and
+// `allowed-channels.ts` (the read). Its cases now live in
+// `config-file-cache.test.ts` and `allowed-channels.test.ts`, where they run
+// against a real config file rather than a hand-built string.
