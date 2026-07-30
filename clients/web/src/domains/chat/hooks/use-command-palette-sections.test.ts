@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 
-import { buildServerResultSections } from "@/domains/chat/hooks/command-palette-utils";
+import {
+  buildActionsSection,
+  buildServerResultSections,
+} from "@/domains/chat/hooks/command-palette-utils";
 
 const searchResults: GlobalSearchResponse = {
   conversations: [
@@ -50,6 +53,20 @@ const searchResults: GlobalSearchResponse = {
   ],
 };
 
+describe("buildActionsSection", () => {
+  test("contains exactly the five navigation actions in order", () => {
+    const section = buildActionsSection("Assistants");
+    expect(section.items.map((i) => i.id)).toEqual([
+      "action-new-conversation",
+      "action-current-conversation",
+      "action-settings",
+      "action-library",
+      "action-intelligence",
+    ]);
+    expect(section.items[4]!.title).toBe("Assistants");
+  });
+});
+
 describe("buildServerResultSections", () => {
   test("builds all three section types from server results", () => {
     const sections = buildServerResultSections(searchResults, new Set());
@@ -87,6 +104,32 @@ describe("buildServerResultSections", () => {
     const sections = buildServerResultSections(emptyResults, new Set());
     expect(sections).toHaveLength(1);
     expect(sections[0]!.id).toBe("search-contacts");
+  });
+
+  test("maps conversation excerpts to snippet, not subtitle", () => {
+    const sections = buildServerResultSections(searchResults, new Set());
+    const convSection = sections.find((s) => s.id === "search-conversations")!;
+    expect(convSection.items[0]!.snippet).toBe("snippet-a");
+    expect(convSection.items[0]!.subtitle).toBeUndefined();
+  });
+
+  test("omits the snippet for empty excerpts", () => {
+    const titleOnlyResults: GlobalSearchResponse = {
+      conversations: [
+        {
+          id: "c9",
+          title: "Title only",
+          updatedAt: 1,
+          excerpt: "",
+          matchCount: 0,
+        },
+      ],
+      memories: [],
+      schedules: [],
+      contacts: [],
+    };
+    const sections = buildServerResultSections(titleOnlyResults, new Set());
+    expect(sections[0]!.items[0]!.snippet).toBeUndefined();
   });
 
   test("uses 'Untitled' for null conversation titles", () => {

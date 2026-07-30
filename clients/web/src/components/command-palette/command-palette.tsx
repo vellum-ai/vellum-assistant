@@ -55,6 +55,8 @@ export interface CommandPaletteItemData {
   icon?: LucideIcon;
   title: string;
   subtitle?: string;
+  /** Longer match excerpt rendered as a second line under the title. */
+  snippet?: string;
   shortcutHint?: ReactNode;
 }
 
@@ -345,6 +347,8 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   icon={item.icon}
                   title={item.title}
                   subtitle={item.subtitle}
+                  snippet={item.snippet}
+                  query={query}
                   shortcutHint={useMobileLayout ? undefined : item.shortcutHint}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}

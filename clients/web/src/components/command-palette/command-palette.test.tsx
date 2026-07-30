@@ -77,6 +77,38 @@ describe("CommandPalette", () => {
     expect(selected.className).toContain("text-sm");
   });
 
+  test("renders search results as a two-line row with title and snippet", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha"
+        onQueryChange={() => undefined}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "…we compared alpha and beta itineraries…",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    expect(row.className).not.toContain("h-10");
+    expect(row.textContent).toContain("Trip planning");
+    expect(row.textContent).toContain("we compared alpha and beta");
+  });
+
   test("renders nothing while closed outside the iOS shell", () => {
     isMobileRef.value = true;
     nativeIOSRef.value = false;
