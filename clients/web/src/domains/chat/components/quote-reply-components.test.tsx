@@ -20,11 +20,15 @@ function resetQuoteReplyState() {
   });
 }
 
-function installFinePointer() {
+function installPointerMediaQuery(matches: boolean) {
   const originalMatchMedia = window.matchMedia;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
-    value: () => ({ matches: false }),
+    value: () => ({
+      matches,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }),
   });
   return () => {
     Object.defineProperty(window, "matchMedia", {
@@ -34,18 +38,12 @@ function installFinePointer() {
   };
 }
 
+function installFinePointer() {
+  return installPointerMediaQuery(false);
+}
+
 function installCoarsePointer() {
-  const originalMatchMedia = window.matchMedia;
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: () => ({ matches: true }),
-  });
-  return () => {
-    Object.defineProperty(window, "matchMedia", {
-      configurable: true,
-      value: originalMatchMedia,
-    });
-  };
+  return installPointerMediaQuery(true);
 }
 
 function installImmediateAnimationFrame() {
