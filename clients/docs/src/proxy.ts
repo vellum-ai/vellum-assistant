@@ -151,7 +151,7 @@ function hostMatchesAny(host: string, domains: readonly string[]): boolean {
 // lookalikes (notgoogle.com), embedded brands (google.com.evil.org), and
 // third-party registrable domains carrying a google label (google.example.org).
 const GOOGLE_SEARCH_HOST =
-  /(^|\.)google\.(com|[a-z]{2}|(co|com)\.[a-z]{2})$/;
+  /(^|\.)google\.(com|cat|[a-z]{2}|(co|com)\.[a-z]{2})$/;
 
 function inferUTMFromReferrer(
   request: NextRequest,
