@@ -37,6 +37,7 @@
 import { useEffect, useRef } from "react";
 
 import { createAmplitudeSmoother } from "./voice-motion";
+import { createAmplitudeHistory } from "./voice-amplitude-history";
 import type {
   VoiceWavePalette,
   VoiceWavePlacement,
@@ -121,74 +122,20 @@ const WAVE_LAYERS_INLINE: ReactiveWaveLayer[] = WAVE_LAYERS.map((layer) => ({
 }));
 
 /**
- * One layer's rolling amplitude history: a fixed-size ring buffer plus the
- * time accumulator that paces pushes at the layer's cadence, decoupling the
- * scroll speed from the display refresh rate.
- */
-interface LayerHistory {
-  samples: Float32Array;
-  /** Index of the *oldest* sample — the left edge of the band. */
-  head: number;
-  /** Milliseconds accumulated toward the next push. */
-  elapsed: number;
-}
-
-function createHistory(): LayerHistory {
-  return { samples: new Float32Array(HISTORY), head: 0, elapsed: 0 };
-}
-
-/**
- * Advance a layer by `dtMs`, pushing `amp` for each sample period elapsed.
- *
- * A long frame gap (a background tab, a dropped frame) can span several
- * periods; pushing them all keeps the band's scroll rate honest to wall-clock
- * time. The catch-up is capped at a full buffer — after a tab has been hidden
- * for a minute there is no point rewriting the same value 2000 times.
- */
-function pushHistory(history: LayerHistory, amp: number, dtMs: number, periodMs: number): void {
-  history.elapsed += dtMs;
-  let pushes = Math.floor(history.elapsed / periodMs);
-  if (pushes <= 0) {
-    return;
-  }
-  history.elapsed -= pushes * periodMs;
-  pushes = Math.min(pushes, HISTORY);
-  for (let i = 0; i < pushes; i++) {
-    history.samples[history.head] = amp;
-    history.head = (history.head + 1) % HISTORY;
-  }
-}
-
-/**
- * Read the history oldest-first into `out`, applying the layer's moving
- * average and idle sway, and convert to viewBox y-coordinates.
+ * Turn a layer's smoothed history (already in `out`, oldest-first) into
+ * viewBox y-coordinates, adding the layer's idle sway.
  *
  * The sway is added rather than blended so speech always stacks on top of the
  * resting breath: at silence the band is a slow swell, and a loud syllable
  * still reads as a crest above it. Its phase advances with `timeSec` and
  * varies along x, so the resting state drifts instead of standing still.
  */
-function readLayer(
-  history: LayerHistory,
+function toViewBoxY(
   layer: ReactiveWaveLayer,
   timeSec: number,
   out: Float32Array,
 ): void {
-  const { samples, head } = history;
-  const half = Math.max(0, Math.floor(layer.smooth / 2));
   for (let i = 0; i < HISTORY; i++) {
-    // Moving average centred on i, clamped at both ends of the window.
-    let sum = 0;
-    let count = 0;
-    for (let k = -half; k <= half; k++) {
-      const j = i + k;
-      if (j < 0 || j >= HISTORY) {
-        continue;
-      }
-      sum += samples[(head + j) % HISTORY];
-      count++;
-    }
-    const amp = count > 0 ? sum / count : 0;
     const sway =
       layer.sway *
       (0.5 +
@@ -198,8 +145,7 @@ function readLayer(
               layer.swayPhase +
               (i / HISTORY) * Math.PI * 2,
           ));
-    const height = (amp * layer.gain + sway) * VIEW_H;
-    out[i] = VIEW_H - height;
+    out[i] = VIEW_H - (out[i] * layer.gain + sway) * VIEW_H;
   }
 }
 
@@ -278,7 +224,9 @@ export function VoiceReactiveWaves({
     // Same VU ballistic as the sine band — fast attack so speech onset lands
     // immediately, slower release so crests decay instead of snapping flat.
     const smoother = createAmplitudeSmoother({ attackMs: 80, releaseMs: 350 });
-    const histories = layers.map(createHistory);
+    const histories = layers.map((layer) =>
+      createAmplitudeHistory({ size: HISTORY, periodMs: layer.periodMs }),
+    );
     const scratch = new Float32Array(HISTORY);
     let raf = 0;
     let lastTime = performance.now();
@@ -306,8 +254,9 @@ export function VoiceReactiveWaves({
         const layer = layers[i];
         // Every layer is fed the same amplitude; the differing cadences are
         // what turn one signal into a layered, parallaxed terrain.
-        pushHistory(histories[i], amp, dt, layer.periodMs);
-        readLayer(histories[i], layer, timeSec, scratch);
+        histories[i].push(amp, dt);
+        histories[i].read(scratch, layer.smooth);
+        toViewBoxY(layer, timeSec, scratch);
         // Paths are ordered back→front per half, so a mirrored (center /
         // inline) band walks the same layer list twice.
         const d = buildPath(scratch, waveStyle);

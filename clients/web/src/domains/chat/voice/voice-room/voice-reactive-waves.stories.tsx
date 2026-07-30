@@ -51,6 +51,7 @@ import {
 } from "./voice-room-eyes";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import type { VoiceWavePalette, VoiceWaveStyle } from "./voice-listening-waves";
+import { VoiceMeshWaves } from "./voice-mesh-waves";
 
 // ---------------------------------------------------------------------------
 // Amplitude drivers
@@ -371,10 +372,10 @@ const argTypes = {
     description: "Level for the `manual` driver. Ignored by the others.",
   },
   engine: {
-    options: ["reactive", "sine"] satisfies VoiceWaveEngine[],
+    options: ["reactive", "mesh", "sine"] satisfies VoiceWaveEngine[],
     control: { type: "inline-radio" as const },
     description:
-      "reactive = geometry rebuilt per frame from the amplitude history; sine = the original fixed silhouette.",
+      "reactive = filled band rebuilt per frame from the amplitude history; mesh = the same signal as a woven wireframe sheet; sine = the original fixed silhouette.",
   },
   waveStyle: {
     options: ["fill", "line"] satisfies VoiceWaveStyle[],
@@ -513,8 +514,8 @@ function EngineComparisonScene(args: SceneArgs) {
         getAmplitude={getAmplitude}
         micError={micError}
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        {(["reactive", "sine"] as const).map((engine) => (
+      <div className="grid gap-4 lg:grid-cols-3">
+        {(["reactive", "mesh", "sine"] as const).map((engine) => (
           <div key={engine} className="flex flex-col gap-2">
             <span className="text-[13px] font-medium text-white/60">
               {engine}
@@ -524,7 +525,7 @@ function EngineComparisonScene(args: SceneArgs) {
               args={{ ...args, engine }}
               getAmplitude={getAmplitude}
               className="rounded-xl"
-              style={{ height: 460 }}
+              style={{ height: 420 }}
             />
           </div>
         ))}
@@ -600,17 +601,17 @@ export const RoomMobile: Story = {
 };
 
 /**
- * The A/B that settles the question. Both frames share one amplitude source,
- * so any difference is the engine alone.
+ * The comparison that settles the question. All three frames share one
+ * amplitude source, so every difference is the engine alone.
  *
  * Watch the **silhouette**, not the motion: the `sine` band's crests are a
  * fixed shape sliding at a constant rate — identical whether the driver is
- * `speech` or `silence` — while the `reactive` band's crests are raised by the
- * signal and flatten without it. Switching the driver to `silence` is the
- * clearest demonstration: only one of the two frames notices.
+ * `speech` or `silence` — while `reactive` and `mesh` are raised by the signal
+ * and flatten without it. Switching the driver to `silence` is the clearest
+ * demonstration: only one of the three frames fails to notice.
  */
 export const EngineComparison: Story = {
-  name: "Engine — Reactive vs Sine",
+  name: "Engine — Reactive vs Mesh vs Sine",
   render: (args) => <EngineComparisonScene {...args} />,
 };
 
@@ -623,3 +624,53 @@ export const EngineComparison: Story = {
 export const States: Story = {
   render: (args) => <StatesScene {...args} />,
 };
+
+/**
+ * The mesh engine on its own, big and on black — the reference aesthetic:
+ * a woven wireframe sheet whose brightness is entirely emergent, piled up
+ * where the folded surface crosses itself.
+ *
+ * Audio drives the *envelope*, not the ripple: a loud syllable swells the
+ * sheet into a lobe that travels left and flattens, while the underlying weave
+ * keeps its character. Drive it from `mic` and watch the lobe follow your
+ * voice; on `silence` it settles to a slow resting breath rather than
+ * flat-lining, so the surface never looks switched off.
+ *
+ * `wavePalette` retints it: `aurora` is the reference cyan, `accent` takes the
+ * avatar's hue, `tone` follows the room foreground.
+ */
+export const MeshShowcase: Story = {
+  name: "Mesh — Showcase",
+  args: { ...defaultArgs, engine: "mesh", wavePalette: "aurora" },
+  render: (args) => <MeshShowcaseScene {...args} />,
+};
+
+/** The mesh alone on black, at the scale the reference is judged at. */
+function MeshShowcaseScene(args: SceneArgs) {
+  const { getAmplitude, micError } = useDriver(args.driver, args.amplitude);
+  return (
+    <div>
+      <DriverBar
+        driver={args.driver}
+        getAmplitude={getAmplitude}
+        micError={micError}
+      />
+      <div
+        className="relative overflow-hidden rounded-xl bg-black"
+        style={{
+          height: "min(70vh, 620px)",
+          ["--avatar-accent" as string]:
+            BUNDLED_COMPONENTS.colors.find((c) => c.id === args.colorId)?.hex ??
+            "#3E9E8A",
+          ["--room-fg" as string]: "#FFFFFF",
+        }}
+      >
+        <VoiceMeshWaves
+          getAmplitude={getAmplitude}
+          palette={args.wavePalette}
+          placement="center"
+        />
+      </div>
+    </div>
+  );
+}

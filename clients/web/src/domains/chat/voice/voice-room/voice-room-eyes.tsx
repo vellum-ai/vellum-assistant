@@ -65,6 +65,7 @@ import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import { createAmplitudeSmoother } from "./voice-motion";
 import { useReactiveEyes, type VoiceEyeReaction } from "./use-reactive-eyes";
 import { VoiceReactiveWaves } from "./voice-reactive-waves";
+import { VoiceMeshWaves } from "./voice-mesh-waves";
 import {
   VOICE_ROOM_CAPTION_TEXT,
   VOICE_ROOM_LOWER_ZONE_BOTTOM,
@@ -126,17 +127,20 @@ const EYE_REACTION: Record<VoiceAvatarVisual, VoiceEyeReaction> = {
 /**
  * Which wave band the room draws.
  *
- * `reactive` rebuilds the wave geometry every frame from a rolling history of
- * the live amplitude, so the terrain is a record of what was actually said.
- * `sine` is the original fixed-geometry band, kept so the two can be compared
- * side by side in Storybook — its silhouette is authored once at mount and
- * only slid sideways, which is what made the room read as a static image.
+ * `reactive` rebuilds the filled wave geometry every frame from a rolling
+ * history of the live amplitude, so the terrain is a record of what was
+ * actually said. `mesh` draws the same signal as a woven wireframe sheet —
+ * dozens of phase-shifted hairlines on a canvas, brightening where they cross.
+ * `sine` is the original fixed-geometry band, kept so the alternatives can be
+ * compared against it in Storybook — its silhouette is authored once at mount
+ * and only slid sideways, which is what made the room read as a static image.
  */
-export type VoiceWaveEngine = "reactive" | "sine";
+export type VoiceWaveEngine = "reactive" | "mesh" | "sine";
 
 /** Draw the listening band with whichever engine the caller selected. */
 function WaveBand({
   engine,
+  waveStyle,
   ...props
 }: {
   engine: VoiceWaveEngine;
@@ -145,10 +149,15 @@ function WaveBand({
   palette?: VoiceWavePalette;
   placement?: VoiceWavePlacement;
 }) {
+  // The mesh is stroked hairlines by construction, so fill-vs-line does not
+  // apply to it — it takes no `waveStyle`.
+  if (engine === "mesh") {
+    return <VoiceMeshWaves {...props} />;
+  }
   return engine === "reactive" ? (
-    <VoiceReactiveWaves {...props} />
+    <VoiceReactiveWaves waveStyle={waveStyle} {...props} />
   ) : (
-    <VoiceListeningWaves {...props} />
+    <VoiceListeningWaves waveStyle={waveStyle} {...props} />
   );
 }
 /** State caption shown below the eyes, per visual (none for idle / connecting-
