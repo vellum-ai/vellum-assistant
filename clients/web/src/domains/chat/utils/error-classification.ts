@@ -18,6 +18,17 @@ const MANAGED_CREDITS_EXHAUSTED_CATEGORY = "credits_exhausted";
 const PROVIDER_BILLING_CATEGORY = "provider_billing";
 const DAILY_LIMIT_REACHED_CATEGORY = "daily_limit_reached";
 
+/**
+ * Whether a classified error category denotes managed-credits exhaustion.
+ * Suffix match, shared with the live-error classification below, so persisted
+ * provider-error rows and live turn errors classify identically.
+ */
+export function isCreditsExhaustedCategory(
+  category: string | undefined,
+): boolean {
+  return category?.endsWith(MANAGED_CREDITS_EXHAUSTED_CATEGORY) ?? false;
+}
+
 function isManagedCreditsExhausted(
   error: ChatErrorLike | null | undefined,
 ): boolean {
@@ -25,7 +36,7 @@ function isManagedCreditsExhausted(
     return error?.code === PROVIDER_BILLING_CODE;
   }
 
-  return error.errorCategory.endsWith(MANAGED_CREDITS_EXHAUSTED_CATEGORY);
+  return isCreditsExhaustedCategory(error.errorCategory);
 }
 
 function isProviderBilling(error: ChatErrorLike | null | undefined): boolean {

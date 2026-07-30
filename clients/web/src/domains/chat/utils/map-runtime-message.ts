@@ -186,6 +186,12 @@ export function mapRuntimeToDisplayMessage(
   if (m.systemCard) {
     msg.isSystemCard = true;
   }
+  if (m.providerError) {
+    msg.providerError = {
+      code: m.providerError.code,
+      category: m.providerError.category,
+    };
+  }
   if (m.slackMessage) {
     msg.slackMessage = m.slackMessage;
   }

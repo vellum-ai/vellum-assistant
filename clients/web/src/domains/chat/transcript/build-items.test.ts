@@ -643,6 +643,90 @@ describe("buildTranscriptItems", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Provider-error rows: credits-exhausted substitution
+  // ---------------------------------------------------------------------------
+
+  test("credits-exhausted provider-error rows emit a creditsUpsell item instead of a message row", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const errorRow = makeMessage({
+      id: "m2",
+      role: "assistant",
+      ...textBody("I hit a snag: your credits ran out."),
+      providerError: { code: "PROVIDER_BILLING", category: "credits_exhausted" },
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user, errorRow],
+    });
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toEqual({ kind: "message", key: "m1", message: user });
+    expect(items[1]).toEqual({
+      kind: "creditsUpsell",
+      key: "credits-upsell-m2",
+      messageId: "m2",
+    });
+    expectDistinctNonEmptyKeys(items);
+  });
+
+  test("provider-error rows of other categories keep the normal message rendering", () => {
+    const errorRow = makeMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("The provider rejected the request."),
+      providerError: { code: "PROVIDER_ERROR", category: "rate_limited" },
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [errorRow],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual({
+      kind: "message",
+      key: "m1",
+      message: errorRow,
+    });
+  });
+
+  test("untagged rows (no providerError) keep the normal message rendering", () => {
+    const plain = makeMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("A plain historical error bubble."),
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [plain],
+    });
+
+    expect(items).toHaveLength(1);
+    expect((items[0] as MessageItem).message).toBe(plain);
+  });
+
+  test("returns stable creditsUpsell item references for unchanged message objects across calls", () => {
+    const errorRow = makeMessage({
+      id: "m1",
+      role: "assistant",
+      providerError: { category: "credits_exhausted" },
+    });
+
+    const first = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [errorRow],
+    });
+    const second = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [errorRow],
+    });
+
+    expect(second[0]).toBe(first[0]!);
+  });
+
+  // ---------------------------------------------------------------------------
   // Confirmation path — inline attachment vs standalone fallback
   // ---------------------------------------------------------------------------
 
