@@ -68,17 +68,25 @@ struct VoiceAccentGlyph: View {
     }
 }
 
-/// The assistant's avatar, circular, at a given diameter.
+/// The assistant's avatar at a given size.
 ///
 /// Takes an already-decoded image so each slot decides its own fallback: the
 /// roomy layouts substitute an accent-filled badge, the tight ones a bare
 /// glyph. Decoding is the only image work done here, because the bytes arrive
-/// already sized and encoded from the web side — a Live Activity cannot fetch
-/// or resize anything at render time.
+/// already sized and encoded from the web side, and a Live Activity cannot
+/// fetch or resize anything at render time.
 ///
-/// The hairline border matches ``VoiceAccentBadge``: an avatar can be any
-/// color, including one that vanishes into a light or dark Lock Screen, so its
-/// edge is drawn rather than assumed.
+/// **Deliberately neither cropped to a circle nor bordered.** A character
+/// avatar is a shaped creature on a transparent background whose silhouette
+/// runs out to the edges of its square, so a circular mask cuts the edges off
+/// and a ring drawn around it frames empty space. `scaledToFit` keeps the whole
+/// silhouette, and the alpha the PNG rungs preserve is what lets it sit
+/// directly on the island.
+///
+/// The cost is a custom *uploaded* avatar, which is square and would look
+/// tidier masked. Distinguishing them would mean sending the avatar kind across
+/// the bridge; the shaped creature is the default and the common case, so it
+/// wins the single treatment until that is worth the plumbing.
 struct VoiceAvatarImage: View {
     let image: UIImage
     var diameter: CGFloat
@@ -86,10 +94,8 @@ struct VoiceAvatarImage: View {
     var body: some View {
         Image(uiImage: image)
             .resizable()
-            .scaledToFill()
+            .scaledToFit()
             .frame(width: diameter, height: diameter)
-            .clipShape(Circle())
-            .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
             .accessibilityHidden(true)
     }
 }
