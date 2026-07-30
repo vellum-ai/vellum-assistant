@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./channel-envelope": "./src/channel-envelope.ts",
     "./gateway-ipc-contracts": "./src/gateway-ipc-contracts.ts",
     "./http-delivery": "./src/http-delivery.ts",
     "./ipc-client": "./src/ipc-client.ts"

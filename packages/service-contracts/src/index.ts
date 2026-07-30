@@ -23,7 +23,7 @@ export * from "./channel-coordinates.js";
 export * from "./channel-address.js";
 export * from "./channel-actor.js";
 export * from "./channel-capabilities.js";
-export * from "./channel-envelope.js";
+export * from "./channel-event.js";
 export * from "./client-metadata.js";
 export * from "./transport.js";
 export * from "./error.js";

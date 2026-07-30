@@ -335,3 +335,20 @@ export {
 } from "./binding-strength-contract.js";
 
 export type { BindingStrength } from "./binding-strength-contract.js";
+
+// Channel envelope v1 (gateway to daemon): one normalized inbound event,
+// composed from the service-contracts address/actor vocabulary plus the
+// canonical trust verdict and admission policy defined in this package.
+export {
+  AdmissionStampSchema,
+  CHANNEL_ENVELOPE_VERSION,
+  channelEnvelopeV1,
+  ChannelEnvelopeV1Schema,
+  GatewayAuthoritySchema,
+} from "./channel-envelope.js";
+
+export type {
+  AdmissionStamp,
+  ChannelEnvelopeV1,
+  GatewayAuthority,
+} from "./channel-envelope.js";
