@@ -9,11 +9,10 @@ metadata:
     display-name: "Vellum Self-Knowledge"
     activation-hints:
       - "what model the assistant is running on"
-      - "how Vellum works or its architecture"
-      - "its current configuration or settings"
-      - "what it can do, or what skills/tools are available"
-      - "how to self-host a Vellum assistant"
-      - "how to configure your own model API key"
+      - "how it works, its architecture or config"
+      - "what it can do or which skills/tools are available"
+      - "how to self-host or bring your own API key"
+      - "whether your data is private, who can access it, or used for training"
     avoid-when:
       - "changing configuration (use in-chat config instead)"
 ---
