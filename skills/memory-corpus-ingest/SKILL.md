@@ -62,11 +62,9 @@ Census the corpus and produce a machine-readable slice plan:
 
 ```bash
 mkdir -p "$VELLUM_WORKSPACE_DIR/imports/<source>/.staging"
-bun run scripts/inventory.ts "$VELLUM_WORKSPACE_DIR/imports/<source>" \
+bun run {baseDir}/scripts/inventory.ts "$VELLUM_WORKSPACE_DIR/imports/<source>" \
   > "$VELLUM_WORKSPACE_DIR/imports/<source>/.staging/plan.json"
 ```
-
-(`scripts/inventory.ts` is relative to this skill's directory.)
 
 The script prints a human census to stderr (file count, total size, extension mix, date range) and a JSON plan to stdout: `{ files, totalBytes, byExtension, dateRange, suggestedSlices }`. Each suggested slice is a date-windowed group of files sized for one skim pass. Review the plan before skimming:
 
