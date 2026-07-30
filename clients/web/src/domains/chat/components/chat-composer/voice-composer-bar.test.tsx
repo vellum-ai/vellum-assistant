@@ -49,7 +49,8 @@ function renderBar(
     muted?: boolean;
     onToggleMute?: () => void;
     onEnd?: () => void;
-    onStop?: () => void;
+    outputMuted?: boolean;
+    onToggleOutputMute?: () => void;
     onExpand?: () => void;
     standalone?: boolean;
   },
@@ -62,18 +63,12 @@ function renderBar(
       muted={overrides?.muted ?? false}
       onToggleMute={overrides?.onToggleMute ?? (() => {})}
       onEnd={overrides?.onEnd ?? (() => {})}
-      onStop={overrides?.onStop}
+      outputMuted={overrides?.outputMuted ?? false}
+      onToggleOutputMute={overrides?.onToggleOutputMute ?? (() => {})}
       onExpand={overrides?.onExpand}
       standalone={overrides?.standalone}
     />,
   );
-}
-
-/** The painted state word, as distinct from the `sr-only` live region. */
-function visibleLabel(): HTMLElement | undefined {
-  return screen
-    .getAllByText(/…|Muted/)
-    .find((el) => !el.className.includes("sr-only"));
 }
 
 /** The `sr-only` live region that announces the state. */
@@ -83,7 +78,7 @@ function liveRegion(): HTMLElement | undefined {
     .find((el) => el.className.includes("sr-only"));
 }
 
-describe("VoiceComposerBar — state label", () => {
+describe("VoiceComposerBar: state announcement", () => {
   const labels: Array<[LiveVoiceSessionState, string]> = [
     ["connecting", "Connecting…"],
     ["listening", "Listening…"],
@@ -94,29 +89,25 @@ describe("VoiceComposerBar — state label", () => {
   ];
 
   for (const [state, label] of labels) {
-    test(`shows "${label}" for the ${state} state`, () => {
+    test(`announces "${label}" for the ${state} state`, () => {
       renderBar(state);
-      expect(visibleLabel()?.textContent).toBe(label);
+      expect(liveRegion()?.textContent).toBe(label);
     });
   }
 
-  test("the state word is painted in the block", () => {
-    // The block is a surface, not a toolbar: the state word sits in it beside
-    // the band, so the minimized session says what it is doing.
+  test("paints no state word: the band is the readout", () => {
+    // The block says what it is doing by moving. A word over the band competed
+    // with it and gave the surface one more thing to read.
     renderBar("listening");
-    expect(visibleLabel()).toBeTruthy();
+    const painted = screen
+      .getAllByText(/…|Muted/)
+      .filter((el) => !el.className.includes("sr-only"));
+    expect(painted).toEqual([]);
   });
 
-  test("announces state changes via a separate aria-live region", () => {
+  test("announces state changes via an aria-live region", () => {
     renderBar("listening");
     expect(liveRegion()?.getAttribute("aria-live")).toBe("polite");
-  });
-
-  test("the painted word is hidden from assistive tech, so it is not read twice", () => {
-    // The live region already announces the state. Leaving the painted copy
-    // exposed would have a screen reader read it a second time.
-    renderBar("listening");
-    expect(visibleLabel()?.getAttribute("aria-hidden")).toBe("true");
   });
 });
 
@@ -170,38 +161,51 @@ describe("VoiceComposerBar — mute toggle", () => {
     expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
 
-  test("muted: offers unmute and replaces the state label with 'Muted'", () => {
+  test("muted: offers unmute and announces 'Muted' in place of the state", () => {
     renderBar("listening", { muted: true });
     expect(
       screen.getByRole("button", { name: "Unmute microphone" }),
     ).toBeTruthy();
-    expect(visibleLabel()?.textContent).toBe("Muted");
     expect(liveRegion()?.textContent).toBe("Muted");
     expect(screen.queryByText("Listening…")).toBeNull();
   });
 });
 
-describe("VoiceComposerBar — stop response", () => {
-  test("■ renders only while speaking with onStop wired, and fires it", () => {
-    const onStop = mock(() => {});
-    renderBar("speaking", { onStop });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Stop assistant response" }),
-    );
-    expect(onStop).toHaveBeenCalledTimes(1);
+describe("VoiceComposerBar: assistant mute", () => {
+  test("offers the mute and fires it, in every state", () => {
+    // Persistent, like the room's: the pair of mutes never changes shape
+    // mid-turn, so neither moves out from under a reaching finger.
+    for (const state of ["listening", "thinking", "speaking"] as const) {
+      const onToggleOutputMute = mock(() => {});
+      const { unmount } = renderBar(state, { onToggleOutputMute });
+      fireEvent.click(screen.getByRole("button", { name: "Mute assistant" }));
+      expect(onToggleOutputMute).toHaveBeenCalledTimes(1);
+      unmount();
+    }
   });
 
-  test("no ■ outside speaking, or without onStop (manual session)", () => {
-    const { unmount } = renderBar("listening", { onStop: () => {} });
-    expect(
-      screen.queryByRole("button", { name: "Stop assistant response" }),
-    ).toBeNull();
-    unmount();
+  test("muted: offers unmute and reflects the pressed state", () => {
+    renderBar("speaking", { outputMuted: true });
+    const toggle = screen.getByRole("button", { name: "Unmute assistant" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+});
 
-    renderBar("speaking");
-    expect(
-      screen.queryByRole("button", { name: "Stop assistant response" }),
-    ).toBeNull();
+describe("VoiceComposerBar: no transient stop", () => {
+  test("offers no ■ in any state", () => {
+    // Muting the assistant replaced it: a control that appeared and vanished
+    // with the reply changed the row's shape twice a turn.
+    for (const state of [
+      "listening",
+      "thinking",
+      "speaking",
+    ] as LiveVoiceSessionState[]) {
+      const { unmount } = renderBar(state);
+      expect(
+        screen.queryByRole("button", { name: "Stop assistant response" }),
+      ).toBeNull();
+      unmount();
+    }
   });
 });
 
@@ -259,6 +263,7 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     renderBar("listening", { onExpand: () => {} });
     for (const name of [
       "Mute microphone",
+      "Mute assistant",
       "Open voice room",
       "End voice session",
     ]) {
@@ -277,13 +282,16 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     expect(band.className).toContain("-webkit-mask-image:linear-gradient");
   });
 
-  test("resting bar is exactly mute + expand + end", () => {
+  test("the block holds the room's control set, and nothing else", () => {
+    // Same four as the room, in the same reading order: the two mutes (one per
+    // direction of the conversation), the way back into the room, and end.
     renderBar("listening", { onExpand: () => {} });
     const names = screen
       .getAllByRole("button")
       .map((b) => b.getAttribute("aria-label"));
     expect(names).toEqual([
       "Mute microphone",
+      "Mute assistant",
       "Open voice room",
       "End voice session",
     ]);

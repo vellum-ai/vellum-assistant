@@ -45,7 +45,7 @@ import {
   restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
   setLiveVoiceMuted,
-  stopLiveVoiceResponse,
+  setLiveVoiceOutputMuted,
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -365,11 +365,10 @@ export function ChatComposer({
   // plain theme tokens (the live transcript's body text) by flipping the whole
   // card's polarity to match the fill.
   const voiceCardTone = voiceCardBg ? toneForBg(voiceCardBg) : null;
-  // Mic mute state (controller-published) for the voice bar's toggle.
+  // The two mute states (controller-published) behind the block's toggles: one
+  // per direction of the conversation, like the room's.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
-  // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
-  // fallback) session must not — its interrupt ends the whole session.
-  const liveVoiceHandsFree = useLiveVoiceStore.use.handsFree();
+  const liveVoiceOutputMuted = useLiveVoiceStore.use.outputMuted();
   // Whether the session has any speech transcript to show. A boolean
   // *presence* subscription, not the text itself: zustand only re-renders
   // when the selected value changes identity, so per-delta transcript
@@ -397,7 +396,7 @@ export function ChatComposer({
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
   // start, per-session `controls` to end/interrupt — the latter via the shared
-  // module-level `endLiveVoiceSession`/`stopLiveVoiceResponse` helpers, which
+  // module-level `endLiveVoiceSession` helper, which
   // read the store with `getState()` per STATE_MANAGEMENT.md (no subscription
   // needed for callback-only reads).
   // First-run interception: the very first voice-mode entry opens a
@@ -1023,10 +1022,11 @@ export function ChatComposer({
                 getOutputAmplitude={getLiveVoiceOutputAmplitude}
                 muted={liveVoiceMuted}
                 onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
+                outputMuted={liveVoiceOutputMuted}
+                onToggleOutputMute={() =>
+                  setLiveVoiceOutputMuted(!liveVoiceOutputMuted)
+                }
                 onEnd={endLiveVoiceSession}
-                // Turn-scoped stop is hands-free-only; a manual session's
-                // interrupt ends the whole session (✕ owns that).
-                onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
                 // Expand back to the full-screen room — omitted in pop-out
                 // windows, where the room never renders (the standalone pill
                 // is their only session surface).

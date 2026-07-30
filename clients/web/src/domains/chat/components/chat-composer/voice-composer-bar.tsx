@@ -5,31 +5,40 @@
  * It is a block, not a toolbar. The whole chat input is given over to it,
  * painted in the room's own background color (the session assistant's avatar
  * color, or {@link VOICE_SURFACE_DARK} for an assistant with no character
- * color), with the mesh band and the state word inside it. Minimizing therefore
- * reads as the room shrinking into the composer rather than as a row swap, and
- * expanding is the same surface growing back.
+ * color), with the mesh band running through it. Minimizing therefore reads as
+ * the room shrinking into the composer rather than as a row swap, and expanding
+ * is the same surface growing back.
+ *
+ * The band is the block's whole readout. It is inked the way the room inks its
+ * two: the user lifts a pale sheet off the floor while the mic is live, the
+ * assistant answers in a darker one, and in silence the floor is empty. Nothing
+ * is painted over it, so the block says what it is doing by moving; the state
+ * string reaches assistive tech through an `sr-only` live region instead.
  *
  * Because the block is painted in an arbitrary avatar color, its chrome cannot
  * use theme tokens: the composer tones the card with `toneForBg` and publishes
  * `--room-*` (the same contract the room itself uses), and everything here
- * reads those. See `chat-composer.tsx` for the card.
+ * reads those. The band cannot take the avatar accent for the same reason. It
+ * would be the fill's own hue and paint nothing at all. See `chat-composer.tsx`
+ * for the card.
  *
  * The controls sit quiet at the edges so the color and the band hold the
- * middle: mic mute on the left (stop input), and on the right the stop slot
- * (stop output, present only while the assistant speaks), expand back to the
- * room, and end session.
+ * middle, and they are the room's own set at block scale: mute the mic on the
+ * left, and on the right mute the assistant, expand back to the room, and end.
+ * The two mutes are a symmetric pair, one per direction of the conversation,
+ * and every control is persistent, so none of them moves out from under a
+ * reaching finger mid-turn.
  *
  * Purely presentational: the composer observes the live-voice store and wires
- * `state`, an amplitude poll function, and the callbacks. Ending is always
- * available.
+ * `state`, the two amplitude poll functions, and the callbacks. Ending is
+ * always available.
  *
  * There is no manual "send now": turns release themselves (server VAD
  * hands-free, auto-release in the manual fallback), so a send button would
- * advertise an action the user never needs. Stop output earns its place because
- * interrupting a reply in progress has no silent equivalent.
+ * advertise an action the user never needs.
  */
 
-import { Maximize2, Mic, MicOff, Square, X } from "lucide-react";
+import { Maximize2, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button, cn } from "@vellumai/design-library";
 
@@ -65,12 +74,14 @@ export interface VoiceComposerBarProps {
   onToggleMute: () => void;
   /** Red ✕ — end the voice session. */
   onEnd: () => void;
+  /** Whether the assistant's audio is muted. Drives the right-side toggle. */
+  outputMuted: boolean;
   /**
-   * ■ — stop the in-flight assistant response without ending the session.
-   * Occupies the stop slot only while `speaking`; the composer passes it only
-   * for hands-free sessions, where the interrupt is turn-scoped.
+   * Mute (or unmute) the assistant without ending the session or stopping the
+   * reply. The turn keeps running and the transcript keeps filling, so
+   * unmuting drops the user back in wherever it has reached.
    */
-  onStop?: () => void;
+  onToggleOutputMute: () => void;
   /**
    * Return to the full-screen voice room. The composer passes it only where
    * the room can render (never in pop-out windows), so the control never
@@ -114,8 +125,9 @@ export function VoiceComposerBar({
   getOutputAmplitude,
   muted,
   onToggleMute,
+  outputMuted,
+  onToggleOutputMute,
   onEnd,
-  onStop,
   onExpand,
   standalone = false,
 }: VoiceComposerBarProps) {
@@ -185,34 +197,36 @@ export function VoiceComposerBar({
         />
       </div>
 
-      {/* The state word, centered in the block over the band. `aria-hidden`
-          because the live region below already announces it: rendering both
-          would have a screen reader read the state twice. */}
-      <div className="relative flex min-w-0 flex-1 items-center justify-center">
-        <span
-          aria-hidden
-          className="truncate text-sm font-medium text-[var(--room-fg-muted,var(--content-secondary))]"
-        >
-          {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
-        </span>
-      </div>
+      {/* The band holds the middle. Nothing is painted over it: the block says
+          what it is doing by moving, and the state string reaches assistive
+          tech through the live region below. */}
+      <div className="relative min-w-0 flex-1" />
       <span aria-live="polite" className="sr-only">
         {muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
       </span>
 
       <div className="relative flex shrink-0 items-center gap-1">
-        {/* Stop slot: interrupts a reply in progress, and is present only
-            while one is playing. Nothing occupies the slot otherwise. */}
-        {onStop && state === "speaking" ? (
-          <Button
-            variant="ghost"
-            iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
-            onClick={onStop}
-            aria-label="Stop assistant response"
-            tooltip="Stop assistant response"
-            className={VOICE_CONTROL_CLASS}
-          />
-        ) : null}
+        {/* Mute the assistant, the room's own pairing for the mic mute: one
+            control per direction of the conversation, both persistent, so
+            neither moves out from under a reaching finger mid-turn. */}
+        <Button
+          variant="ghost"
+          iconOnly={
+            outputMuted ? (
+              <VolumeX className="h-4 w-4" />
+            ) : (
+              <Volume2 className="h-4 w-4" />
+            )
+          }
+          onClick={onToggleOutputMute}
+          aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          aria-pressed={outputMuted}
+          tooltip={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          className={cn(
+            VOICE_CONTROL_CLASS,
+            outputMuted && "[--vbtn-fg:var(--system-negative-strong)]",
+          )}
+        />
         {onExpand ? (
           <Button
             variant="ghost"
