@@ -46,6 +46,7 @@ const { googleCalendarProvider } =
   await import("../watcher/providers/google-calendar.js");
 const { WATCHER_PAYLOAD_TEXT_MAX_CHARS } =
   await import("../watcher/constants.js");
+const { capPayloadForStorage } = await import("../watcher/payload-bounds.js");
 
 // Params that must NOT appear on the sync-token stream. timeMin/timeMax/
 // orderBy/q/updatedMin are forbidden alongside syncToken (per events.list docs)
@@ -202,12 +203,14 @@ describe("googleCalendarProvider: payload bounds", () => {
     ];
   }
 
-  test("an oversized description is capped at the source", async () => {
-    // The engine's render cap runs in Phase 2, after Phase 1 has already
-    // written JSON.stringify(item.payload) into watcher_events.payload_json
-    // and after the watcher_list / watcher_digest routes have a row to return.
-    // An organizer-controlled description therefore has to be bounded here or
-    // it is stored and served unbounded.
+  test("an oversized description is bounded before it can be stored", async () => {
+    // The provider hands the field over as the API returned it. The engine runs
+    // `capPayloadForStorage` over the whole payload before Phase 1 serializes it
+    // into `watcher_events.payload_json`, which is what bounds the stored row
+    // and the `watcher_list` / `watcher_digest` responses built from it. Doing
+    // it there covers `location` and every other free-text field, on every
+    // provider, without each one naming its own. `engine.test.ts` covers the
+    // wiring; this covers what that pass does to a real calendar payload.
     responses = syncResponseWithEvent("D".repeat(50_000));
 
     const result = await googleCalendarProvider.fetchNew(
@@ -218,10 +221,12 @@ describe("googleCalendarProvider: payload bounds", () => {
     );
 
     expect(result.items).toHaveLength(1);
-    const description = result.items[0]!.payload.description as string;
-    expect(description.length).toBe(WATCHER_PAYLOAD_TEXT_MAX_CHARS);
-    // Capping truncates, it does not drop the field.
-    expect(description.startsWith("D".repeat(1_000))).toBe(true);
+    const stored = JSON.parse(
+      JSON.stringify(capPayloadForStorage(result.items[0]!.payload)),
+    );
+    expect(stored.description.length).toBe(WATCHER_PAYLOAD_TEXT_MAX_CHARS);
+    // Bounding truncates, it does not drop the field.
+    expect(stored.description.startsWith("D".repeat(1_000))).toBe(true);
   });
 
   test("a normal description passes through unchanged and unfenced", async () => {
