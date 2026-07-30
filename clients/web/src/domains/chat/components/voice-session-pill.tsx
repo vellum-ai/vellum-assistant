@@ -90,6 +90,15 @@ const SILENT_AMPLITUDE = () => 0;
 const PILL_WIDTH_CLASS = "w-56";
 
 /**
+ * Breathing room either side of the header pill. The right cluster's own
+ * `gap-2` is tuned for icon buttons, and a painted 224px capsule pressed that
+ * close reads as jammed between the centre title and the search button. This
+ * takes the separation to 16px on the trailing side and holds the title off
+ * the leading cap.
+ */
+const PILL_MARGIN_CLASS = "mx-2";
+
+/**
  * Pill height on a phone: a 44px row clears the touch target the controls want.
  * The radius follows the height (`rounded-full`), so the caps are 22px and the
  * row keeps its `px-3` inset to hold the outer glyphs clear of that curve.
@@ -218,7 +227,7 @@ export function VoiceSessionPill({
         "relative flex items-center gap-1 overflow-hidden rounded-full transition-colors duration-300 [-webkit-app-region:no-drag]",
         isRow
           ? `w-full shrink-0 px-3 ${ROW_HEIGHT_CLASS}`
-          : `h-8 px-1 ${PILL_WIDTH_CLASS}`,
+          : `h-8 px-1 ${PILL_WIDTH_CLASS} ${PILL_MARGIN_CLASS}`,
         // Until the avatar resolves there is no room color to paint, so the
         // surface holds the app's own raised surface.
         !paint && "bg-[var(--surface-lift)]",

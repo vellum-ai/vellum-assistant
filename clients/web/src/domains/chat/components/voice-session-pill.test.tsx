@@ -129,6 +129,9 @@ describe("VoiceSessionPill: layouts", () => {
     expect(root().className).toContain("[-webkit-app-region:no-drag]");
     expect(root().className).toContain("h-8");
     expect(root().className).toContain("rounded-full");
+    // Held off its neighbours in the cluster: the header's own gap is tuned
+    // for icon buttons, not for a painted capsule.
+    expect(root().className).toContain("mx-2");
   });
 
   test("row: the same pill stretched edge to edge, taking its own space in flow", () => {
@@ -139,6 +142,9 @@ describe("VoiceSessionPill: layouts", () => {
     expect(root().className).toContain("w-full");
     expect(root().className).toContain("shrink-0");
     expect(root().className).toContain("rounded-full");
+    // No side margin here: the header pill's breathing room would pull this
+    // one off both edges.
+    expect(root().className).not.toContain("mx-2");
   });
 });
 
