@@ -55,6 +55,26 @@ describe("BillingErrorBanner", () => {
     expect(queryByTestId("banner-icon")).toBeNull();
   });
 
+  test("renders a dismiss button only when onDismiss is provided", () => {
+    const onAction = mock(() => {});
+    const onDismiss = mock(() => {});
+
+    const { getByRole } = render(
+      <BillingErrorBanner
+        ariaLabel="Billing notice"
+        title="Title"
+        subtitle="Subtitle"
+        ctaLabel="Upgrade"
+        onAction={onAction}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
   test("exposes role=status with the provided aria-label", () => {
     const { getByRole } = render(
       <BillingErrorBanner
