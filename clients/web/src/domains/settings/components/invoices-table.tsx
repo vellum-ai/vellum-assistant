@@ -127,6 +127,10 @@ export function InvoicesTable() {
     (showAll || !hasHiddenRows) &&
     invoicesQuery.hasNextPage &&
     !showLoadMoreError;
+  // A retry runs as a refetch followed by a next-page fetch; cover both
+  // phases so a mid-retry click can't cancel the in-flight page fetch.
+  const retryInFlight =
+    invoicesQuery.isRefetching || invoicesQuery.isFetchingNextPage;
 
   function loadMore(): void {
     // fetchNextPage() resolves with the query result rather than rejecting,
@@ -219,7 +223,12 @@ export function InvoicesTable() {
                   <ChevronDown className="h-4 w-4" />
                 )
               }
-              onClick={() => setExpanded((v) => !v)}
+              onClick={() => {
+                // Collapsing abandons a failed page load; re-expanding
+                // refetches, so a stale banner would sit over fresh data.
+                setPageLoadFailed(false);
+                setExpanded((v) => !v);
+              }}
               data-testid="invoices-toggle"
             >
               {expanded ? "Hide invoices" : "Show invoices"}
@@ -376,11 +385,11 @@ export function InvoicesTable() {
                     <button
                       type="button"
                       onClick={retryLoadMore}
-                      disabled={invoicesQuery.isRefetching}
+                      disabled={retryInFlight}
                       className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
                       data-testid="invoices-load-more-retry"
                     >
-                      {invoicesQuery.isRefetching && (
+                      {retryInFlight && (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       )}
                       Retry
