@@ -26,3 +26,23 @@ export const WATCHER_JOB_TIMEOUT_MS = 15 * 60 * 1000;
  */
 export const WATCHER_EVENT_SUMMARY_MAX_CHARS = 300;
 export const WATCHER_EVENT_PAYLOAD_MAX_CHARS = 4_000;
+
+/**
+ * Cap a provider applies to an arbitrary-length free-text payload field before
+ * returning the item, i.e. at the source.
+ *
+ * The render caps above bound what reaches the model, but they run in the
+ * engine's Phase 2, after Phase 1 has already written
+ * `JSON.stringify(item.payload)` into `watcher_events.payload_json`. So they do
+ * not bound the stored row, and they do not bound the `watcher_list` /
+ * `watcher_digest` route responses, which return `payloadJson` verbatim. A
+ * field with no ceiling of its own has to be capped by the provider that reads
+ * it, per the "cap each such string at the source" rule in `security/AGENTS.md`.
+ *
+ * 5,000 is generous enough that real events keep their full text (Gmail
+ * snippets ~200 chars, Outlook `bodyPreview` ~255) and matches the bound the
+ * calendar description carried before its per-field fence was folded into the
+ * engine's single outer envelope. Google documents no ceiling of its own on
+ * `description` (see `eventToItem`), so this is the only bound on it.
+ */
+export const WATCHER_PAYLOAD_TEXT_MAX_CHARS = 5_000;

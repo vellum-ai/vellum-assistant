@@ -44,6 +44,8 @@ mock.module("../util/logger.js", () => ({
 // Import module under test after mocks
 const { googleCalendarProvider } =
   await import("../watcher/providers/google-calendar.js");
+const { WATCHER_PAYLOAD_TEXT_MAX_CHARS } =
+  await import("../watcher/constants.js");
 
 // Params that must NOT appear on the sync-token stream. timeMin/timeMax/
 // orderBy/q/updatedMin are forbidden alongside syncToken (per events.list docs)
@@ -171,5 +173,73 @@ describe("googleCalendarProvider — initial syncToken", () => {
     expect(fallback).toBeDefined();
     expect(fallback!.singleEvents).toBe("true");
     expect(fallback!.orderBy).toBe("startTime");
+  });
+});
+
+// ── Payload bounds (LUM-2925) ─────────────────────────────────────────
+
+describe("googleCalendarProvider: payload bounds", () => {
+  function syncResponseWithEvent(description: string) {
+    return [
+      {
+        status: 200,
+        body: {
+          items: [
+            {
+              id: "evt-1",
+              status: "confirmed",
+              summary: "Quarterly review",
+              description,
+              start: { dateTime: "2026-08-01T10:00:00Z" },
+              end: { dateTime: "2026-08-01T11:00:00Z" },
+              created: "2026-07-01T00:00:00Z",
+              updated: "2026-07-02T00:00:00Z",
+            },
+          ],
+          nextSyncToken: "tok_after",
+        },
+      },
+    ];
+  }
+
+  test("an oversized description is capped at the source", async () => {
+    // The engine's render cap runs in Phase 2, after Phase 1 has already
+    // written JSON.stringify(item.payload) into watcher_events.payload_json
+    // and after the watcher_list / watcher_digest routes have a row to return.
+    // An organizer-controlled description therefore has to be bounded here or
+    // it is stored and served unbounded.
+    responses = syncResponseWithEvent("D".repeat(50_000));
+
+    const result = await googleCalendarProvider.fetchNew(
+      "google",
+      "tok_before",
+      {},
+      "k",
+    );
+
+    expect(result.items).toHaveLength(1);
+    const description = result.items[0]!.payload.description as string;
+    expect(description.length).toBe(WATCHER_PAYLOAD_TEXT_MAX_CHARS);
+    // Capping truncates, it does not drop the field.
+    expect(description.startsWith("D".repeat(1_000))).toBe(true);
+  });
+
+  test("a normal description passes through unchanged and unfenced", async () => {
+    // The engine wraps the whole rendered event block in one
+    // <external_content> envelope, so a per-field wrapper here would only nest
+    // an escaped fence inside that one.
+    responses = syncResponseWithEvent("Bring the Q3 deck.");
+
+    const result = await googleCalendarProvider.fetchNew(
+      "google",
+      "tok_before",
+      {},
+      "k",
+    );
+
+    expect(result.items[0]!.payload.description).toBe("Bring the Q3 deck.");
+    expect(JSON.stringify(result.items[0]!.payload)).not.toContain(
+      "external_content",
+    );
   });
 });
