@@ -73,6 +73,15 @@ let lastIsPortrait: boolean = isPortrait();
 // over the moment the native resize lands.
 let anticipatedKeyboardHeight = 0;
 
+// Number of mounted `useVisibleViewport` consumers. Anticipation only retires
+// against a measurement that catches up to it, so a consumer that unmounts
+// between `keyboardWillShow` and `keyboardWillHide` would strand a height that
+// no later read can clear: the next mount measures a restored, keyboard-free
+// viewport and never satisfies the retire condition. Clearing once the count
+// reaches zero closes that. Anything above zero has a live consumer whose
+// layout depends on the value, so it must survive.
+let subscriberCount = 0;
+
 /**
  * Record the keyboard height the native shell is about to animate to.
  *
@@ -82,6 +91,15 @@ let anticipatedKeyboardHeight = 0;
  */
 export function setAnticipatedKeyboardHeight(keyboardHeight: number): void {
   anticipatedKeyboardHeight = keyboardHeight;
+}
+
+/**
+ * Reset the anticipation state (the pending height and the subscriber count
+ * that retires it) so unit tests don't leak module state into each other.
+ */
+export function __resetKeyboardAnticipationForTests(): void {
+  anticipatedKeyboardHeight = 0;
+  subscriberCount = 0;
 }
 
 /**
@@ -192,11 +210,18 @@ export function useVisibleViewport(): VisibleViewport | null {
       setAnticipatedKeyboardHeight(keyboardHeight);
       update();
     });
+    subscriberCount += 1;
     return () => {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
       unsubscribe();
+      // Clamped so an unpaired cleanup can never drive the count negative and
+      // strand a genuine last unmount above zero.
+      subscriberCount = Math.max(0, subscriberCount - 1);
+      if (subscriberCount === 0) {
+        anticipatedKeyboardHeight = 0;
+      }
     };
   }, []);
 

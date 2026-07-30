@@ -1,18 +1,21 @@
 /**
- * Tests for `readVisibleViewport`, the visual-viewport read behind the app
- * shell's keyboard-aware sizing.
+ * Tests for `readVisibleViewport` and `useVisibleViewport`, the visual-viewport
+ * read and subscription behind the app shell's keyboard-aware sizing.
  *
- * The function is driven directly against a stubbed `window.visualViewport`,
- * so nothing here mounts React. `referenceInnerHeight` and the anticipated
- * keyboard height are module state, so each test pins `window.innerHeight` and
- * resets anticipation rather than relying on ordering.
+ * The read is driven directly against a stubbed `window.visualViewport`, so
+ * only the subscriber-lifecycle tests mount the hook. `referenceInnerHeight`
+ * and the anticipated keyboard height are module state, so each test pins
+ * `window.innerHeight` and resets anticipation rather than relying on ordering.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
 
 import {
+  __resetKeyboardAnticipationForTests,
   readVisibleViewport,
   setAnticipatedKeyboardHeight,
+  useVisibleViewport,
 } from "@/hooks/use-visible-viewport";
 
 const REFERENCE_HEIGHT = 800;
@@ -33,6 +36,10 @@ function stubViewport(overrides: Partial<ViewportStub> = {}): void {
       offsetTop: 0,
       offsetLeft: 0,
       scale: 1,
+      // Mounting the hook attaches resize/scroll listeners; the tests drive
+      // `readVisibleViewport` directly, so these only need to exist.
+      addEventListener: () => {},
+      removeEventListener: () => {},
       ...overrides,
     },
   });
@@ -44,14 +51,15 @@ beforeEach(() => {
     writable: true,
     value: REFERENCE_HEIGHT,
   });
-  setAnticipatedKeyboardHeight(0);
+  __resetKeyboardAnticipationForTests();
   stubViewport();
   // Settle `referenceInnerHeight` on the keyboard-free height.
   readVisibleViewport();
 });
 
 afterEach(() => {
-  setAnticipatedKeyboardHeight(0);
+  cleanup();
+  __resetKeyboardAnticipationForTests();
 });
 
 describe("readVisibleViewport", () => {
@@ -141,5 +149,59 @@ describe("readVisibleViewport", () => {
     expect(viewport?.height).toBe(600);
     expect(viewport?.offsetTop).toBe(0);
     expect(viewport?.offsetLeft).toBe(0);
+  });
+});
+
+describe("useVisibleViewport", () => {
+  test("clears a pending anticipation when the last consumer unmounts", () => {
+    // GIVEN a mounted consumer with the keyboard already announced
+    const { unmount } = renderHook(() => useVisibleViewport());
+    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+
+    // WHEN it unmounts before the keyboard hide ever arrives
+    unmount();
+
+    // THEN a later read of the restored viewport is keyboard-free, rather than
+    // reporting a height the remount could never retire
+    const viewport = readVisibleViewport();
+    expect(viewport?.keyboardHeight).toBe(0);
+    expect(viewport?.height).toBe(REFERENCE_HEIGHT);
+  });
+
+  test("keeps anticipation while another consumer is still mounted", () => {
+    // GIVEN two concurrent consumers and an announced keyboard height
+    const shell = renderHook(() => useVisibleViewport());
+    const overlay = renderHook(() => useVisibleViewport());
+    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+
+    // WHEN one of them unmounts with the keyboard genuinely open
+    overlay.unmount();
+
+    // THEN the survivor still sizes for the keyboard, with no jump back to the
+    // lagging derived measurement
+    const stillOpen = readVisibleViewport();
+    expect(stillOpen?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+    expect(stillOpen?.height).toBe(REFERENCE_HEIGHT - KEYBOARD_HEIGHT);
+
+    // AND anticipation clears only once the last one goes away
+    shell.unmount();
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
+  });
+
+  test("survives a mount, unmount, and remount cycle", () => {
+    // GIVEN a consumer that unmounts mid-keyboard
+    const first = renderHook(() => useVisibleViewport());
+    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+    first.unmount();
+
+    // WHEN the shell remounts without a page reload and the keyboard opens
+    // again
+    const second = renderHook(() => useVisibleViewport());
+    setAnticipatedKeyboardHeight(KEYBOARD_HEIGHT);
+    expect(readVisibleViewport()?.keyboardHeight).toBe(KEYBOARD_HEIGHT);
+
+    // THEN the count is still balanced, so its own unmount clears anticipation
+    second.unmount();
+    expect(readVisibleViewport()?.keyboardHeight).toBe(0);
   });
 });
