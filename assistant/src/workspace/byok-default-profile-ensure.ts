@@ -16,6 +16,7 @@ import { invalidateConfigCache } from "../config/loader.js";
 import {
   type DefaultProviderConfig,
   DefaultProviderSchema,
+  isDefaultProviderChoice,
   LLMConfigBase,
   type ProfileEntry,
 } from "../config/schemas/llm.js";
@@ -272,7 +273,11 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
       // indistinguishable from a genuine hatch stub and would be deleted by
       // the stub arm on the next boot, so the colliding label is never
       // carried. A carried disable survives as a label-less stub; a
-      // rename-only collision leaves no overlay worth writing.
+      // rename-only collision leaves no overlay worth writing. When the
+      // user both re-enabled the hatch stub and disabled the copy, the
+      // copy's disable wins (the stub arm already deleted the re-enabled
+      // stub, clearing the bare key for this carry): the copy governed the
+      // rail dispatch actually used, so its overlay is the meaningful one.
       if (isHatchStub(key, stub)) {
         delete stub.label;
       }
@@ -319,8 +324,18 @@ function isKnownUneditedBody(
   // recorded that provider on the body; the current default provider may
   // have changed since (most commonly to `vellum` after connecting to
   // platform), so the copy is compared against its own recorded provider.
+  // Only providers that can back the code-defined defaults are candidates:
+  // it keeps the comparison off the catalog/fallback default-model path, and
+  // legacy onboarding copies for keyless or endpoint-supplied providers
+  // (ollama, openai-compatible) must never retire, since their
+  // `provider_connection` can carry a base URL the bare key cannot recover.
+  // `vellum` never had hatch copies, so a body claiming it is not one.
   const copyProvider = entry.provider;
-  if (typeof copyProvider !== "string") {
+  if (
+    typeof copyProvider !== "string" ||
+    !isDefaultProviderChoice(copyProvider) ||
+    copyProvider === "vellum"
+  ) {
     return false;
   }
   const template = USER_PROFILE_TEMPLATES[`custom-${key}`];

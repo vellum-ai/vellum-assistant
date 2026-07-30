@@ -985,6 +985,58 @@ describe("ensureByokDefaultProfiles", () => {
     expectSecondRunNoop();
   });
 
+  test("a copy for an endpoint-supplied provider is kept even when body-identical to the template", () => {
+    // Legacy onboarding wrote copies for providers outside
+    // DEFAULT_PROVIDER_CHOICES; their connection can carry a base URL the
+    // bare key cannot recover, so they must never retire.
+    const body = hatchBody("balanced", "anthropic") as Record<string, unknown>;
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          "custom-balanced": {
+            ...body,
+            provider: "openai-compatible",
+            provider_connection: "openai-compatible-personal",
+          },
+        },
+      },
+    });
+    const before = readFileSync(configPath(), "utf-8");
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("a copy disable wins over a re-enabled hatch stub on the same key", () => {
+    // Contradictory overlays: the stub arm deletes the re-enabled stub, so
+    // the disable carried off the copy (the rail dispatch actually used)
+    // lands on the bare key.
+    const config = uneditedByokConfig();
+    const profileMap = (config.llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    profileMap["quality-optimized"] = {
+      source: "managed",
+      status: "active",
+      label: "Quality (Managed)",
+    };
+    profileMap["custom-quality-optimized"] = {
+      ...profileMap["custom-quality-optimized"],
+      status: "disabled",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-quality-optimized"]).toBeUndefined();
+    expect(profiles()["quality-optimized"]).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    expectSecondRunNoop();
+  });
+
   test("a copy pointing at a non-conventional connection is kept", () => {
     // Any connection reference other than `<provider>-personal`, the bare
     // provider name, or absence could be an explicit selection among several
