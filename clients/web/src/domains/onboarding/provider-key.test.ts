@@ -15,6 +15,14 @@ const configPatchMock = mock(async () => ({
 const configLlmDefaultproviderPutMock = mock(async () => ({
   response: { ok: true, status: 200 },
 }));
+// Version fetched by the onboarding-default-provider gate. Defaults to the
+// gate's MIN_VERSION so tests exercise the new write path unless they
+// override it.
+const identityGetMock = mock(async () => ({
+  data: { version: "0.11.1" } as { version: string | null } | null,
+  error: undefined,
+  response: { ok: true, status: 200 },
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   secretsPost: secretsPostMock,
@@ -22,6 +30,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   configLlmProfilesByNamePut: configLlmProfilesByNamePutMock,
   configPatch: configPatchMock,
   configLlmDefaultproviderPut: configLlmDefaultproviderPutMock,
+  identityGet: identityGetMock,
 }));
 
 const {
@@ -38,6 +47,12 @@ beforeEach(() => {
   configLlmProfilesByNamePutMock.mockClear();
   configPatchMock.mockClear();
   configLlmDefaultproviderPutMock.mockClear();
+  identityGetMock.mockClear();
+  identityGetMock.mockImplementation(async () => ({
+    data: { version: "0.11.1" },
+    error: undefined,
+    response: { ok: true, status: 200 },
+  }));
 });
 
 describe("pending provider key", () => {
@@ -242,5 +257,103 @@ describe("pending provider key", () => {
       body: { llm: { activeProfile: "openai-compatible" } },
       throwOnError: false,
     });
+  });
+
+  test("an assistant below the gate gets the legacy custom-balanced flow instead of the default-provider write", async () => {
+    // 0.11.0 has the PUT endpoint but not the code-defined BYOK defaults —
+    // the new path would leave `balanced` resolving through the vellum
+    // column with the entered key unused.
+    identityGetMock.mockImplementation(async () => ({
+      data: { version: "0.11.0" },
+      error: undefined,
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-test" });
+
+    await applyPendingProviderKey("local-5");
+
+    expect(secretsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-5" },
+      body: { type: "api_key", name: "anthropic", value: "sk-ant-test" },
+      throwOnError: false,
+    });
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
+    // Legacy shape: provider-named connection, not `<provider>-personal`
+    expect(inferenceProviderconnectionsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-5" },
+      body: {
+        name: "anthropic",
+        provider: "anthropic",
+        auth: {
+          type: "api_key",
+          credential: "credential/anthropic/api_key",
+        },
+      },
+      throwOnError: false,
+    });
+    expect(configLlmProfilesByNamePutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-5", name: "custom-balanced" },
+      body: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        provider_connection: "anthropic",
+        source: "user",
+        label: "Balanced",
+        description: "Good balance of quality, cost, and speed",
+        maxTokens: 16_000,
+        contextWindow: { maxInputTokens: 200_000 },
+        effort: "high",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      throwOnError: false,
+    });
+    expect(configPatchMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-5" },
+      body: { llm: { activeProfile: "custom-balanced" } },
+      throwOnError: false,
+    });
+    expect(peekPendingProviderKey()).toBeNull();
+  });
+
+  test("an unresolvable assistant version falls back to the legacy flow", async () => {
+    identityGetMock.mockImplementation(async () => ({
+      data: null,
+      error: undefined,
+      response: { ok: false, status: 503 },
+    }));
+    setPendingProviderKey({ provider: "openai", key: "sk-proj-test" });
+
+    await applyPendingProviderKey("local-6");
+
+    expect(configLlmDefaultproviderPutMock).not.toHaveBeenCalled();
+    expect(configLlmProfilesByNamePutMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { assistant_id: "local-6", name: "custom-balanced" },
+      }),
+    );
+    expect(configPatchMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-6" },
+      body: { llm: { activeProfile: "custom-balanced" } },
+      throwOnError: false,
+    });
+  });
+
+  test("a dev build on the gate's base version takes the new path", async () => {
+    identityGetMock.mockImplementation(async () => ({
+      data: { version: "0.11.1-dev.202607290000.abc1234" },
+      error: undefined,
+      response: { ok: true, status: 200 },
+    }));
+    setPendingProviderKey({ provider: "anthropic", key: "sk-ant-test" });
+
+    await applyPendingProviderKey("local-7");
+
+    expect(configLlmDefaultproviderPutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-7" },
+      body: { provider: "anthropic" },
+      throwOnError: false,
+    });
+    expect(configLlmProfilesByNamePutMock).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
   });
 });

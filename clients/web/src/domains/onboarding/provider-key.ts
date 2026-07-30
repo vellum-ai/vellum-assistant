@@ -10,6 +10,7 @@ import {
   onboardingProvider,
   type OnboardingProviderId,
 } from "@/domains/onboarding/provider-catalog";
+import { supportsOnboardingDefaultProvider } from "@/lib/backwards-compat/onboarding-default-provider";
 import type {
   ConfigLlmDefaultproviderPutData,
   ProfileEntry,
@@ -22,6 +23,7 @@ import type {
 
 const PENDING_KEY_STORAGE = "onboarding.providerKey";
 const DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS = 200_000;
+const LEGACY_ONBOARDING_ACTIVE_PROFILE = "custom-balanced";
 
 /**
  * Providers the daemon's code-defined default profiles cannot serve: Ollama is
@@ -261,6 +263,48 @@ async function applyCustomProviderProfile(
 }
 
 /**
+ * Legacy write path for assistants below the onboarding-default-provider
+ * gate: they have no code-defined BYOK defaults, so the picked provider must
+ * be materialized client-side the way onboarding always did — a
+ * provider-named connection plus an authored-and-activated `custom-balanced`
+ * profile. Newer daemons understand these writes too (their BYOK conversion
+ * pass migrates the profile onto the default rail), so this is also the safe
+ * landing when the daemon version cannot be resolved.
+ */
+async function applyLegacyOnboardingProfile(
+  assistantId: string,
+  pending: PendingProviderKey,
+  hasKey: boolean,
+): Promise<void> {
+  await createCustomProviderConnection(assistantId, pending.provider, hasKey, {
+    baseUrl: pending.baseUrl,
+    customModels: pending.customModels,
+  });
+  const model =
+    pending.model?.trim() ||
+    defaultModelForOnboardingProvider(pending.provider);
+  if (!model) {
+    return;
+  }
+  const { response: putResponse } = await configLlmProfilesByNamePut({
+    path: { assistant_id: assistantId, name: LEGACY_ONBOARDING_ACTIVE_PROFILE },
+    body: {
+      ...buildCustomProviderProfile(pending.provider, model),
+      label: "Balanced",
+      description: "Good balance of quality, cost, and speed",
+    },
+    throwOnError: false,
+  });
+  ensureOk(putResponse, "Failed to set provider profile");
+  const { response: patchResponse } = await configPatch({
+    path: { assistant_id: assistantId },
+    body: { llm: { activeProfile: LEGACY_ONBOARDING_ACTIVE_PROFILE } },
+    throwOnError: false,
+  });
+  ensureOk(patchResponse, "Failed to activate provider profile");
+}
+
+/**
  * Apply the model-provider selection collected during onboarding to the
  * freshly hatched local assistant. Consumes the pending key; no-op when nothing
  * was collected (e.g. Vellum Cloud, which skips the API-key step).
@@ -270,7 +314,8 @@ async function applyCustomProviderProfile(
  * through, and point `llm.defaultProvider` at the picked provider. The hatch
  * already activated `balanced`, so no profile is written. Only providers the
  * matrix cannot serve (Ollama, openai-compatible) get a client-authored
- * profile.
+ * profile. Assistants predating the code-defined defaults get the legacy
+ * custom-balanced authoring flow instead.
  */
 export async function applyPendingProviderKey(
   assistantId: string,
@@ -283,8 +328,16 @@ export async function applyPendingProviderKey(
 
   if (!PROFILE_AUTHORING_PROVIDERS.has(pending.provider)) {
     await writeApiKeySecret(assistantId, pending.provider, trimmed);
-    await createPersonalConnection(assistantId, pending.provider);
-    await setDefaultProvider(assistantId, pending.provider);
+    if (await supportsOnboardingDefaultProvider(assistantId)) {
+      await createPersonalConnection(assistantId, pending.provider);
+      await setDefaultProvider(assistantId, pending.provider);
+    } else {
+      await applyLegacyOnboardingProfile(
+        assistantId,
+        pending,
+        trimmed.length > 0,
+      );
+    }
     return;
   }
 

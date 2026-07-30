@@ -49,7 +49,7 @@ import { whenStoreState } from "@/utils/when-store-state";
  */
 export function useAssistantSupports(minVersion: string): boolean {
   const version = useAssistantIdentityStore.use.version();
-  return supportsVersion(version, minVersion);
+  return versionSupports(version, minVersion);
 }
 
 /**
@@ -100,10 +100,17 @@ export function useAssistantScopedSupports(
  */
 export function assistantSupports(minVersion: string): boolean {
   const version = useAssistantIdentityStore.getState().version;
-  return supportsVersion(version, minVersion);
+  return versionSupports(version, minVersion);
 }
 
-function supportsVersion(
+/**
+ * Raw comparison behind `useAssistantSupports`/`assistantSupports`, for
+ * gates that resolve the assistant version themselves instead of reading
+ * the identity store (e.g. onboarding, which runs against a freshly
+ * hatched assistant before the store hydrates). Same semantics: `false`
+ * on null/unparseable versions, dev builds ahead of same-base stable.
+ */
+export function versionSupports(
   version: string | null | undefined,
   minVersion: string,
 ): boolean {

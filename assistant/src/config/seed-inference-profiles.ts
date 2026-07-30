@@ -92,6 +92,17 @@ export function seedInferenceProfiles(
       !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider)
     ) {
       usableHatchProvider = hatchProvider;
+      // Same predicate `resolveHatchDefaultProvider` applies below: a
+      // provider can pass the connection gate (key stored, personal
+      // connection created) yet not qualify as a default-provider choice
+      // (e.g. litellm, whose catalog defaultModel is empty). Surface that
+      // divergence here, at the point the connection is still created.
+      if (!isDefaultProviderChoice(hatchProvider)) {
+        log.warn(
+          { provider: hatchProvider },
+          "Hatch provider key stored and personal connection created, but the provider cannot back the default profiles; llm.defaultProvider will fall back to anthropic",
+        );
+      }
       const userConnectionName = `${hatchProvider}-personal`;
 
       if (options.db && !getConnection(options.db, userConnectionName)) {

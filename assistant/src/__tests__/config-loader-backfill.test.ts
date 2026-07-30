@@ -909,6 +909,49 @@ describe("loadConfig startup behavior", () => {
     }
   });
 
+  test("off-platform hatch with a connection-eligible provider that is not a default-provider choice falls back to anthropic", () => {
+    // `litellm` passes the connection gate (API-key catalog provider with a
+    // fixed base URL requirement absent) but its catalog defaultModel is
+    // empty, so it is not a DEFAULT_PROVIDER_CHOICES member. The key and
+    // `litellm-personal` connection are still stored for manually-created
+    // profiles, but the defaults anchor on anthropic. The pre-code-defined
+    // rail was no better: materializing `custom-*` copies threw on the empty
+    // defaultModel and aborted seeding entirely.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "litellm" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "anthropic" });
+    expect(config.llm.defaultProvider).toEqual({ provider: "anthropic" });
+    for (const name of LEGACY_HATCH_PROFILE_NAMES) {
+      expect(raw.llm.profiles[name]).toBeUndefined();
+    }
+    expect(getConnection(db, "litellm-personal")).not.toBeNull();
+
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
+    );
+    for (const name of [
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+    ] as const) {
+      expect(effective[name]?.provider).toBe("anthropic");
+      expect(effective[name]?.provider_connection).toBe("anthropic-personal");
+    }
+  });
+
   test("off-platform boot leaves an existing managed entry byte-identical", () => {
     // A drifted legacy full-body entry left by a previous release stays
     // exactly as written — boots never rewrite managed entries. Content is
