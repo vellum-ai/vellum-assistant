@@ -8,7 +8,6 @@
 
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
-import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
@@ -175,12 +174,10 @@ function eventToItem(event: CalendarEvent, eventType: string): WatcherItem {
       start,
       end,
       location: event.location ?? "",
-      description: event.description
-        ? wrapUntrustedContent(event.description, {
-            source: "calendar",
-            maxChars: 5000,
-          })
-        : "",
+      // Stored raw. The engine fences the whole rendered event block in one
+      // `<external_content>` envelope before it reaches the model, so a
+      // per-field wrapper here would only nest an escaped fence inside that one.
+      description: event.description ?? "",
       status: event.status ?? "confirmed",
       organizer: event.organizer?.email ?? "",
       attendees:
@@ -338,6 +335,7 @@ export const googleCalendarProvider: WatcherProvider = {
   id: "google-calendar",
   displayName: "Google Calendar",
   requiredCredentialService: CREDENTIAL_SERVICE,
+  untrustedContentSource: "calendar",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);
