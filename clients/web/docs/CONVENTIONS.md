@@ -1410,7 +1410,7 @@ renders correctly given the data it actually receives in production.
   apply to story files exactly as they do to product code. A `#17191C`
   backdrop or a `text-[15px]` caption is the same defect in a story as in
   the app, and harder to spot. Hex in sample _data_ is fine (an avatar
-  color the component receives as a prop) — the line is whether the value
+  color the component receives as a prop): the line is whether the value
   styles the story or is the fixture.
 - **Pin a viewport when the component is responsive.** Components with
   `max-md:` variants key off the *viewport*, so at a narrow window a
@@ -1422,9 +1422,9 @@ renders correctly given the data it actually receives in production.
   runs roughly 300px narrower than the browser window.
 
 References:
-- [Storybook — Writing stories](https://storybook.js.org/docs/writing-stories)
-- [Storybook — Decorators](https://storybook.js.org/docs/writing-stories/decorators)
-- [Storybook — Viewport](https://storybook.js.org/docs/essentials/viewport)
+- [Storybook - Writing stories](https://storybook.js.org/docs/writing-stories)
+- [Storybook - Decorators](https://storybook.js.org/docs/writing-stories/decorators)
+- [Storybook - Viewport](https://storybook.js.org/docs/essentials/viewport)
 
 ---
 
