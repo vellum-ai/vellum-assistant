@@ -48,7 +48,8 @@ import {
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
-  allowedMachineSizesForTier,
+  MACHINE_FLOOR_SIZE,
+  machineCeilingForTier,
   machineSizeRank,
 } from "@/lib/billing/machine-sizes";
 import {
@@ -109,6 +110,12 @@ const NO_DIMENSIONS_MET: DimensionMetLatch = {
 
 export interface UseProProvisioningOptions {
   open: boolean;
+  /**
+   * Whether the change being watched can lower a resource ceiling, which is the
+   * only thing that stops met targets from standing in for "nothing was owed".
+   * Absent reads as false, which is what post-checkout onboarding always is.
+   */
+  canLowerResources?: boolean;
 }
 
 export interface ProProvisioningResult {
@@ -192,6 +199,7 @@ export interface ProProvisioningResult {
 
 export function useProProvisioning({
   open,
+  canLowerResources = false,
 }: UseProProvisioningOptions): ProProvisioningResult {
   const queryClient = useQueryClient();
   // Every query here is org-scoped (needs the Vellum-Organization-Id header).
@@ -249,6 +257,14 @@ export function useProProvisioning({
   // verdict or an error into the next open's session.
   const ensureGenerationRef = useRef(0);
   const [sawOperation, setSawOperation] = useState(false);
+  // The assistant whose marker was watched. Until the onboarding payload names
+  // a primary the hook polls the active-assistant fallback, so a marker can be
+  // observed on one assistant and the watch then re-keyed to another. An
+  // unkeyed latch would carry that unrelated marker across as evidence that a
+  // downsize on the new assistant had already rolled out.
+  const [sawOperationAssistantId, setSawOperationAssistantId] = useState<
+    string | null
+  >(null);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
   // The assistant the frozen snapshot describes, so it can be re-captured when
@@ -274,6 +290,7 @@ export function useProProvisioning({
     setProConfirmedAt(null);
     setResumedAt(null);
     setSawOperation(false);
+    setSawOperationAssistantId(null);
     setActualsSnapshot(null);
     setSnapshotAssistantId(null);
     setTracking(true);
@@ -569,20 +586,35 @@ export function useProProvisioning({
         // later one can move the count. Publishing it through the cache's own
         // notify queue lands it in the same React commit as the reading.
         const readStart = statusFetchStartsRef.current;
-        notifyManager.schedule(() => setLastReadFetchStart(readStart));
+        // A marker only counts as this takeover's evidence when it arrives in a
+        // reading that landed here: the query cache outlives the takeover and
+        // the lifecycle poller keeps it warm, so its stored value can be a
+        // marker from an earlier resize on this same assistant. Reading the
+        // marker off the delivered payload rather than off rendered state ties
+        // the evidence to the reading that carried it, so neither a cached
+        // value nor a later re-render can stand in for one.
+        const watchedMarker =
+          open && isResizeOperationInFlight(event.action.data);
+        notifyManager.schedule(() => {
+          setLastReadFetchStart(readStart);
+          if (watchedMarker) {
+            setSawOperation(true);
+            setSawOperationAssistantId(assistantId);
+          }
+        });
       }
     });
-  }, [queryClient, statusQueryHash]);
+  }, [queryClient, statusQueryHash, open, assistantId]);
 
   const resizeOperationInFlight = isResizeOperationInFlight(
     operationalStatusQuery.data,
   );
 
-  useEffect(() => {
-    if (resizeOperationInFlight) {
-      setSawOperation(true);
-    }
-  }, [resizeOperationInFlight]);
+  // `sawOperation` is latched from the reading itself, in the cache listener
+  // above, so nothing here needs to re-observe it. It stays keyed to the
+  // assistant it was watched on, because the fallback-to-primary re-key can
+  // move the watch mid-open.
+  const sawOperationMatchesAssistant = sawOperationAssistantId === assistantId;
 
   const onboarding = onboardingQuery.data;
   const targets = useMemo<ProvisioningDimensions | null>(() => {
@@ -593,15 +625,16 @@ export function useProProvisioning({
       // No machine tier on the package (e.g. Mighty), or a tier this bundle
       // doesn't know, yields no machine target; the machine treats a null
       // dimension as satisfied, so version skew never computes a wrong target.
-      machineSize:
-        allowedMachineSizesForTier(onboarding.max_machine_tier).at(-1) ?? null,
+      machineSize: machineCeilingForTier(onboarding.max_machine_tier),
       storageGib: onboarding.selected_storage_gib ?? null,
     };
   }, [onboarding]);
 
   // Mirrors the server's machine ceiling for a package with no tier.
   const machineFloor: MachineSizeEnum | null =
-    onboarding != null && onboarding.max_machine_tier == null ? "small" : null;
+    onboarding != null && onboarding.max_machine_tier == null
+      ? MACHINE_FLOOR_SIZE
+      : null;
 
   // The managed-email entitlement alone doesn't make the domain step offerable:
   // the domain POST re-resolves the caller's primary assistant server-side and
@@ -787,6 +820,10 @@ export function useProProvisioning({
   const watchStartedAt = resumedAt ?? proConfirmedAt;
   const msSinceWatchStart =
     watchStartedAt == null ? null : Math.max(0, now - watchStartedAt);
+  // Only a change that never lowers the ceilings keeps "targets met" and
+  // "nothing to provision" equivalent. One that can lower them meets its
+  // targets before anything has moved.
+  const targetsProveNoop = !canLowerResources;
   const { state, softWaiting } = deriveProvisioningState({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,
@@ -795,7 +832,10 @@ export function useProProvisioning({
     // snapshot from a prior target must never drive the before/after verdict.
     initialActuals: snapshotMatchesAssistant ? actualsSnapshot : null,
     resizeOperationInFlight,
-    sawOperation,
+    // Same rule as the snapshot: a marker watched on a prior target says
+    // nothing about this one, and under a downward change it is the only
+    // evidence the completion gate accepts.
+    sawOperation: sawOperation && sawOperationMatchesAssistant,
     msSinceWatchStart,
     confirmExpired,
     serverVerdict,
@@ -810,6 +850,7 @@ export function useProProvisioning({
       targetsMetAt != null &&
       targetsMetMatchesAssistant &&
       operationalStatusQuery.dataUpdatedAt > targetsMetAt,
+    targetsProveNoop,
   });
 
   const isTerminal = TERMINAL_STATES.includes(state);

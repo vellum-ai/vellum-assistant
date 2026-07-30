@@ -36,6 +36,7 @@ import {
   type ResourceChangeKey,
 } from "./resource-changes";
 import { TakeoverBackdrop } from "./takeover-backdrop";
+import { takeoverCopy, type TakeoverDirection } from "./takeover-copy";
 import {
   useProvisioningCredits,
   useResizeCreditsChange,
@@ -107,6 +108,8 @@ const RESOURCE_CHIP_ICON: Record<ResourceChangeKey, LucideIcon> = {
 
 export interface ProvisioningStateProps {
   state: ProvisioningStateKind;
+  /** Which way the change goes; selects the phase copy. */
+  direction?: TakeoverDirection;
   /** Softens the waiting sub-copy once the grace period has elapsed. */
   softWaiting: boolean;
   /** The checkout selection stashed before the Stripe redirect. */
@@ -596,6 +599,7 @@ function IntentChips({ intent }: { intent: CheckoutIntent }) {
 
 export function ProvisioningState({
   state,
+  direction,
   softWaiting,
   intent,
   creditsChange,
@@ -614,6 +618,7 @@ export function ProvisioningState({
   dwellMs = PROVISION_MIN_DWELL_MS,
   phaseMinMs = PROVISION_PHASE_MIN_MS,
 }: ProvisioningStateProps) {
+  const copy = takeoverCopy(direction);
   const onCelebrationEndRef = useRef(onCelebrationEnd);
   useEffect(() => {
     onCelebrationEndRef.current = onCelebrationEnd;
@@ -722,7 +727,7 @@ export function ProvisioningState({
       return (
         <>
           <Copy
-            status="Confirming your upgrade…"
+            status={copy.confirmingStatus}
             caption="This might take a couple seconds."
           />
           {intent && <IntentChips intent={intent} />}
@@ -735,7 +740,7 @@ export function ProvisioningState({
       return (
         <>
           <Copy
-            status="Upgrading your assistant…"
+            status={copy.waitingStatus}
             caption={
               softWaiting
                 ? "Still working — this can take a minute or two."
@@ -779,15 +784,14 @@ export function ProvisioningState({
         <>
           <Copy
             status={
-              snag
-                ? "We hit a snag upgrading your assistant"
-                : "This is taking longer than expected"
+              snag ? copy.snagStatus : "This is taking longer than expected"
             }
             caption={
               snag
                 ? extractOnboardingErrorMessage(
                     kickError,
-                    "Retry in the background — we'll keep working on your upgrade.",
+                    copy.snagCaption,
+                    direction,
                   )
                 : "This may take a couple of minutes."
             }
@@ -802,8 +806,8 @@ export function ProvisioningState({
       return (
         <>
           <Copy
-            status="Still confirming your upgrade"
-            caption="Your payment went through safely — this can take a minute."
+            status={copy.confirmTimeoutStatus}
+            caption={copy.confirmTimeoutCaption}
           />
           <div className="flex items-center gap-2 pt-1">
             <Button

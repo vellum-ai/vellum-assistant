@@ -281,8 +281,14 @@ let latest: ProProvisioningResult | null = null;
  */
 let onLayoutCommit: (() => void) | null = null;
 
-function Probe({ open = true }: { open?: boolean }) {
-  const result = useProProvisioning({ open });
+function Probe({
+  open = true,
+  canLowerResources = false,
+}: {
+  open?: boolean;
+  canLowerResources?: boolean;
+}) {
+  const result = useProProvisioning({ open, canLowerResources });
   useLayoutEffect(() => {
     onLayoutCommit?.();
   });
@@ -298,10 +304,10 @@ function makeClient() {
   });
 }
 
-function renderProbe(client = makeClient()) {
+function renderProbe(client = makeClient(), canLowerResources = false) {
   const ui = (open = true) => (
     <QueryClientProvider client={client}>
-      <Probe open={open} />
+      <Probe open={open} canLowerResources={canLowerResources} />
     </QueryClientProvider>
   );
   const view = render(ui());
@@ -1012,6 +1018,135 @@ describe("useProProvisioning", () => {
     });
   }, 20_000);
 
+  test("a marker cached before this open is not evidence for this change", async () => {
+    // The lifecycle poller shares this query key, so the cache can already hold
+    // a marker from an earlier resize on this same assistant. Adopting it would
+    // let a finished resize vouch for one that has not started.
+    const client = makeClient();
+    client.setQueryData(
+      STATUS_QUERY_KEY,
+      makeResizeOperationStatus("resize_machine"),
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "pro";
+    // Every fresh read reports no operation at all, so the only marker that
+    // ever existed is the cached one.
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    renderProbe(client, true);
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+    await refetchAll(client);
+
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
+  test("readings taken while closed do not qualify the next open", async () => {
+    // The cache subscription outlives the takeover and the lifecycle poller
+    // keeps this query warm, so readings can keep landing after a close. If
+    // those counted, the next open would treat a cached marker as watched.
+    const client = makeClient();
+    subscriptionPlanId = "pro";
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    const { setOpen } = renderProbe(client, true);
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+    await act(async () => setOpen(false));
+
+    // The takeover's own query is disabled while closed, but the lifecycle
+    // poller holds the same key and keeps reading. Model that other consumer
+    // directly: it catches a resize belonging to something else entirely and
+    // leaves the marker in the shared cache.
+    await act(async () => {
+      await client.fetchQuery({
+        queryKey: STATUS_QUERY_KEY,
+        queryFn: () => makeResizeOperationStatus("resize_machine"),
+      });
+    });
+
+    await act(async () => setOpen(true));
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+
+    // The reopened takeover has watched nothing yet, so the cached marker is
+    // not its evidence and it cannot complete off a later healthy reading.
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
+  test("a marker watched on the fallback assistant is not evidence for the primary", async () => {
+    // Under a change that can lower the ceilings, a watched marker is the only
+    // evidence the completion gate accepts, so an unkeyed latch would let the
+    // fallback assistant's unrelated resize complete the primary's downsize.
+    const client = makeClient();
+    // Hold the on-open refetch so the stale cached primary (A) is tracked
+    // first, then re-keys to the fresh one (B).
+    const gate = makeDeferred();
+    onboardingGate = gate;
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      { ...makeOnboarding(), primary_assistant_id: "assistant-A" },
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "pro";
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-B",
+    };
+    // The fence holds the stale primary off, so the active assistant is the
+    // tracked fallback. It is mid-resize; the primary B sits at the targets with
+    // no marker of its own, which is what a pre-marker downgrade looks like.
+    operationalStatusResponse = makeOperationalStatus("resizing_machine");
+    assistantResponse = {
+      ...makeAssistant("large", 50),
+      id: "assistant-active",
+    };
+    assistantsById["assistant-A"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-A",
+    };
+    assistantsById["assistant-B"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-B",
+    };
+    renderProbe(client, true);
+
+    // Latch the marker while the fallback is the tracked assistant.
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-active"), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+
+    // Re-key to the primary, whose own status carries no operation at all.
+    operationalStatusResponse = makeOperationalStatus("active");
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-B"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+
+    // The fallback's marker belongs to another assistant, so it cannot stand in
+    // as the primary's rollout evidence and the wait holds.
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
   test("assistantId changing mid-open re-captures the snapshot against the new assistant", async () => {
     subscriptionPlanId = "pro";
     onboardingResponse = {
@@ -1656,8 +1791,7 @@ describe("useProProvisioning presentation signals", () => {
     operationalStatusGate = gate;
     onLayoutCommit = () => {
       const assistant = client.getQueryData(ASSISTANT_QUERY_KEY) as
-        | Assistant
-        | undefined;
+        Assistant | undefined;
       // Only the commit that first carries the target sizes: that is the
       // render whose passive effect takes the latch.
       if (assistant?.machine_size !== "large") {

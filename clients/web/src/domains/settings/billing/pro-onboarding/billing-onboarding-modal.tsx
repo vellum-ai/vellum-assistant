@@ -32,6 +32,7 @@ import {
 } from "./provisioning-state";
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { TakeoverBackdrop } from "./takeover-backdrop";
+import { takeoverCopy, type TakeoverDirection } from "./takeover-copy";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
 import type { CreditTierChange } from "./use-provisioning-credits";
@@ -78,6 +79,15 @@ export interface ResizeTakeoverContext {
   fromSnapshot: ProvisioningDimensions;
   /** The credit tiers the change moves between; null when it left them alone. */
   credits: CreditTierChange | null;
+  /** Which way the change goes, which every surface here writes its copy to. */
+  direction: TakeoverDirection;
+  /**
+   * Whether the change can lower a resource ceiling, so the pod has to shrink
+   * before it is ready. Separate from `direction`, which is copy only: a
+   * per-dimension edit reads "change" whichever way its dimensions move, and one
+   * that only touches credits owes no provisioning at all.
+   */
+  canLowerResources: boolean;
 }
 
 export interface BillingOnboardingModalProps {
@@ -130,10 +140,23 @@ export function BillingOnboardingModal({
   // chatting stays unavailable until the upgrade finishes.
   const [backgroundConfirmOpen, setBackgroundConfirmOpen] = useState(false);
 
+  // Only an in-place change can go anywhere but up, and only it threads a
+  // context; checkout and a context-less resize mount both read as an upgrade.
+  const direction = isResize ? resizeContext?.direction : undefined;
+  const copy = takeoverCopy(direction);
+  // For the same reason, only an in-place change can lower a ceiling. Checkout
+  // and a context-less resize mount only ever raise them.
+  const canLowerResources = isResize
+    ? resizeContext?.canLowerResources === true
+    : false;
+
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
-  // backgrounded resize still resolves while the user sets up their domain.
-  const provisioning = useProProvisioning({ open });
+  // backgrounded resize still resolves while the user sets up their domain. It
+  // takes the ceiling question because a change that can lower a ceiling meets
+  // its targets before anything moves, so it needs positive evidence of the
+  // restart before it may complete.
+  const provisioning = useProProvisioning({ open, canLowerResources });
 
   // Whether this wizard has actually been opened, so the reset branch below can
   // tell a close from the mount of an instance that is simply rendered closed
@@ -358,12 +381,12 @@ export function BillingOnboardingModal({
     provisioning.kickProvisioning();
     toast.info(
       provisioning.kickError != null
-        ? "We'll retry your upgrade in the background."
-        : "Your upgrade continues in the background.",
+        ? copy.backgroundRetryToast
+        : copy.backgroundExitToast,
     );
     setBackgroundConfirmOpen(false);
     onClose();
-  }, [provisioning, onClose]);
+  }, [provisioning, onClose, copy]);
 
   // Cancelling keeps the user on the takeover, still waiting on the upgrade.
   const cancelBackgroundExit = useCallback(() => {
@@ -481,7 +504,7 @@ export function BillingOnboardingModal({
         // after the wizard has advanced past provisioning.
         open={backgroundConfirmOpen && machineBusy}
         title="Continue in the background?"
-        message="Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready."
+        message={copy.backgroundConfirmMessage}
         confirmLabel="Continue"
         cancelLabel="Keep waiting"
         onConfirm={confirmBackgroundExit}
@@ -493,11 +516,14 @@ export function BillingOnboardingModal({
   function renderStep() {
     if (step === "provisioning") {
       if (provisioning.confirmError || provisioning.targetsError) {
-        return <FetchErrorState onGoToBilling={onClose} />;
+        return (
+          <FetchErrorState onGoToBilling={onClose} direction={direction} />
+        );
       }
       return (
         <ProvisioningState
           state={provisioning.state}
+          direction={direction}
           softWaiting={provisioning.softWaiting}
           intent={intent}
           creditsChange={isResize ? resizeContext?.credits : undefined}
@@ -532,6 +558,6 @@ export function BillingOnboardingModal({
       );
     }
 
-    return <CompleteState assistantId={assistantId} />;
+    return <CompleteState assistantId={assistantId} direction={direction} />;
   }
 }

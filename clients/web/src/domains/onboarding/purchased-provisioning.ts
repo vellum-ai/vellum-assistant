@@ -22,7 +22,7 @@ import {
   organizationsBillingSubscriptionOnboardingRetrieve,
   organizationsBillingSubscriptionRetrieve,
 } from "@/generated/api/sdk.gen";
-import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import { machineCeilingForTier } from "@/lib/billing/machine-sizes";
 import {
   isEntitlementRaceVerdict,
   isResizeOperationInFlight,
@@ -202,8 +202,7 @@ export async function awaitPurchasedProvisioning(
       const data = onboarding.data;
       if (data) {
         targets = {
-          machineSize:
-            allowedMachineSizesForTier(data.max_machine_tier).at(-1) ?? null,
+          machineSize: machineCeilingForTier(data.max_machine_tier),
           storageGib: data.selected_storage_gib ?? null,
         };
       }

@@ -846,12 +846,76 @@ describe("confirm_timeout", () => {
 
     expect(getByText("Still confirming your upgrade")).toBeTruthy();
     expect(
-      getByText("Your payment went through safely — this can take a minute."),
+      getByText("Your payment went through safely. This can take a minute."),
     ).toBeTruthy();
     fireEvent.click(getByTestId("onboarding-retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
     fireEvent.click(getByTestId("onboarding-go-to-billing"));
     expect(onGoToBilling).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("direction", () => {
+  test("a downgrade never claims an upgrade in any phase", () => {
+    const phases: Array<[ProvisioningStateProps["state"], string]> = [
+      ["CONFIRMING", "Confirming your plan change…"],
+      ["WAITING", "Updating your assistant…"],
+      ["RESIZING", "Updating your assistant…"],
+      ["CONFIRM_TIMEOUT", "Still confirming your plan change"],
+    ];
+    for (const [state, expected] of phases) {
+      const { getByText, unmount } = renderState({
+        state,
+        direction: "downgrade",
+        targets: { machineSize: "small", storageGib: null },
+        fromSnapshot: { machineSize: "medium", storageGib: null },
+      });
+      expect(getByText(expected)).toBeTruthy();
+      unmount();
+    }
+  });
+
+  test("a downgrade confirm timeout reassures without claiming a payment", () => {
+    // A net package decrease is credited against the next invoice, so nothing
+    // may have been charged at all.
+    const { getByText, queryByText } = renderState({
+      state: "CONFIRM_TIMEOUT",
+      direction: "downgrade",
+    });
+
+    expect(
+      getByText("Your plan change was submitted. This can take a minute."),
+    ).toBeTruthy();
+    expect(queryByText(/payment/i)).toBeNull();
+  });
+
+  test("a downgrade snag reads as a plan change, error message and all", () => {
+    const { getByText } = renderState({
+      state: "STALLED",
+      direction: "downgrade",
+      escapeAvailable: true,
+      kickError: {},
+    });
+
+    expect(getByText("We hit a snag updating your assistant")).toBeTruthy();
+    expect(
+      getByText(
+        "Retry in the background and we'll keep working on your plan change.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("a direction-unknown change reads the same as a downgrade", () => {
+    const { getByText } = renderState({
+      state: "WAITING",
+      direction: "change",
+    });
+    expect(getByText("Updating your assistant…")).toBeTruthy();
+  });
+
+  test("an omitted direction keeps the upgrade wording", () => {
+    const { getByText } = renderState({ state: "WAITING" });
+    expect(getByText("Upgrading your assistant…")).toBeTruthy();
   });
 });
 

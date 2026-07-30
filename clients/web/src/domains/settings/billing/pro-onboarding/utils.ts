@@ -1,3 +1,5 @@
+import type { TakeoverDirection } from "./takeover-copy";
+
 export const DOMAIN_EXIT_DELAY_MS = 800;
 
 export const PRO_POLL_INTERVAL_MS = 1000;
@@ -44,14 +46,32 @@ export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
     "We couldn't find an assistant to upgrade yet. Try again in a moment.",
 };
 
+/**
+ * The codes whose stock message names an upgrade, reworded for a takeover that
+ * is watching something else. The reconcile these come from runs the same way
+ * for a downgrade, so without this a stalled downgrade offers to retry and then
+ * reports a failure to queue "your upgrade".
+ */
+const PLAN_CHANGE_ERROR_CODE_MESSAGES: Record<string, string> = {
+  provisioning_submission_failed:
+    "We couldn't queue your plan change just now. Try again in a moment.",
+  no_provisionable_assistants:
+    "We couldn't find an assistant to update yet. Try again in a moment.",
+};
+
 export function extractOnboardingErrorMessage(
   error: unknown,
   fallback: string,
+  direction: TakeoverDirection = "upgrade",
 ): string {
   if (error && typeof error === "object") {
     const rec = error as Record<string, unknown>;
     if (typeof rec.error === "string") {
-      const mapped = ONBOARDING_ERROR_CODE_MESSAGES[rec.error];
+      const mapped =
+        (direction === "upgrade"
+          ? undefined
+          : PLAN_CHANGE_ERROR_CODE_MESSAGES[rec.error]) ??
+        ONBOARDING_ERROR_CODE_MESSAGES[rec.error];
       if (mapped) {
         return mapped;
       }

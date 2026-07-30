@@ -176,7 +176,19 @@ function makeEnsureResponse(
   };
 }
 
-/** A pro catalog with a `credits_50` tier the terminal credits chip resolves. */
+/** A credit tier the chip can price from the catalog rather than its key. */
+function creditTier(usd: number) {
+  return {
+    tier: `credits_${usd}`,
+    label: `$${usd} credits/mo`,
+    credits_usd: usd,
+    price_cents: usd * 100,
+    lookup_key: `credits_${usd}_key`,
+    legacy: false,
+  };
+}
+
+/** A pro catalog holding every credit tier the chip assertions move between. */
 function plansWithCredits(): PlanListResponse {
   return {
     plans: [
@@ -189,16 +201,7 @@ function plansWithCredits(): PlanListResponse {
         included_features: [],
         machine_tiers: [],
         storage_tiers: [],
-        credit_tiers: [
-          {
-            tier: "credits_50",
-            label: "$50 credits/mo",
-            credits_usd: 50,
-            price_cents: 5000,
-            lookup_key: "credits_50_key",
-            legacy: false,
-          },
-        ],
+        credit_tiers: [creditTier(25), creditTier(45), creditTier(50)],
         packages: [],
       },
     ],
@@ -235,6 +238,8 @@ let ensureCalls = 0;
 let ensureResponse = makeEnsureResponse("started");
 /** When set, the reconcile rejects with this error body (e.g. the 503). */
 let ensureError: unknown = null;
+/** When set, reconcile responses hold until this promise resolves. */
+let ensureHold: Promise<void> | null = null;
 /** Domains list the modal-level resize query reads; empty by default. */
 let domainsResponse: PaginatedAssistantDomainList = makeDomains(false);
 /** Counts modal-level domains fetches so tests can assert it never fires. */
@@ -282,7 +287,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
     if (ensureError != null) {
       return Promise.reject(ensureError);
     }
-    return Promise.resolve({ data: ensureResponse, response: { ok: true } });
+    const result = { data: ensureResponse, response: { ok: true } };
+    return ensureHold ? ensureHold.then(() => result) : Promise.resolve(result);
   },
   assistantsDomainsList: () => {
     domainsCalls += 1;
@@ -368,6 +374,7 @@ beforeEach(() => {
   ensureCalls = 0;
   ensureResponse = makeEnsureResponse("started");
   ensureError = null;
+  ensureHold = null;
   domainsResponse = makeDomains(false);
   domainsCalls = 0;
   domainsFails = false;
@@ -871,7 +878,7 @@ describe("BillingOnboardingModal", () => {
     expect(queryByText("Continue in the background?")).toBeNull();
     expect(
       queryByText(
-        "Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready.",
+        "Your assistant is still upgrading. Chatting won't be available until it finishes. You can keep waiting here, or continue and we'll let you know when it's ready.",
       ),
     ).toBeNull();
     expect(queryByText("Continue")).toBeNull();
@@ -912,7 +919,7 @@ describe("BillingOnboardingModal", () => {
     // The FetchErrorState UI and its go-to-billing action still render and act.
     expect(
       getByText(
-        "We hit a problem checking your subscription. Your upgrade may still be processing — return to billing to refresh.",
+        "We hit a problem checking your subscription. Your upgrade may still be processing. Return to billing to refresh.",
       ),
     ).toBeTruthy();
     fireEvent.click(getByTestId("onboarding-go-to-billing"));
@@ -926,7 +933,7 @@ describe("BillingOnboardingModal", () => {
       () =>
         expect(
           getByText(
-            "Your payment went through safely — this can take a minute.",
+            "Your payment went through safely. This can take a minute.",
           ),
         ).toBeTruthy(),
       { timeout: TEST_CONFIRM_TIMEOUT_MS + 3000 },
@@ -1198,6 +1205,8 @@ describe("BillingOnboardingModal — resize mode", () => {
       resizeContext: {
         fromSnapshot: { machineSize: "small", storageGib: 10 },
         credits: { fromTier: "credits_25", toTier: "credits_50" },
+        direction: "upgrade",
+        canLowerResources: false,
       },
       plans: plansWithCredits(),
     });
@@ -1230,6 +1239,8 @@ describe("BillingOnboardingModal — resize mode", () => {
       resizeContext: {
         fromSnapshot: { machineSize: "medium", storageGib: 30 },
         credits: null,
+        direction: "upgrade",
+        canLowerResources: false,
       },
     });
 
@@ -1259,6 +1270,8 @@ describe("BillingOnboardingModal — resize mode", () => {
       resizeContext: {
         fromSnapshot: { machineSize: null, storageGib: 30 },
         credits: null,
+        direction: "upgrade",
+        canLowerResources: false,
       },
     });
 
@@ -1539,5 +1552,299 @@ describe("BillingOnboardingModal — resize mode", () => {
     // The re-fire for B is what unblocks routing — a boolean latch would have
     // skipped it and left B's fresh cache never crossing the fence.
     expect(domainsCalls).toBeGreaterThan(callsAfterActive);
+  }, 20_000);
+});
+
+describe("BillingOnboardingModal (in-place custom change)", () => {
+  /**
+   * A per-dimension edit always reads "change", whichever way its dimensions
+   * move, so the copy direction says nothing about whether a ceiling can drop.
+   * These two run identical fixtures and differ only in that answer.
+   */
+  function creditOnlyFixtures() {
+    subscriptionPlanId = "pro";
+    // The pod already sits at the targets: a credit edit buys no machine and no
+    // disk, so there is nothing for it to converge on.
+    onboardingResponse = makeOnboarding({
+      max_machine_tier: "medium",
+      selected_storage_gib: 10,
+      domain_setup_available: false,
+    });
+    assistantResponse = makeAssistant("medium", 10);
+    operationalStatusResponse = makeOperationalStatus("active");
+  }
+
+  test("a credit-only change settles without waiting on a server verdict", async () => {
+    creditOnlyFixtures();
+    // The reconcile is held for the whole test, so no verdict can ever land.
+    // Nothing but the client's own reading of the targets can resolve this.
+    let releaseEnsure = () => {};
+    ensureHold = new Promise<void>((resolve) => {
+      releaseEnsure = () => resolve();
+    });
+    const { getByText, queryByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 10 },
+        credits: { fromTier: "credits_25", toTier: "credits_45" },
+        direction: "change",
+        canLowerResources: false,
+      },
+      plans: plansWithCredits(),
+    });
+
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByText("Your plan changes are live.")).toBeTruthy();
+    // It resolved rather than riding the stall clock out to a snag.
+    expect(queryByText("Updating your assistant…")).toBeNull();
+    expect(queryByText("We hit a snag updating your assistant")).toBeNull();
+    releaseEnsure();
+  }, 20_000);
+
+  test("the same change with a droppable ceiling still holds the wait", async () => {
+    creditOnlyFixtures();
+    let releaseEnsure = () => {};
+    ensureHold = new Promise<void>((resolve) => {
+      releaseEnsure = () => resolve();
+    });
+    const { client, getByText, queryByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 10 },
+        credits: { fromTier: "credits_25", toTier: "credits_45" },
+        direction: "change",
+        canLowerResources: true,
+      },
+      plans: plansWithCredits(),
+    });
+
+    await waitFor(() => expect(ensureCalls).toBeGreaterThan(0), {
+      timeout: 5000,
+    });
+    await client.invalidateQueries();
+    await client.invalidateQueries();
+
+    await waitFor(
+      () => expect(getByText("Updating your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText("Your plan is ready")).toBeNull();
+    expect(queryByText("You're all set!")).toBeNull();
+    releaseEnsure();
+  }, 20_000);
+});
+
+describe("BillingOnboardingModal (package downgrade)", () => {
+  test("holds the wait while nothing has yet observed the restart", async () => {
+    // The race a downgrade has to survive. Mighty names no machine tier and the
+    // volume keeps its size, so the targets read met from the first render;
+    // meanwhile the status query has not seen the restart and the reconcile has
+    // not answered. Nothing has observed the pod going down, so nothing may say
+    // it is back up: completing here would unlock chat against a gateway that
+    // is still coming up.
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({
+      max_machine_tier: null,
+      selected_storage_gib: 10,
+      domain_setup_available: false,
+    });
+    assistantResponse = makeAssistant("medium", 10);
+    operationalStatusResponse = makeOperationalStatus("active");
+    let releaseEnsure = () => {};
+    ensureHold = new Promise<void>((resolve) => {
+      releaseEnsure = () => resolve();
+    });
+    const { client, getByText, queryByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 10 },
+        credits: { fromTier: "credits_45", toTier: "credits_25" },
+        direction: "downgrade",
+        canLowerResources: true,
+      },
+      plans: plansWithCredits(),
+    });
+
+    // The reconcile has been asked and is still out.
+    await waitFor(() => expect(ensureCalls).toBeGreaterThan(0), {
+      timeout: 5000,
+    });
+    await client.invalidateQueries();
+    await client.invalidateQueries();
+
+    await waitFor(
+      () => expect(getByText("Updating your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    expect(queryByText("Your plan is ready")).toBeNull();
+    expect(queryByText("You're all set!")).toBeNull();
+
+    // The restart surfaces, so there is finally something to observe.
+    operationalStatusResponse = makeOperationalStatus("resizing_machine");
+    await client.invalidateQueries();
+    await waitFor(
+      () => expect(getByText("Updating your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await client.invalidateQueries();
+
+    // The cap lands and the marker retires, which resolves the flow properly:
+    // DONE, not the "nothing to do" terminal.
+    assistantResponse = makeAssistant("small", 10);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    releaseEnsure();
+  }, 20_000);
+
+  test("Super → Mighty states the credit drop, the machine cap and no storage row", async () => {
+    subscriptionPlanId = "pro";
+    // Mighty names no machine tier, so the pod is capped down to the floor and
+    // its storage stays exactly where it is.
+    onboardingResponse = makeOnboarding({
+      max_machine_tier: null,
+      selected_storage_gib: 10,
+      domain_setup_available: false,
+    });
+    assistantResponse = makeAssistant("medium", 10);
+    operationalStatusResponse = makeOperationalStatus("resizing_machine");
+    const { client, getByTestId, getByText, queryByTestId } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "medium", storageGib: 10 },
+        credits: { fromTier: "credits_45", toTier: "credits_25" },
+        direction: "downgrade",
+        canLowerResources: true,
+      },
+      plans: plansWithCredits(),
+    });
+
+    // Nothing here calls the change an upgrade.
+    await waitFor(
+      () => expect(getByText("Updating your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+
+    // Credits apply the moment the change is accepted, so that chip is already
+    // checked while the machine is still rolling out.
+    await waitFor(() => expect(getByTestId("chip-credits")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    const credits = getByTestId("chip-credits");
+    expect(credits.textContent).toContain("$45/mo");
+    expect(credits.textContent).toContain("$25/mo");
+    expect(within(credits).getByTestId("chip-check")).toBeTruthy();
+
+    const machine = getByTestId("chip-machine");
+    expect(machine.textContent).toContain("Medium");
+    expect(machine.textContent).toContain("Small");
+    expect(within(machine).getByTestId("chip-spinner")).toBeTruthy();
+    // The volume keeps its size, so there is no storage move to state.
+    expect(queryByTestId("chip-storage")).toBeNull();
+
+    // The cap lands and the resize marker retires.
+    assistantResponse = makeAssistant("small", 10);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await client.invalidateQueries();
+
+    await waitFor(
+      () =>
+        expect(
+          within(getByTestId("chip-machine")).getByTestId("chip-check"),
+        ).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByText("Your plan changes are live.")).toBeTruthy();
+  }, 20_000);
+
+  test("a pod already below the new ceiling gets no machine row at all", async () => {
+    // Divergent state: the sub was billed a Medium ceiling while the pod had
+    // long since settled at Small. Switching to Mighty drops the ceiling to the
+    // floor the pod is already at, so the server's cap skips it and no resize
+    // marker is ever created. A machine row here would arrive pre-checked and
+    // assert a downsize that never ran.
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({
+      max_machine_tier: null,
+      selected_storage_gib: 10,
+      domain_setup_available: false,
+    });
+    assistantResponse = makeAssistant("small", 10);
+    ensureResponse = makeEnsureResponse("already_done");
+    const { getByTestId, getByText, queryByTestId } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "small", storageGib: 10 },
+        credits: { fromTier: "credits_45", toTier: "credits_25" },
+        direction: "downgrade",
+        canLowerResources: true,
+      },
+      plans: plansWithCredits(),
+    });
+
+    // Nothing is outstanding, so the flow resolves rather than hanging on a
+    // dimension that never moves.
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(queryByTestId("chip-machine")).toBeNull();
+    expect(getByTestId("chip-credits").textContent).toContain("$25/mo");
+  }, 20_000);
+
+  test("Mighty → Super shows all three chips, storage pending until the grow lands", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = makeOnboarding({
+      max_machine_tier: "medium",
+      selected_storage_gib: 30,
+      domain_setup_available: false,
+    });
+    assistantResponse = makeAssistant("small", 10);
+    const { client, getByTestId, getByText } = renderModal({
+      mode: "resize",
+      resizeContext: {
+        fromSnapshot: { machineSize: "small", storageGib: 10 },
+        credits: { fromTier: "credits_25", toTier: "credits_45" },
+        direction: "upgrade",
+        canLowerResources: false,
+      },
+      plans: plansWithCredits(),
+    });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    await waitFor(() => expect(getByTestId("chip-storage")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    const storage = getByTestId("chip-storage");
+    expect(storage.textContent).toContain("10 GB");
+    expect(storage.textContent).toContain("30 GB");
+    expect(within(storage).getByTestId("chip-spinner")).toBeTruthy();
+    const machine = getByTestId("chip-machine");
+    expect(machine.textContent).toContain("Small");
+    expect(machine.textContent).toContain("Medium");
+    const credits = getByTestId("chip-credits");
+    expect(credits.textContent).toContain("$25/mo");
+    expect(credits.textContent).toContain("$45/mo");
+
+    assistantResponse = makeAssistant("medium", 30);
+    await client.invalidateQueries();
+
+    await waitFor(
+      () =>
+        expect(
+          within(getByTestId("chip-storage")).getByTestId("chip-check"),
+        ).toBeTruthy(),
+      { timeout: 5000 },
+    );
   }, 20_000);
 });
