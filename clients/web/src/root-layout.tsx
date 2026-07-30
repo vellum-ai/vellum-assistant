@@ -50,6 +50,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAvatarAccentVar } from "@/hooks/use-avatar-accent-var";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
+import { useIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
@@ -153,6 +154,9 @@ export function RootLayout() {
   // Publish the avatar accent as `--avatar-accent` so chat loading shimmers
   // (and any future accent-tinted UI) can read it from plain CSS.
   useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
+  // Publish the same avatar for the iOS Live Activity, which cannot fetch an
+  // image at render time and needs the bytes to travel with the activity.
+  useIslandAvatarSource(avatar.customImageUrl, avatar.components, avatar.traits);
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.

@@ -17,6 +17,11 @@
  * Every store write here is `await`ed because the mirror observes *settled*
  * state — it coalesces each synchronous burst of `set()` calls into one
  * microtask — so a push lands a microtask after the write.
+ *
+ * `start` is additionally asynchronous in its own right: it resolves the
+ * avatar before requesting the activity. No avatar source is published here
+ * (`RootLayout` owns that publisher), so these tests exercise the
+ * no-avatar path and only need the settle they already do.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -168,6 +173,9 @@ describe("starting the activity", () => {
     await settled(() => useLiveVoiceStore.getState().setState("listening"));
 
     renderMirror();
+    // `start` resolves the avatar before it fires, so the mount-time pickup
+    // lands a microtask later than the render.
+    await settled();
 
     expect(startVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(lastStartPayload()).toMatchObject({

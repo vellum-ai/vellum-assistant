@@ -154,7 +154,10 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             do {
                 self.activity = try Activity.request(
-                    attributes: VoiceSessionAttributes(assistantName: assistantName),
+                    attributes: VoiceSessionAttributes(
+                        assistantName: assistantName,
+                        avatarImageData: Self.avatarImageData(from: call)
+                    ),
                     content: Self.content(state)
                 )
                 call.resolve(["started": true])
@@ -251,6 +254,25 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     // MARK: - Payload
+
+    /// Decode the optional `avatarBase64` attribute off a bridge call.
+    ///
+    /// Best-effort in both directions: a bundle too old to send the field and
+    /// a payload that is not valid base64 both resolve to `nil`, which the
+    /// island renders as its accent glyph. Nothing about an avatar is worth
+    /// failing a session over, and rejecting here would cost the user the
+    /// whole Live Activity rather than just its picture.
+    ///
+    /// Size is deliberately not checked. `encodeAvatarForIsland` keeps the
+    /// payload under budget on the web side, and the only authority on what
+    /// actually fits is `Activity.request`, which throws
+    /// `attributesTooLarge` and is already handled by the caller's `catch`.
+    private static func avatarImageData(from call: CAPPluginCall) -> Data? {
+        guard let base64 = call.getString("avatarBase64"), !base64.isEmpty else {
+            return nil
+        }
+        return Data(base64Encoded: base64)
+    }
 
     /// Read the four `ContentState` fields off a bridge call. `phase` is
     /// required and must decode; the rest degrade to harmless defaults rather
