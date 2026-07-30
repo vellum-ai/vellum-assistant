@@ -29,18 +29,17 @@ interface ProfileRowProps {
 /**
  * One row of the Profiles section (Figma 7412:133380): label, a
  * "{model} • Managed by Vellum" subtitle, the Default chip, and a kebab
- * menu showing only the actions valid for this row (Rok's annotation on
- * Light 738). Clicking the row opens the profile in the sidepanel.
+ * menu showing only the actions valid for this row (per the design
+ * annotation on Light 738). Clicking the row opens the profile in the
+ * sidepanel.
  *
  * Wording note: the chip for `llm.activeProfile` reads "Default" - the
  * default profile for chats that haven't picked one. "Active"/"Disabled"
  * is the orthogonal `status` dimension (picker visibility), rendered as
  * the dimmed title + "Disabled" chip + Enable/Disable menu items.
  *
- * The advisor selection (`llm.advisorProfile`) is deliberately absent here.
- * It carried no explanation of what an advisor is or why a profile would be
- * one, and it is not a per-profile property — it lives in the Action
- * Overrides panel alongside the other per-action model choices.
+ * The advisor (`llm.advisorProfile`) is a per-action model choice, not a
+ * per-profile property, so it lives in the Action Overrides panel.
  */
 export function ProfileRow({
   profile,

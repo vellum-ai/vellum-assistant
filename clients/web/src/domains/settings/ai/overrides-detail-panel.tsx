@@ -101,7 +101,7 @@ export function OverridesDetailPanel({
   const [draftEdits, setDraftEdits] = useState<
     Record<string, CallSiteOverrideDraft | null>
   >({});
-  // `undefined` means "untouched this session" — the row falls through to the
+  // `undefined` means "untouched this session": the row falls through to the
   // persisted `llm.advisorProfile` rather than pinning a stale snapshot.
   const [advisorEdit, setAdvisorEdit] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -164,7 +164,7 @@ export function OverridesDetailPanel({
   );
 
   // The advisor is a top-level `llm.advisorProfile` selection, not a call-site
-  // override — it rides this panel's draft/Save cycle but never enters the
+  // override. It rides this panel's draft/Save cycle but never enters the
   // `llm.callSites` patch, the apply-to-all sweep, or the Overrides count.
   const persistedAdvisor = daemonConfig?.llm?.advisorProfile ?? "";
   const advisorProfile = advisorEdit ?? persistedAdvisor;
@@ -196,10 +196,7 @@ export function OverridesDetailPanel({
     [persistedOverrides, gatedCallSiteIdSet],
   );
 
-  const hasUnsavedDrafts = useMemo(() => {
-    if (advisorDirty) {
-      return true;
-    }
+  const callSiteDraftsDirty = useMemo(() => {
     if (!isSeeded) {
       return false;
     }
@@ -209,7 +206,9 @@ export function OverridesDetailPanel({
       }
     }
     return false;
-  }, [advisorDirty, isSeeded, drafts, persistedOverrides]);
+  }, [isSeeded, drafts, persistedOverrides]);
+
+  const hasUnsavedDrafts = advisorDirty || callSiteDraftsDirty;
 
   const hasValidationError = useMemo(
     () =>
@@ -353,9 +352,12 @@ export function OverridesDetailPanel({
         path: { assistant_id: assistantId },
         body: {
           llm: {
-            callSites: patch,
-            // Only when the user actually moved it — a no-op key would still
-            // rewrite the config file on every Save.
+            // Each key is rewritten from the picker's three fields, which
+            // drops any tuning field (effort, thinking, maxTokens) a
+            // persisted entry carries. Send the map only when a call-site
+            // row actually moved, so an Advisor-only Save cannot reach it.
+            ...(callSiteDraftsDirty ? { callSites: patch } : {}),
+            // Likewise: a no-op key would still rewrite the config file.
             ...(advisorDirty ? { advisorProfile } : {}),
           },
         },
@@ -370,6 +372,7 @@ export function OverridesDetailPanel({
     }
   }, [
     drafts,
+    callSiteDraftsDirty,
     advisorDirty,
     advisorProfile,
     onClose,
@@ -478,12 +481,12 @@ export function OverridesDetailPanel({
           </div>
         )}
 
-        {/* Advisor — a top-level selection, not a catalog call site, so it
+        {/* Advisor: a top-level selection, not a catalog call site, so it
             renders off `daemonConfig` alone and stays put if the call-site
             catalog fails to load. */}
         {daemonConfigLoaded && advisorMatchesSearch && (
           <div className="mb-4">
-            {/* typography: off-scale — matches the domain section label below */}
+            {/* typography: off-scale. Matches the domain section label below */}
             <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
               Advisor
             </p>
@@ -527,7 +530,7 @@ export function OverridesDetailPanel({
           <div className="space-y-4">
             {groupedCallSites.length === 0 ? (
               // Suppressed when the Advisor row above already answered the
-              // search — "no matches" next to a visible match reads as a bug.
+              // search: "no matches" next to a visible match reads as a bug.
               advisorMatchesSearch ? null : (
                 <p className="py-8 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
                   No actions match your search.

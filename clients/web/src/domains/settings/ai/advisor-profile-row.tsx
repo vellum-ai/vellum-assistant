@@ -17,7 +17,7 @@ export interface AdvisorProfileRowProps {
  * The Advisor setting in the Action Overrides panel: which profile the
  * second-opinion consult runs on (`llm.advisorProfile`).
  *
- * Shaped like `CallSiteOverrideRow` but deliberately picker-only — no
+ * Shaped like `CallSiteOverrideRow` but deliberately picker-only: no
  * toggle, no off state, no Custom provider/model branch:
  *
  * - `llm.advisorProfile` holds a profile name and nothing else, so there is
@@ -40,7 +40,7 @@ export function AdvisorProfileRow({
     <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-base)] p-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          {/* typography: off-scale — matches the call-site row's name treatment */}
+          {/* typography: off-scale. Matches the call-site row's name treatment */}
           <p className="text-body-medium-default font-medium text-[var(--content-default)]">
             Advisor
           </p>

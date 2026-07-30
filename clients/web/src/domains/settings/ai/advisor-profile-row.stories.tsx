@@ -29,7 +29,7 @@ export default meta;
 type Story = StoryObj<typeof AdvisorProfileRow>;
 
 /**
- * Interactive wrapper — the row is controlled, so a story that passes a bare
+ * Interactive wrapper. The row is controlled, so a story that passes a bare
  * `value` renders a picker that won't move when clicked.
  */
 function Controlled(props: {
@@ -55,7 +55,7 @@ export const Default: Story = {
 
 /**
  * No selection. Only reachable between deleting the profile the advisor
- * pointed at — which clears the reference so no dangling name survives — and
+ * pointed at (which clears the reference so no dangling name survives) and
  * the next daemon boot, whose seeding re-fills the key.
  */
 export const NoSelection: Story = {

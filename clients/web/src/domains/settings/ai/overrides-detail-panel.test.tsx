@@ -262,7 +262,7 @@ describe("OverridesDetailPanel - advisor", () => {
     expect(optionLabels).toEqual(["My BYOK", "Quality"]);
   });
 
-  test("changing the advisor PATCHes llm.advisorProfile alongside callSites", async () => {
+  test("an advisor-only save omits callSites entirely", async () => {
     render(
       <Wrapper>
         <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
@@ -284,14 +284,11 @@ describe("OverridesDetailPanel - advisor", () => {
     await waitFor(() => {
       expect(configPatchBodies.length).toBe(1);
     });
-    const body = configPatchBodies[0] as {
-      llm: { advisorProfile: string; callSites: Record<string, unknown> };
-    };
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
     expect(body.llm.advisorProfile).toBe("my-byok");
-    // No call site was touched, so every gated entry clears to null.
-    expect(body.llm.callSites).toEqual({
-      workflowLeaf: null,
-      heartbeatAgent: null,
-    });
+    // No call site was touched. Sending the map anyway would rewrite each
+    // entry from the picker's three fields and drop any tuning field
+    // (effort, thinking, maxTokens) a persisted entry carries.
+    expect("callSites" in body.llm).toBe(false);
   });
 });

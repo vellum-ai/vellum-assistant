@@ -13,14 +13,14 @@ import { OverridesDetailPanel } from "@/domains/settings/ai/overrides-detail-pan
 
 const ASSISTANT_ID = "story-assistant";
 
-// Both queries are seeded directly into the cache — Storybook has no daemon,
+// Both queries are seeded directly into the cache. Storybook has no daemon,
 // and an unresolved config query renders the panel's loading state instead of
 // the thing this story documents.
 const CATALOG: ConfigLlmCallsitesGetResponse = {
   domains: [{ id: "agentLoop", displayName: "Agent Loop" }],
   callSites: [
     {
-      // Filtered out by the panel — the chat model is picked via the profile
+      // Filtered out by the panel: the chat model is picked via the profile
       // picker, not here. Present so the story proves it stays hidden.
       id: "mainAgent",
       displayName: "Main Agent",
@@ -79,7 +79,7 @@ const CONFIG: ConfigGetResponse = {
 };
 
 // Seed through the generated options factories rather than a hand-written
-// key — HeyAPI bakes the path params into the query key, so a literal
+// key. HeyAPI bakes the path params into the query key, so a literal
 // `[{ _id: "configGet" }]` misses and the panel renders its error state.
 function seededClient() {
   const client = new QueryClient({
