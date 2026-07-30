@@ -62,17 +62,27 @@ jobs:
           # register-release job succeeded; that run's head SHA is the last
           # released commit. (See notify-dev-release for why we key off the job
           # conclusion rather than the overall run conclusion.)
+          #
+          # The jobs listing MUST be paginated: this workflow has >30 jobs and
+          # the API defaults to 30 per page, so register-release lands on page 2
+          # and an unpaginated call silently yields an empty conclusion.
+          #
+          # The runs listing is deliberately NOT --paginate'd — it is a bounded
+          # lookback window, not an exhaustive scan. It must stay comfortably
+          # longer than the longest expected quiet stretch, because every idle
+          # hour adds one cancelled run to it; at 100 the hourly schedule gives
+          # ~4 days of runway, which covers weekends and long holidays.
           PREV_SHA=""
           while read -r rid rsha; do
             [ -z "$rid" ] && continue
-            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
+            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs?per_page=100" --paginate \
               --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
             if [ "$CONCL" = "success" ]; then
               PREV_SHA="$rsha"
               break
             fi
           done < <(gh api \
-            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=100&exclude_pull_requests=true" \
             --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
 
           echo "Last successful dev release SHA: ${PREV_SHA:-<none>}"
@@ -1345,17 +1355,23 @@ jobs:
           # an older SHA and re-announce already-released commits. Walk recent
           # completed runs newest-first and pick the first whose register-release
           # job succeeded.
+          #
+          # The jobs listing MUST be paginated: this workflow has >30 jobs and
+          # the API defaults to 30 per page, so register-release lands on page 2
+          # and an unpaginated call silently yields an empty conclusion — which
+          # degrades to the single-commit fallback below. See check-for-new-commits
+          # for why the runs listing is bounded rather than fully paginated.
           PREV_SHA=""
           while read -r rid rsha; do
             [ -z "$rid" ] && continue
-            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs" \
+            CONCL=$(gh api "repos/${REPO}/actions/runs/${rid}/jobs?per_page=100" --paginate \
               --jq '[.jobs[] | select(.name == "register-release") | .conclusion] | .[0] // empty')
             if [ "$CONCL" = "success" ]; then
               PREV_SHA="$rsha"
               break
             fi
           done < <(gh api \
-            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=30&exclude_pull_requests=true" \
+            "repos/${REPO}/actions/workflows/dev-release.yaml/runs?branch=main&status=completed&per_page=100&exclude_pull_requests=true" \
             --jq ".workflow_runs[] | select(.id != ${RUN_ID}) | \"\(.id) \(.head_sha)\"")
 
           echo "Previous dev release SHA: ${PREV_SHA:-<none>}"
