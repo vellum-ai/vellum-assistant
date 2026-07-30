@@ -1,7 +1,7 @@
 /**
  * Platform route handlers for the shared HTTP/IPC route table.
  *
- * Serves eight operations:
+ * Serves ten operations:
  *   - platform_status (GET platform/status): aggregates platform context,
  *     credentials, assistant ID, and webhook secret. (Velay tunnel status
  *     lives on the gateway — see gateway_status.)
@@ -18,6 +18,10 @@
  *   - platform_subscription (GET platform/subscription): fetches the org's
  *     current plan, subscription status, and entitlements.
  *   - platform_plans (GET platform/plans): fetches the plan catalog with pricing.
+ *   - platform_invoices_list (GET platform/invoices): fetches one
+ *     cursor-paginated page of the org's Stripe invoice history.
+ *   - platform_invoices_get (GET platform/invoices/:id): pages through the
+ *     invoice list and returns a single invoice by Stripe invoice ID.
  */
 
 import { z } from "zod";
@@ -38,6 +42,7 @@ import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   InternalError,
+  NotFoundError,
   UnprocessableEntityError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -125,6 +130,28 @@ const PlatformCreditsResponseSchema = z.object({
   as_of: z.string(),
 });
 type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
+
+const PlatformInvoiceSchema = z.object({
+  id: z.string(),
+  number: z.string().nullable(),
+  status: z.string().nullable(),
+  currency: z.string(),
+  amount_due: z.number(),
+  amount_paid: z.number(),
+  amount_remaining: z.number(),
+  created: z.number(),
+  hosted_invoice_url: z.string().nullable(),
+  invoice_pdf: z.string().nullable(),
+});
+type PlatformInvoice = z.infer<typeof PlatformInvoiceSchema>;
+
+const PlatformInvoicesListResponseSchema = z.object({
+  invoices: z.array(PlatformInvoiceSchema),
+  has_more: z.boolean(),
+});
+type PlatformInvoicesListResponse = z.infer<
+  typeof PlatformInvoicesListResponseSchema
+>;
 
 const SubscriptionPackageSchema = z.object({
   key: z.string(),
@@ -485,6 +512,66 @@ async function handlePlatformPlans(
   return { plans: data.plans ?? [] };
 }
 
+/**
+ * Fetch one cursor-paginated page of the org's Stripe invoice history from
+ * the platform. Pass the previous page's last invoice id as `startingAfter`
+ * to fetch the next (older) page.
+ */
+async function fetchPlatformInvoicesPage(
+  startingAfter?: string,
+): Promise<PlatformInvoicesListResponse> {
+  let path = "/v1/organizations/billing/invoices/";
+  if (startingAfter) {
+    path += `?${new URLSearchParams({ starting_after: startingAfter })}`;
+  }
+  return (await fetchPlatformJson(
+    path,
+    "invoices",
+  )) as PlatformInvoicesListResponse;
+}
+
+async function handlePlatformInvoicesList(
+  args: RouteHandlerArgs,
+): Promise<PlatformInvoicesListResponse> {
+  return await fetchPlatformInvoicesPage(args.queryParams?.starting_after);
+}
+
+/**
+ * Runaway guard for the invoices_get cursor walk — 25 pages is 2,500
+ * invoices at the platform's 100-per-page size.
+ */
+const MAX_INVOICE_PAGES = 25;
+
+async function handlePlatformInvoiceGet(
+  args: RouteHandlerArgs,
+): Promise<PlatformInvoice> {
+  const id = args.pathParams?.id;
+  if (!id) {
+    throw new BadRequestError("invoice id is required");
+  }
+
+  // There is no per-invoice platform endpoint, so walk the paginated list
+  // until the invoice turns up or the cursor is exhausted.
+  let cursor: string | undefined;
+  for (let pages = 0; pages < MAX_INVOICE_PAGES; pages++) {
+    const page = await fetchPlatformInvoicesPage(cursor);
+    const match = page.invoices.find((invoice) => invoice.id === id);
+    if (match) {
+      return match;
+    }
+    if (!page.has_more || page.invoices.length === 0) {
+      throw new NotFoundError(
+        `Invoice "${id}" not found. Run 'assistant platform invoices list' to see available invoices.`,
+      );
+    }
+    cursor = page.invoices.at(-1)!.id;
+  }
+
+  throw new InternalError(
+    `Invoice "${id}" not found in the first ${MAX_INVOICE_PAGES} pages of invoice history`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -610,5 +697,44 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["platform"],
     handler: handlePlatformPlans,
     responseBody: PlatformPlansResponseSchema,
+  },
+  {
+    operationId: "platform_invoices_list",
+    endpoint: "platform/invoices",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List one page of the organization's Stripe invoices",
+    description:
+      "Fetches one page of the org's Stripe invoice history (newest first) from the platform billing invoices endpoint. Amounts are in the currency's minor units. When has_more is true, pass the last invoice's id as starting_after to fetch the next page.",
+    tags: ["platform"],
+    queryParams: [
+      {
+        name: "starting_after",
+        type: "string",
+        required: false,
+        description:
+          "Cursor: return invoices older than the invoice with this id (from the previous page's last entry).",
+      },
+    ],
+    handler: handlePlatformInvoicesList,
+    responseBody: PlatformInvoicesListResponseSchema,
+  },
+  {
+    operationId: "platform_invoices_get",
+    endpoint: "platform/invoices/:id",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get a single Stripe invoice by ID",
+    description:
+      "Pages through the org's invoice list from the platform and returns the invoice matching the given Stripe invoice ID (e.g. in_xxx). 404 if no such invoice.",
+    tags: ["platform"],
+    handler: handlePlatformInvoiceGet,
+    responseBody: PlatformInvoiceSchema,
   },
 ];
