@@ -65,6 +65,28 @@ function hatchBody(
   return materializeProfile(template, provider, `${provider}-personal`);
 }
 
+/**
+ * A `custom-*` copy as the earliest hatch era wrote it (#29755, 2026-05-05):
+ * managed source, a "(Custom Provider)" label suffix, and no
+ * `provider_connection` stamp.
+ */
+function eraHatchBody(
+  key: "balanced" | "quality-optimized" | "cost-optimized",
+  provider: DefaultProfileProvider,
+  model: string,
+): Record<string, unknown> {
+  const { provider_connection: _pc, ...body } = hatchBody(
+    key,
+    provider,
+  ) as Record<string, unknown>;
+  return {
+    ...body,
+    source: "managed",
+    label: `${body.label} (Custom Provider)`,
+    model,
+  };
+}
+
 /** An unedited anthropic BYOK install as the hatch seeder laid it out. */
 function uneditedByokConfig(): Record<string, unknown> {
   return {
@@ -283,6 +305,89 @@ describe("ensureByokDefaultProfiles", () => {
     },
   );
 
+  test("the earliest-era copies (managed source, suffixed labels, no connection stamp) convert fully", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "fireworks" },
+        activeProfile: "custom-balanced",
+        advisorProfile: "custom-quality-optimized",
+        profiles: {
+          "custom-balanced": eraHatchBody(
+            "balanced",
+            "fireworks",
+            "accounts/fireworks/models/kimi-k2p5",
+          ),
+          "custom-quality-optimized": eraHatchBody(
+            "quality-optimized",
+            "fireworks",
+            "accounts/fireworks/models/kimi-k2p5",
+          ),
+          "custom-cost-optimized": eraHatchBody(
+            "cost-optimized",
+            "fireworks",
+            "accounts/fireworks/models/kimi-k2p5",
+          ),
+        },
+      },
+    });
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(profiles()["custom-quality-optimized"]).toBeUndefined();
+    expect(profiles()["custom-cost-optimized"]).toBeUndefined();
+    // The era label is hatch-written, not a rename: no overlay stub carries
+    // it onto the bare keys.
+    expect(profiles().balanced).toBeUndefined();
+    expect(profiles()["quality-optimized"]).toBeUndefined();
+    expect(profiles()["cost-optimized"]).toBeUndefined();
+    expect(llm().activeProfile).toBe("balanced");
+    expect(llm().advisorProfile).toBe("quality-optimized");
+    expectSecondRunNoop();
+  });
+
+  test("an earliest-era copy with a user-edited model stays kept", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "fireworks" },
+        activeProfile: "custom-balanced",
+        profiles: {
+          "custom-balanced": eraHatchBody(
+            "balanced",
+            "fireworks",
+            "accounts/fireworks/models/qwen-4-coder",
+          ),
+        },
+      },
+    });
+    const before = readFileSync(configPath(), "utf-8");
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("a body without the conventional connection stamp converts", () => {
+    // Migration 133 drops `<provider>-personal` from every entry.
+    const { provider_connection: _pc, ...body } = hatchBody(
+      "balanced",
+      "anthropic",
+    ) as Record<string, unknown>;
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        activeProfile: "custom-balanced",
+        profiles: { "custom-balanced": body },
+      },
+    });
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(llm().activeProfile).toBe("balanced");
+    expectSecondRunNoop();
+  });
+
   test("a historical model pinned on the wrong key does not convert", () => {
     // claude-opus-4-7 was only ever the quality intent; on custom-balanced it
     // is a user edit.
@@ -327,6 +432,70 @@ describe("ensureByokDefaultProfiles", () => {
     expect(resolved?.label).toBe("My Balanced");
     expect(resolved?.provider).toBe("anthropic");
     expectSecondRunNoop();
+  });
+
+  test("a copy renamed to the visible managed label converts and the carried stub survives", () => {
+    const config = uneditedByokConfig();
+    const profileMap = (config.llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    profileMap["custom-balanced"] = {
+      ...profileMap["custom-balanced"],
+      label: "Balanced (Managed)",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(profiles().balanced).toEqual({
+      source: "managed",
+      label: "Balanced (Managed)",
+    });
+    expectSecondRunNoop();
+    // Third run: the carried stub is never mistaken for a hatch stub.
+    expectSecondRunNoop();
+  });
+
+  test("a copy renamed and disabled into the exact hatch-stub shape keeps the disable, drops the label", () => {
+    const config = uneditedByokConfig();
+    const profileMap = (config.llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    profileMap["custom-balanced"] = {
+      ...profileMap["custom-balanced"],
+      label: "Balanced (Managed)",
+      status: "disabled",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(profiles().balanced).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    expectSecondRunNoop();
+  });
+
+  test("a re-enabled hatch stub is kept", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          balanced: { source: "managed", label: "Balanced (Managed)" },
+          "quality-optimized": {
+            source: "managed",
+            status: "active",
+            label: "Quality (Managed)",
+          },
+        },
+      },
+    });
+    const before = readFileSync(configPath(), "utf-8");
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
   });
 
   test("a disabled copy converts and carries the status onto a thin stub", () => {
