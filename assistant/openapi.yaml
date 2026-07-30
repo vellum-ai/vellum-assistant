@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.12
+  version: 0.11.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -6126,6 +6126,9 @@ paths:
                 placeholder:
                   description: Placeholder text for the address input field.
                   type: string
+                defaultValue:
+                  description: Suggested address to pre-fill the input with (e.g. a known email). The user can edit it before submitting.
+                  type: string
                 label:
                   description: Display label shown in the prompt UI.
                   type: string
@@ -8264,7 +8267,10 @@ paths:
     post:
       operationId: conversations_import_post
       summary: Import conversations
-      description: Import conversations from a standard JSON payload.
+      description:
+        Import conversations from a standard JSON payload. Created conversations record a provenance source of
+        `import:<provider>` derived from the `sourceKey` prefix (e.g. `chatgpt:abc123` -> `import:chatgpt`), or
+        `import:unknown` when no prefix is present.
       tags:
         - conversations
       requestBody:
@@ -13716,13 +13722,17 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending bash request ID
                 stdout:
                   type: string
                 stderr:
                   type: string
                 exitCode:
-                  type: number
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Process exit status, or null when terminated by a signal
                 timedOut:
                   type: boolean
               required:
@@ -13885,6 +13895,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending CU request ID
                 axTree:
                   type: string
@@ -13952,6 +13963,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending request ID to resolve
                 content:
                   type: string
@@ -14833,6 +14845,25 @@ paths:
                     properties:
                       resolved_endpoint:
                         type: string
+                      resolved_url:
+                        type: string
+                      model_id:
+                        type: string
+                      connection_name:
+                        type: string
+                      http_status:
+                        type: number
+                      upstream_error_body:
+                        type: string
+                      upstream_error_body_state:
+                        type: string
+                        enum:
+                          - captured
+                          - empty
+                          - truncated
+                          - unavailable
+                      upstream_error_body_bytes:
+                        type: number
                     additionalProperties: false
                 required:
                   - response
@@ -17722,6 +17753,88 @@ paths:
                   - gate
                   - confident
                   - notes
+                additionalProperties: false
+  /v1/memory/ingest:
+    post:
+      operationId: memory_ingest_post
+      summary:
+        Batch-ingest fully-formed concept pages directly into memory/concepts/ (bypassing the consolidation buffer) and
+        enqueue reindex jobs
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pages:
+                  minItems: 1
+                  maxItems: 200
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      slug:
+                        type: string
+                      content:
+                        type: string
+                    required:
+                      - slug
+                      - content
+                dryRun:
+                  type: boolean
+                overwrite:
+                  type: boolean
+              required:
+                - pages
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        action:
+                          type: string
+                          enum:
+                            - written
+                            - skipped_exists
+                            - invalid
+                        warnings:
+                          type: array
+                          items:
+                            type: string
+                        error:
+                          type: string
+                      required:
+                        - slug
+                        - action
+                        - warnings
+                      additionalProperties: false
+                  written:
+                    type: number
+                  skipped:
+                    type: number
+                  invalid:
+                    type: number
+                  dryRun:
+                    type: boolean
+                required:
+                  - results
+                  - written
+                  - skipped
+                  - invalid
+                  - dryRun
                 additionalProperties: false
   /v1/memory/remember:
     post:
@@ -22640,6 +22753,33 @@ paths:
                   - disconnected
                   - previousBaseUrl
                 additionalProperties: false
+  /v1/platform/plans:
+    get:
+      operationId: platform_plans_get
+      summary: Get the plan catalog with pricing
+      description:
+        "Fetches the platform plan catalog: base and pro plans with pricing (in cents), machine/storage/credit
+        tiers, and packages."
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                required:
+                  - plans
+                additionalProperties: false
   /v1/platform/status:
     get:
       operationId: platform_status_get
@@ -22691,6 +22831,91 @@ paths:
                   - available
                   - organizationId
                   - userId
+                additionalProperties: false
+  /v1/platform/subscription:
+    get:
+      operationId: platform_subscription_get
+      summary: Get the organization's current plan and subscription state
+      description:
+        Fetches the org's plan (base or pro), subscription status, renewal/period-end dates, cancellation state,
+        selected credit tier, package, and plan-gated entitlements from the platform.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  planId:
+                    type: string
+                    enum:
+                      - base
+                      - pro
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  renewalDate:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  currentPeriodEnd:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  cancelAtPeriodEnd:
+                    type: boolean
+                  cancelAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  selectedCreditTier:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  package:
+                    anyOf:
+                      - type: object
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          version:
+                            type: number
+                          customized:
+                            type: boolean
+                        required:
+                          - key
+                          - name
+                          - version
+                          - customized
+                        additionalProperties: false
+                      - type: "null"
+                  entitlements:
+                    type: object
+                    properties:
+                      managedEmail:
+                        type: boolean
+                      phoneNumber:
+                        type: boolean
+                    required:
+                      - managedEmail
+                      - phoneNumber
+                    additionalProperties: false
+                required:
+                  - planId
+                  - status
+                  - renewalDate
+                  - currentPeriodEnd
+                  - cancelAtPeriodEnd
+                  - cancelAt
+                  - selectedCreditTier
+                  - package
+                  - entitlements
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:
@@ -29302,6 +29527,11 @@ paths:
                           type: string
                         conversationStreamingMode:
                           type: string
+                        languageSelection:
+                          type: string
+                          enum:
+                            - manual
+                            - auto
                         credentialsGuide:
                           type: string
                       required:
@@ -29414,8 +29644,8 @@ paths:
           schema:
             type: string
           description:
-            The subagent's own conversation ID. Fallback only — when the daemon knows the subagent (live or
-            rehydrated), it resolves the conversation itself and this parameter is ignored.
+            "The subagent's own conversation ID. Fallback only: when the assistant knows the subagent (live,
+            rehydrated, or in its durable records), it resolves the conversation itself and this parameter is ignored."
       responses:
         "200":
           description: Successful response
@@ -29481,6 +29711,8 @@ paths:
                   label:
                     type: string
                   parentToolUseId:
+                    type: string
+                  conversationId:
                     type: string
                 required:
                   - subagentId
@@ -29574,9 +29806,14 @@ paths:
       operationId: subagents_reconcile_get
       summary: Reconcile subagent live status
       description:
-        Returns the live in-memory status of all subagents known to the daemon for a given parent conversation,
-        with the identity fields a client needs to rebuild a store entry it never saw spawn (label, the subagent's own
-        conversation id, and the spawning tool-use id). Subagents not in the response are orphaned.
+        "Returns the subagents the assistant knows for a given parent conversation (live, rehydrated, and durably
+        recorded), including recently finished runs whose in-memory metadata the retention sweep has already evicted.
+        Durable records live as long as the conversation, so the snapshot is bounded: every subagent not in a terminal
+        state is always returned, plus the 20 most recently finished ones. Each entry carries enough detail (child
+        conversation id, label, objective, token usage, failure reason) for a client to rebuild its subagent list from
+        scratch, not just refresh statuses. A subagent absent from the response is one the assistant no longer reports,
+        so a client may settle its own stuck-active entries against this snapshot. Only `status` is guaranteed to be
+        present; every other field is optional."
       tags:
         - subagents
       parameters:
@@ -29603,11 +29840,31 @@ paths:
                       properties:
                         status:
                           type: string
-                        label:
-                          type: string
                         conversationId:
                           type: string
+                        label:
+                          type: string
+                        objective:
+                          type: string
+                        isFork:
+                          type: boolean
                         parentToolUseId:
+                          type: string
+                        usage:
+                          type: object
+                          properties:
+                            inputTokens:
+                              type: number
+                            outputTokens:
+                              type: number
+                            estimatedCost:
+                              type: number
+                          required:
+                            - inputTokens
+                            - outputTokens
+                            - estimatedCost
+                          additionalProperties: false
+                        error:
                           type: string
                       required:
                         - status

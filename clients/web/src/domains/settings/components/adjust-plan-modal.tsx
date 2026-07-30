@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
+import { currentPlanFeatures } from "@/domains/settings/billing/plan-spec";
 import {
   buildPortalReturnSnapshot,
   formatGraceDate,
@@ -154,6 +157,28 @@ export function AdjustPlanModal({
     selectedCreditTier === undefined ? currentCreditTier : selectedCreditTier;
   const selectedCreditPriceCents = priceForCredit(displayCreditTier);
 
+  // The Pro card names the sub's real plan and lists its real tiers, so it
+  // agrees with the billing plan card whose Manage button opens this modal.
+  const planDisplayName = proPackageDisplayName(subscriptionQuery.data?.package);
+  // Rows come from the current tiers, not the picker selection: the card states
+  // what the sub holds, while the picker and the price delta express a pending
+  // change. Gated on `isSuccess` rather than a loading flag because the machine
+  // and storage tiers live on the onboarding read: while it is pending OR after
+  // it errors, every tier reads null, which is indistinguishable from a
+  // machine-less package and would describe a paid sub as the small baseline.
+  const planFeatures =
+    onPro && onboardingQuery.isSuccess && proPlan
+      ? currentPlanFeatures(
+          {
+            machineTier: currentMachineTier,
+            storageTier: currentStorageTier,
+            storageGib: currentStorageGib,
+            creditTier: currentCreditTier,
+          },
+          proPlan,
+        )
+      : null;
+
   // Disable storage tiers below current (downgrades not allowed).
   const machineTiersForPicker = proPlan?.machine_tiers ?? [];
   const storageTiersForPicker =
@@ -255,6 +280,7 @@ export function AdjustPlanModal({
               storageTier: selectedStorageTier,
               creditTier: displayCreditTier,
             });
+            captureTakeoverAvatarStash(queryClient);
             void openUrl(data.checkout_url);
             return;
           }
@@ -610,6 +636,8 @@ export function AdjustPlanModal({
                             plan={plan}
                             isCurrent={planIsCurrent}
                             onPro={onPro}
+                            planDisplayName={planDisplayName}
+                            currentPlanFeatures={planFeatures}
                             cancelAtPeriodEnd={cancelAtPeriodEnd}
                             isCanceled={isCanceled}
                             cancelDate={cancelDate}

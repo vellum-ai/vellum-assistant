@@ -3,7 +3,7 @@
  *
  * The bar is purely presentational, so tests drive it prop-by-prop: state
  * label mapping, control presence, callback wiring, and accessibility
- * attributes. The embedded `VoiceListeningWaves` is SVG + a rAF loop writing
+ * attributes. The embedded `VoiceReactiveWaves` is SVG + a rAF loop writing
  * a CSS var — inert under happy-dom, so no harness is needed here.
  */
 

@@ -664,6 +664,7 @@ async function drainSingleMessage(
     type: "message_dequeued",
     conversationId: conversation.conversationId,
     requestId: next.requestId,
+    ...(next.clientMessageId ? { clientMessageId: next.clientMessageId } : {}),
   });
   conversation.emitActivityState("thinking", "message_dequeued", {
     requestId: next.requestId,
@@ -1337,6 +1338,7 @@ async function drainBatch(
       type: "message_dequeued",
       conversationId: conversation.conversationId,
       requestId: qm.requestId,
+      ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
     });
 
     const qmSlash = await resolveSlash(

@@ -58,12 +58,13 @@ describe("/model list", () => {
   test("descriptions use the managed column without a default provider", async () => {
     const message = ((await resolveSlash("/model")) as { message: string })
       .message;
+    // The quality tier is the column discriminator now that cost-optimized
+    // copy is intent-only in both columns (no model names - LUM-2881).
     expect(message).toContain(
       "High-quality results with the most capable model",
     );
-    expect(message).toContain(
-      "Fastest responses at lower cost (DeepSeek V4 Flash)",
-    );
+    expect(message).toContain("Fastest responses at lower cost");
+    expect(message).not.toContain("(DeepSeek V4 Flash)");
   });
 });
 

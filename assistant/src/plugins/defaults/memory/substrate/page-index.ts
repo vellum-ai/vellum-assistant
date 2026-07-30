@@ -66,9 +66,22 @@ export interface PageIndexEntry {
   /**
    * File mtime in epoch ms; 0 for synthetic entries (skills, CLI commands)
    * that have no on-disk source file. Used by `splitTier1` to rank pages
-   * by recency.
+   * by recency. This stays raw mtime because the maintain job's re-embed
+   * delta (`computeChangedPages` in v3/maintain-job.ts) diffs on it; the
+   * origin-aware recency signal lives in {@link PageIndexEntry.freshAt}.
    */
   modifiedAt: number;
+  /**
+   * Effective recency in epoch ms: `parseOriginDate(frontmatter.origin_date)`
+   * when that field is present and parseable (pre-epoch dates yield zero or
+   * negative values and are kept), else the file mtime; `null` for synthetic
+   * entries (skills, CLI commands), which have no recency signal. Imported or
+   * backfilled pages carry the date their content is about, so recency-ranked
+   * consumers (the v3 fresh lane, card date stamps) read this instead of
+   * `modifiedAt`. `splitTier1` deliberately keeps sorting on `modifiedAt`:
+   * consolidation-facing tier ranking reflects actual edit recency.
+   */
+  freshAt: number | null;
 }
 
 /**
@@ -145,6 +158,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
     outgoingSlugs: string[];
     leaves: string[];
     modifiedAt: number;
+    freshAt: number | null;
   }
 
   const [
@@ -216,6 +230,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: page.frontmatter.edges,
       leaves: page.frontmatter.leaves ?? [],
       modifiedAt: mtimeMs,
+      freshAt: resolveFreshAt(page.frontmatter.origin_date, mtimeMs),
     });
   }
 
@@ -226,6 +241,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: [],
       leaves: [],
       modifiedAt: 0,
+      freshAt: null,
     });
   }
 
@@ -236,6 +252,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       outgoingSlugs: [],
       leaves: [],
       modifiedAt: 0,
+      freshAt: null,
     });
   }
 
@@ -252,6 +269,7 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
       edges: [],
       leaves: draft.leaves,
       modifiedAt: draft.modifiedAt,
+      freshAt: draft.freshAt,
     };
     bySlug.set(entry.slug, entry);
     byId.set(entry.id, entry);
@@ -283,6 +301,96 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
   const index: PageIndex = { entries, bySlug, byId, rendered, parseFailures };
   cache = { workspaceDir, index };
   return index;
+}
+
+/**
+ * Matches the ISO 8601 shapes the `origin_date` contract accepts: a date
+ * (`YYYY-MM-DD`) or a datetime with optional seconds, fraction, and either a
+ * `Z` or numeric offset. Anything else (`03/04/2025`, `Apr 3 2025`) is
+ * rejected up front; bare `Date.parse` would accept many such shapes with
+ * host-dependent semantics.
+ */
+const ISO_ORIGIN_DATE =
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * Parse an `origin_date` frontmatter value (ISO 8601 date or datetime) into
+ * epoch ms, or `null` when the value is not valid ISO chronology. The shape
+ * gate enforces the documented ISO-only contract, and a UTC calendar
+ * round-trip rejects impossible dates (`2025-02-30` would otherwise be
+ * silently normalized to March 2). Any finite result is accepted; dates at
+ * or before 1970-01-01 yield zero or negative epoch ms and are valid
+ * chronology. An offset-less ISO datetime (e.g. `2026-06-10T14:23:00`) is
+ * read as UTC so identical pages rank at the same instant on hosts in
+ * different timezones. The single `origin_date` parser: `resolveFreshAt`
+ * and the ingest provenance warning (`substrate/ingest.ts`) both call it, so
+ * a value that warns at ingest is exactly a value recency ranking ignores.
+ */
+export function parseOriginDate(value: string): number | null {
+  if (!ISO_ORIGIN_DATE.test(value)) {
+    return null;
+  }
+  const parsed = Date.parse(normalizeOffsetlessIsoToUtc(value));
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  // Calendar round-trip in UTC: Date.parse normalizes overflow instead of
+  // rejecting it, so verify the year/month/day survive unchanged.
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const utc = new Date(parsed);
+  const offsetless =
+    !value.includes("T") || OFFSETLESS_ISO_DATETIME.test(value);
+  const roundTrip = offsetless
+    ? utc.getUTCFullYear() === year &&
+      utc.getUTCMonth() === month - 1 &&
+      utc.getUTCDate() === day
+    : isRealCalendarDate(year, month, day);
+  return roundTrip ? parsed : null;
+}
+
+/** True when Y-M-D names an actual calendar date (no overflow normalizing). */
+function isRealCalendarDate(year: number, month: number, day: number): boolean {
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  return (
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day
+  );
+}
+
+/**
+ * Effective recency for a real concept page: `parseOriginDate` over the
+ * `origin_date` frontmatter when present and parseable, else the file mtime.
+ * An unparseable value degrades to mtime rather than dropping the page from
+ * recency ranking.
+ */
+function resolveFreshAt(
+  originDate: string | undefined,
+  mtimeMs: number,
+): number {
+  if (originDate === undefined) {
+    return mtimeMs;
+  }
+  return parseOriginDate(originDate) ?? mtimeMs;
+}
+
+/**
+ * Matches an ISO 8601 datetime with no timezone designator (no trailing `Z`
+ * or numeric offset). Date-only strings are excluded: the spec already
+ * assigns them UTC and `Date.parse` honors that.
+ */
+const OFFSETLESS_ISO_DATETIME =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+/**
+ * Append `Z` to an offset-less ISO datetime so `Date.parse` reads it as UTC.
+ * Strings with an explicit offset, date-only strings, and non-ISO shapes
+ * pass through unchanged for `Date.parse` to accept or reject as before.
+ */
+function normalizeOffsetlessIsoToUtc(value: string): string {
+  return OFFSETLESS_ISO_DATETIME.test(value) ? `${value}Z` : value;
 }
 
 /** First line of an error's message — parse errors (YAML) are multi-line with
@@ -391,6 +499,7 @@ function buildLocalPageIndex(
       edges: [],
       leaves: src.leaves,
       modifiedAt: src.modifiedAt,
+      freshAt: src.freshAt,
     };
     localBySlug.set(local.slug, local);
     localById.set(local.id, local);

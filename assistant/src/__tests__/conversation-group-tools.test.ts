@@ -257,7 +257,7 @@ describe("conversation_move_to_group tool", () => {
     expect(result.content).toContain("no conversation found");
   });
 
-  test("no hidden-type note when filing a background conversation into a custom group", async () => {
+  test("notes hidden conversation types", async () => {
     createConversation({ id: "conv-bg", conversationType: "background" });
     await executeConversationGroupCreate({ name: "Visible" }, ctx);
 
@@ -267,46 +267,7 @@ describe("conversation_move_to_group tool", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).not.toContain("hidden");
-    expect(result.content).not.toContain("standard listing");
-  });
-
-  test("notes that subagent conversations stay hidden", async () => {
-    createConversation({
-      id: "conv-sub",
-      conversationType: "background",
-      source: "subagent",
-    });
-    await executeConversationGroupCreate({ name: "Agents" }, ctx);
-
-    const result = await executeConversationMoveToGroup(
-      { group: "Agents", conversation_id: "conv-sub" },
-      ctx,
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain(
-      "subagent conversations stay hidden from the sidebar",
-    );
-  });
-
-  test("notes non-standard types stay out of the standard listing when moved to a system group", async () => {
-    createConversation({
-      id: "conv-bg-recents",
-      conversationType: "background",
-      source: "task",
-      groupId: "system:background",
-    });
-
-    const result = await executeConversationMoveToGroup(
-      { group: "Recents", conversation_id: "conv-bg-recents" },
-      ctx,
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain(
-      "stays out of the standard listing unless filed into a custom group",
-    );
+    expect(result.content).toContain("hidden from the sidebar");
   });
 
   test("rejects missing group", async () => {

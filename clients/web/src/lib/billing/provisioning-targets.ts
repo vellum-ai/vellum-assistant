@@ -19,27 +19,46 @@ export interface ProvisioningDimensions {
   storageGib: number | null;
 }
 
+/** Per-dimension answer, so callers can act on machine and storage separately. */
+export interface ProvisioningDimensionFlags {
+  machine: boolean;
+  storage: boolean;
+}
+
 /**
- * A dimension with a null target is satisfied (e.g. the Mighty package has no
- * machine tier); a non-null target needs a known actual at or above it.
- * Machine sizes compare by rank, storage by GiB.
+ * Per-dimension target check. A dimension with a null target is satisfied (e.g.
+ * the Mighty package has no machine tier); a non-null target needs a known
+ * actual at or above it. Machine sizes compare by rank, storage by GiB. With no
+ * targets at all nothing is known, so neither dimension is met.
+ */
+export function dimensionTargetsMet(
+  targets: ProvisioningDimensions | null,
+  actuals: ProvisioningDimensions | null,
+): ProvisioningDimensionFlags {
+  if (!targets) {
+    return { machine: false, storage: false };
+  }
+  return {
+    machine:
+      targets.machineSize == null ||
+      (actuals?.machineSize != null &&
+        machineSizeRank(actuals.machineSize) >=
+          machineSizeRank(targets.machineSize)),
+    storage:
+      targets.storageGib == null ||
+      (actuals?.storageGib != null && actuals.storageGib >= targets.storageGib),
+  };
+}
+
+/**
+ * Whether every purchased dimension has landed. Null targets are never met.
  */
 export function targetsMet(
   targets: ProvisioningDimensions | null,
   actuals: ProvisioningDimensions | null,
 ): boolean {
-  if (!targets) {
-    return false;
-  }
-  const machineMet =
-    targets.machineSize == null ||
-    (actuals?.machineSize != null &&
-      machineSizeRank(actuals.machineSize) >=
-        machineSizeRank(targets.machineSize));
-  const storageMet =
-    targets.storageGib == null ||
-    (actuals?.storageGib != null && actuals.storageGib >= targets.storageGib);
-  return machineMet && storageMet;
+  const met = dimensionTargetsMet(targets, actuals);
+  return met.machine && met.storage;
 }
 
 /**
@@ -63,6 +82,27 @@ export function isResizeOperationInFlight(
   }
   const operation = status.active_operation?.operation;
   return typeof operation === "string" && operation.startsWith("resize");
+}
+
+/**
+ * Which dimensions are still rolling out. `isResizeOperationInFlight` matches
+ * any `resize`-prefixed operation so an unknown future resize still guards
+ * completion; this pins the two known dimensions instead, because an operation
+ * it cannot attribute must not hold the wrong dimension pending.
+ */
+export function resizeDimensionsInFlight(
+  status: OperationalStatus | null | undefined,
+): ProvisioningDimensionFlags {
+  if (!status) {
+    return { machine: false, storage: false };
+  }
+  const operation = status.active_operation?.operation;
+  return {
+    machine:
+      status.state === "resizing_machine" || operation === "resize_machine",
+    storage:
+      status.state === "resizing_storage" || operation === "resize_storage",
+  };
 }
 
 /**

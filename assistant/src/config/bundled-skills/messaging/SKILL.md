@@ -40,7 +40,7 @@ Before using any messaging tool, verify that the platform is connected by callin
 
 ### Public Ingress (required for Telegram)
 
-Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `isPlatform: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.
+Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `available: true` with a non-empty `assistantId`, use the platform callback route flow and do not prompt for ngrok; this applies to managed pods and platform-connected local assistants alike, so do not require `isPlatform: true`. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.
 
 ### Email Connection Flow
 
@@ -66,7 +66,7 @@ Slack is **not** handled by this skill. For Slack setup, load the **slack-app-se
 
 ### Telegram
 
-Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill, which uses a managed platform callback route in containerized deployments and falls back to **public-ingress** locally when needed:
+Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill, which uses a managed platform callback route on platform-connected assistants (managed pods and local assistants alike) and falls back to **public-ingress** for self-hosted setups when needed:
 
 - First run `assistant platform status --json`. If it shows managed callback routing is available, tell the user you will use the platform callback route and skip ngrok/public-ingress.
 - Call `skill_load` with `skill: "telegram-setup"` to load the dependency skill.

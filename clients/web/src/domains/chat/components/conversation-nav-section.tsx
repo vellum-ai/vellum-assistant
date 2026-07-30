@@ -19,7 +19,10 @@ import { type LucideIcon } from "lucide-react";
 
 import { ContextMenu, SideMenu } from "@vellumai/design-library";
 
-import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import {
+  CollapsibleNavSection,
+  type CollapsibleNavSectionDrag,
+} from "@/components/collapsible-nav-section";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import {
   hasAnyGroupMenuAction,
@@ -98,6 +101,8 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   groupMenu?: GroupMenuItemsProps;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: ReactNode;
+  /** Section-level drag-to-reorder wiring; omit to pin the section in place. */
+  drag?: CollapsibleNavSectionDrag;
 }
 
 export function ConversationNavSection({
@@ -107,6 +112,7 @@ export function ConversationNavSection({
   trailing,
   groupMenu,
   collapsedIndicator,
+  drag,
   ...listProps
 }: ConversationNavSectionProps) {
   const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
@@ -129,6 +135,7 @@ export function ConversationNavSection({
           : undefined
       }
       collapsedIndicator={collapsedIndicator}
+      drag={drag}
     >
       <ConversationRowList {...listProps} />
     </CollapsibleNavSection.Section>

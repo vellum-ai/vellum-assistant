@@ -16,14 +16,21 @@ import { createSelectors } from "@/utils/create-selectors";
 import type { Conversation } from "@/types/conversation-types";
 
 /**
- * A pending group-name dialog. `create` carries the conversation that will be
- * moved into the newly created group; `rename` carries the target group id and
- * a snapshot of its current name and icon, captured at request time so a
- * background groups refetch can't reset the inputs mid-edit (mirrors
- * `rename-request-store`).
+ * A pending group-name dialog.
+ *
+ * `create` optionally carries a conversation to move into the new group. Two
+ * entry points share it: "New group…" on a conversation's menu (creates, then
+ * moves that conversation in) and "New group…" on the sidebar's own context
+ * menu (creates an empty group and leaves it for the user to fill). The
+ * conversation is what distinguishes them, so the dialog itself needs no mode
+ * beyond create/rename.
+ *
+ * `rename` carries the target group id and a snapshot of its current name and
+ * icon, captured at request time so a background groups refetch can't reset
+ * the inputs mid-edit (mirrors `rename-request-store`).
  */
 export type GroupNameRequest =
-  | { mode: "create"; conversation: Conversation }
+  | { mode: "create"; conversation?: Conversation }
   | {
       mode: "rename";
       groupId: string;
@@ -36,7 +43,8 @@ interface GroupNameRequestState {
 }
 
 interface GroupNameRequestActions {
-  requestCreateGroup: (conversation: Conversation) => void;
+  /** Omit `conversation` to create an empty group. */
+  requestCreateGroup: (conversation?: Conversation) => void;
   requestRenameGroup: (
     groupId: string,
     currentName: string,

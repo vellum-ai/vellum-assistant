@@ -2314,20 +2314,15 @@ export async function handleSurfaceAction(
     });
   }
   if (result.queued) {
-    const position = ctx.getQueueDepth();
     if (!retainPending) {
       ctx.pendingSurfaceActions.delete(surfaceId);
     }
+    // `enqueueMessage` already acked the queued row on `onEvent` with its
+    // `message_queued` event; nothing more to broadcast here.
     log.info(
       { surfaceId, actionId, requestId },
       "Surface action queued (conversation busy)",
     );
-    onEvent({
-      type: "message_queued",
-      conversationId: ctx.conversationId,
-      requestId,
-      position,
-    });
     return;
   }
 

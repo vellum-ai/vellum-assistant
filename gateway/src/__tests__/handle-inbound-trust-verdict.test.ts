@@ -83,9 +83,8 @@ const {
   actorTokenRecords,
   actorRefreshTokenRecords,
 } = await import("../db/schema.js");
-const { bustGuardianIntegrityCache } = await import(
-  "../auth/guardian-integrity.js"
-);
+const { bustGuardianIntegrityCache } =
+  await import("../auth/guardian-integrity.js");
 const {
   resetGuardianIntegrityReporterForTesting,
   setGuardianIntegrityReporterOverridesForTesting,
@@ -145,7 +144,6 @@ function insertChannel(args: {
 function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "default-assistant",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: { default: 50 * 1024 * 1024 },
@@ -158,7 +156,6 @@ function makeConfig(): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
   } as unknown as GatewayConfig;
 }

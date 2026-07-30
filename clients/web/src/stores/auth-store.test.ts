@@ -34,6 +34,11 @@ const primeLocalGatewayConnectionMock = mock(async () => {
     throw mockPrimeError;
   }
 });
+const primeLocalGatewayConnectionWithStartupRetryMock = mock(async () => {
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
+});
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
   if (mockPrimeError) {
     throw mockPrimeError;
@@ -197,6 +202,8 @@ mock.module("@/lib/local-mode", () => ({
   getLocalAssistants: () => [],
   getSelectedAssistant: () => mockSelectedAssistant,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
+  primeLocalGatewayConnectionWithStartupRetry:
+    primeLocalGatewayConnectionWithStartupRetryMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
@@ -385,6 +392,7 @@ beforeEach(() => {
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
+  primeLocalGatewayConnectionWithStartupRetryMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   ensureGatewayTokenMock.mockClear();
   refreshRemoteGatewaySessionMock.mockClear();
@@ -576,6 +584,39 @@ describe("auth store onboarding flag reconciliation", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalledWith();
+  });
+
+  test("initSession restores the local gateway session through the startup-retry prime", async () => {
+    // The boot restore must ride out the gateway's reboot startup window rather
+    // than the bare prime, so a transient "starting" failure doesn't drop the
+    // persisted local assistant to the recovery controls.
+    mockIsLocalMode = true;
+    mockIsGatewayAuth = true;
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+  });
+
+  test("initSession settles unauthenticated when the startup-retry prime is exhausted", async () => {
+    // After the ride-out budget is spent the prime still throws; boot falls
+    // through to the chooser exactly as before.
+    mockIsLocalMode = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
   });
 
   test("initSession uses server consent when server has a consent record", async () => {

@@ -1,7 +1,7 @@
 /**
  * Platform route handlers for the shared HTTP/IPC route table.
  *
- * Serves six operations:
+ * Serves eight operations:
  *   - platform_status (GET platform/status): aggregates platform context,
  *     credentials, assistant ID, and webhook secret. (Velay tunnel status
  *     lives on the gateway — see gateway_status.)
@@ -15,6 +15,9 @@
  *     registered callback routes for this assistant.
  *   - platform_credits (GET platform/credits): fetches the org's remaining
  *     credit balance from the platform billing summary.
+ *   - platform_subscription (GET platform/subscription): fetches the org's
+ *     current plan, subscription status, and entitlements.
+ *   - platform_plans (GET platform/plans): fetches the plan catalog with pricing.
  */
 
 import { z } from "zod";
@@ -122,6 +125,41 @@ const PlatformCreditsResponseSchema = z.object({
   as_of: z.string(),
 });
 type PlatformCreditsResponse = z.infer<typeof PlatformCreditsResponseSchema>;
+
+const SubscriptionPackageSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  version: z.number(),
+  customized: z.boolean(),
+});
+
+const PlatformSubscriptionResponseSchema = z.object({
+  planId: z.enum(["base", "pro"]),
+  status: z.string().nullable(),
+  renewalDate: z.string().nullable(),
+  currentPeriodEnd: z.string().nullable(),
+  cancelAtPeriodEnd: z.boolean(),
+  cancelAt: z.string().nullable(),
+  selectedCreditTier: z.string().nullable(),
+  package: SubscriptionPackageSchema.nullable(),
+  entitlements: z.object({
+    managedEmail: z.boolean(),
+    phoneNumber: z.boolean(),
+  }),
+});
+type PlatformSubscriptionResponse = z.infer<
+  typeof PlatformSubscriptionResponseSchema
+>;
+
+// The plan catalog is a large, platform-owned structure (base + pro plans, each
+// with machine/storage/credit tiers and packages). The daemon forwards it as a
+// pass-through so the catalog shape stays owned by the platform and additive
+// changes there don't require a daemon schema bump; only the top-level `plans`
+// envelope is asserted here.
+const PlatformPlansResponseSchema = z.object({
+  plans: z.array(z.record(z.string(), z.unknown())),
+});
+type PlatformPlansResponse = z.infer<typeof PlatformPlansResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -305,39 +343,10 @@ async function handleCallbackRoutesRegister(
 async function handleCallbackRoutesList(
   _args: RouteHandlerArgs,
 ): Promise<CallbackRoutesListResponse> {
-  const context = await resolvePlatformCallbackRegistrationContext();
-
-  if (!context.platformBaseUrl || !context.authHeader) {
-    throw new UnprocessableEntityError(
-      "Platform credentials not available — run 'assistant platform connect' or set VELLUM_PLATFORM_URL",
-    );
-  }
-
-  const url = `${context.platformBaseUrl}/v1/internal/gateway/callback-routes/`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: context.authHeader,
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch (err) {
-    throw new InternalError(
-      `Failed to list callback routes: ${(err as Error).message}`,
-    );
-  }
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new InternalError(
-      `Failed to list callback routes (HTTP ${response.status}): ${detail}`,
-    );
-  }
-
-  const routes = (await response.json()) as Array<{
+  const routes = (await fetchPlatformJson(
+    "/v1/internal/gateway/callback-routes/",
+    "callback routes",
+  )) as Array<{
     id: string;
     assistant_id: string;
     type: string;
@@ -352,39 +361,10 @@ async function handleCallbackRoutesList(
 async function handlePlatformCredits(
   _args: RouteHandlerArgs,
 ): Promise<PlatformCreditsResponse> {
-  const context = await resolvePlatformCallbackRegistrationContext();
-
-  if (!context.platformBaseUrl || !context.authHeader) {
-    throw new UnprocessableEntityError(
-      "Platform credentials not available — run 'assistant platform connect' or set VELLUM_PLATFORM_URL",
-    );
-  }
-
-  const url = `${context.platformBaseUrl}/v1/organizations/billing/summary/`;
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: context.authHeader,
-        Accept: "application/json",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch (err) {
-    throw new InternalError(
-      `Failed to fetch credit balance: ${(err as Error).message}`,
-    );
-  }
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new InternalError(
-      `Failed to fetch credit balance (HTTP ${response.status}): ${detail}`,
-    );
-  }
-
-  const summary = (await response.json()) as {
+  const summary = (await fetchPlatformJson(
+    "/v1/organizations/billing/summary/",
+    "credit balance",
+  )) as {
     settled_balance_usd: string;
     pending_compute_usd: string;
     effective_balance_usd: string;
@@ -401,6 +381,108 @@ async function handlePlatformCredits(
     // summary endpoint ever returns one.
     as_of: new Date().toISOString(),
   };
+}
+
+/**
+ * GET a JSON resource from the platform using the assistant's stored platform
+ * credentials. Throws UnprocessableEntityError when credentials are missing and
+ * InternalError on transport / non-2xx failures; `label` names the resource in
+ * those error messages.
+ */
+async function fetchPlatformJson(
+  path: string,
+  label: string,
+): Promise<unknown> {
+  const context = await resolvePlatformCallbackRegistrationContext();
+
+  if (!context.platformBaseUrl || !context.authHeader) {
+    throw new UnprocessableEntityError(
+      "Platform credentials not available — run 'assistant platform connect' or set VELLUM_PLATFORM_URL",
+    );
+  }
+
+  const url = `${context.platformBaseUrl}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: context.authHeader,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    throw new InternalError(
+      `Failed to fetch ${label}: ${(err as Error).message}`,
+    );
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new InternalError(
+      `Failed to fetch ${label} (HTTP ${response.status}): ${detail}`,
+    );
+  }
+
+  return response.json();
+}
+
+async function handlePlatformSubscription(
+  _args: RouteHandlerArgs,
+): Promise<PlatformSubscriptionResponse> {
+  const data = (await fetchPlatformJson(
+    "/v1/organizations/billing/subscription/",
+    "subscription",
+  )) as {
+    plan_id: "base" | "pro";
+    status: string | null;
+    renewal_date: string | null;
+    current_period_end: string | null;
+    cancel_at_period_end: boolean;
+    cancel_at: string | null;
+    selected_credit_tier: string | null;
+    package: {
+      key: string;
+      name: string;
+      version: number;
+      customized: boolean;
+    } | null;
+    entitlements: { managed_email: boolean; phone_number: boolean };
+  };
+
+  return {
+    planId: data.plan_id,
+    status: data.status,
+    renewalDate: data.renewal_date,
+    currentPeriodEnd: data.current_period_end,
+    cancelAtPeriodEnd: data.cancel_at_period_end,
+    cancelAt: data.cancel_at,
+    selectedCreditTier: data.selected_credit_tier,
+    package: data.package
+      ? {
+          key: data.package.key,
+          name: data.package.name,
+          version: data.package.version,
+          customized: data.package.customized,
+        }
+      : null,
+    entitlements: {
+      managedEmail: data.entitlements.managed_email,
+      phoneNumber: data.entitlements.phone_number,
+    },
+  };
+}
+
+async function handlePlatformPlans(
+  _args: RouteHandlerArgs,
+): Promise<PlatformPlansResponse> {
+  const data = (await fetchPlatformJson(
+    "/v1/organizations/billing/plans/",
+    "plan catalog",
+  )) as { plans?: Array<Record<string, unknown>> };
+
+  return { plans: data.plans ?? [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -498,5 +580,35 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["platform"],
     handler: handlePlatformCredits,
     responseBody: PlatformCreditsResponseSchema,
+  },
+  {
+    operationId: "platform_subscription",
+    endpoint: "platform/subscription",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get the organization's current plan and subscription state",
+    description:
+      "Fetches the org's plan (base or pro), subscription status, renewal/period-end dates, cancellation state, selected credit tier, package, and plan-gated entitlements from the platform.",
+    tags: ["platform"],
+    handler: handlePlatformSubscription,
+    responseBody: PlatformSubscriptionResponseSchema,
+  },
+  {
+    operationId: "platform_plans",
+    endpoint: "platform/plans",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get the plan catalog with pricing",
+    description:
+      "Fetches the platform plan catalog: base and pro plans with pricing (in cents), machine/storage/credit tiers, and packages.",
+    tags: ["platform"],
+    handler: handlePlatformPlans,
+    responseBody: PlatformPlansResponseSchema,
   },
 ];

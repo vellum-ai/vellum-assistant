@@ -48,8 +48,8 @@ import {
   isRemoteGatewayMode,
   getPlatformAssistants,
   getLocalAssistants,
-  primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
+  primeLocalGatewayConnectionWithStartupRetry,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
@@ -779,7 +779,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthEnabled()) {
       try {
-        await primeLocalGatewayConnection();
+        // Ride out the gateway's startup window: on reboot the gateway restarts
+        // concurrently with the app and answers the mint with a transient
+        // "starting" 503 for a few seconds. A single prime there would drop the
+        // session to unauthenticated and surface the recovery controls for an
+        // assistant that reconnects on its own moments later. Still no `wake` —
+        // app launch must not spawn daemon processes.
+        await primeLocalGatewayConnectionWithStartupRetry();
         set(authenticatedLocalUser());
       } catch {
         // Gateway prime failed: settle to unauthenticated but leave

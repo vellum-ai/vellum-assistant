@@ -278,3 +278,111 @@ describe("CardSurface", () => {
     expect(rendered).toContain("OK");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Guardian trust-decision cards
+// ---------------------------------------------------------------------------
+
+/**
+ * The Trust / Leave unverified / Block card as it comes back off conversation
+ * history. A decided card carries `completed` + `completionSummary` on its
+ * persisted `ui_surface` block, and those two fields alone must drive the
+ * rendered state: re-entering the conversation renders from history, with none
+ * of the acting session's in-memory optimistic state (LUM-2919).
+ */
+function trustDecisionCard(overrides: Partial<Surface> = {}): Surface {
+  return {
+    surfaceId: "access-request-req-123",
+    surfaceType: "card",
+    title: "Access Request",
+    data: {
+      title: "Alice",
+      subtitle: "Requesting access to the assistant",
+      body: '> "Hey, can you help me set up my project environment?"',
+    },
+    actions: [
+      { id: "apr:req-123:trust", label: "Trust", style: "primary" },
+      { id: "apr:req-123:leave_unverified", label: "Leave unverified" },
+      { id: "apr:req-123:block", label: "Block", style: "destructive" },
+    ],
+    ...overrides,
+  };
+}
+
+describe("CardSurface trust-decision rehydration", () => {
+  test("an undecided card renders the three decision buttons", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface surface={trustDecisionCard()} onAction={() => undefined} />,
+    );
+
+    expect(rendered).toContain(">Trust</button>");
+    expect(rendered).toContain(">Leave unverified</button>");
+    expect(rendered).toContain(">Block</button>");
+  });
+
+  test("a card rehydrated with a persisted decision renders that decision, not the buttons", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={trustDecisionCard({
+          completed: true,
+          completionSummary: "Left unverified",
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("Left unverified");
+    // The decision replaces the button group; the card body stays for the
+    // audit trail.
+    expect(rendered).not.toContain(">Trust</button>");
+    expect(rendered).not.toContain(">Leave unverified</button>");
+    expect(rendered).not.toContain(">Block</button>");
+    expect(rendered).toContain("Alice");
+  });
+
+  test("a rehydrated park reads neutral, not as an affirmative success", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={trustDecisionCard({
+          completed: true,
+          completionSummary: "Left unverified",
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    // History carries only the summary string, so the tone is inferred from it.
+    expect(rendered).toContain("lucide-circle-slash");
+    expect(rendered).not.toContain("lucide-circle-check");
+  });
+
+  test("a rehydrated block reads as a rejection", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={trustDecisionCard({
+          completed: true,
+          completionSummary: "Denied",
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("Denied");
+    expect(rendered).toContain("lucide-circle-x");
+  });
+
+  test("a rehydrated trust reads as a success", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={trustDecisionCard({
+          completed: true,
+          completionSummary: "Approved",
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("Approved");
+    expect(rendered).toContain("lucide-circle-check");
+  });
+});

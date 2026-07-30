@@ -76,6 +76,7 @@ const DeployDialogs = lazy(() =>
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
+import { useSubagentReconcile } from "@/domains/chat/hooks/use-subagent-reconcile";
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
@@ -382,6 +383,15 @@ export function ActiveChatView() {
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)
   useConversationChangeEffects(assistantId, activeConversationId);
+
+  // Resync subagent rows from the daemon on load and after an SSE reopen, so a
+  // run that streamed nothing this session still shows up (and a stuck-running
+  // entry the daemon has forgotten settles).
+  useSubagentReconcile(
+    assistantId,
+    activeConversationId,
+    conversationExistsOnServer,
+  );
 
   // Debug API — dev-facing surface for in-the-moment chat inspection.
   // Unconditionally attached; negligible production overhead.

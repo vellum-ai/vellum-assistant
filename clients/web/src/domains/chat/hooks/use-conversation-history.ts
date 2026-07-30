@@ -366,6 +366,7 @@ export function useConversationHistory({
       reconcileSubagentStoreFromNotifications(
         useSubagentStore.getState(),
         deduped.values(),
+        activeConversationId,
         Date.now(),
       );
     }

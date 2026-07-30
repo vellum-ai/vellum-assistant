@@ -37,10 +37,11 @@ import {
   isLiveVoiceMicLive,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { VOICE_WAVE_EDGE_FADE_CLASS } from "@/domains/chat/voice/voice-room/voice-listening-waves";
 import {
-  VOICE_WAVE_EDGE_FADE_CLASS,
-  VoiceListeningWaves,
-} from "@/domains/chat/voice/voice-room/voice-listening-waves";
+  MESH_INLINE_TUNING,
+  VoiceMeshWaves,
+} from "@/domains/chat/voice/voice-room/voice-mesh-waves";
 import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 
 // While the mic is not live (muted, assistant speaking) the waves read a
@@ -137,12 +138,13 @@ export function VoiceComposerBar({
             : undefined
         }
       >
-        <VoiceListeningWaves
+        <VoiceMeshWaves
           getAmplitude={
             isLiveVoiceMicLive(state) ? getAmplitude : SILENT_AMPLITUDE
           }
           palette="accent"
           placement="inline"
+          tuning={MESH_INLINE_TUNING}
         />
       </div>
       <div className="flex shrink-0 items-center gap-1">

@@ -7,7 +7,16 @@ import {
   FREE_STORAGE_GIB,
 } from "@/domains/settings/billing/plan-tier-meta";
 
-import { machineLabel, packageHighlights, packageSpecs } from "./plan-spec";
+import type { ProPlan } from "@/generated/api/types.gen";
+import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
+
+import {
+  currentPlanFeatures,
+  currentTierRows,
+  machineLabel,
+  packageHighlights,
+  packageSpecs,
+} from "./plan-spec";
 
 describe("packageSpecs", () => {
   test("uses the free/base baseline for a null package", () => {
@@ -139,5 +148,184 @@ describe("machineLabel", () => {
     expect(machineLabel({ machine_size: "extra_large" } as ProPackage)).toBe(
       "Extra Large",
     );
+  });
+});
+
+describe("currentTierRows", () => {
+  const proPlan = {
+    id: "pro",
+    // `machine_tiers` is required on ProPlan and is consulted for the machine
+    // label, so the fixture carries it even where a test doesn't exercise it.
+    machine_tiers: [
+      { tier: "medium", label: "Medium" },
+      { tier: "large", label: "Large" },
+    ],
+    credit_tiers: [
+      { tier: "credits_50", label: "50 credits", credits_usd: 50 },
+      { tier: "credits_25", label: "25 credits", credits_usd: 25 },
+    ],
+  } as unknown as ProPlan;
+
+  const tiers = (over: Partial<CurrentTiers> = {}): CurrentTiers => ({
+    machineTier: "large",
+    storageTier: "s",
+    storageGib: 30,
+    creditTier: "credits_50",
+    ...over,
+  });
+
+  test("labels all three dimensions from the sub's own tiers", () => {
+    expect(currentTierRows(tiers(), proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+      "50 credits/mo",
+    ]);
+  });
+
+  test("falls back to the standard small machine when no paid tier is held", () => {
+    expect(currentTierRows(tiers({ machineTier: null }), proPlan)[0]).toBe(
+      "Small Machine",
+    );
+  });
+
+  test("drops storage rather than guessing when the GiB is unresolved", () => {
+    expect(currentTierRows(tiers({ storageGib: null }), proPlan)).toEqual([
+      "Large Machine",
+      "50 credits/mo",
+    ]);
+  });
+
+  test("drops the credit row entirely when no bundle is held", () => {
+    expect(currentTierRows(tiers({ creditTier: null }), proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+    ]);
+  });
+
+  test("prices a held bundle off the tier key when the catalog dropped it", () => {
+    // A delisted tier has no catalog label, but the sub still pays for it, so
+    // the amount is recovered from the `credits_<usd>` key.
+    expect(
+      currentTierRows(tiers({ creditTier: "credits_115" }), proPlan)[2],
+    ).toBe("115 credits/mo");
+  });
+
+  test("ignores a catalog label that already carries a cadence", () => {
+    // The row is composed from `credits_usd`, so a server label formatted as
+    // "$50 credits/mo" cannot double up into "50 credits/mo/mo".
+    const cadenced = {
+      id: "pro",
+      credit_tiers: [
+        { tier: "credits_50", label: "$50 credits/mo", credits_usd: 50 },
+      ],
+    } as unknown as ProPlan;
+    expect(currentTierRows(tiers(), cadenced)[2]).toBe("50 credits/mo");
+  });
+
+  test("renders a zero-credit bundle rather than treating it as absent", () => {
+    const freeBundle = {
+      id: "pro",
+      credit_tiers: [{ tier: "credits_0", label: "None", credits_usd: 0 }],
+    } as unknown as ProPlan;
+    expect(
+      currentTierRows(
+        tiers({ creditTier: "credits_0" as CurrentTiers["creditTier"] }),
+        freeBundle,
+      )[2],
+    ).toBe("0 credits/mo");
+  });
+
+  test("falls back to a generic bundle label for an unparseable tier key", () => {
+    expect(
+      currentTierRows(
+        tiers({ creditTier: "legacy_bundle" as CurrentTiers["creditTier"] }),
+        proPlan,
+      )[2],
+    ).toBe("Credit bundle");
+  });
+
+  test("uses the catalog label for a tier the static map does not know", () => {
+    // The tier picker renders the server label, so the card has to agree
+    // rather than surfacing the raw identifier.
+    const withNewTier = {
+      ...proPlan,
+      machine_tiers: [{ tier: "xxl", label: "XXL" }],
+    } as unknown as ProPlan;
+    expect(
+      currentTierRows(
+        tiers({ machineTier: "xxl" as CurrentTiers["machineTier"] }),
+        withNewTier,
+      )[0],
+    ).toBe("XXL Machine");
+  });
+
+  test("passes an unmapped machine tier through rather than dropping it", () => {
+    expect(
+      currentTierRows(
+        tiers({ machineTier: "xxl" as CurrentTiers["machineTier"] }),
+        proPlan,
+      )[0],
+    ).toBe("xxl Machine");
+  });
+});
+
+describe("currentPlanFeatures", () => {
+  const CATALOG = [
+    "Pay-as-you-go and bundled credits",
+    "Configurable machine size",
+    "Configurable storage",
+    "Assistant email & subdomain",
+  ];
+  const proPlan = {
+    id: "pro",
+    included_features: CATALOG,
+    machine_tiers: [{ tier: "large", label: "Large" }],
+    credit_tiers: [
+      { tier: "credits_50", label: "50 credits", credits_usd: 50 },
+    ],
+  } as unknown as ProPlan;
+
+  const full: CurrentTiers = {
+    machineTier: "large",
+    storageTier: "s",
+    storageGib: 30,
+    creditTier: "credits_50",
+  };
+
+  test("replaces every capability row it has a real value for", () => {
+    expect(currentPlanFeatures(full, proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+      "50 credits/mo",
+      "Assistant email & subdomain",
+    ]);
+  });
+
+  test("keeps the pay-as-you-go row when the sub holds no bundle", () => {
+    // Without this the card would say nothing at all about credits, dropping a
+    // capability the plan still has.
+    expect(currentPlanFeatures({ ...full, creditTier: null }, proPlan)).toEqual([
+      "Large Machine",
+      "30 GB",
+      "Pay-as-you-go and bundled credits",
+      "Assistant email & subdomain",
+    ]);
+  });
+
+  test("keeps the storage row when the GiB is unresolved", () => {
+    expect(currentPlanFeatures({ ...full, storageGib: null }, proPlan)).toEqual([
+      "Large Machine",
+      "50 credits/mo",
+      "Configurable storage",
+      "Assistant email & subdomain",
+    ]);
+  });
+
+  test("carries through an entitlement the platform adds later", () => {
+    const extended = {
+      ...proPlan,
+      included_features: [...CATALOG, "Priority support"],
+    } as unknown as ProPlan;
+    expect(currentPlanFeatures(full, extended)).toContain("Priority support");
   });
 });

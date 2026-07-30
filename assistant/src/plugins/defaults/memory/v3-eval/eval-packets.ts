@@ -394,6 +394,9 @@ export function mineTurns(
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))
     .where(
       and(
+        // Imported conversations (source LIKE 'import:%') are deliberately
+        // excluded: they predate this assistant's own retrieval behavior and
+        // would skew packets toward foreign conversation styles.
         sql`COALESCE(${conversations.source}, 'user') = 'user'`,
         sql`${conversations.scheduleJobId} IS NULL`,
         ...(exclude.length > 0
@@ -424,6 +427,9 @@ function minePinnedTurns(db: DrizzleDb, pinnedTurnIds: string[]): MinedTurn[] {
     .where(
       and(
         inArray(messages.conversationId, conversationIds),
+        // Imported conversations (source LIKE 'import:%') are deliberately
+        // excluded: they predate this assistant's own retrieval behavior and
+        // would skew packets toward foreign conversation styles.
         sql`COALESCE(${conversations.source}, 'user') = 'user'`,
         sql`${conversations.scheduleJobId} IS NULL`,
       ),

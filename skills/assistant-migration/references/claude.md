@@ -32,7 +32,7 @@ No secret-bearing local files are in scope, so there is nothing to `--exclude` �
 
 ## Inspect
 
-- There is **no deterministic Claude importer**. Conversation and memory material is brought in as **reviewed memory candidates**, not bulk-dumped. Summarize useful history into memory candidates and present them for creator review rather than saving wholesale.
+- There is **no deterministic Claude importer**. Conversation and memory material is brought in as **reviewed memory candidates**, not bulk-dumped. Ask Claude for a portable self-summary, then follow SKILL.md's Memory Import Guidance from the review step onward: creator review, hand-shaped staged v3 pages (`source: import:claude`), and the `assistant memory ingest` run. The staging and ingest steps are identical to the parser-fed sources; only the extraction step is manual.
 - If/when a **structured Claude export** is available, classify it per the Internals Salvage Guidance (high / medium / low confidence) rather than assuming a schema. Clearly-labeled markdown/JSON is high-confidence; opaque blobs are low-confidence and should be reviewed or rebuilt.
 - Map non-conversation material per the Vellum Primitive Map in SKILL.md: identity/preferences → Identity and Personality; durable instructions → Memory; described tools/MCP → Skills and MCP setup tasks; relationships → Contacts.
 

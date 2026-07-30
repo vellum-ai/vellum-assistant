@@ -18,7 +18,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   openai: {
     balanced: "gpt-5.4-mini",
-    "latency-optimized": "gpt-5.4-nano",
+    "latency-optimized": "gpt-5.6-luna",
     "quality-optimized": "gpt-5.4",
     "vision-optimized": "gpt-5.4",
   },
@@ -36,7 +36,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   fireworks: {
     balanced: "accounts/fireworks/models/minimax-m3",
-    "latency-optimized": "accounts/fireworks/models/kimi-k2p5",
+    "latency-optimized": "accounts/fireworks/models/deepseek-v4-flash",
     "quality-optimized": "accounts/fireworks/models/kimi-k2p6",
     "vision-optimized": "accounts/fireworks/models/kimi-k2p6",
   },

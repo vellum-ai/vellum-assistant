@@ -31,7 +31,16 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 
-import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
+import {
+  ensureSocketDir,
+  type IpcEnvelope,
+  IpcFrameReader,
+  SocketWatchdog,
+  writeLegacyMessage,
+  writeMessage,
+  writeStreamChunk,
+  writeStreamEnd,
+} from "@vellumai/ipc-server-utils";
 
 import {
   getDbMigrationReadiness,
@@ -47,14 +56,6 @@ import type {
 } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
-import {
-  type IpcEnvelope,
-  IpcFrameReader,
-  writeLegacyMessage,
-  writeMessage,
-  writeStreamChunk,
-  writeStreamEnd,
-} from "./ipc-framing.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -385,8 +386,6 @@ export class AssistantIpcServer {
       return;
     }
 
-    void binary;
-
     // Skip AbortController for the $cancel meta-method itself
     const needsAbortTracking = req.method !== "$cancel";
     let abortController: AbortController | undefined;
@@ -398,6 +397,11 @@ export class AssistantIpcServer {
     try {
       const handlerArgs = {
         ...injectLocalActorHeader(req.params),
+        // A binary frame on the request is the caller's raw body. Route
+        // handlers already model this as `rawBody` and pass it through
+        // untouched, so a caller that sends bytes gets them delivered as
+        // bytes rather than having them re-encoded as JSON.
+        ...(binary && { rawBody: binary }),
         ...(abortController && { abortSignal: abortController.signal }),
       };
       const result = handler(handlerArgs);

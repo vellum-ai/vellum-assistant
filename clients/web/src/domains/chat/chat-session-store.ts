@@ -211,6 +211,10 @@ export interface ChatSessionActions {
   // --- Queue management ---
   pushPendingQueuedMessageId: (messageId: string) => void;
   shiftPendingQueuedMessageId: () => string | undefined;
+  /** Remove and return the given pending id, or undefined if not tracked.
+   *  Identity-keyed counterpart to the arrival-order shift, for queued
+   *  acks that carry the send's `clientMessageId`. */
+  takePendingQueuedMessageId: (messageId: string) => string | undefined;
   setRequestIdMapping: (requestId: string, messageId: string) => void;
   popRequestIdMapping: (requestId: string) => string | undefined;
   addPendingLocalDeletion: (messageId: string) => void;
@@ -606,6 +610,17 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     const [first, ...rest] = current;
     set({ pendingQueuedMessageIds: rest });
     return first;
+  },
+
+  takePendingQueuedMessageId: (messageId) => {
+    const current = get().pendingQueuedMessageIds;
+    if (!current.includes(messageId)) {
+      return undefined;
+    }
+    set({
+      pendingQueuedMessageIds: current.filter((id) => id !== messageId),
+    });
+    return messageId;
   },
 
   setRequestIdMapping: (requestId, messageId) =>
