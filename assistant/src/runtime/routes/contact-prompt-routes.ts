@@ -104,6 +104,12 @@ const ContactPromptParams = z.object({
     .string()
     .optional()
     .describe("Placeholder text for the address input field."),
+  defaultValue: z
+    .string()
+    .optional()
+    .describe(
+      "Suggested default address to pre-fill the input (e.g. a known email). User can edit before submitting.",
+    ),
   label: z
     .string()
     .optional()
@@ -144,6 +150,7 @@ async function handleContactPrompt({
       requestId,
       channel,
       placeholder,
+      defaultValue,
       label,
       description,
       role,
