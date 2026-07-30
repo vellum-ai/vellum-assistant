@@ -109,14 +109,15 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
 
 /**
  * Top-edge fade for the overlay drawer's scrollport on the Capacitor iOS
- * shell, where the close and search glyphs float over the list. Rows reach
- * full opacity at the 3.5rem reserve (`native-ios:pt-14`), so they dissolve
- * only across the stretch the glyphs occupy. The glyphs live in a sibling of
- * the scrollport, so the mask never dims them.
+ * shell, where the close and search glyphs float over the list. The gradient
+ * spans the whole 3.5rem reserve (`native-ios:pt-14`), so a row is fully
+ * transparent at the top of the glyph band and only reaches full opacity once
+ * it has passed below the glyphs. The glyphs live in a sibling of the
+ * scrollport, so the mask never dims them.
  *
  * Both declarations are spelled out in full because Tailwind only emits the
- * candidates it finds verbatim in source. `-webkit-mask-image` is not
- * optional: the iOS client is a WKWebView, which still needs the prefix.
+ * candidates it finds verbatim in source; the prefixed pairing follows
+ * {@link VOICE_WAVE_EDGE_FADE_CLASS} in `voice-listening-waves.tsx`.
  */
 const NATIVE_IOS_LIST_TOP_FADE =
   "native-ios:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)] native-ios:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]";
