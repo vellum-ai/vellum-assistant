@@ -21,16 +21,27 @@ function getReleasesBaseUrl(): string {
   );
 }
 
+// Shared by the releases sidebar and article list so link hrefs and element
+// ids never diverge.
+export function releaseAnchor(release: ApiRelease): string {
+  return `v${release.version}`;
+}
+
 // Some releases are published with auto-generated build metadata only
 // (e.g. "**Build:** `0.8.10` **Commit:** `abc123` **Built at:** ...").
-// Those have no human-written notes and should not appear on the page.
+// Metadata "Build:"/"Commit:" values are backtick-wrapped and "Built at:"
+// lines are always machine-stamped, so those are stripped; human notes that
+// merely start with the same word ("Build performance improved", "Commit:
+// enforce signing everywhere") are kept.
 export function hasRealNotes(release: ApiRelease): boolean {
   if (!release.description) {return false;}
   const stripped = release.description
     .split("\n")
     .filter(
       (line) =>
-        !/^\s*[*_#>\-\s]*(\*\*)?\s*(build|commit|built at)\s*:/i.test(line),
+        !/^\s*[*_#>\-\s]*(\*\*)?\s*(built at\s*:|(build|commit)\s*:(\*\*)?\s*(`|$))/i.test(
+          line,
+        ),
     )
     .join("\n")
     .trim();

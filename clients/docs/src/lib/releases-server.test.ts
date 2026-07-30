@@ -72,6 +72,17 @@ describe("hasRealNotes", () => {
       hasRealNotes(makeRelease({ description: "Commit signing is enforced." })),
     ).toBe(true);
   });
+
+  test("keeps colon-prefixed human notes without backticked values", () => {
+    expect(
+      hasRealNotes(
+        makeRelease({ description: "**Build:** Improved startup performance" }),
+      ),
+    ).toBe(true);
+    expect(
+      hasRealNotes(makeRelease({ description: "Commit: enforce signing" })),
+    ).toBe(true);
+  });
 });
 
 describe("groupApiReleasesByMonth", () => {

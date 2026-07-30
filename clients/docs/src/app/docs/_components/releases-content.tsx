@@ -1,12 +1,8 @@
 import { ReleaseMarkdown } from "@/app/docs/_components/release-markdown";
 import { WWW_DOMAIN } from "@/lib/domains";
 import type { ApiRelease } from "@/lib/releases-server";
-import { groupApiReleasesByMonth } from "@/lib/releases-server";
+import { groupApiReleasesByMonth, releaseAnchor } from "@/lib/releases-server";
 import { routes } from "@/lib/routes";
-
-function releaseAnchor(release: ApiRelease) {
-  return `v${release.version}`;
-}
 
 function monthAnchor(releasedAt: string) {
   const d = new Date(releasedAt);

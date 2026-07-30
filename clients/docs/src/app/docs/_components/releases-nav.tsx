@@ -4,11 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ApiRelease } from "@/lib/releases-server";
-import { groupApiReleasesByMonth } from "@/lib/releases-server";
-
-function releaseAnchor(release: ApiRelease) {
-  return `v${release.version}`;
-}
+import { groupApiReleasesByMonth, releaseAnchor } from "@/lib/releases-server";
 
 function getCurrentMonth() {
   const now = new Date();
