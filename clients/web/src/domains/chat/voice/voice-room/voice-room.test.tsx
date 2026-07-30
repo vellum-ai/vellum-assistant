@@ -85,11 +85,11 @@ mock.module("@/domains/chat/voice/voice-room/voice-avatar", () => ({
   ),
 }));
 
-// Stub the listening waves (rAF loop + SVG geometry) so the room-chrome tests
-// stay focused on wiring: we only assert the room mounts them in the right
-// phase, not how they animate.
-mock.module("@/domains/chat/voice/voice-room/voice-listening-waves", () => ({
-  VoiceListeningWaves: () => <div data-testid="listening-waves" />,
+// Stub the listening waves (rAF loop + per-frame SVG geometry) so the
+// room-chrome tests stay focused on wiring: we only assert the room mounts
+// them in the right phase, not how they animate.
+mock.module("@/domains/chat/voice/voice-room/voice-reactive-waves", () => ({
+  VoiceReactiveWaves: () => <div data-testid="listening-waves" />,
 }));
 
 // The room resolves its look (color-with-eyes vs the ambient void) and the

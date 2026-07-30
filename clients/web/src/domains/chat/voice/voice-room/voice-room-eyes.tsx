@@ -63,6 +63,8 @@ import {
 } from "./voice-listening-waves";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import { createAmplitudeSmoother } from "./voice-motion";
+import { useReactiveEyes, type VoiceEyeReaction } from "./use-reactive-eyes";
+import { VoiceReactiveWaves } from "./voice-reactive-waves";
 import {
   VOICE_ROOM_CAPTION_TEXT,
   VOICE_ROOM_LOWER_ZONE_BOTTOM,
@@ -106,6 +108,49 @@ const EYE_STATE_SCALE: Record<VoiceAvatarVisual, number> = {
 };
 /** How long the eyes take to resize between states. */
 const EYE_RESIZE_MS = 500;
+
+/**
+ * Which audio gesture the eyes express per session phase. Only the two states
+ * that actually carry audio react: `listening` follows the mic, `responding`
+ * follows the TTS output. `thinking` is deliberately still — there is no sound
+ * to answer, and a reaction there would be animating noise.
+ */
+const EYE_REACTION: Record<VoiceAvatarVisual, VoiceEyeReaction> = {
+  idle: null,
+  listening: "listening",
+  thinking: null,
+  responding: "responding",
+  reconnecting: null,
+};
+
+/**
+ * Which wave band the room draws.
+ *
+ * `reactive` rebuilds the wave geometry every frame from a rolling history of
+ * the live amplitude, so the terrain is a record of what was actually said.
+ * `sine` is the original fixed-geometry band, kept so the two can be compared
+ * side by side in Storybook — its silhouette is authored once at mount and
+ * only slid sideways, which is what made the room read as a static image.
+ */
+export type VoiceWaveEngine = "reactive" | "sine";
+
+/** Draw the listening band with whichever engine the caller selected. */
+function WaveBand({
+  engine,
+  ...props
+}: {
+  engine: VoiceWaveEngine;
+  getAmplitude: () => number;
+  waveStyle?: VoiceWaveStyle;
+  palette?: VoiceWavePalette;
+  placement?: VoiceWavePlacement;
+}) {
+  return engine === "reactive" ? (
+    <VoiceReactiveWaves {...props} />
+  ) : (
+    <VoiceListeningWaves {...props} />
+  );
+}
 /** State caption shown below the eyes, per visual (none for idle / connecting-
  *  side states, which the room's own connect label covers). */
 const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
@@ -239,6 +284,7 @@ export function VoiceRoomColorLook({
   waveStyle = "fill",
   showStateCaption = true,
   entryOrigin = null,
+  waveEngine = "reactive",
   viewport,
 }: {
   look: VoiceRoomLook;
@@ -261,6 +307,8 @@ export function VoiceRoomColorLook({
   /** Viewport point the entrance grows from (the tapped control). Null → the
    *  fixed screen-center origin. */
   entryOrigin?: { x: number; y: number } | null;
+  /** Which wave band to draw. See {@link VoiceWaveEngine}. */
+  waveEngine?: VoiceWaveEngine;
   /** Override the room box (Storybook renders in a box, not the full window). */
   viewport?: { w: number; h: number };
 }) {
@@ -402,7 +450,8 @@ export function VoiceRoomColorLook({
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0 : 0.3 }}
           >
-            <VoiceListeningWaves
+            <WaveBand
+              engine={waveEngine}
               getAmplitude={getAmplitude}
               waveStyle={waveStyle}
               palette={wavePalette}
@@ -462,6 +511,16 @@ export function VoiceRoomColorLook({
         sizeScale={sizeScale}
         // Reconnecting: fade the eyes back — presence dimmed while away.
         dimmed={visual === "reconnecting"}
+        // Audio reaction on top of the size tween: the eyes widen with the
+        // user's mic while listening and pulse with the assistant's own voice
+        // while responding, so they stay alive through a turn instead of
+        // holding one pose for its whole duration.
+        eyeReaction={EYE_REACTION[visual]}
+        getAmplitude={
+          visual === "responding"
+            ? (getResponseAmplitude ?? getAmplitude)
+            : getAmplitude
+        }
       />
 
       {/* State caption in the room's lower zone (unless the live captions are
@@ -657,7 +716,7 @@ function VoiceRespondingTreatment({
   if (style === "waveform") {
     // The assistant's own voice — reuse the centered band, output-driven.
     return getAmplitude ? (
-      <VoiceListeningWaves
+      <VoiceReactiveWaves
         getAmplitude={getAmplitude}
         waveStyle={waveStyle}
         palette="tone"
@@ -816,6 +875,8 @@ export function VoiceRoomEyes({
   entranceOrigin,
   sizeScale = 1,
   dimmed = false,
+  eyeReaction = null,
+  getAmplitude,
 }: {
   art: VoiceRoomEyeArt;
   /** The room box the eyes are framed in (the caller's live viewport size). */
@@ -823,6 +884,14 @@ export function VoiceRoomEyes({
   placement?: VoiceEyePlacement;
   /** Viewport point the eyes grow from on entrance. Defaults to screen center. */
   entranceOrigin?: { x: number; y: number };
+  /**
+   * Audio gesture the eyes express — `listening` widens them with the mic,
+   * `responding` pulses them with the assistant's own voice, `null` holds them
+   * still. See `use-reactive-eyes.ts`.
+   */
+  eyeReaction?: VoiceEyeReaction;
+  /** Amplitude source (0–1) for {@link eyeReaction}, polled in a rAF loop. */
+  getAmplitude?: () => number;
   /** Per-state size, as a scale of the rest geometry — tweened on change so the
    *  eyes resize smoothly (they never move). See {@link EYE_STATE_SCALE}. */
   sizeScale?: number;
@@ -832,6 +901,7 @@ export function VoiceRoomEyes({
   const reduce = useReducedMotion();
   const { w, h } = viewport;
   const playEntrance = !reduce;
+  const reactiveRef = useReactiveEyes(eyeReaction, getAmplitude);
 
   // The parallax offset and the blink are decorative, so both drive the DOM
   // through a ref rather than React state: a pointer-rate or frame-rate
@@ -1054,25 +1124,37 @@ export function VoiceRoomEyes({
                 transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
               }}
             >
-              <svg
-                viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
-                width={geometry.eyesW}
-                height={geometry.eyesH}
-                style={{ overflow: "visible", display: "block" }}
+              {/* Audio reaction: its own layer so the per-frame amplitude
+                  transform composes with the blink squish below and the size
+                  tween above instead of overwriting either. */}
+              <div
+                ref={reactiveRef}
+                className="voice-room-eyes-reactive"
+                data-eye-reaction={eyeReaction ?? undefined}
               >
-                <g
-                  ref={eyelidsRef}
-                  style={{
-                    transform: "scaleY(1)",
-                    transformOrigin: `${cx}px ${cy}px`,
-                    transition: "transform 0.14s ease-in-out",
-                  }}
+                <svg
+                  viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
+                  width={geometry.eyesW}
+                  height={geometry.eyesH}
+                  style={{ overflow: "visible", display: "block" }}
                 >
-                  {art.paths.map((p, i) => (
-                    <path key={i} d={p.svgPath} fill={p.color} />
-                  ))}
-                </g>
-              </svg>
+                  {/* Eyelids are driven imperatively (LUM-2927) — the blink
+                      must not re-render this tree, and neither must the audio
+                      reaction on the wrapper above it. */}
+                  <g
+                    ref={eyelidsRef}
+                    style={{
+                      transform: "scaleY(1)",
+                      transformOrigin: `${cx}px ${cy}px`,
+                      transition: "transform 0.14s ease-in-out",
+                    }}
+                  >
+                    {art.paths.map((p, i) => (
+                      <path key={i} d={p.svgPath} fill={p.color} />
+                    ))}
+                  </g>
+                </svg>
+              </div>
             </div>
           </motion.div>
         </div>

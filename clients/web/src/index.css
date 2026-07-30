@@ -950,6 +950,48 @@ body {
   }
 }
 
+/* Audio-reactive eyes (use-reactive-eyes.ts). `--eye-amp` is written per frame
+ * from the live amplitude; the gesture is picked by `data-eye-reaction`.
+ * Deliberately small — the eyes are the room's fixed point, so this is meant to
+ * read as alive, not as dancing. Composes with (rather than replaces) the
+ * entrance keyframes and the per-state size tween, which live on ancestors. */
+.voice-room-eyes-reactive {
+  --eye-amp: 0;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Listening: the eyes open up toward the speaker — mostly vertical, so it
+ * reads as widening rather than as zooming — and lift very slightly. */
+.voice-room-eyes-reactive[data-eye-reaction="listening"] {
+  transform: translateY(calc(var(--eye-amp) * -1.5%))
+    scaleX(calc(1 + var(--eye-amp) * 0.03))
+    scaleY(calc(1 + var(--eye-amp) * 0.1));
+}
+
+/* Responding: a rounder pulse on the assistant's own output amplitude, with a
+ * small bounce — the "energy going out" language of the responding treatment
+ * radiating behind them. */
+.voice-room-eyes-reactive[data-eye-reaction="responding"] {
+  transform: translateY(calc(var(--eye-amp) * -2.5%))
+    scale(calc(1 + var(--eye-amp) * 0.055));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-room-eyes-reactive {
+    transform: none;
+  }
+}
+
+/* Reactive band (voice-reactive-waves.tsx): the path geometry is rebuilt every
+ * frame from a rolling history of the live amplitude, so the horizontal motion
+ * *is* the signal scrolling by. The drift keyframe above would slide that
+ * terrain a second time, so it comes off — everything else (palette, style,
+ * placement, the `--voice-amp` rise/brightness) still applies. */
+.voice-listening-waves--reactive path {
+  animation: none;
+}
+
 /* Line style: stroke the open curve; no fill. */
 .voice-listening-waves--line path {
   fill: none;
