@@ -47,6 +47,14 @@ public class ConnectDeepLinkTest {
     }
 
     @Test
+    public void ownsConnectLinksThatStrictUriParsingRejects() {
+        String raw = SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=bare value%";
+
+        assertTrue(ConnectDeepLink.handles(raw, SCHEME));
+        assertNull(ConnectDeepLink.parse(raw, SCHEME));
+    }
+
+    @Test
     public void leavesOtherNativeRoutesForTheirExistingHandlers() {
         assertFalse(ConnectDeepLink.handles(SCHEME + "://auth/callback?code=auth-code", SCHEME));
         assertFalse(ConnectDeepLink.handles(SCHEME + "://oauth-complete", SCHEME));

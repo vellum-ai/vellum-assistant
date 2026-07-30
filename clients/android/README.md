@@ -82,6 +82,10 @@ Capacitor configuration. HTTPS is required except for `localhost`, `127.0.0.1`,
 and the Android emulator host alias `10.0.2.2`. Use `adb reverse` when a physical
 development device needs to reach a service through `localhost`.
 
+If Android terminates the app before the pairing page loads, scan the connect
+link again. The shell intentionally does not save the one-time code for process
+restoration.
+
 If a saved or newly scanned server cannot load, the native recovery dialog can
 retry it or clear the saved server and return to Vellum Cloud. A failed new
 server is never promoted over the last server that loaded successfully.

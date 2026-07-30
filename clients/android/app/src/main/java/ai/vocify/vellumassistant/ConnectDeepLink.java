@@ -21,13 +21,30 @@ final class ConnectDeepLink {
     }
 
     static boolean handles(String raw, String expectedScheme) {
-        URI uri = parseUri(raw);
-        return isConnectUri(uri, expectedScheme);
+        if (raw == null) {
+            return false;
+        }
+        int schemeEnd = raw.indexOf(':');
+        if (schemeEnd <= 0 || !expectedScheme.equalsIgnoreCase(raw.substring(0, schemeEnd))) {
+            return false;
+        }
+        int authorityStart = schemeEnd + 3;
+        if (authorityStart > raw.length() || !raw.regionMatches(schemeEnd + 1, "//", 0, 2)) {
+            return false;
+        }
+        int authorityEnd = raw.length();
+        for (char delimiter : new char[] { '/', '?', '#' }) {
+            int index = raw.indexOf(delimiter, authorityStart);
+            if (index >= 0 && index < authorityEnd) {
+                authorityEnd = index;
+            }
+        }
+        return CONNECT_HOST.equalsIgnoreCase(raw.substring(authorityStart, authorityEnd));
     }
 
     static ConnectDeepLink parse(String raw, String expectedScheme) {
         URI uri = parseUri(raw);
-        if (!isConnectUri(uri, expectedScheme)) {
+        if (uri == null || !handles(raw, expectedScheme)) {
             return null;
         }
         String path = uri.getPath();
@@ -69,12 +86,6 @@ final class ConnectDeepLink {
         } catch (URISyntaxException exception) {
             return null;
         }
-    }
-
-    private static boolean isConnectUri(URI uri, String expectedScheme) {
-        return uri != null
-            && expectedScheme.equalsIgnoreCase(uri.getScheme())
-            && CONNECT_HOST.equalsIgnoreCase(uri.getHost());
     }
 
     private static Map<String, String> parseQuery(String rawQuery) {

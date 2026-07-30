@@ -91,6 +91,7 @@ public class MainActivity extends BridgeActivity {
         }
         String raw = intent.getDataString();
         intent.setData(null);
+        setIntent(withoutData(intent));
         return ConnectDeepLink.parse(raw, getString(R.string.vellum_auth_scheme));
     }
 
@@ -133,7 +134,7 @@ public class MainActivity extends BridgeActivity {
 
         String host = effectiveServer.getHost();
         unreachableDialog = new AlertDialog.Builder(this)
-            .setMessage("Can't reach " + host + ".")
+            .setMessage("Can't load " + host + ".")
             .setPositiveButton("Retry", (dialog, which) -> retryServer())
             .setNegativeButton("Use Vellum Cloud", (dialog, which) -> useVellumCloud())
             .setOnDismissListener(dialog -> unreachableDialog = null)
