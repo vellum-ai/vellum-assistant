@@ -15,7 +15,18 @@ const OPEN_LAYER_SELECTOR = [
   '[role="dialog"]',
 ].join(",");
 
-function dismissOpenLayer(): boolean {
+function wasLayerDismissed(
+  layer: HTMLElement,
+  event: KeyboardEvent,
+): boolean {
+  if (event.defaultPrevented || !layer.isConnected) {
+    return true;
+  }
+  const state = layer.getAttribute("data-state");
+  return state !== null && state !== "open";
+}
+
+async function dismissOpenLayer(): Promise<boolean> {
   const layers = document.querySelectorAll<HTMLElement>(OPEN_LAYER_SELECTOR);
   const layer = layers.item(layers.length - 1);
   if (!layer) {
@@ -29,11 +40,14 @@ function dismissOpenLayer(): boolean {
   });
   layer.dispatchEvent(event);
 
-  if (event.defaultPrevented || !layer.isConnected) {
+  if (wasLayerDismissed(layer, event)) {
     return true;
   }
-  const state = layer.getAttribute("data-state");
-  return state !== null && state !== "open";
+
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+  return wasLayerDismissed(layer, event);
 }
 
 function dismissViewerLayer(): boolean {
@@ -64,19 +78,29 @@ export function subscribeAndroidBackButtonSource(): () => void {
 
   return subscribeCapacitorListener("android_back_button", async () => {
     const { App } = await import("@capacitor/app");
-    return App.addListener("backButton", ({ canGoBack }) => {
-      if (dismissOpenLayer() || dismissViewerLayer()) {
+    let handlingBack = false;
+    const handleBack = async (canGoBack: boolean): Promise<void> => {
+      if ((await dismissOpenLayer()) || dismissViewerLayer()) {
         return;
       }
       if (canGoBack) {
         window.history.back();
         return;
       }
-      void App.minimizeApp().catch((error) => {
+      await App.minimizeApp().catch((error) => {
         captureError(error, {
           context: "android_back_minimize",
           level: "warning",
         });
+      });
+    };
+    return App.addListener("backButton", ({ canGoBack }) => {
+      if (handlingBack) {
+        return;
+      }
+      handlingBack = true;
+      void handleBack(canGoBack).finally(() => {
+        handlingBack = false;
       });
     });
   });

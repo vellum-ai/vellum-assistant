@@ -57,6 +57,14 @@ const flushMicrotasks = async (rounds = 4) => {
   }
 };
 
+const pressBack = async (canGoBack: boolean) => {
+  backButtonHandler?.({ canGoBack });
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+  await flushMicrotasks();
+};
+
 beforeEach(() => {
   nativeAndroid = true;
   viewerMainView = "chat";
@@ -98,7 +106,7 @@ describe("subscribeAndroidBackButtonSource", () => {
 
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
-    backButtonHandler?.({ canGoBack: true });
+    await pressBack(true);
 
     expect(escapeHandler).toHaveBeenCalledTimes(1);
     expect(historyBackSpy).not.toHaveBeenCalled();
@@ -118,25 +126,30 @@ describe("subscribeAndroidBackButtonSource", () => {
 
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
-    backButtonHandler?.({ canGoBack: true });
+    await pressBack(true);
 
     expect(historyBackSpy).toHaveBeenCalledTimes(1);
     expect(minimizeAppMock).not.toHaveBeenCalled();
     historyBackSpy.mockRestore();
   });
 
-  test("claims Back when the target layer closes on Escape", async () => {
+  test("waits for a target layer's close state to commit", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,
     );
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("data-state", "open");
     document.body.append(dialog);
-    dialog.addEventListener("keydown", () => dialog.remove());
+    dialog.addEventListener("keydown", () => {
+      window.requestAnimationFrame(() => {
+        dialog.setAttribute("data-state", "closed");
+      });
+    });
 
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
-    backButtonHandler?.({ canGoBack: true });
+    await pressBack(true);
 
     expect(historyBackSpy).not.toHaveBeenCalled();
     expect(minimizeAppMock).not.toHaveBeenCalled();
@@ -150,7 +163,7 @@ describe("subscribeAndroidBackButtonSource", () => {
 
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
-    backButtonHandler?.({ canGoBack: true });
+    await pressBack(true);
 
     expect(historyBackSpy).toHaveBeenCalledTimes(1);
     expect(minimizeAppMock).not.toHaveBeenCalled();
@@ -165,7 +178,7 @@ describe("subscribeAndroidBackButtonSource", () => {
 
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
-    backButtonHandler?.({ canGoBack: true });
+    await pressBack(true);
 
     expect(closeActiveOverlayMock).toHaveBeenCalledTimes(1);
     expect(historyBackSpy).not.toHaveBeenCalled();
@@ -178,7 +191,7 @@ describe("subscribeAndroidBackButtonSource", () => {
 
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
-    backButtonHandler?.({ canGoBack: true });
+    await pressBack(true);
 
     expect(minimizeViewerAppMock).toHaveBeenCalledTimes(1);
     expect(closeAppMock).not.toHaveBeenCalled();
@@ -188,7 +201,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
 
-    backButtonHandler?.({ canGoBack: false });
+    await pressBack(false);
 
     expect(minimizeAppMock).toHaveBeenCalledTimes(1);
   });

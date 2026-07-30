@@ -1035,6 +1035,7 @@ export function ChatLayout({
               role="dialog"
               aria-modal="true"
               aria-label="Navigation"
+              data-state={drawerOpen ? "open" : "closed"}
             >
               {/* The aside must paint the same token as the SideMenu it
                   hosts (`--surface-overlay`): its safe-area padding ring is
