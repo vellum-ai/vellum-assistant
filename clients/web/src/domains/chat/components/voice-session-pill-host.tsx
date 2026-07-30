@@ -47,8 +47,8 @@
  * A session not yet attached to a conversation (started from a draft, before
  * the server's `ready` frame) still shows the pill when the user is away from
  * the owning composer — a live mic must always have a visible control — just
- * without a navigation target, leaving its state word inert rather than a dead
- * button.
+ * without a navigation target, leaving the band's middle inert rather than a
+ * dead button.
  *
  * A `failed` session unmounts the pill (no longer active), but the failure
  * must not vanish silently: when no composer is on screen to render its
@@ -66,7 +66,7 @@
  *
  * The pill says what the session is doing, not which thread it belongs to, so
  * nothing here resolves the owning conversation row. Only `conversationId`
- * matters, and only to decide whether the state word navigates.
+ * matters, and only to decide whether the band's middle navigates.
  */
 
 import { useCallback } from "react";

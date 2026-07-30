@@ -69,17 +69,17 @@ const endButton = () =>
 const navButton = () =>
   screen.queryByRole("button", { name: "Go to voice session thread" });
 
-describe("VoiceSessionPill: state word", () => {
-  test("paints the label and announces it from the same node", () => {
+describe("VoiceSessionPill: state announcement", () => {
+  test("paints no words: the band is the readout", () => {
     renderPill();
     const label = screen.getByText("Working on App…");
-    // One node, not a visible copy plus an sr-only one: a screen reader must
-    // announce the state once per change, not twice.
-    expect(label.className).not.toContain("sr-only");
+    // The state reaches assistive tech only. A word over the band competed
+    // with the motion and gave the surface one more thing to read.
+    expect(label.className).toContain("sr-only");
     expect(label.getAttribute("aria-live")).toBe("polite");
   });
 
-  test("muted replaces the state label", () => {
+  test("muted is announced in place of the state", () => {
     renderPill({ muted: true });
     expect(screen.getByText("Muted")).toBeTruthy();
     expect(screen.queryByText("Working on App…")).toBeNull();
@@ -202,8 +202,8 @@ describe("VoiceSessionPill: no manual send", () => {
   });
 
   test("the surface holds the room's control set, and nothing else", () => {
-    // The two mutes (one per direction of the conversation) with the state
-    // word between them, which is also the way back to the thread.
+    // The two mutes (one per direction of the conversation) with the band
+    // between them, which is also the way back to the thread.
     renderPill({ state: "listening" });
     const names = screen
       .getAllByRole("button")
@@ -251,7 +251,7 @@ describe("VoiceSessionPill: end control", () => {
 });
 
 describe("VoiceSessionPill: navigation", () => {
-  test("the state word carries the tap and fires onNavigate only", () => {
+  test("the band's middle carries the tap and fires onNavigate only", () => {
     const { onNavigate, onToggleOutputMute, onEnd } = renderPill();
     fireEvent.click(navButton()!);
     expect(onNavigate).toHaveBeenCalledTimes(1);
@@ -259,11 +259,12 @@ describe("VoiceSessionPill: navigation", () => {
     expect(onEnd).not.toHaveBeenCalled();
   });
 
-  test("the state word stays inert (not a button) without onNavigate", () => {
+  test("the band's middle stays inert (not a button) without onNavigate", () => {
     // A session with no conversation yet has nowhere to go, so the surface must
     // not ship a dead target.
     renderPill({ onNavigate: undefined });
     expect(navButton()).toBeNull();
+    // The state is still announced; only the tap target goes.
     expect(screen.getByText("Working on App…")).toBeTruthy();
   });
 });

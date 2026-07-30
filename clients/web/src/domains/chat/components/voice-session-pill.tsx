@@ -4,10 +4,16 @@
  * owns store wiring and visibility rules.
  *
  * It carries the minimized composer block's treatment at pill scale: painted in
- * the room's own background color, the mesh band filling it, the state word in
- * the middle, and the controls quiet at the edges. Room, minimized block and
- * pill are then one surface at three sizes, so a session moving between them
- * reads as the same thing resizing rather than three different widgets.
+ * the room's own background color, the mesh band filling it, and the controls
+ * quiet at the edges. Room, minimized block and pill are then one surface at
+ * three sizes, so a session moving between them reads as the same thing
+ * resizing rather than three different widgets.
+ *
+ * The band is the whole readout, inked the way the room inks its two: the user
+ * lifts a pale sheet off the floor while the mic is live, the assistant answers
+ * in a darker one, and in silence the floor is empty. Nothing is painted over
+ * it, so the surface says what it is doing by moving; the state string reaches
+ * assistive tech through an `sr-only` live region instead.
  *
  * Two layouts:
  *
@@ -24,10 +30,10 @@
  * avatar query settles there is no paint and the surface holds `--surface-lift`,
  * so it changes color once instead of flashing through the ambient dark.
  *
- * The state word is the middle of the surface and carries the return-to-thread
- * tap: the largest target for the most likely action. It is a `button` only
- * when `onNavigate` is supplied: a session not yet attached to a conversation
- * has nowhere to go, so the surface never ships a dead target.
+ * The middle of the surface carries the return-to-thread tap: the largest
+ * target for the most likely action. It is a `button` only when `onNavigate` is
+ * supplied: a session not yet attached to a conversation has nowhere to go, so
+ * the surface never ships a dead target.
  *
  * Controls are the same quiet pair the minimized block uses, one per edge: mute
  * the mic on the left, and on the right the stop slot (■, present only while a
@@ -71,9 +77,10 @@ import {
 const SILENT_AMPLITUDE = () => 0;
 
 /**
- * Pill width. Wide enough for the state word between the two control clusters,
- * narrow enough that the header's centre title keeps a readable share of the
- * row (the centre zone is the only one that gives, see `ChatLayoutHeader`).
+ * Pill width. Wide enough for the band to read as a band between the two
+ * control clusters, narrow enough that the header's centre title keeps a
+ * readable share of the row (the centre zone is the only one that gives, see
+ * `ChatLayoutHeader`).
  */
 const PILL_WIDTH_CLASS = "w-56";
 
@@ -83,8 +90,8 @@ const ROW_HEIGHT_CLASS = "h-11";
 export interface VoiceSessionPillProps {
   /**
    * The session's activity label (e.g. "Listening…", see
-   * `LIVE_VOICE_STATE_LABELS`). Painted in the middle of the surface, and
-   * announced on change: the label element is itself the live region.
+   * `LIVE_VOICE_STATE_LABELS`). Not painted: announced to assistive tech
+   * through an `sr-only` live region, since the surface is wordless.
    */
   primaryLabel: string;
   state: LiveVoiceSessionState;
@@ -111,9 +118,9 @@ export interface VoiceSessionPillProps {
   /** End the voice session. */
   onEnd: () => void;
   /**
-   * Navigate to the owning thread. Turns the state word into the tap target;
-   * omitted when the session has no conversation to return to, leaving the
-   * word inert rather than a dead button.
+   * Navigate to the owning thread. Turns the band's middle into the tap
+   * target; omitted when the session has no conversation to return to, leaving
+   * that area inert rather than a dead button.
    */
   onNavigate?: () => void;
   /**
@@ -160,8 +167,8 @@ export function VoiceSessionPill({
   const ink = replying ? BAND_VOICE.responding : BAND_VOICE.listening;
 
   // The band fills the whole surface rather than sitting in a column of its
-  // own, so the color and the motion read as one thing. Behind the controls and
-  // the state word, which is why it is first and inert.
+  // own, so the color and the motion read as one thing. It sits behind the
+  // controls, which is why it is first and inert.
   const band = (
     <div
       aria-hidden
@@ -184,18 +191,6 @@ export function VoiceSessionPill({
         tuning={{ ...MESH_INLINE_TUNING, opacityKnee: ink.opacityKnee }}
       />
     </div>
-  );
-
-  // The state word doubles as the live region: one node, so a screen reader
-  // announces the state once per change rather than reading a visible copy and
-  // an `sr-only` one.
-  const stateWord = (
-    <span
-      aria-live="polite"
-      className="truncate text-sm font-medium text-[var(--room-fg-muted,var(--content-secondary))]"
-    >
-      {label}
-    </span>
   );
 
   return (
@@ -242,23 +237,26 @@ export function VoiceSessionPill({
         )}
       />
 
-      {/* The state word is the surface's largest target, so it carries the
-          return-to-thread tap, and is a `button` only when there is a thread to
-          return to. */}
+      {/* The middle of the surface is the band and nothing else, and it is the
+          largest target, so it carries the return-to-thread tap. A `button`
+          only when there is a thread to return to, so the surface never ships
+          a dead target. */}
       {onNavigate ? (
         <button
           type="button"
           onClick={onNavigate}
           aria-label="Go to voice session thread"
-          className="relative flex min-w-0 flex-1 cursor-pointer items-center justify-center self-stretch rounded-full hover:bg-[var(--room-wash,var(--surface-hover))]"
-        >
-          {stateWord}
-        </button>
+          className="relative min-w-0 flex-1 cursor-pointer self-stretch rounded-full hover:bg-[var(--room-wash,var(--surface-hover))]"
+        />
       ) : (
-        <div className="relative flex min-w-0 flex-1 items-center justify-center">
-          {stateWord}
-        </div>
+        <div className="relative min-w-0 flex-1" />
       )}
+
+      {/* The surface paints no words, so the state reaches assistive tech
+          here. Announced on change, like the minimized block's. */}
+      <span aria-live="polite" className="sr-only">
+        {label}
+      </span>
 
       <div className="relative flex shrink-0 items-center gap-1">
         {/* Mute the assistant, the room's own pairing for the mic mute: one
