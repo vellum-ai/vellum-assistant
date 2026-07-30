@@ -33,6 +33,11 @@ import {
   MAX_INGEST_PAGES_PER_CALL,
 } from "../substrate/ingest.js";
 
+// Re-exported so IPC clients (the `assistant memory ingest` CLI) can chunk
+// their input to the same cap the route enforces, without reaching past this
+// route module into the substrate.
+export { MAX_INGEST_PAGES_PER_CALL };
+
 const MemoryIngestParamsSchema = z.object({
   /** Pages to ingest; `content` is the full page markdown (frontmatter + body). */
   pages: z
