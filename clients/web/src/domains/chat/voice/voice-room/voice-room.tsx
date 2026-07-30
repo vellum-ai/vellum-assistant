@@ -161,9 +161,20 @@ export function VoiceRoom({
  * animation short. Radix therefore owns the entrance (its `data-[state=open]`
  * slide-up) and Motion owns the exit.
  *
- * Radix's own dismissals, Escape and a tap on the overlay, minimize rather than
- * end: the sheet is the lesser dismissal on mobile exactly as it is on desktop,
- * and the session keeps running behind the composer's voice bar.
+ * Non-modal, which is the whole point of resting below the header rather than
+ * covering it: the thread header stays lit and usable, matching the desktop
+ * panel. That means suppressing three of Radix's modal reflexes, all of which
+ * would otherwise contradict the design:
+ *
+ * - the dimming overlay, which greys out the header the sheet deliberately
+ *   leaves showing. Radix drops this on its own once `modal` is false,
+ * - the focus trap and pointer blocking, which would leave that header looking
+ *   available while being inert,
+ * - dismiss-on-outside-interaction, which would collapse the room the moment
+ *   the user reached for the header they can now see.
+ *
+ * Escape is therefore left to the room's own handler, shared with the other
+ * variants, rather than Radix's, so one keypress is one minimize.
  */
 function VoiceRoomSheet({
   headerBottom,
@@ -174,7 +185,7 @@ function VoiceRoomSheet({
   children: ReactNode;
 }) {
   return (
-    <BottomSheet.Root open onOpenChange={minimizeVoiceRoom}>
+    <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
       <BottomSheet.Content
         // The room is a surface in its own right: a full-bleed color fill and
         // bands that must reach the sheet's rounded corners.
@@ -183,6 +194,8 @@ function VoiceRoomSheet({
         // menu sized to its rows; it fills everything between the header and
         // the bottom edge.
         className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
         style={
           { "--voice-sheet-top": `${headerBottom}px` } as CSSProperties
         }
@@ -292,14 +305,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // It fires even when the composer textarea (or any other focused element)
   // still holds focus as the room opens, so it is intentionally not guarded
   // by the event target.
-  // Skipped for the sheet: Radix owns Escape there, and its handler already
-  // routes to the same minimize through `onOpenChange`. Two handlers would
-  // both fire on one keypress.
+  // Every variant, the sheet included: the sheet is non-modal, so it suppresses
+  // Radix's own Escape handling and leaves the key to this one handler. One
+  // keypress, one minimize, same behavior on every surface.
   const sheet = variant === "sheet";
   useEffect(() => {
-    if (sheet) {
-      return;
-    }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -308,7 +318,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [sheet]);
+  }, []);
 
   const fullscreen = variant === "fullscreen";
 

@@ -572,20 +572,48 @@ describe("VoiceRoom: mobile sheet", () => {
     expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("0px");
   });
 
-  test("Escape minimizes exactly once, and does not end the session", () => {
-    // Radix owns Escape for the sheet, so the room's own window handler stands
-    // down. Both firing would be two minimizes for one keypress.
+  test("Escape minimizes, and does not end the session", () => {
     const removeHeader = mountHeader();
     startOwnedSession("listening");
     render(<VoiceRoom variant="sheet" />);
 
     act(() => {
-      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.keyDown(window, { key: "Escape" });
     });
 
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(controls.stop).not.toHaveBeenCalled();
+    removeHeader();
+  });
+
+  // The sheet rests below the thread header so that header stays usable. All
+  // three of Radix's modal reflexes would contradict that: the dim greys the
+  // header out, the focus trap makes it inert while still looking available,
+  // and dismiss-on-outside collapses the room the moment the user reaches for
+  // it.
+  test("is non-modal, so the header above it stays live", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    // Radix marks the page inert for modal dialogs only.
+    expect(document.body.getAttribute("aria-hidden")).toBeNull();
+    expect(sheet.getAttribute("data-state")).toBe("open");
+    removeHeader();
+  });
+
+  test("does not dim the page behind it", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    // Radix renders no overlay at all once `modal` is false, so there is
+    // nothing to grey out the thread header the sheet rests below.
+    expect(
+      document.querySelector('[data-slot="bottom-sheet-overlay"]'),
+    ).toBeNull();
     removeHeader();
   });
 });
