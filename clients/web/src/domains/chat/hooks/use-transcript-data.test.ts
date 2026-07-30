@@ -3,7 +3,8 @@
  * balance exhausted, an open conversation gets the card at the transcript
  * tail, a fresh conversation does not (the empty state owns the card there),
  * an in-flight turn suppresses the card until it settles, and a just-failed
- * turn's substituted card is never doubled. The projection
+ * turn's substituted card is never doubled. The flag also gates the per-row
+ * card substitution for tagged provider-error rows. The projection
  * itself (`buildTranscriptItems`) is real; only the two chat stores the hook
  * reads are stubbed inert.
  */
@@ -130,5 +131,28 @@ describe("useTranscriptData proactive credits upsell", () => {
     );
     expect(cards).toHaveLength(1);
     expect(cards[0]!.key).toBe("credits-upsell-m2");
+  });
+
+  test("a tagged provider-error row renders as a plain message while the balance is not exhausted", () => {
+    // Gated/self-hosted contexts leave the billing hook inert and a top-up
+    // clears the flag; in both, the persisted row must keep its visible
+    // historical bubble instead of substituting a card that could render
+    // nothing.
+    const errorRow: DisplayMessage = {
+      ...makeMessage("m2", "assistant", "I hit a snag: your credits ran out."),
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
+    };
+    const { result } = setup(
+      [makeMessage("m1", "user", "Hello"), errorRow],
+      false,
+    );
+
+    expect(result.current.transcriptItems.map((i) => i.kind)).toEqual([
+      "message",
+      "message",
+    ]);
   });
 });

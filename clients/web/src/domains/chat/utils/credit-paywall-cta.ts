@@ -1,17 +1,15 @@
-export type CreditPaywallCtaMode =
-  "add-credits-free" | "add-credits-paid" | "upgrade";
+export type CreditPaywallCtaMode = "add-credits" | "upgrade";
 
 /**
  * Upgrade CTA shows ONLY in the experiment upgrade arm AND for a free-plan
- * org. Everything else gets Add Credits, whose copy differs for free vs paid
- * orgs; an unknown/unresolved plan / unhydrated flags count as paid.
+ * org; an unknown/unresolved plan / unhydrated flags count as paid. Everything
+ * else gets Add Credits.
  */
 export function resolveCreditPaywallCta(args: {
   isUpgradeArm: boolean;
   isFreePlan: boolean | undefined;
 }): CreditPaywallCtaMode {
-  if (args.isUpgradeArm && args.isFreePlan === true) {
-    return "upgrade";
-  }
-  return args.isFreePlan === true ? "add-credits-free" : "add-credits-paid";
+  return args.isUpgradeArm && args.isFreePlan === true
+    ? "upgrade"
+    : "add-credits";
 }

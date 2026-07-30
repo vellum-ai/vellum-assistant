@@ -45,6 +45,9 @@ export interface UseTranscriptDataParams {
    * conversations; empty conversations surface the card through the
    * empty-state slots instead. Suppressed while a turn is in flight
    * (`turnActive`) so the card never sits under the live progress indicator.
+   * Also gates the substitution of credits-exhausted provider-error rows:
+   * tagged rows render as the card only while the balance is currently
+   * exhausted, and as plain historical bubbles otherwise.
    */
   creditsExhausted: boolean;
 }
@@ -122,6 +125,7 @@ export function useTranscriptData({
         thinkingLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
+        creditsExhausted,
         // The proactive card is an open-conversation surface: with no
         // messages the chat renders the empty state (which mounts its own
         // card), not the transcript. In-flight turns suppress it so a credit

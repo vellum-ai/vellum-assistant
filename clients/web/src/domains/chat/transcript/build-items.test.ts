@@ -645,9 +645,13 @@ describe("buildTranscriptItems", () => {
 
   // ---------------------------------------------------------------------------
   // Provider-error rows: credits-exhausted substitution
+  //
+  // The substitution requires the live `creditsExhausted` flag alongside the
+  // persisted row tag, so gated/self-hosted contexts (inert billing hook) and
+  // recovered balances keep the plain historical bubble.
   // ---------------------------------------------------------------------------
 
-  test("credits-exhausted provider-error rows emit a creditsUpsell item instead of a message row", () => {
+  test("credits-exhausted provider-error rows emit a creditsUpsell item while the balance is exhausted", () => {
     const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     const errorRow = makeMessage({
       id: "m2",
@@ -662,6 +666,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: [user, errorRow],
+      creditsExhausted: true,
     });
 
     expect(items).toHaveLength(2);
@@ -689,6 +694,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: [errorRow],
+      creditsExhausted: true,
     });
 
     expect(items).toHaveLength(1);
@@ -710,6 +716,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: [errorRow],
+      creditsExhausted: true,
     });
 
     expect(items).toHaveLength(1);
@@ -741,6 +748,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: folded,
+      creditsExhausted: true,
     });
 
     expect(items).toHaveLength(2);
@@ -768,6 +776,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: [errorRow],
+      creditsExhausted: true,
     });
 
     expect(items).toHaveLength(1);
@@ -804,13 +813,46 @@ describe("buildTranscriptItems", () => {
     const first = buildTranscriptItems({
       ...emptyInput(),
       messages: [errorRow],
+      creditsExhausted: true,
     });
     const second = buildTranscriptItems({
       ...emptyInput(),
       messages: [errorRow],
+      creditsExhausted: true,
     });
 
     expect(second[0]).toBe(first[0]!);
+  });
+
+  test("tagged rows keep the normal message rendering while the balance is not exhausted", () => {
+    // Covers both a topped-up balance and contexts where the billing hook is
+    // inert (self-hosted/gated assistants, no platform session): the
+    // persisted assistant-voice text renders as a plain historical bubble
+    // instead of a live-looking card the context cannot act on.
+    const errorRow = makeMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("I hit a snag: your credits ran out."),
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
+    });
+
+    for (const creditsExhausted of [false, undefined]) {
+      const items = buildTranscriptItems({
+        ...emptyInput(),
+        messages: [errorRow],
+        creditsExhausted,
+      });
+
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({
+        kind: "message",
+        key: "m1",
+        message: errorRow,
+      });
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -874,6 +916,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: [user, errorRow],
+      creditsExhausted: true,
       appendCreditsUpsell: true,
     });
 
@@ -905,6 +948,7 @@ describe("buildTranscriptItems", () => {
       ...emptyInput(),
       messages: [user, errorRow],
       showOnboardingChoice: true,
+      creditsExhausted: true,
       appendCreditsUpsell: true,
     });
 
@@ -931,6 +975,7 @@ describe("buildTranscriptItems", () => {
       ...emptyInput(),
       messages: [errorRow],
       turnActive: true,
+      creditsExhausted: true,
       appendCreditsUpsell: true,
     });
 
@@ -957,6 +1002,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: [errorRow, later],
+      creditsExhausted: true,
       appendCreditsUpsell: true,
     });
 
