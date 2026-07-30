@@ -26,6 +26,7 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { getChannelBindingDisplayText } from "@/domains/chat/utils/channel-conversation-display";
 import { getChannelLabel } from "@/utils/channel-presentation";
 import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
+import { ConversationActivityPill } from "@/domains/chat/components/conversation-activity-pill";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { InChatPluginPill } from "@/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill";
 import { useSupportsInchatPluginEdit } from "@/lib/backwards-compat/use-supports-inchat-plugin-edit";
@@ -178,6 +179,9 @@ export function useChatHeaderRegistration({
           refreshKey={assetsRefreshKey}
           onOpenApp={handleOpenAppFromChat}
           onOpenDocument={handleOpenDocument}
+        />
+        <ConversationActivityPill
+          conversationId={activeConversation.conversationId}
         />
         {supportsPluginPill ? (
           <InChatPluginPill

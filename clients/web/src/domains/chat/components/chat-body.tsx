@@ -437,8 +437,9 @@ export function ChatBody({
       {!isEmptyState && activeProcessOverlaysSlot && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
           {/* Registry-driven row of active background-process overlays. Order is
-              owned by PROCESS_KINDS (subagents, acp runs, workflows, background
-              tasks); each overlay self-gates on its own active ids. */}
+              owned by OVERLAY_PROCESS_KINDS (workflows, background tasks);
+              each overlay self-gates on its own active ids. Subagents and ACP
+              runs are not here — they live in the header Activity control. */}
           {activeProcessOverlaysSlot}
         </div>
       )}

@@ -58,10 +58,8 @@ import { recordCommit } from "@/lib/commit-pressure";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
-import { PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
+import { OVERLAY_PROCESS_KINDS } from "@/domains/chat/process-registry/registry";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
-import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
-import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
 import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
@@ -213,32 +211,33 @@ export type ChatRouteContentProps = ChatMainPanelProps;
  * active conversation internally, so the hooks are called here at the
  * orchestrator level (where the conversation lives in context). They must be
  * called explicitly per-kind — the Rules of Hooks forbid iterating
- * `PROCESS_KINDS` with hooks — and the results are keyed by `descriptor.kind`,
- * so the overlay row order follows `PROCESS_KINDS` without positional coupling.
+ * `OVERLAY_PROCESS_KINDS` with hooks — and the results are keyed by
+ * `descriptor.kind`, so the overlay row order follows the constant without
+ * positional coupling.
+ *
+ * Only the kinds in `OVERLAY_PROCESS_KINDS` are here: subagents and ACP runs
+ * moved to the header's `ConversationActivityPill` and no longer float over the
+ * transcript.
  *
  * `hasAny` lets the caller omit the row entirely when nothing is active, so the
  * absolutely-positioned container never mounts empty; the overlays themselves
  * also self-gate on their own ids.
  */
 function useActiveProcessSlots() {
-  const subagentIds = SUBAGENT_DESCRIPTOR.useActiveIds();
-  const acpRunIds = ACP_RUN_DESCRIPTOR.useActiveIds();
   const workflowIds = WORKFLOW_DESCRIPTOR.useActiveIds();
   const backgroundTaskIds = BACKGROUND_TASK_DESCRIPTOR.useActiveIds();
   // Keyed by `descriptor.kind` (not array position) so reordering
-  // `PROCESS_KINDS` can't silently feed an overlay the wrong kind's ids.
-  const idsByKind: Record<ProcessKind, string[]> = {
-    subagent: subagentIds,
-    "acp-run": acpRunIds,
+  // `OVERLAY_PROCESS_KINDS` can't silently feed an overlay the wrong kind's ids.
+  const idsByKind: Partial<Record<ProcessKind, string[]>> = {
     workflow: workflowIds,
     "background-task": backgroundTaskIds,
   };
   const hasAny = Object.values(idsByKind).some((ids) => ids.length > 0);
-  const overlays = PROCESS_KINDS.map((descriptor) => (
+  const overlays = OVERLAY_PROCESS_KINDS.map((descriptor) => (
     <ActiveProcessOverlay
       key={descriptor.kind}
       descriptor={descriptor}
-      ids={idsByKind[descriptor.kind]}
+      ids={idsByKind[descriptor.kind] ?? []}
     />
   ));
   return { overlays, hasAny };

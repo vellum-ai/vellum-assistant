@@ -18,3 +18,21 @@ export const PROCESS_KINDS: BackgroundProcessDescriptor[] = [
   WORKFLOW_DESCRIPTOR,
   BACKGROUND_TASK_DESCRIPTOR,
 ];
+
+/**
+ * The kinds that still render a floating overlay above the transcript.
+ *
+ * Subagents and ACP runs left: their doorway is now the header's
+ * `ConversationActivityPill`, which covers finished sessions too and doesn't
+ * sit on top of the transcript (the floating subagent banner covered incoming
+ * messages — LUM-2800). Two entry points for one process is worse than one, so
+ * the overlay yields rather than duplicating it.
+ *
+ * Workflows and background tasks keep theirs: the Activity control does not
+ * cover them, so retiring their overlay too would leave them with no ambient
+ * surface at all.
+ */
+export const OVERLAY_PROCESS_KINDS: BackgroundProcessDescriptor[] = [
+  WORKFLOW_DESCRIPTOR,
+  BACKGROUND_TASK_DESCRIPTOR,
+];
