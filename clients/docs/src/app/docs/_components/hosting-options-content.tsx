@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -321,7 +320,7 @@ export function HostingOptionsContent() {
           </SectionHeading>
           <div className="grid gap-4 md:grid-cols-3">
             <Link
-              href={"/docs/hosting-options/cloud-hosting" as Route}
+              href={"/docs/hosting-options/cloud-hosting"}
               className="rounded-xl border border-stone-200 p-5 no-underline transition-colors hover:border-stone-300 dark:border-moss-600/50 dark:hover:border-moss-600"
             >
               <h3 className="mb-2 font-sans text-lg font-semibold text-stone-900 dark:text-stone-100">
@@ -334,7 +333,7 @@ export function HostingOptionsContent() {
             </Link>
 
             <Link
-              href={"/docs/hosting-options/local-hosting" as Route}
+              href={"/docs/hosting-options/local-hosting"}
               className="rounded-xl border border-stone-200 p-5 no-underline transition-colors hover:border-stone-300 dark:border-moss-600/50 dark:hover:border-moss-600"
             >
               <h3 className="mb-2 font-sans text-lg font-semibold text-stone-900 dark:text-stone-100">
@@ -347,7 +346,7 @@ export function HostingOptionsContent() {
             </Link>
 
             <Link
-              href={"/docs/hosting-options/advanced-options" as Route}
+              href={"/docs/hosting-options/advanced-options"}
               className="rounded-xl border border-stone-200 p-5 no-underline transition-colors hover:border-stone-300 dark:border-moss-600/50 dark:hover:border-moss-600"
             >
               <h3 className="mb-2 font-sans text-lg font-semibold text-stone-900 dark:text-stone-100">

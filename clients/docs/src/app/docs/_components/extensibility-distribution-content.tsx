@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -30,7 +29,7 @@ const MARKETPLACE_URL =
 const CLAUDE_MARKETPLACE_URL =
   "https://code.claude.com/docs/en/plugin-marketplaces";
 
-const PLUGINS_PAGE_URL = "/docs/extensibility/plugins" as Route;
+const PLUGINS_PAGE_URL = "/docs/extensibility/plugins";
 
 type ManifestField = {
   name: string;

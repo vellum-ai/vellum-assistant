@@ -1,4 +1,4 @@
-import type { Metadata, Route } from "next";
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { type ReactNode } from "react";
@@ -73,7 +73,7 @@ export default function DocsLayout({ children }: DocsLayoutProps) {
                     Docs
                   </Link>
                   <Link
-                    href={"/docs/releases" as Route}
+                    href={"/docs/releases"}
                     className="docs-header-link text-sm font-medium no-underline"
                   >
                     Releases

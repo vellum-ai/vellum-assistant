@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -28,7 +27,7 @@ const TOC_ITEMS = [
 const linkClass =
   "font-semibold text-emerald-700 underline hover:text-emerald-800";
 
-const APPS_PAGE_URL = "/docs/extensibility/apps" as Route;
+const APPS_PAGE_URL = "/docs/extensibility/apps";
 
 const PLUGIN_API_URL =
   "https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api";

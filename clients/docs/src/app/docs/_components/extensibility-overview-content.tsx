@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -28,11 +27,11 @@ const linkClass =
 const PLUGIN_API_URL =
   "https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api";
 
-const HOOKS_PAGE_URL = "/docs/extensibility/hooks" as Route;
-const SKILLS_PAGE_URL = "/docs/extensibility/skills" as Route;
-const TOOLS_PAGE_URL = "/docs/extensibility/tools" as Route;
-const ROUTES_PAGE_URL = "/docs/extensibility/routes" as Route;
-const APPS_PAGE_URL = "/docs/extensibility/apps" as Route;
+const HOOKS_PAGE_URL = "/docs/extensibility/hooks";
+const SKILLS_PAGE_URL = "/docs/extensibility/skills";
+const TOOLS_PAGE_URL = "/docs/extensibility/tools";
+const ROUTES_PAGE_URL = "/docs/extensibility/routes";
+const APPS_PAGE_URL = "/docs/extensibility/apps";
 
 export function ExtensibilityOverviewContent() {
   return (

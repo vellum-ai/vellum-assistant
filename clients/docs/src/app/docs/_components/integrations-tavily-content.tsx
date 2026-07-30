@@ -1,10 +1,8 @@
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
-import { getIntegrationBySlug } from "@/lib/integrations-data";
 
 const TOC_ITEMS = [
   { id: "what-it-does", label: "What it does", level: 2 as const },
@@ -24,12 +22,10 @@ const TOC_ITEMS = [
  * connect Tavily" entry point.
  */
 export function IntegrationsTavilyContent() {
-  const integration = getIntegrationBySlug("tavily");
-
   return (
     <>
       <DocsContent
-        title={integration?.name ?? "Tavily"}
+        title="Tavily"
         breadcrumb="Docs / Integrations / Tavily"
         subtitle="Real-time web search built for AI agents. Use Tavily as the web search provider in your Vellum assistant for citation-grade, relevance-scored results."
       >
@@ -156,7 +152,7 @@ assistant config set services.web-search.provider tavily`}
               If Tavily is unavailable, the assistant falls through the rest of the web search
               chain (Perplexity, Brave, then Provider Native). See the{" "}
               <Link
-                href={"/docs/key-concepts/web-search" as Route}
+                href={"/docs/key-concepts/web-search"}
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Web Search
@@ -224,7 +220,7 @@ assistant config set services.web-search.provider tavily`}
             </li>
             <li>
               <Link
-                href={"/docs/key-concepts/web-search" as Route}
+                href={"/docs/key-concepts/web-search"}
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Vellum Web Search reference
