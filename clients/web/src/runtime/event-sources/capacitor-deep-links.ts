@@ -1,3 +1,5 @@
+import { Capacitor } from "@capacitor/core";
+
 import { publish } from "@/lib/event-bus";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import {
@@ -32,9 +34,13 @@ export function publishCapacitorDeepLinksSource(): () => void {
       handleUrl(url),
     );
     try {
-      const launch = await App.getLaunchUrl();
-      if (launch?.url) {
-        handleUrl(launch.url);
+      // iOS replays cold-launch URLs through AppDelegate. Its last URL remains
+      // cached for the process, so reading it here would deliver it twice.
+      if (Capacitor.getPlatform() === "android") {
+        const launch = await App.getLaunchUrl();
+        if (launch?.url) {
+          handleUrl(launch.url);
+        }
       }
       return listener;
     } catch (error) {

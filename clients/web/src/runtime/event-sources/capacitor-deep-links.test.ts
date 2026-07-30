@@ -6,6 +6,13 @@ mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => true,
 }));
 
+let capacitorPlatform = "ios";
+mock.module("@capacitor/core", () => ({
+  Capacitor: {
+    getPlatform: () => capacitorPlatform,
+  },
+}));
+
 let urlOpenHandler: AppUrlOpenHandler | null = null;
 let launchUrl: string | undefined;
 const addListenerMock = mock(
@@ -55,6 +62,7 @@ const flushAsyncWork = async (rounds = 4) => {
 };
 
 beforeEach(() => {
+  capacitorPlatform = "ios";
   urlOpenHandler = null;
   launchUrl = undefined;
   addListenerMock.mockClear();
@@ -67,7 +75,31 @@ beforeEach(() => {
 // `runtime/capacitor-listener.test.ts`. This suite covers only this
 // source's wiring: URL routing and its error context.
 describe("publishCapacitorDeepLinksSource", () => {
-  test("routes the launch URL when a deep link cold-starts the app", async () => {
+  test("routes the launch URL when a deep link cold-starts Android", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+    launchUrl =
+      "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2";
+    capacitorPlatform = "android";
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork(6);
+
+      expect(received).toEqual([
+        { status: "success", sessionId: "cs_test_a1B2" },
+      ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("does not replay the retained launch URL on iOS", async () => {
     const received: unknown[] = [];
     const unsubscribeBus = subscribe(
       "deeplink.billingCheckoutComplete",
@@ -80,11 +112,10 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushAsyncWork(6);
+      await flushAsyncWork();
 
-      expect(received).toEqual([
-        { status: "success", sessionId: "cs_test_a1B2" },
-      ]);
+      expect(getLaunchUrlMock).not.toHaveBeenCalled();
+      expect(received).toEqual([]);
     } finally {
       unsubscribeBus();
     }

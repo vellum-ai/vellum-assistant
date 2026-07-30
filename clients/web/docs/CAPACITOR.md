@@ -116,6 +116,7 @@ Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting t
 - **Parse via `parseOAuthCompleteDeepLink()`.** It exact-matches the scheme against the apex allow-list, rejects look-alikes (e.g. `vellum-assistant-evil://`), requires the `oauth-complete` host, and enforces a non-empty `requestId`. Adding a new scheme means adding it to the allow-list — do not loosen the matcher to a `startsWith` check.
 - **Consume via a typed window-event listener hook** that registers for the `"vellum:oauth-complete-deeplink"` event and cleans up on unmount.
 - **Pair the deep-link listener with a `browserFinished` poll fallback** when the consumer must work on builds where the listener doesn't fire (e.g. iOS dispatch hiccups, user-cancel paths). Today's UX must remain the worst case in every failure mode.
+- **Read `App.getLaunchUrl()` only on Android.** The iOS `AppDelegate` replays cold-launch URLs through `appUrlOpen`, while Capacitor retains its last iOS URL for the process. Reading it again would duplicate the deep link.
 - **`<scheme>://voice?mode=new|resume[&prompt=…]`** is the start-voice contract (`parseStartVoiceDeepLink` → `deeplink.startVoice`). Siri, the Action Button, Control Center, the Live Activity's `widgetURL`, and a link typed into Safari all converge on it — see [`clients/ios/docs/NATIVE_VOICE.md` § The deep-link contract](../../../clients/ios/docs/NATIVE_VOICE.md#the-deep-link-contract). `prompt` is untrusted free-form text and is bounded and sanitized *in the parser*, not at the consumer.
 
 References:
