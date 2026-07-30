@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { SessionCornerAction } from "@/domains/onboarding/components/session-corner-action";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
@@ -113,6 +114,11 @@ export function HostingScreen() {
 
   return (
     <OnboardingLayout>
+      <SessionCornerAction
+        loginLoading={loginLoading}
+        onLogin={() => void login()}
+        onCancelLogin={cancelLogin}
+      />
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
       >
@@ -137,6 +143,15 @@ export function HostingScreen() {
         >
           Where do you want your assistant to live?
         </p>
+        <a
+          href={docsUrl(routes.docs.hostingOptions)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-default)]"
+          style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
+        >
+          Need help choosing?
+        </a>
 
         {loginError && (
           <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
@@ -202,15 +217,6 @@ export function HostingScreen() {
           </Button>
         </div>
 
-        <a
-          href={docsUrl(routes.docs.hostingOptions)}
-          target="_blank"
-          rel="noreferrer"
-          className="prechat-md-regular mt-5 text-body-medium-default text-[var(--content-default)] underline"
-          style={{ animation: "fadeInUp 0.5s ease-out 0.6s both" }}
-        >
-          Need help choosing?
-        </a>
         </div>
       </div>
     </OnboardingLayout>
