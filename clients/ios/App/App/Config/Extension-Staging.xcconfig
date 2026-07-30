@@ -5,6 +5,7 @@
 
 #include "Extension-Base.xcconfig"
 
+BUNDLE_DISPLAY_NAME = Vellum Staging
 BUNDLE_URL_SCHEME = vellum-assistant-staging
 PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity
 

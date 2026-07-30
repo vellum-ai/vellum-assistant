@@ -15,13 +15,20 @@
 // higher than its host app's fails to install on the OS versions the
 // app still claims to support.
 //
-// BUNDLE_URL_SCHEME is the one app-target variable each per-environment
-// extension xcconfig does restate. The Live Activity's widgetURL has to
-// deep-link into its *own* containing app, so the value must be copied
-// verbatim from the matching App*.xcconfig — a mismatch sends a Dev
-// build's island tap into the production app. It reaches Swift as the
-// VellumURLScheme Info.plist key, never as CFBundleURLTypes: an appex
-// must not register a URL type.
+// BUNDLE_URL_SCHEME and BUNDLE_DISPLAY_NAME are the two app-target
+// variables each per-environment extension xcconfig does restate, and
+// both must be copied verbatim from the matching App*.xcconfig.
+//
+// BUNDLE_URL_SCHEME: the Live Activity's widgetURL has to deep-link into
+// its *own* containing app — a mismatch sends a Dev build's island tap
+// into the production app. It reaches Swift as the VellumURLScheme
+// Info.plist key, never as CFBundleURLTypes: an appex must not register
+// a URL type.
+//
+// BUNDLE_DISPLAY_NAME: App Store Connect requires CFBundleDisplayName on
+// a widget extension and rejects the entire upload without it. Nothing
+// catches that locally — the archive builds and signs clean, and the
+// failure surfaces at the altool step in release-ios.yaml.
 //
 // The extension ships no entitlements file at all: no App Group
 // (ContentState carries only primitives across the ActivityKit
