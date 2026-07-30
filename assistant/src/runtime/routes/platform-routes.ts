@@ -571,13 +571,16 @@ async function fetchPlatformInvoicesPage(
 async function handlePlatformInvoicesList(
   args: RouteHandlerArgs,
 ): Promise<PlatformInvoicesListResponse> {
-  return await fetchPlatformInvoicesPage(args.queryParams?.starting_after, {
+  const startingAfter = args.queryParams?.starting_after;
+  return await fetchPlatformInvoicesPage(startingAfter, {
     signal: args.abortSignal,
     // The platform returns 400 for an invalid or expired starting_after
-    // cursor. The cursor is caller-supplied here, so keep that a client
-    // error instead of masking it as a 500.
-    badRequestHint:
-      "If you passed starting_after, use the id of the last invoice from the previous page.",
+    // cursor. Only a caller-supplied cursor is caller-correctable, so the
+    // hint (and the BadRequestError it triggers) applies just when one was
+    // passed; a 400 on a cursor-less request stays an InternalError.
+    badRequestHint: startingAfter
+      ? "If you passed starting_after, use the id of the last invoice from the previous page."
+      : undefined,
   });
 }
 
@@ -585,7 +588,7 @@ async function handlePlatformInvoicesList(
  * Runaway guard for the invoices_get cursor walk: 25 pages is 2,500
  * invoices at the platform's 100-per-page size.
  */
-const MAX_INVOICE_PAGES = 25;
+export const MAX_INVOICE_PAGES = 25;
 
 /**
  * Aggregate wall-clock deadline for the invoices_get cursor walk, matching
@@ -593,7 +596,7 @@ const MAX_INVOICE_PAGES = 25;
  * running long after the caller has given up, since a gateway IPC timeout
  * does not abort the request signal.
  */
-const INVOICE_WALK_DEADLINE_MS = 30_000;
+export const INVOICE_WALK_DEADLINE_MS = 30_000;
 
 function invoiceWalkTimeoutError(id: string): InternalError {
   return new InternalError(
