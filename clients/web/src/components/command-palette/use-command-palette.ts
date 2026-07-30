@@ -33,10 +33,11 @@ export interface UseCommandPaletteReturn {
   /** Server search results, grouped by category. */
   searchResults: GlobalSearchResponse | null;
   /**
-   * Term the server actually matched on (supported filters stripped),
-   * aligned with `searchResults`. Use this for match highlighting.
+   * Lexical tokens of the term the server matched on, from the daemon's
+   * own tokenizer and aligned with `searchResults`. Use these for match
+   * highlighting.
    */
-  searchTerm: string;
+  searchTokens: string[];
   open: () => void;
   close: () => void;
   toggle: () => void;
@@ -47,6 +48,7 @@ export interface UseCommandPaletteReturn {
 
 const DEBOUNCE_MS = 150;
 const MIN_QUERY_LENGTH = 2;
+const NO_TOKENS: string[] = [];
 
 /**
  * Hook managing the command palette state: open/close toggle, search query,
@@ -70,7 +72,7 @@ export function useCommandPalette({
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] =
     useState<GlobalSearchResponse | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTokens, setSearchTokens] = useState<string[]>(NO_TOKENS);
 
   const itemCountGetterRef = useRef<() => number>(() => 0);
   useLayoutEffect(() => {
@@ -106,7 +108,7 @@ export function useCommandPalette({
     setSelectedIndex(0);
     setIsSearching(false);
     setSearchResults(null);
-    setSearchTerm("");
+    setSearchTokens(NO_TOKENS);
     cancelSearch();
     onClose?.();
   }, [storeClose, cancelSearch, onClose]);
@@ -127,7 +129,7 @@ export function useCommandPalette({
       setSelectedIndex(0);
       setIsSearching(false);
       setSearchResults(null);
-      setSearchTerm("");
+      setSearchTokens(NO_TOKENS);
       cancelSearch();
     }
   }, [isOpen, cancelSearch]);
@@ -144,7 +146,7 @@ export function useCommandPalette({
       if (trimmed.length < MIN_QUERY_LENGTH || !assistantId) {
         setIsSearching(false);
         setSearchResults(null);
-        setSearchTerm("");
+        setSearchTokens(NO_TOKENS);
         return;
       }
 
@@ -163,7 +165,7 @@ export function useCommandPalette({
           .then((outcome) => {
             if (abortControllerRef.current === controller) {
               setSearchResults(outcome.results);
-              setSearchTerm(outcome.query);
+              setSearchTokens(outcome.queryTokens);
               setIsSearching(false);
             }
           })
@@ -238,7 +240,7 @@ export function useCommandPalette({
     selectedIndex,
     isSearching,
     searchResults,
-    searchTerm,
+    searchTokens,
     open,
     close,
     toggle,

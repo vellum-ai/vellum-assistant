@@ -26692,6 +26692,10 @@ paths:
                 properties:
                   query:
                     type: string
+                  queryTokens:
+                    type: array
+                    items:
+                      type: string
                   results:
                     type: object
                     properties:
@@ -26814,6 +26818,7 @@ paths:
                     additionalProperties: false
                 required:
                   - query
+                  - queryTokens
                   - results
                 additionalProperties: false
   /v1/secret:

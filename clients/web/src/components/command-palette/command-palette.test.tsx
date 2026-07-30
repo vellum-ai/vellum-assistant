@@ -117,7 +117,7 @@ describe("CommandPalette", () => {
         onClose={() => undefined}
         query="is:archived alpha"
         onQueryChange={() => undefined}
-        highlightQuery="alpha"
+        highlightTokens={["alpha"]}
         selectedIndex={0}
         sections={[
           {
@@ -149,7 +149,7 @@ describe("CommandPalette", () => {
         onClose={() => undefined}
         query="alpha beta"
         onQueryChange={() => undefined}
-        highlightQuery="alpha beta"
+        highlightTokens={["alpha", "beta"]}
         selectedIndex={0}
         sections={[
           {
@@ -181,7 +181,7 @@ describe("CommandPalette", () => {
         onClose={() => undefined}
         query="alpha"
         onQueryChange={() => undefined}
-        highlightQuery="alpha"
+        highlightTokens={["alpha"]}
         selectedIndex={0}
         sections={[
           {

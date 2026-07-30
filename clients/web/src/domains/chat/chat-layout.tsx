@@ -1037,7 +1037,7 @@ export function ChatLayout({
             onClose={commandPalette.close}
             query={commandPalette.query}
             onQueryChange={commandPalette.setQuery}
-            highlightQuery={commandPalette.searchTerm}
+            highlightTokens={commandPalette.searchTokens}
             selectedIndex={commandPalette.selectedIndex}
             sections={mergedSections}
             isSearching={commandPalette.isSearching}

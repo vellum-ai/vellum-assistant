@@ -76,10 +76,10 @@ export interface CommandPaletteProps {
   /** Update the search query. */
   onQueryChange: (value: string) => void;
   /**
-   * Term the server matched on (supported filters stripped), used to
-   * highlight matches inside result snippets.
+   * Lexical tokens of the term the server matched on, used to highlight
+   * matches inside result snippets.
    */
-  highlightQuery?: string;
+  highlightTokens?: string[];
   /** Currently selected index (flat across all sections). */
   selectedIndex: number;
   /** Sections of results to display. */
@@ -170,7 +170,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   onClose,
   query,
   onQueryChange,
-  highlightQuery,
+  highlightTokens,
   selectedIndex,
   sections,
   isSearching = false,
@@ -354,7 +354,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   title={item.title}
                   subtitle={item.subtitle}
                   snippet={item.snippet}
-                  highlightQuery={highlightQuery}
+                  highlightTokens={highlightTokens}
                   shortcutHint={useMobileLayout ? undefined : item.shortcutHint}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}

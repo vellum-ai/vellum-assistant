@@ -14,10 +14,12 @@ export type GlobalSearchResponse = SearchGlobalGetResponse["results"];
 
 /**
  * A search outcome: the results plus the term the daemon actually matched
- * on (the input with supported filters like `is:archived` stripped).
+ * on (the input with supported filters like `is:archived` stripped) and
+ * its lexical tokens from the daemon's own tokenizer.
  */
 export interface GlobalSearchOutcome {
   query: string;
+  queryTokens: string[];
   results: GlobalSearchResponse;
 }
 
@@ -34,8 +36,20 @@ const EMPTY_RESULTS: GlobalSearchResponse = {
 
 const EMPTY_OUTCOME: GlobalSearchOutcome = {
   query: "",
+  queryTokens: [],
   results: EMPTY_RESULTS,
 };
+
+/** Whitespace-token fallback for daemons that predate `queryTokens`. */
+function tokensWithFallback(
+  tokens: string[] | undefined,
+  query: string,
+): string[] {
+  if (tokens) {
+    return tokens;
+  }
+  return query.split(/\s+/).filter((token) => token.length > 0);
+}
 
 /**
  * Perform a global search across the daemon's indexed data for the given
@@ -66,7 +80,11 @@ export async function searchGlobal(
       return EMPTY_OUTCOME;
     }
 
-    return { query: data.query, results: data.results };
+    return {
+      query: data.query,
+      queryTokens: tokensWithFallback(data.queryTokens, data.query),
+      results: data.results,
+    };
   } catch (err) {
     // AbortError is expected when debounced queries supersede each other.
     if (err instanceof DOMException && err.name === "AbortError") {
