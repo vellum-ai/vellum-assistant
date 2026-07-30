@@ -11,7 +11,7 @@
  * pill beside the centre title. Electron pop-out thread windows render no
  * header at all, so `ChatLayout` mounts a third host there with
  * `variant="standalone"`, which floats the surface over the window's top-right
- * corner — a session carried to another conversation via in-window switching
+ * corner: a session carried to another conversation via in-window switching
  * (Cmd+Up/Down) must still have a visible control.
  *
  * Visibility is the exact complement of the owning-composer voice surface — the
@@ -98,11 +98,11 @@ export interface VoiceSessionPillHostProps {
    * Placement variant, all rendering nothing when there is neither an active
    * session to control nor a failure to surface.
    *
-   * - `"header"` (default) — the elongated pill, for composition into the
+   * - `"header"` (default): the elongated pill, for composition into the
    *   header's right cluster on a desktop-width window.
-   * - `"row"` — the full-bleed band a phone lays out above the thread header,
+   * - `"row"`: the full-bleed band a phone lays out above the thread header,
    *   where the header row has no width to give a pill.
-   * - `"standalone"` — floats the pill over the window's top-right corner, for
+   * - `"standalone"`: floats the pill over the window's top-right corner, for
    *   windows without a header (Electron pop-out thread windows).
    */
   variant?: "header" | "row" | "standalone";
@@ -156,7 +156,7 @@ export function VoiceSessionPillHost({
   const { visible, showFailure } = useVoiceSessionPillPresence();
 
   // The room's fill for the pill to paint itself in, plus the accent its mesh
-  // band tints itself with — both from the session assistant's avatar, so the
+  // band tints itself with. Both come from the session assistant's avatar, so the
   // pill and the room are the same surface at two sizes. Fetch-gated to a
   // visible pill; the query is shared with every other avatar consumer.
   const { paint, waveAccentHex } = useVoiceSurfacePaint(

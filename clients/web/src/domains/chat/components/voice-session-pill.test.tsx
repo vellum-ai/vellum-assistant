@@ -2,12 +2,12 @@
  * Tests for `VoiceSessionPill`.
  *
  * The pill is purely presentational, so tests drive it directly through props.
- * The embedded `VoiceMeshWaves` is a canvas + a rAF loop — inert under
+ * The embedded `VoiceMeshWaves` is a canvas plus a rAF loop, inert under
  * happy-dom, so no harness is needed here.
  *
  * The two layouts (`pill` in the header, `row` above it on a phone) are the
  * same surface at two sizes, so most behaviour is asserted once; the layout
- * describe covers only what genuinely differs — the box each one occupies.
+ * describe covers only what genuinely differs: the box each one occupies.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -66,7 +66,7 @@ const endButton = () =>
 const navButton = () =>
   screen.queryByRole("button", { name: "Go to voice session thread" });
 
-describe("VoiceSessionPill — state word", () => {
+describe("VoiceSessionPill: state word", () => {
   test("paints the label and announces it from the same node", () => {
     renderPill();
     const label = screen.getByText("Working on App…");
@@ -88,7 +88,7 @@ describe("VoiceSessionPill — state word", () => {
   });
 });
 
-describe("VoiceSessionPill — paint", () => {
+describe("VoiceSessionPill: paint", () => {
   test("fills with the room's colour and publishes its tones", () => {
     renderPill({ paint: YELLOW_PAINT });
     const style = root().getAttribute("style") ?? "";
@@ -120,7 +120,7 @@ describe("VoiceSessionPill — paint", () => {
   });
 });
 
-describe("VoiceSessionPill — layouts", () => {
+describe("VoiceSessionPill: layouts", () => {
   test("pill: capped to the header control height, as a no-drag group", () => {
     renderPill();
     expect(root().className).toContain("[-webkit-app-region:no-drag]");
@@ -139,7 +139,7 @@ describe("VoiceSessionPill — layouts", () => {
   });
 });
 
-describe("VoiceSessionPill — stop control", () => {
+describe("VoiceSessionPill: stop control", () => {
   test("hidden outside the speaking state", () => {
     for (const state of [
       "connecting",
@@ -171,7 +171,7 @@ describe("VoiceSessionPill — stop control", () => {
   });
 });
 
-describe("VoiceSessionPill — no manual send", () => {
+describe("VoiceSessionPill: no manual send", () => {
   test("offers no send control in any state", () => {
     // Turns release themselves (server VAD hands-free, auto-release in the
     // manual fallback), so a send affordance would name a no-op action and
@@ -203,7 +203,7 @@ describe("VoiceSessionPill — no manual send", () => {
   });
 });
 
-describe("VoiceSessionPill — mute toggle", () => {
+describe("VoiceSessionPill: mute toggle", () => {
   test("live: offers mute and fires onToggleMute", () => {
     const { onToggleMute } = renderPill();
     fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
@@ -218,14 +218,14 @@ describe("VoiceSessionPill — mute toggle", () => {
     expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
 
-  test("stays reachable in the row layout — a hot mic keeps a one-tap mute", () => {
+  test("stays reachable in the row layout: a hot mic keeps a one-tap mute", () => {
     const { onToggleMute } = renderPill({ layout: "row" });
     fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
     expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("VoiceSessionPill — end control", () => {
+describe("VoiceSessionPill: end control", () => {
   test("always enabled and fires onEnd", () => {
     const { onEnd, onNavigate } = renderPill({ state: "thinking" });
     const end = endButton();
@@ -236,7 +236,7 @@ describe("VoiceSessionPill — end control", () => {
   });
 });
 
-describe("VoiceSessionPill — navigation", () => {
+describe("VoiceSessionPill: navigation", () => {
   test("the state word carries the tap and fires onNavigate only", () => {
     const { onNavigate, onStop, onEnd } = renderPill();
     fireEvent.click(navButton()!);
@@ -246,7 +246,7 @@ describe("VoiceSessionPill — navigation", () => {
   });
 
   test("the state word stays inert (not a button) without onNavigate", () => {
-    // A session with no conversation yet has nowhere to go — the surface must
+    // A session with no conversation yet has nowhere to go, so the surface must
     // not ship a dead target.
     renderPill({ onNavigate: undefined });
     expect(navButton()).toBeNull();

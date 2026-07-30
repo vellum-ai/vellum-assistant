@@ -2,8 +2,8 @@
  * Tests for `ChatLayoutHeader`'s right-cluster composition.
  *
  * The header is presentational, so tests drive it through props. The cluster
- * renders its occupants inline in one order — leading slot, search, the route's
- * own slot — and nothing folds them away: an off-conversation voice session
+ * renders its occupants inline in one order (leading slot, search, the route's
+ * own slot) and nothing folds them away: an off-conversation voice session
  * takes the row above the header on a phone rather than a seat in it.
  */
 

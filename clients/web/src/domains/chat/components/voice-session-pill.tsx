@@ -1,6 +1,6 @@
 /**
  * Live-voice session surface for when the session is off its own conversation
- * (Light 736 desktop, Light 743 mobile). Presentational — the mounting host
+ * (Light 736 desktop, Light 743 mobile). Presentational: the mounting host
  * owns store wiring and visibility rules.
  *
  * It carries the minimized composer block's treatment at pill scale: painted in
@@ -11,10 +11,10 @@
  *
  * Two layouts:
  *
- * - `"pill"` — an elongated pill in the header's right cluster. Height is
- *   capped at `h-8` (32px): the header's Electron title-bar row is 44px
+ * - `"pill"`: an elongated pill in the header's right cluster. Height is
+ *   capped at `h-8` (32px), because the header's Electron title-bar row is 44px
  *   min-height with 32px controls, so the pill must never stretch it.
- * - `"row"` — a full-bleed band above the thread header on a phone, where the
+ * - `"row"`: a full-bleed band above the thread header on a phone, where the
  *   header has no width to give. It is laid out in flow and pushes the page
  *   down rather than overlaying it, so a live session hides nothing.
  *
@@ -25,13 +25,13 @@
  * so it changes color once instead of flashing through the ambient dark.
  *
  * The state word is the middle of the surface and carries the return-to-thread
- * tap — the largest target for the most likely action. It is a `button` only
+ * tap: the largest target for the most likely action. It is a `button` only
  * when `onNavigate` is supplied: a session not yet attached to a conversation
  * has nowhere to go, so the surface never ships a dead target.
  *
  * Controls are the same quiet pair the minimized block uses, one per edge: mute
  * the mic on the left, and on the right the stop slot (■, present only while a
- * reply is playing) and end. Neither layout offers a manual "send now" — turns
+ * reply is playing) and end. Neither layout offers a manual "send now": turns
  * release themselves (server VAD hands-free, auto-release in the manual
  * fallback), so a persistent send would advertise an action the user never
  * needs to take. ■ earns its place because interrupting a reply in progress has
@@ -39,12 +39,10 @@
  *
  * The pill layout lives inside `ChatLayoutHeader`, which doubles as the
  * Electron macOS title bar (`-webkit-app-region: drag`). The root opts the
- * whole surface out via `no-drag` so every child — including the inert band —
+ * whole surface out via `no-drag` so every child (including the inert band)
  * stays clickable, matching the header's own treatment of its interactive
  * children.
  */
-
-import type { CSSProperties } from "react";
 
 import { Mic, MicOff, Square, TriangleAlert, X } from "lucide-react";
 
@@ -65,17 +63,16 @@ import {
   voiceSurfaceTheme,
   type VoiceSurfacePaint,
 } from "@/domains/chat/voice/voice-room/voice-surface-paint";
-import { AVATAR_ACCENT_CSS_VAR } from "@/hooks/use-avatar-accent-var";
 
 // While the mic is not live (muted, assistant speaking) the band reads a
-// steady zero and settles into its quiet drift — the room's own resting
-// listening state — instead of freezing.
+// steady zero and settles into its quiet drift, the room's own resting
+// listening state, instead of freezing.
 const SILENT_AMPLITUDE = () => 0;
 
 /**
  * Pill width. Wide enough for the state word between the two control clusters,
  * narrow enough that the header's centre title keeps a readable share of the
- * row — the centre zone is the only one that gives (see `ChatLayoutHeader`).
+ * row (the centre zone is the only one that gives, see `ChatLayoutHeader`).
  */
 const PILL_WIDTH_CLASS = "w-56";
 
@@ -84,7 +81,7 @@ const ROW_HEIGHT_CLASS = "h-11";
 
 export interface VoiceSessionPillProps {
   /**
-   * The session's activity label (e.g. "Listening…" — see
+   * The session's activity label (e.g. "Listening…", see
    * `LIVE_VOICE_STATE_LABELS`). Painted in the middle of the surface, and
    * announced on change: the label element is itself the live region.
    */
@@ -92,7 +89,7 @@ export interface VoiceSessionPillProps {
   state: LiveVoiceSessionState;
   /** Polled by the band at ~30 Hz; must not force parent re-renders. */
   getAmplitude: () => number;
-  /** Whether the mic is muted — drives the mic toggle beside the band. */
+  /** Whether the mic is muted. Drives the mic toggle beside the band. */
   muted: boolean;
   /** Toggle the mic mute without ending the session. */
   onToggleMute: () => void;
@@ -158,17 +155,18 @@ export function VoiceSessionPill({
         "pointer-events-none absolute inset-0 overflow-hidden",
         VOICE_WAVE_EDGE_FADE_CLASS,
       )}
-      style={
-        waveAccentHex
-          ? ({ [AVATAR_ACCENT_CSS_VAR]: waveAccentHex } as CSSProperties)
-          : undefined
-      }
     >
+      {/* The accent goes through `color`, not the CSS var: the mesh reads the
+          var once at mount and again only on resize, so a pill mounted before
+          the avatar query settles would hold the fallback indigo for the whole
+          session. `color` is a dependency of the draw effect, so the band
+          repaints the moment the accent arrives. */}
       <VoiceMeshWaves
         getAmplitude={
           isLiveVoiceMicLive(state) && !muted ? getAmplitude : SILENT_AMPLITUDE
         }
         palette="accent"
+        color={waveAccentHex ?? undefined}
         placement="inline"
         tuning={MESH_INLINE_TUNING}
       />
@@ -205,7 +203,7 @@ export function VoiceSessionPill({
     >
       {band}
 
-      {/* The mic toggle — the one control a hot open mic must always offer,
+      {/* The mic toggle: the one control a hot open mic must always offer,
           wherever the session surface is. */}
       <Button
         variant="ghost"
@@ -232,7 +230,7 @@ export function VoiceSessionPill({
       />
 
       {/* The state word is the surface's largest target, so it carries the
-          return-to-thread tap — a `button` only when there is a thread to
+          return-to-thread tap, and is a `button` only when there is a thread to
           return to. */}
       {onNavigate ? (
         <button
@@ -251,7 +249,7 @@ export function VoiceSessionPill({
 
       <div className="relative flex shrink-0 items-center gap-1">
         {/* Stop slot: ■ interrupts a reply in progress, and is present only
-            while one is playing — nothing occupies the slot otherwise. */}
+            while one is playing. Nothing occupies the slot otherwise. */}
         {onStop && state === "speaking" ? (
           <Button
             variant="ghost"

@@ -4,7 +4,7 @@
  * of it.
  *
  * The room, the minimized composer block and the header pill are one surface at
- * three sizes, so they all fill with the same color — the session assistant's
+ * three sizes, so they all fill with the same color: the session assistant's
  * avatar color, or the room's deep ambient surface for an assistant with no
  * character color to borrow. {@link useVoiceSurfacePaint} resolves it; this
  * module is the presentational half, so a surface can wear the paint without
@@ -12,8 +12,8 @@
  *
  * Because the fill is an arbitrary avatar color, chrome drawn on it cannot use
  * theme tokens: `--content-default` is as likely to be invisible on it as
- * legible. The tones ship as the `--room-*` vars — the contract the room
- * already uses — and the surface's controls read those.
+ * legible. The tones ship as the `--room-*` vars (the contract the room
+ * already uses), and the surface's controls read those.
  */
 
 import type { CSSProperties } from "react";

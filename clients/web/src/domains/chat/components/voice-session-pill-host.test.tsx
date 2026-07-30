@@ -351,7 +351,7 @@ describe("VoiceSessionPillHost — standalone variant (headerless pop-outs)", ()
   });
 });
 
-describe("VoiceSessionPillHost — row variant (above the phone header)", () => {
+describe("VoiceSessionPillHost: row variant (above the phone header)", () => {
   test("lays the band out in flow so it pushes the page down", () => {
     startSession("listening");
     const { container } = render(<VoiceSessionPillHost variant="row" />);
@@ -379,10 +379,10 @@ describe("VoiceSessionPillHost — row variant (above the phone header)", () => 
   });
 });
 
-describe("VoiceSessionPillHost — paint", () => {
+describe("VoiceSessionPillHost: paint", () => {
   test("paints the surface once the session assistant's avatar has settled", () => {
     // The mocked avatar has no character colour, which is exactly when the
-    // room falls back to its deep ambient surface — so the pill follows it
+    // room falls back to its deep ambient surface, so the pill follows it
     // there rather than staying on the app's own lift surface.
     startSession("listening");
     render(<VoiceSessionPillHost />);
@@ -399,7 +399,7 @@ describe("VoiceSessionPillHost — state announcement", () => {
     expect(screen.getByText("Thinking…")).toBeTruthy();
   });
 
-  test("renders no thread title — the pill says the state, not the thread", () => {
+  test("renders no thread title: the pill says the state, not the thread", () => {
     // The host fetches no owning row, so no thread name can reach the header.
     startSession("listening");
     render(<VoiceSessionPillHost />);
