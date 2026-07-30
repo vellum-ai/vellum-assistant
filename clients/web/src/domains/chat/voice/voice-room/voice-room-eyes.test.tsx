@@ -8,9 +8,9 @@
  * rendered transforms without producing a React render, and every blink
  * reopens.
  *
- * Regression coverage for the error-185 family (LUM-2927): a per-frame or
- * per-pointer-event updater here is what walked React's nested-update counter
- * to its limit, and the throw that followed stranded the lids shut.
+ * Both assertions carry more weight than render cost. A `setState` on either
+ * path counts toward React's nested-update limit, and a throw from the blink
+ * timer would strand the lids shut for the life of the room. See LUM-2927.
  */
 
 import { useEffect } from "react";
@@ -51,7 +51,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("VoiceRoomEyes — parallax stays out of the commit stream", () => {
+describe("VoiceRoomEyes: parallax stays out of the commit stream", () => {
   test("pointer movement moves the eyes without a React render", () => {
     let renders = 0;
     const { parallax } = renderEyes(() => {
@@ -90,7 +90,7 @@ describe("VoiceRoomEyes — parallax stays out of the commit stream", () => {
   });
 });
 
-describe("VoiceRoomEyes — blink stays out of the commit stream", () => {
+describe("VoiceRoomEyes: blink stays out of the commit stream", () => {
   test("a click blinks the lids shut and reopens them, with no React render", async () => {
     let renders = 0;
     const { lids, parallax } = renderEyes(() => {
