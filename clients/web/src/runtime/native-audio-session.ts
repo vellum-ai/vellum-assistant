@@ -35,17 +35,47 @@ import { callNativeVoice } from "@/runtime/native-voice";
 import { isNativeIOS } from "@/runtime/platform-detection";
 
 /**
- * An `AVAudioSession` interruption — something else took the audio hardware.
+ * Why an `AVAudioSession` interruption fired, mirroring
+ * `AVAudioSession.InterruptionReason`.
  *
- * - `began` — a phone call, a Siri invocation, or another app grabbed the mic.
- * - `ended` — the interrupting activity finished.
+ * - `default`: another session was activated, i.e. a phone call, Siri, or
+ *   another app. The only one that actually takes the microphone away.
+ * - `builtInMicMuted`: the built-in mic was muted, e.g. an iPad's Smart Folio
+ *   closing.
+ * - `routeDisconnected`: the audio route went away, e.g. headphones unplugged.
+ * - `unknown`: a reason this bundle does not recognize, or an older shell that
+ *   sends no reason at all.
  *
- * Apple's `.shouldResume` option is deliberately not carried: the session is
- * over by the time `ended` arrives and the user restarts explicitly, so there
- * is nothing to resume (see {@link subscribeVoiceAudioInterruptions}).
+ * The native half is `VoiceAudioSessionPlugin.name(for:)`; unlike the phase
+ * enum, iOS owns this vocabulary, so `unknown` is the required escape hatch
+ * rather than a defect. Callers must never treat `unknown` as a takeover: a
+ * future OS adding a benign reason would otherwise start ending sessions.
+ */
+export type VoiceAudioInterruptionReason =
+  | "default"
+  | "builtInMicMuted"
+  | "routeDisconnected"
+  | "unknown";
+
+/**
+ * An `AVAudioSession` interruption: something took the audio hardware, though
+ * not necessarily for good. Read {@link VoiceAudioInterruptionEvent.reason}
+ * before acting, because `began` alone does not mean the session is over.
+ *
+ * - `began`: the interruption started.
+ * - `ended`: the interrupting activity finished. `resumed` reports whether the
+ *   native side got our audio session live again.
+ *
+ * Apple's `.shouldResume` option is deliberately not carried: the web side
+ * never auto-restarts a session it ended, and for a session it kept there is
+ * nothing to resume.
  */
 export interface VoiceAudioInterruptionEvent {
   type: "began" | "ended";
+  /** Absent on a shell built before reasons were forwarded. */
+  reason?: VoiceAudioInterruptionReason;
+  /** Only meaningful on `ended`. */
+  resumed?: boolean;
 }
 
 interface VoiceAudioSessionPlugin {
@@ -95,9 +125,13 @@ export async function deactivateVoiceAudioSession(): Promise<void> {
 /**
  * Subscribe to `AVAudioSession` interruptions, returning an unsubscribe.
  *
- * Consumers should end the voice session on `type: "began"` — the mic is gone,
- * and a session that silently keeps "listening" into a dead input is worse than
- * one that ends. Do NOT auto-resume on `ended`: the user restarts explicitly.
+ * Consumers should end the voice session on `type: "began"` only when
+ * `reason` is `"default"`, the one reason the microphone is actually
+ * gone. A session that silently keeps "listening" into a dead input is
+ * worse than one that ends. Every other reason (and `"unknown"`) describes a
+ * session worth keeping: ending a conversation because the user unplugged
+ * their headphones is the more damaging failure. Do NOT auto-resume on
+ * `ended`: the user restarts explicitly.
  *
  * `addListener` is one of the few property names the Capacitor plugin Proxy
  * does *not* trap into a fabricated native method, so calling it on a plugin
