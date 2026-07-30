@@ -127,8 +127,8 @@ describe("capPayloadForStorage", () => {
   test("the ceiling holds for a payload with no long string to trim", () => {
     // Numbers are individually tiny, so a wide, deep tree of them is bounded by
     // neither the text cap nor the field caps. Branching stays narrow: the tree
-    // only has to clear the row ceiling, and 12-way branching at this depth
-    // builds 88MB of JSON, which is a slow way to prove the same thing.
+    // only has to clear the row ceiling, which a 4-way tree at this depth does
+    // several times over.
     const build = (depth: number): unknown => {
       if (depth === 0) {
         return Array.from({ length: 40 }, (_, i) => i * 1_234_567);
