@@ -274,6 +274,44 @@ describe("platform_invoices_get", () => {
     expect(fetchCalls).toHaveLength(1);
   });
 
+  test("caps the per-page fetch timeout to the remaining walk deadline", async () => {
+    const realDateNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+    stubFetch((_url, callIndex) => {
+      if (callIndex === 0) {
+        // Leave only 50ms of aggregate budget for the next page.
+        now = INVOICE_WALK_DEADLINE_MS - 50;
+        return jsonResponse({ invoices: [invoice("in_a")], has_more: true });
+      }
+      // Hang until the fetch's combined signal aborts. With the timeout
+      // capped to the remaining 50ms this resolves almost immediately; an
+      // uncapped 10s timeout would blow the assertion on real elapsed time.
+      const signal = fetchCalls[callIndex]!.init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          now = INVOICE_WALK_DEADLINE_MS + 1;
+          reject(signal.reason as Error);
+        });
+      });
+    });
+
+    const startedRealMs = realDateNow();
+    try {
+      const err = await expectRejection(() =>
+        getHandler({ pathParams: { id: "in_never" } }),
+      );
+      expect(err).toBeInstanceOf(InternalError);
+      expect(err.message).toMatch(/timed out after 30 seconds/);
+    } finally {
+      Date.now = realDateNow;
+    }
+    expect(fetchCalls).toHaveLength(2);
+    // The second fetch was cancelled by the capped ~50ms timeout, not the
+    // flat 10s per-request timeout.
+    expect(realDateNow() - startedRealMs).toBeLessThan(5_000);
+  });
+
   test("threads the request abort signal into the page fetch", async () => {
     const controller = new AbortController();
     stubFetch(() =>

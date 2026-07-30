@@ -410,12 +410,21 @@ async function handlePlatformCredits(
   };
 }
 
+/** Default per-request timeout for platform fetches. */
+const PLATFORM_FETCH_TIMEOUT_MS = 10_000;
+
 interface FetchPlatformJsonOptions {
   /**
-   * Abort signal from the caller's request. Combined with the 10s
-   * per-request timeout so whichever fires first cancels the fetch.
+   * Abort signal from the caller's request. Combined with the per-request
+   * timeout so whichever fires first cancels the fetch.
    */
   signal?: AbortSignal;
+  /**
+   * Per-request timeout override in milliseconds. Defaults to
+   * PLATFORM_FETCH_TIMEOUT_MS; callers with an aggregate deadline (the
+   * invoices_get cursor walk) pass the remaining budget instead.
+   */
+  timeoutMs?: number;
   /**
    * When set, an upstream HTTP 400 is surfaced via this factory (typically a
    * BadRequestError built from the response detail) instead of the generic
@@ -445,7 +454,9 @@ async function fetchPlatformJson(
   }
 
   const url = `${context.platformBaseUrl}${path}`;
-  const timeout = AbortSignal.timeout(10_000);
+  const timeout = AbortSignal.timeout(
+    options?.timeoutMs ?? PLATFORM_FETCH_TIMEOUT_MS,
+  );
   let response: Response;
   try {
     response = await fetch(url, {
@@ -542,6 +553,7 @@ async function handlePlatformPlans(
 async function fetchPlatformInvoicesPage(
   startingAfter?: string,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<PlatformInvoicesListResponse> {
   let path = "/v1/organizations/billing/invoices/";
   if (startingAfter) {
@@ -549,6 +561,7 @@ async function fetchPlatformInvoicesPage(
   }
   return (await fetchPlatformJson(path, "invoices", {
     signal,
+    timeoutMs,
     // The platform returns 400 for an invalid or expired starting_after
     // cursor; keep that a client error instead of masking it as a 500.
     onBadRequest: (detail) =>
@@ -582,6 +595,13 @@ const MAX_INVOICE_PAGES = 25;
  */
 const INVOICE_WALK_DEADLINE_MS = 30_000;
 
+function invoiceWalkTimeoutError(id: string): InternalError {
+  return new InternalError(
+    `Invoice lookup for "${id}" timed out after ` +
+      `${INVOICE_WALK_DEADLINE_MS / 1000} seconds while paging invoice history`,
+  );
+}
+
 async function handlePlatformInvoiceGet(
   args: RouteHandlerArgs,
 ): Promise<PlatformInvoice> {
@@ -603,13 +623,30 @@ async function handlePlatformInvoiceGet(
         `Invoice lookup for "${id}" aborted: caller disconnected`,
       );
     }
-    if (Date.now() - walkStartedAt > INVOICE_WALK_DEADLINE_MS) {
-      throw new InternalError(
-        `Invoice lookup for "${id}" timed out after ` +
-          `${INVOICE_WALK_DEADLINE_MS / 1000} seconds while paging invoice history`,
-      );
+    const remainingMs = walkStartedAt + INVOICE_WALK_DEADLINE_MS - Date.now();
+    if (remainingMs <= 0) {
+      throw invoiceWalkTimeoutError(id);
     }
-    const page = await fetchPlatformInvoicesPage(cursor, args.abortSignal);
+    // Bound the page fetch by the remaining aggregate budget so a fetch
+    // started just under the deadline cannot run the walk past it.
+    let page: PlatformInvoicesListResponse;
+    try {
+      page = await fetchPlatformInvoicesPage(
+        cursor,
+        args.abortSignal,
+        Math.min(PLATFORM_FETCH_TIMEOUT_MS, remainingMs),
+      );
+    } catch (err) {
+      // A fetch cancelled by the deadline remainder should read as the
+      // walk's aggregate timeout, not a generic network failure.
+      if (
+        !args.abortSignal?.aborted &&
+        Date.now() - walkStartedAt >= INVOICE_WALK_DEADLINE_MS
+      ) {
+        throw invoiceWalkTimeoutError(id);
+      }
+      throw err;
+    }
     const match = page.invoices.find((invoice) => invoice.id === id);
     if (match) {
       return match;
