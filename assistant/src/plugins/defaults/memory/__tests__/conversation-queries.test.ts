@@ -169,6 +169,19 @@ describe("buildExcerpt", () => {
     expect(excerpt.startsWith("…")).toBe(true);
   });
 
+  test("keeps the excerpt window aligned when lowercasing changes string length", () => {
+    const prefix = "İ".repeat(120);
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        { type: "text", text: `${prefix} alpha and beta follow` },
+      ]),
+      "alpha beta",
+    );
+
+    expect(excerpt).toContain("alpha");
+    expect(excerpt).toContain("beta");
+  });
+
   test("returns an empty excerpt for messages with no legible text", () => {
     const excerpt = buildExcerpt(
       JSON.stringify([

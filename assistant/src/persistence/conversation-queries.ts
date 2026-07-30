@@ -946,50 +946,48 @@ function wrapRecallEvidenceExcerpt(
     : wrapUntrustedContent(excerpt, { source });
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Earliest occurrence of any lexical token of `query` in `lowerText`, using
- * the same tokenizer as the sparse index so the window centers on what the
- * search actually matched.
+ * Earliest case-insensitive match of the query in `text`: the contiguous
+ * query when present, otherwise the earliest of its lexical tokens (same
+ * tokenizer as the sparse index, which matches tokens independently).
+ * Matching runs on the original string so offsets stay aligned even when
+ * lowercasing would change string length (e.g. Turkish dotted I).
  */
-function findEarliestTokenMatch(
-  lowerText: string,
+function findEarliestMatch(
+  text: string,
   query: string,
 ): { index: number; length: number } | null {
-  let best: { index: number; length: number } | null = null;
-  for (const token of new Set(tokenize(query))) {
-    const idx = lowerText.indexOf(token);
-    if (idx !== -1 && (best === null || idx < best.index)) {
-      best = { index: idx, length: token.length };
-    }
+  const whole = new RegExp(escapeRegExp(query), "i").exec(text);
+  if (whole) {
+    return { index: whole.index, length: whole[0].length };
   }
-  return best;
+  const tokens = [...new Set(tokenize(query))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (tokens.length === 0) {
+    return null;
+  }
+  const match = new RegExp(tokens.map(escapeRegExp).join("|"), "i").exec(text);
+  return match ? { index: match.index, length: match[0].length } : null;
 }
 
 function buildExcerptFromText(text: string, query: string): string {
   const WINDOW = 100;
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  let idx = lowerText.indexOf(lowerQuery);
-  let matchLength = query.length;
-  if (idx === -1) {
-    // Sparse search matches tokens independently, so a multi-token query
-    // may never occur contiguously; center on the earliest token instead.
-    const tokenMatch = findEarliestTokenMatch(lowerText, query);
-    if (tokenMatch) {
-      idx = tokenMatch.index;
-      matchLength = tokenMatch.length;
-    }
-  }
-  if (idx === -1) {
-    // No token present either (e.g. the lexical index matched JSON
-    // structure instead); fall back to the start of the text.
+  const match = findEarliestMatch(text, query);
+  if (!match) {
+    // Neither the query nor any of its tokens is present (e.g. the lexical
+    // index matched JSON structure instead); fall back to the text start.
     return text
       .slice(0, WINDOW * 2)
       .replace(/\s+/g, " ")
       .trim();
   }
-  const start = Math.max(0, idx - WINDOW);
-  const end = Math.min(text.length, idx + matchLength + WINDOW);
+  const start = Math.max(0, match.index - WINDOW);
+  const end = Math.min(text.length, match.index + match.length + WINDOW);
   const excerpt =
     (start > 0 ? "\u2026" : "") +
     text.slice(start, end).replace(/\s+/g, " ").trim() +
