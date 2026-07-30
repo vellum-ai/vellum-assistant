@@ -59,6 +59,7 @@ export function GeneralPage() {
   } = useAssistantWithHealthz();
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
@@ -314,6 +315,23 @@ export function GeneralPage() {
       )}
 
       {multiPlatformAssistant && <AssistantPicker />}
+
+      {assistantSwitcher && isLocalClient() && (
+        <DetailCard
+          title="Switch Assistant"
+          subtitle="Choose which assistant this device connects to."
+          accessory={
+            <Button
+              variant="outlined"
+              onClick={() =>
+                void navigate(`${routes.selectAssistant}?noAutoSkip=1`)
+              }
+            >
+              Choose Assistant
+            </Button>
+          }
+        />
+      )}
 
       {(showRetire || showDeleteAccount) && (
         <DetailCard variant="danger" title="Danger Zone">
