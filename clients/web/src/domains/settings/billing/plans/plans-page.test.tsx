@@ -683,6 +683,41 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(takeoverResizeContext?.canLowerResources).toBe(true);
   });
 
+  test("an untrusted tier read snapshots no pod at all", async () => {
+    // Holding the assistant query is not enough: a disabled query still serves
+    // whatever the cache holds, and a null primary makes the hook answer with
+    // the ACTIVE assistant, which is the wrong pod in the org where this
+    // matters. The captured from-sides have to be empty, not merely unfetched.
+    activeAssistantFixture = makeAssistant("assistant-active", "large", 50);
+    // Open the gate first so the active assistant lands in the cache, which is
+    // the only way the stale path has anything to serve.
+    const { findByRole, findByTestId, client } = renderInteractive(
+      proSuperSubscription(),
+      { onboardingData: onboarding({ primary_assistant_id: null }) },
+    );
+    await waitFor(() => expect(activeAssistantCalls).toBeGreaterThan(0));
+
+    // Now close it: same payload, older read.
+    act(() => {
+      client.setQueryData(
+        organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+        onboardingFixture,
+        { updatedAt: Date.now() - 60_000 },
+      );
+    });
+
+    fireEvent.click(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    );
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: null,
+      storageGib: null,
+    });
+  });
+
   test("Super → Ultra upgrade confirms, then calls change-package with the ultra key", async () => {
     const { findByRole, findByTestId, getByTestId } = renderInteractive(
       proSuperSubscription(),

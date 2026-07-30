@@ -236,15 +236,21 @@ export function PlansPage() {
   // read that failed or went stale names a primary just as confidently, so
   // settling is not enough; the payload has to be one worth believing.
   //
-  // When it is not, no assistant is read and the from-sides stay null, which
-  // the takeover resolves per dimension and the chips drop. A missing chip
-  // beats one describing another machine. Nothing the user clicks waits on
-  // this: a plan change must not depend on an assistant read.
+  // When it is not, the from-sides stay null, which the takeover resolves per
+  // dimension and the chips drop. A missing chip beats one describing another
+  // machine. Nothing the user clicks waits on this: a plan change must not
+  // depend on an assistant read.
+  //
+  // Discarding the value is the gate, not disabling the query. Disabling stops
+  // a fetch but leaves whatever the cache already holds, and a null primary
+  // makes the hook answer with the active assistant, so the pod it names is
+  // precisely the wrong one in the org where this matters.
   const orgReady = useIsOrgReady();
-  const assistant = usePreferredOrActiveAssistant(
+  const resolvedAssistant = usePreferredOrActiveAssistant(
     primaryAssistantId,
     platformReady && orgReady && isProUser && currentKnown,
   );
+  const assistant = currentKnown ? resolvedAssistant : undefined;
 
   // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
   // it has no current tier: every named card is offered as a switch target —
