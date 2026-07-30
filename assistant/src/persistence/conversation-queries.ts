@@ -844,6 +844,11 @@ function buildExcerptWithExternalContentMode(
       } else if (rec.type === "thinking" && typeof rec.thinking === "string") {
         pushPart(rec.thinking);
       } else if (
+        rec.type === "file" &&
+        typeof rec.extracted_text === "string"
+      ) {
+        pushPart(rec.extracted_text);
+      } else if (
         rec.type === "tool_result" ||
         rec.type === "web_search_tool_result"
       ) {

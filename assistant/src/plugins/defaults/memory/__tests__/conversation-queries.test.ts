@@ -125,6 +125,21 @@ describe("buildExcerpt", () => {
     expect(excerpt).not.toContain("<external_content");
   });
 
+  test("extracts file block extracted_text", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "file",
+          source: { type: "url", url: "https://example.com/report.pdf" },
+          extracted_text: "Quarterly revenue grew nine percent",
+        },
+      ]),
+      "revenue",
+    );
+
+    expect(excerpt).toBe("Quarterly revenue grew nine percent");
+  });
+
   test("still extracts array-form tool_result inner text", () => {
     const excerpt = buildExcerpt(
       JSON.stringify([
