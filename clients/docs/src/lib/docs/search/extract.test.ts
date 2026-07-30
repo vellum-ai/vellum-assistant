@@ -135,6 +135,53 @@ describe("extractDocsPageFromHtml", () => {
     expect(pageChunk?.body).not.toContain("AlphaBeta");
   });
 
+  test("reads section headings whose id lives only on the section wrapper", () => {
+    const html = `
+      <div class="docs-main">
+        <div class="docs-breadcrumb">Docs / Intro</div>
+        <h1>Overview</h1>
+        <div class="docs-prose">
+          <section id="intro">
+            <h2>Introduction</h2>
+            <p>Welcome to the product.</p>
+          </section>
+        </div>
+      </div>
+    `;
+
+    const extracted = extractDocsPageFromHtml("/docs/overview", html);
+
+    const sectionChunk = extracted.chunks.find((chunk) => chunk.sectionId === "intro");
+    expect(sectionChunk?.heading).toBe("Introduction");
+    expect(sectionChunk?.body).toContain("Welcome to the product");
+  });
+
+  test("keeps child h3 content inside a standalone h2 block", () => {
+    const html = `
+      <div class="docs-main">
+        <div class="docs-breadcrumb">Docs / Guides</div>
+        <h1>Guides</h1>
+        <div class="docs-prose">
+          <h2 id="parent">Parent Topic</h2>
+          <h3 id="child">Child Detail</h3>
+          <p>Child body content here.</p>
+          <h2 id="sibling">Sibling Topic</h2>
+          <p>Sibling body content.</p>
+        </div>
+      </div>
+    `;
+
+    const extracted = extractDocsPageFromHtml("/docs/guides", html);
+
+    const parentChunk = extracted.chunks.find((chunk) => chunk.sectionId === "parent");
+    expect(parentChunk).toBeDefined();
+    expect(parentChunk?.body).toContain("Child body content");
+    expect(parentChunk?.body).not.toContain("Sibling body content");
+
+    const childChunk = extracted.chunks.find((chunk) => chunk.sectionId === "child");
+    expect(childChunk?.body).toContain("Child body content");
+  });
+
   test("creates fallback page chunk when headings are missing", () => {
     const html = `
       <div class="docs-main">

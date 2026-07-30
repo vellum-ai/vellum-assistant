@@ -108,7 +108,7 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
       return;
     }
 
-    const headingEl = section.find("h2[id], h3[id]").first();
+    const headingEl = section.find("h2, h3").first();
     const headingText = elementText($, headingEl) || sectionId;
     const tagName = headingEl.get(0)?.tagName?.toLowerCase();
     const headingLevel: 1 | 2 | 3 = tagName === "h3" ? 3 : 2;
@@ -144,10 +144,13 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
     const headingLevel: 1 | 2 | 3 = heading.get(0)?.tagName?.toLowerCase() === "h3" ? 3 : 2;
 
     const parentSection = heading.closest("section");
+    // Stop only at same-or-higher-level headings so an h2 block keeps its
+    // child h3 content instead of ending at the first subsection heading.
+    const stopSelector = headingLevel === 3 ? "h1, h2, h3, section" : "h1, h2, section";
     const block =
       parentSection.length > 0
         ? parentSection
-        : heading.add(heading.nextUntil("h1, h2, h3, h4, section"));
+        : heading.add(heading.nextUntil(stopSelector));
     const body = cleanSectionBody(elementText($, block), headingText);
 
     if (!body) {
