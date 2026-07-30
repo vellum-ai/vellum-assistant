@@ -13,7 +13,11 @@ export interface SttLanguageOption {
   description?: string;
 }
 
-/** Sentinel meaning "unset / provider default": recognition defaults to English. */
+/**
+ * Sentinel meaning "unset / provider default": recognition defaults to
+ * English, except under providers in `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`,
+ * where unset means native language auto-detection.
+ */
 export const STT_LANGUAGE_DEFAULT_CODE = "";
 
 /**
@@ -67,24 +71,76 @@ const MULTI_CAPABLE_DAEMON_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Daemon provider ids that detect the spoken language natively when
+ * `services.stt.language` is unset: the resolver sends no language, so the
+ * unset state means auto-detection, not English. Deepgram and the managed
+ * relay decode unset audio as English, so their default row stays
+ * English-framed. For these providers the picker's default-sentinel row
+ * reads "Auto-detect (default)", an explicit English entry lets the user
+ * pin English deliberately, and a persisted `"en"` renders as that pin
+ * rather than collapsing to the default row (see
+ * `use-stt-language-selection.ts`).
+ */
+export const AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS: ReadonlySet<string> =
+  new Set(["xai"]);
+
+/**
+ * The default-sentinel row for providers in
+ * `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`, replacing the English-framed
+ * one. The description states the one-way door plainly: the picker only
+ * writes non-empty codes (`config_patch` cannot delete the key), so once a
+ * language is pinned, returning to auto-detect happens outside this picker.
+ */
+const STT_AUTO_DETECT_OPTION: SttLanguageOption = {
+  code: STT_LANGUAGE_DEFAULT_CODE,
+  label: "Auto-detect (default)",
+  description:
+    "xAI identifies the spoken language natively. Picking a specific language pins it; returning to auto-detect requires clearing services.stt.language outside this picker.",
+};
+
+/**
+ * Explicit English for auto-detecting providers, where the default row no
+ * longer means English and pinning it must be a deliberate pick. Absent from
+ * `STT_LANGUAGES` because for every other provider the default row already
+ * is English, and a second English entry would be a same-value dead pick.
+ */
+const STT_PINNED_ENGLISH_OPTION: SttLanguageOption = {
+  code: "en",
+  label: "English",
+};
+
+/**
  * Dropdown options for a picker whose current selection is `currentCode`,
  * steering the daemon provider `daemonProviderId`: the catalog, minus the
  * Multilingual entry for providers whose adapter drops `"multi"` (see
- * `MULTI_CAPABLE_DAEMON_PROVIDERS`), plus a synthetic "(custom)" entry when
- * the code sits outside the offered set. `services.stt.language` accepts any
- * non-empty string (the CLI and chat config edits write codes like "en-US",
- * and can persist `"multi"` for a provider that ignores it), and a trigger
- * that renders blank for such a value invites an accidental overwrite; the
- * synthetic entry keeps the persisted value visible while picking a catalog
- * option still overwrites it normally.
+ * `MULTI_CAPABLE_DAEMON_PROVIDERS`), with the default row swapped to
+ * Auto-detect plus an explicit English entry for providers whose unset state
+ * is native detection (see `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`), plus
+ * a synthetic "(custom)" entry when the code sits outside the offered set.
+ * `services.stt.language` accepts any non-empty string (the CLI and chat
+ * config edits write codes like "en-US", and can persist `"multi"` for a
+ * provider that ignores it), and a trigger that renders blank for such a
+ * value invites an accidental overwrite; the synthetic entry keeps the
+ * persisted value visible while picking a catalog option still overwrites it
+ * normally.
  */
 export function sttLanguageOptionsFor(
   currentCode: string,
   daemonProviderId: string,
 ): readonly SttLanguageOption[] {
-  const catalog = MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
+  const base = MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
     ? STT_LANGUAGES
     : STT_LANGUAGES.filter((option) => option.code !== STT_MULTI_CODE);
+  // Providers whose unset state is native auto-detection get the reframed
+  // default row and the explicit English entry in its place, ahead of the
+  // monolinguals; everyone else gets the base list byte-identical.
+  const catalog = AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(daemonProviderId)
+    ? base.flatMap((option) =>
+        option.code === STT_LANGUAGE_DEFAULT_CODE
+          ? [STT_AUTO_DETECT_OPTION, STT_PINNED_ENGLISH_OPTION]
+          : [option],
+      )
+    : base;
   const inCatalog = catalog.some((option) => option.code === currentCode);
   if (inCatalog) {
     return catalog;

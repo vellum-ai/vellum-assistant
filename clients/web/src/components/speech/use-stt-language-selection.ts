@@ -25,7 +25,10 @@ import {
   sttProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { STT_LANGUAGE_DEFAULT_CODE } from "@/lib/stt/language-catalog";
+import {
+  AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS,
+  STT_LANGUAGE_DEFAULT_CODE,
+} from "@/lib/stt/language-catalog";
 
 import { useSerializedConfigSelection } from "@/components/speech/use-serialized-config-selection";
 
@@ -35,7 +38,10 @@ import { useSerializedConfigSelection } from "@/components/speech/use-serialized
  * leaf lands as a literal null in raw config.json, which then fails the
  * `z.string().min(1)` schema on every subsequent load. So the default pick
  * writes explicit English (the provider default is English anyway), and
- * reads treat unset and `"en"` as the same default code.
+ * reads treat unset and `"en"` as the same default code. The equivalence is
+ * provider-scoped: under a provider whose unset state means native
+ * auto-detection (see `AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS`), `"en"` is
+ * a real English pin and reads back as itself.
  */
 const DEFAULT_WRITE_CODE = "en";
 
@@ -61,7 +67,8 @@ export interface UseSttLanguageSelection {
    * The currently-selected catalog code: the pick a write is still carrying,
    * else the config value. Unset and `"en"` both read as
    * `STT_LANGUAGE_DEFAULT_CODE` (display equivalence, see
-   * `DEFAULT_WRITE_CODE`).
+   * `DEFAULT_WRITE_CODE`), except under a provider whose unset state means
+   * native auto-detection, where `"en"` reads as itself.
    */
   currentCode: string;
   /**
@@ -124,10 +131,15 @@ export function useSttLanguageSelection(
   const available = enabled && !!daemonConfig && providerAcceptsLanguage;
 
   // Unset and the explicit English fallback both read as the default code
-  // (display equivalence, see `DEFAULT_WRITE_CODE`).
+  // (display equivalence, see `DEFAULT_WRITE_CODE`). Not under a provider
+  // whose unset state means native auto-detection: there the default row
+  // reads "Auto-detect", so collapsing a persisted "en" into it would
+  // misreport a real English pin as auto-detection.
   const configured = daemonStt?.language;
+  const englishReadsAsDefault =
+    !AUTO_DETECT_WHEN_UNSET_DAEMON_PROVIDERS.has(configuredProvider);
   const configuredCode =
-    !configured || configured === DEFAULT_WRITE_CODE
+    !configured || (englishReadsAsDefault && configured === DEFAULT_WRITE_CODE)
       ? STT_LANGUAGE_DEFAULT_CODE
       : configured;
 

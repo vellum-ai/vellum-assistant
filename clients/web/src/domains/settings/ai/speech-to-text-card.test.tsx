@@ -528,6 +528,44 @@ describe("SpeechToTextCard: Spoken language dropdown", () => {
     const options = visibleOptions();
     expect(options).not.toContain("Multilingual");
     expect(options).toContain("Spanish (Español)");
+    // Unset language under xai is native auto-detection, so the default row
+    // is Auto-detect and an explicit English entry makes the pin writable.
+    expect(options.some((o) => o.includes("Auto-detect (default)"))).toBe(true);
+    expect(options).toContain("English");
+  });
+
+  test("an unset language under an xai daemon shows Auto-detect on the trigger", async () => {
+    // The resolver sends no language when the config is unset, so xAI
+    // detects it natively; an "English (default)" trigger misreports that.
+    daemonConfigData = { services: { stt: { provider: "xai" } } };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    expect(languageTrigger()!.textContent).toContain("Auto-detect (default)");
+  });
+
+  test("a persisted en under an xai daemon shows the English pin, not Auto-detect", async () => {
+    // Under xai "en" is a deliberate pin: the display equivalence that folds
+    // "en" into the default row applies only to providers whose unset state
+    // decodes as English.
+    daemonConfigData = {
+      services: { stt: { provider: "xai", language: "en" } },
+    };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+    renderCard();
+
+    await waitFor(() => expect(languageTrigger()).not.toBeNull());
+    expect(languageTrigger()!.textContent).toContain("English");
+    expect(languageTrigger()!.textContent).not.toContain("Auto-detect");
   });
 
   test("a persisted multi under an xai daemon renders via the custom fallback", async () => {

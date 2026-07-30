@@ -52,12 +52,67 @@ describe("sttLanguageOptionsFor", () => {
 
   test("omits Multilingual for xai", () => {
     // The resolver drops "multi" before it reaches the xAI adapter, so
-    // offering it would be a silent no-op.
+    // offering it would be a silent no-op. Minus Multilingual, plus the
+    // explicit English pin entry, the count lands back on the base 11.
     const codes = sttLanguageOptionsFor("", "xai").map((o) => o.code);
     expect(codes).not.toContain(STT_MULTI_CODE);
-    expect(sttLanguageOptionsFor("", "xai")).toHaveLength(
-      STT_LANGUAGES.length - 1,
+    expect(sttLanguageOptionsFor("", "xai")).toHaveLength(STT_LANGUAGES.length);
+  });
+
+  test("reframes the xai default row as Auto-detect", () => {
+    // Unset `services.stt.language` under xai means the resolver sends no
+    // language and xAI detects it natively; an "English (default)" row
+    // misreports that state.
+    const options = sttLanguageOptionsFor("", "xai");
+    expect(options[0]?.code).toBe("");
+    expect(options[0]?.label).toBe("Auto-detect (default)");
+    expect(options[0]?.description).toContain("natively");
+    // The one-way door is stated plainly: the picker cannot clear the key.
+    expect(options[0]?.description).toContain(
+      "clearing services.stt.language outside this picker",
     );
+  });
+
+  test("offers an explicit English entry for xai ahead of the monolinguals", () => {
+    // With the default row meaning auto-detect, pinning English needs its
+    // own entry; without one, "en" is unwritable from the picker (a pick of
+    // the current default is a no-op).
+    const options = sttLanguageOptionsFor("", "xai");
+    expect(options[1]).toEqual({ code: "en", label: "English" });
+    expect(options[2]?.code).toBe("es");
+  });
+
+  test("deepgram and vellum options stay byte-identical to the English-framed catalog", () => {
+    // The auto-detect reframe is xai-scoped: deepgram and the managed relay
+    // decode unset audio as English, so their rows must not change. Pinned
+    // as a deep-equal against the full pre-change expectation.
+    const preChangeExpectation = [
+      {
+        code: "",
+        label: "English (default)",
+        description: "Speech recognition defaults to English.",
+      },
+      {
+        code: "multi",
+        label: "Multilingual",
+        description:
+          "Follows you between languages mid-sentence: English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese, Italian, and Dutch.",
+      },
+      { code: "es", label: "Spanish", nativeLabel: "Español" },
+      { code: "fr", label: "French", nativeLabel: "Français" },
+      { code: "de", label: "German", nativeLabel: "Deutsch" },
+      { code: "hi", label: "Hindi", nativeLabel: "हिन्दी" },
+      { code: "ru", label: "Russian", nativeLabel: "Русский" },
+      { code: "pt", label: "Portuguese", nativeLabel: "Português" },
+      { code: "ja", label: "Japanese", nativeLabel: "日本語" },
+      { code: "it", label: "Italian", nativeLabel: "Italiano" },
+      { code: "nl", label: "Dutch", nativeLabel: "Nederlands" },
+    ];
+    for (const providerId of ["deepgram", "vellum"]) {
+      expect(sttLanguageOptionsFor("", providerId)).toEqual(
+        preChangeExpectation,
+      );
+    }
   });
 
   test("a persisted multi under xai still renders via the custom fallback", () => {
@@ -105,6 +160,16 @@ describe("sttLanguageLabelForCode", () => {
     expect(sttLanguageLabelForCode(STT_MULTI_CODE, "xai")).toBe(
       "multi (custom)",
     );
+  });
+
+  test("labels the default code under xai as Auto-detect", () => {
+    expect(sttLanguageLabelForCode("", "xai")).toBe("Auto-detect (default)");
+  });
+
+  test("labels en under xai as the English pin", () => {
+    // Under xai a persisted "en" is a deliberate pin, not the default; the
+    // hook leaves it uncollapsed so surfaces pass it through to here.
+    expect(sttLanguageLabelForCode("en", "xai")).toBe("English");
   });
 
   test("labels an out-of-catalog code via the custom fallback", () => {

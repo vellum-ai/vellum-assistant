@@ -8,6 +8,9 @@
  *      rapid picks serialize in call order; the default pick writes the
  *      explicit `"en"` fallback (config_patch cannot delete the key) and
  *      `"en"` reads back as the default code.
+ *   3. Provider scoping of that read equivalence: under xai, whose unset
+ *      state means native auto-detection, a persisted `"en"` is a real pin
+ *      and reads back as itself.
  *
  * Generated daemon bindings are mocked with controllable data, mirroring
  * `speech-to-text-card.test.tsx`; the QueryClientProvider is real.
@@ -253,5 +256,36 @@ describe("useSttLanguageSelection", () => {
     });
     // The refetched config holds "en"; the hook reads it as the default code.
     await waitFor(() => expect(result.current.currentCode).toBe(""));
+  });
+
+  test("en reads as itself under xai, whose unset state means auto-detect", () => {
+    // Under xai the default row renders "Auto-detect", so collapsing a
+    // persisted "en" into it would misreport a real English pin as
+    // auto-detection. The display equivalence stays scoped to providers
+    // whose unset state decodes as English.
+    daemonConfigData = {
+      services: { stt: { provider: "xai", language: "en" } },
+    };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+
+    const { result } = renderSelection();
+    expect(result.current.currentCode).toBe("en");
+    expect(result.current.configuredProviderId).toBe("xai");
+  });
+
+  test("unset language under xai reads as the default (auto-detect) code", () => {
+    daemonConfigData = { services: { stt: { provider: "xai" } } };
+    providerCatalogData = {
+      providers: [
+        { id: "xai", displayName: "xAI", languageSelection: "manual" },
+      ],
+    };
+
+    const { result } = renderSelection();
+    expect(result.current.currentCode).toBe("");
   });
 });
