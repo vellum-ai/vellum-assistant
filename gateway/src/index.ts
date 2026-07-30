@@ -2177,7 +2177,7 @@ async function main() {
   // Guards concurrent startSlackSocket calls: at boot both the credential
   // watcher's and the config-file watcher's initial polls fire it, and the
   // second call can pass the stop() guard while the first is still awaiting
-  // credentials — leaving the first client running (open WebSocket, reconnect
+  // credentials, leaving the first client running (open WebSocket, reconnect
   // loop, cleanup timer) with no reference to stop it.
   let slackStartGeneration = 0;
 
@@ -2243,9 +2243,11 @@ async function main() {
     const appToken = await credentialCache.get(
       credentialKey("slack_channel", "app_token"),
     );
-    // A newer call started while we awaited credentials — let it own the
+    // A newer call started while we awaited credentials, so let it own the
     // client. Everything below is synchronous, so one check suffices.
-    if (generation !== slackStartGeneration) return;
+    if (generation !== slackStartGeneration) {
+      return;
+    }
     if (!botToken || !appToken) return;
 
     const threadModeRaw = configFileCache.getString("slack", "threadMode");
