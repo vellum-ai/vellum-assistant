@@ -310,10 +310,6 @@ function inferUTMFromReferrer(
   };
 }
 
-function generateVisitorId(): string {
-  return crypto.randomUUID();
-}
-
 /**
  * Docs page paths only: exclude API routes, the agent-markdown mirror, and
  * file-like paths (static assets, `.md` variants, sitemap.xml, llms.txt).
@@ -372,7 +368,7 @@ function emitPageViewLog(
 }
 
 function resolveVisitorId(request: NextRequest): string {
-  return request.cookies.get(VID_COOKIE_NAME)?.value ?? generateVisitorId();
+  return request.cookies.get(VID_COOKIE_NAME)?.value ?? crypto.randomUUID();
 }
 
 function setVisitorIdCookie(
@@ -453,7 +449,18 @@ function resolveEntryAttribution(
 
 export function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0] ?? "";
-  const { pathname } = request.nextUrl;
+  const rawPathname = request.nextUrl.pathname;
+
+  // skipMiddlewareUrlNormalize keeps the pathname percent-encoded, so decode
+  // once up front: the exclusion checks and the logged path must agree, or an
+  // encoded mirror path like /docs/%5Fmd/... would slip past the /docs/_md
+  // exclusion and log a phantom page_view.
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(rawPathname);
+  } catch {
+    pathname = rawPathname;
+  }
 
   const response = NextResponse.next();
   const vid = resolveVisitorId(request);
@@ -461,13 +468,7 @@ export function proxy(request: NextRequest) {
 
   const userAgent = request.headers.get("user-agent") || "";
   if (isPagePath(pathname) && !isbot(userAgent) && !isPrefetch(request)) {
-    let decodedPath: string;
-    try {
-      decodedPath = decodeURIComponent(pathname);
-    } catch {
-      decodedPath = pathname;
-    }
-    emitPageViewLog(request, vid, decodedPath, resolveEntryAttribution(request));
+    emitPageViewLog(request, vid, pathname, resolveEntryAttribution(request));
   }
   return response;
 }

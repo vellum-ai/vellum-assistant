@@ -60,7 +60,10 @@ const nextConfig: NextConfig = {
           // Leave the generated agent index (/docs/llms.txt) to public-file
           // serving even when agents send Accept: text/markdown, and keep the
           // /docs/api subtree and the mirror route itself out of negotiation.
-          source: "/docs/:path((?!llms\\.txt$)(?!api\\/)(?!_md).*)",
+          // The lookaheads anchor on a following slash or end-of-path so the
+          // bare /docs/api and /docs/_md paths are excluded while sibling
+          // prefixes (e.g. a hypothetical /docs/api-guide) still negotiate.
+          source: "/docs/:path((?!llms\\.txt$)(?!api(?:\\/|$))(?!_md(?:\\/|$)).*)",
           destination: "/docs/_md/:path",
           has: [MARKDOWN_ACCEPT_HEADER],
         },

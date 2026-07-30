@@ -93,6 +93,7 @@ describe("docs proxy page_view logging", () => {
     ["/docs/api/health", "API route"],
     ["/docs/api/search", "API route"],
     ["/docs/_md/quickstart", "agent-markdown mirror"],
+    ["/docs/%5Fmd/quickstart", "percent-encoded agent-markdown mirror"],
     ["/docs/quickstart.md", "markdown variant"],
     ["/docs/sitemap.xml", "sitemap"],
     ["/docs/llms.txt", "llms.txt"],
