@@ -16,18 +16,24 @@ const OPEN_LAYER_SELECTOR = [
 ].join(",");
 
 function dismissOpenLayer(): boolean {
-  if (!document.querySelector(OPEN_LAYER_SELECTOR)) {
+  const layers = document.querySelectorAll<HTMLElement>(OPEN_LAYER_SELECTOR);
+  const layer = layers.item(layers.length - 1);
+  if (!layer) {
     return false;
   }
 
-  window.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Escape",
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
-  return true;
+  const event = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  });
+  layer.dispatchEvent(event);
+
+  if (event.defaultPrevented || !layer.isConnected) {
+    return true;
+  }
+  const state = layer.getAttribute("data-state");
+  return state !== null && state !== "open";
 }
 
 function dismissViewerLayer(): boolean {

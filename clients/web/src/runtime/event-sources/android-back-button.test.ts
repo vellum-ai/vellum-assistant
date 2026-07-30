@@ -94,7 +94,7 @@ describe("subscribeAndroidBackButtonSource", () => {
         event.preventDefault();
       }
     });
-    window.addEventListener("keydown", escapeHandler);
+    document.addEventListener("keydown", escapeHandler);
 
     subscribeAndroidBackButtonSource();
     await flushMicrotasks();
@@ -104,7 +104,42 @@ describe("subscribeAndroidBackButtonSource", () => {
     expect(historyBackSpy).not.toHaveBeenCalled();
     expect(minimizeAppMock).not.toHaveBeenCalled();
 
-    window.removeEventListener("keydown", escapeHandler);
+    document.removeEventListener("keydown", escapeHandler);
+    historyBackSpy.mockRestore();
+  });
+
+  test("falls through when an open layer does not handle Escape", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.append(dialog);
+
+    subscribeAndroidBackButtonSource();
+    await flushMicrotasks();
+    backButtonHandler?.({ canGoBack: true });
+
+    expect(historyBackSpy).toHaveBeenCalledTimes(1);
+    expect(minimizeAppMock).not.toHaveBeenCalled();
+    historyBackSpy.mockRestore();
+  });
+
+  test("claims Back when the target layer closes on Escape", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.append(dialog);
+    dialog.addEventListener("keydown", () => dialog.remove());
+
+    subscribeAndroidBackButtonSource();
+    await flushMicrotasks();
+    backButtonHandler?.({ canGoBack: true });
+
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    expect(minimizeAppMock).not.toHaveBeenCalled();
     historyBackSpy.mockRestore();
   });
 
