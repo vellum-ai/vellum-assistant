@@ -12,13 +12,13 @@ on:
       - 'packages/design-library/**'
       - '.github/workflows/ci-main-docs.yaml'
 
-# Serialize runs per branch and cancel superseded in-flight runs — only the
+# Serialize runs per branch and cancel superseded in-flight runs; only the
 # newest main run's CI matters.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Independent jobs run in parallel — same structure as PR workflow.
+# Independent jobs run in parallel, same structure as PR workflow.
 jobs:
   lint:
     name: 'Docs: Lint'
@@ -80,15 +80,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --filter=@vellumai/docs
 
-      # `bun test` exits non-zero when zero test files match; docs test files
-      # arrive in later PRs, so skip until at least one exists.
       - name: Test
-        run: |
-          if find src -type f \( -name '*.test.*' -o -name '*.spec.*' -o -name '*_test_*' -o -name '*_spec_*' \) | grep -q .; then
-            bun run test
-          else
-            echo "No test files found in clients/docs/src yet; skipping."
-          fi
+        run: bun run test
 
   checks:
     name: 'Docs: Lint, Type Check & Test'

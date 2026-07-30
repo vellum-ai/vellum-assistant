@@ -15,7 +15,7 @@ concurrency:
   group: pr-docs-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-# Independent jobs run in parallel — same structure as pr-web.yaml.
+# Independent jobs run in parallel, same structure as pr-web.yaml.
 jobs:
   lint:
     name: 'Docs: Lint'
@@ -77,15 +77,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --filter=@vellumai/docs
 
-      # `bun test` exits non-zero when zero test files match; docs test files
-      # arrive in later PRs, so skip until at least one exists.
       - name: Test
-        run: |
-          if find src -type f \( -name '*.test.*' -o -name '*.spec.*' -o -name '*_test_*' -o -name '*_spec_*' \) | grep -q .; then
-            bun run test
-          else
-            echo "No test files found in clients/docs/src yet; skipping."
-          fi
+        run: bun run test
 
   build:
     name: 'Docs: Build'
@@ -108,7 +101,7 @@ jobs:
       - name: Build
         run: bun run build
 
-  # Aggregator — single stable status check name for branch protection.
+  # Aggregator: single stable status check name for branch protection.
   checks:
     name: 'Docs: Lint, Type Check & Build'
     needs: [lint, typecheck, test, build]
