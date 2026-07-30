@@ -574,6 +574,14 @@ async function handlePlatformInvoicesList(
  */
 const MAX_INVOICE_PAGES = 25;
 
+/**
+ * Aggregate wall-clock deadline for the invoices_get cursor walk, matching
+ * the gateway IPC client's 30s request timeout. Guards against the walk
+ * running long after the caller has given up, since a gateway IPC timeout
+ * does not abort the request signal.
+ */
+const INVOICE_WALK_DEADLINE_MS = 30_000;
+
 async function handlePlatformInvoiceGet(
   args: RouteHandlerArgs,
 ): Promise<PlatformInvoice> {
@@ -584,6 +592,7 @@ async function handlePlatformInvoiceGet(
 
   // There is no per-invoice platform endpoint, so walk the paginated list
   // until the invoice turns up or the cursor is exhausted.
+  const walkStartedAt = Date.now();
   let cursor: string | undefined;
   for (let pages = 0; pages < MAX_INVOICE_PAGES; pages++) {
     // Stop walking pages once the caller has gone away (gateway IPC timeout,
@@ -592,6 +601,12 @@ async function handlePlatformInvoiceGet(
     if (args.abortSignal?.aborted) {
       throw new InternalError(
         `Invoice lookup for "${id}" aborted: caller disconnected`,
+      );
+    }
+    if (Date.now() - walkStartedAt > INVOICE_WALK_DEADLINE_MS) {
+      throw new InternalError(
+        `Invoice lookup for "${id}" timed out after ` +
+          `${INVOICE_WALK_DEADLINE_MS / 1000} seconds while paging invoice history`,
       );
     }
     const page = await fetchPlatformInvoicesPage(cursor, args.abortSignal);

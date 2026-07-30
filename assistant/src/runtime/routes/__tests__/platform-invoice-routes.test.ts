@@ -42,6 +42,7 @@ const getHandler = ROUTES.find(
 
 const INVOICES_URL = "https://platform.test/v1/organizations/billing/invoices/";
 const MAX_INVOICE_PAGES = 25;
+const INVOICE_WALK_DEADLINE_MS = 30_000;
 
 function invoice(id: string) {
   return {
@@ -247,6 +248,29 @@ describe("platform_invoices_get", () => {
     );
     expect(err).toBeInstanceOf(InternalError);
     expect(err.message).toMatch(/aborted/);
+    expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("rejects with InternalError when the walk exceeds the aggregate deadline", async () => {
+    const realDateNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+    stubFetch(() => {
+      // Push the clock past the deadline once the first page has been
+      // served; the handler must not fetch a second page.
+      now = INVOICE_WALK_DEADLINE_MS + 1;
+      return jsonResponse({ invoices: [invoice("in_a")], has_more: true });
+    });
+
+    try {
+      const err = await expectRejection(() =>
+        getHandler({ pathParams: { id: "in_never" } }),
+      );
+      expect(err).toBeInstanceOf(InternalError);
+      expect(err.message).toMatch(/timed out after 30 seconds/);
+    } finally {
+      Date.now = realDateNow;
+    }
     expect(fetchCalls).toHaveLength(1);
   });
 
