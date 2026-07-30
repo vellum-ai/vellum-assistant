@@ -147,6 +147,15 @@ describe("platform_invoices_list", () => {
     expect(fetchCalls).toHaveLength(0);
   });
 
+  test("resolves an upstream 404 to an empty page", async () => {
+    stubFetch(() => new Response("Not found", { status: 404 }));
+
+    // The platform 404s the invoice list for an organization without invoice
+    // history; that is an empty page, not a server error.
+    expect(await listHandler({})).toEqual({ invoices: [], has_more: false });
+    expect(fetchCalls).toHaveLength(1);
+  });
+
   test("rejects with InternalError naming the status on a non-OK response", async () => {
     stubFetch(() => jsonResponse({ detail: "boom" }, 500));
 
@@ -226,6 +235,19 @@ describe("platform_invoices_by_id_get", () => {
       /Invoice "in_missing" not found.*assistant platform invoices list/,
     );
     // No paging beyond the final (has_more: false) page.
+    expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("rejects with NotFoundError, not InternalError, on an upstream 404", async () => {
+    stubFetch(() => new Response("Not found", { status: 404 }));
+
+    // A 404 from the platform means no invoice history: the walk sees an
+    // empty first page and reports the invoice as not found.
+    const err = await expectRejection(() =>
+      getHandler({ pathParams: { id: "in_missing" } }),
+    );
+    expect(err).not.toBeInstanceOf(InternalError);
+    expect(err).toBeInstanceOf(NotFoundError);
     expect(fetchCalls).toHaveLength(1);
   });
 

@@ -432,6 +432,13 @@ interface FetchPlatformJsonOptions {
    * 400 falls through to the generic InternalError path.
    */
   badRequestHint?: string;
+  /**
+   * When set, an upstream HTTP 404 resolves to this value instead of the
+   * generic InternalError path, for resources where the platform signals
+   * "nothing here" with a 404 (e.g. the invoice list for an organization
+   * without invoice history). When unset, a 404 stays an InternalError.
+   */
+  notFoundValue?: unknown;
 }
 
 /**
@@ -476,6 +483,9 @@ async function fetchPlatformJson(
   }
 
   if (!response.ok) {
+    if (response.status === 404 && options?.notFoundValue !== undefined) {
+      return options.notFoundValue;
+    }
     const detail = await response.text().catch(() => "");
     if (response.status === 400 && options?.badRequestHint) {
       throw new BadRequestError(
@@ -561,11 +571,14 @@ async function fetchPlatformInvoicesPage(
   if (startingAfter) {
     path += `?${new URLSearchParams({ starting_after: startingAfter })}`;
   }
-  return (await fetchPlatformJson(
-    path,
-    "invoices",
-    options,
-  )) as PlatformInvoicesListResponse;
+  return (await fetchPlatformJson(path, "invoices", {
+    ...options,
+    // The platform returns 404 for an organization without invoice history;
+    // the web client treats that as an empty page
+    // (clients/web/src/domains/settings/components/invoices-table.tsx) and
+    // the daemon matches it.
+    notFoundValue: { invoices: [], has_more: false },
+  })) as PlatformInvoicesListResponse;
 }
 
 async function handlePlatformInvoicesList(
