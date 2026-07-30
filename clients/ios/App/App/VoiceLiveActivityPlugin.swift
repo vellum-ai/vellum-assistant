@@ -77,13 +77,32 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// `VoiceSessionLiveActivity` renders as "no longer current" instead of a
     /// live phase.
     ///
-    /// Two minutes is the shortest horizon that does not accuse a *healthy*
-    /// session of being wedged: a real conversation changes phase every few
-    /// seconds, and the only silence longer than this is a session nobody is
-    /// talking to — which the island may as well show as idle. Shorter would
-    /// flag long pauses; much longer and the wedged case, the one this exists
-    /// for, keeps lying past the point the user would act on it.
-    private static let contentStaleAfter: TimeInterval = 120
+    /// The horizon sits just past normal conversational rhythm rather than
+    /// past the longest thing a session can legitimately do, because the two
+    /// ways of being wrong do not cost the same:
+    ///
+    /// - Marking a *healthy* session stale costs the phase wording for a while.
+    ///   The assistant name, the accent and the avatar stay, and tapping
+    ///   through still returns to the session — see
+    ///   `ContentState.displayLabel(isStale:)`.
+    /// - Leaving a *wedged* session unmarked is a standing claim that a socket
+    ///   and a microphone are live. "Listening…" on a Lock Screen is read as an
+    ///   invitation to keep talking, and there is nothing on the island that
+    ///   would tell the user otherwise.
+    ///
+    /// Being early is bounded; being late is not. So forty-five seconds: long
+    /// enough to clear a pause between turns and a short tool call, and **not**
+    /// long enough for every legitimately long phase — a multi-minute agentic
+    /// turn parked in `thinking`, or a long TTS answer, drops its label while
+    /// perfectly healthy. That is the accepted cost; a phase-aware horizon (a
+    /// longer one for `thinking`) is the refinement to reach for if it proves
+    /// annoying in practice.
+    ///
+    /// None of this makes a wedged island *correct*. The horizon only bounds
+    /// how long it can be wrong: whether the web layer keeps pushing at all
+    /// once iOS suspends it is unmeasured on hardware — see
+    /// `docs/CAPACITOR.md` § "The background-audio contract".
+    private static let contentStaleAfter: TimeInterval = 45
 
     /// Wrap a content state with the staleness horizon every push shares.
     private static func content(
