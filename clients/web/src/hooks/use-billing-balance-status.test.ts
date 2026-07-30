@@ -167,10 +167,30 @@ describe("useBillingBalanceStatus", () => {
   });
 
   test.each([
-    ["the platform gate is not full", () => (platformGate = "gated")],
-    ["the platform gate is disabled", () => (platformGate = "disabled")],
-    ["the assistant is not platform-hosted", () => (isPlatformHosted = false)],
-    ["the org is not ready", () => (orgReady = false)],
+    [
+      "the platform gate is not full",
+      () => {
+        platformGate = "gated";
+      },
+    ],
+    [
+      "the platform gate is disabled",
+      () => {
+        platformGate = "disabled";
+      },
+    ],
+    [
+      "the assistant is not platform-hosted",
+      () => {
+        isPlatformHosted = false;
+      },
+    ],
+    [
+      "the org is not ready",
+      () => {
+        orgReady = false;
+      },
+    ],
   ] as const)("inert and does not fetch when %s", (_label, gateOff) => {
     gateOff();
     const { result } = setup();
