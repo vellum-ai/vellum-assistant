@@ -10,6 +10,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { WATCHER_PAYLOAD_TEXT_MAX_CHARS } from "../constants.js";
+
 // ── Module mocks ──────────────────────────────────────────────────────
 
 interface FakeWatcher {
@@ -47,6 +49,10 @@ interface FakeEvent {
 
 let fakeWatchers: FakeWatcher[] = [];
 let fakePending: FakeEvent[] = [];
+/** Rows handed to `insertWatcherEvent`, i.e. what Phase 1 would persist. */
+const insertedEvents: Array<{ summary: string; payloadJson: string }> = [];
+/** Items the stub provider returns from `fetchNew`. */
+let fetchedItems: unknown[] = [];
 const setConvCalls: Array<{ watcherId: string; conversationId: string }> = [];
 const dispositionCalls: Array<{
   eventId: string;
@@ -60,7 +66,10 @@ mock.module("../watcher-store.js", () => ({
   failWatcherPoll: () => {},
   skipWatcherPoll: () => {},
   disableWatcher: () => {},
-  insertWatcherEvent: () => true,
+  insertWatcherEvent: (row: { summary: string; payloadJson: string }) => {
+    insertedEvents.push(row);
+    return true;
+  },
   getPendingEvents: () => fakePending,
   resetStuckWatchers: () => 0,
   setWatcherConversationId: (watcherId: string, conversationId: string) => {
@@ -83,7 +92,7 @@ let fakeProviderSource: string | undefined;
 
 mock.module("../provider-registry.js", () => ({
   getWatcherProvider: () => ({
-    fetchNew: async () => ({ items: [], watermark: "wm" }),
+    fetchNew: async () => ({ items: fetchedItems, watermark: "wm" }),
     getInitialWatermark: async () => "wm",
     ...(fakeProviderSource
       ? { untrustedContentSource: fakeProviderSource }
@@ -183,6 +192,8 @@ beforeEach(() => {
   inventoryCalls.length = 0;
   llmProcessedCalls.length = 0;
   fakeProviderSource = "webhook";
+  insertedEvents.length = 0;
+  fetchedItems = [];
   runJobImpl = async () => ({ conversationId: "conv-stub", ok: true });
 });
 
@@ -551,6 +562,72 @@ describe("runWatchersOnce: <external_content> fencing of event payloads", () => 
     expect(body).toContain("&lt;/external_content>");
     // Every event was rendered, so every disposition write is accounted for.
     expect(dispositionCalls).toHaveLength(eventCount);
+  });
+
+  test("an oversized early payload field does not crowd out later fields", async () => {
+    // The Google Calendar payload order: `location` serializes before
+    // `description`, `organizer`, `attendees` and `htmlLink`. Capping the
+    // serialized blob dropped all four before the model saw them, while the
+    // success path still marked the event `silent`.
+    fakeWatchers = [makeWatcher({ providerId: "google-calendar" })];
+    fakePending = [
+      makeEvent({
+        payloadJson: JSON.stringify({
+          id: "evt-abc",
+          summary: "Quarterly review",
+          location: "L".repeat(5_000),
+          description: "D".repeat(5_000),
+          organizer: "boss@example.com",
+          attendees: [{ email: "a@example.com" }],
+          htmlLink: "https://calendar.google.com/event?eid=abc",
+        }),
+      }),
+    ];
+
+    await runWatchersOnce(() => {});
+
+    const { body } = envelopeOf(sandwichOf(runJobCalls[0]).content);
+    expect(body).toContain("boss@example.com");
+    expect(body).toContain("a@example.com");
+    expect(body).toContain("calendar.google.com");
+    // Both greedy fields are trimmed and both survive, rather than the first
+    // one surviving whole and the rest disappearing.
+    expect(body).toContain("LLLLLLLLLL");
+    expect(body).toContain("DDDDDDDDDD");
+  });
+
+  test("payload fields are bounded before they are stored, not just before rendering", async () => {
+    // The render caps run in Phase 2, after Phase 1 has serialized the payload
+    // into `watcher_events.payload_json`, which `watcher_list` and
+    // `watcher_digest` hand back verbatim. So the storage bound has to be its
+    // own pass, applied to every provider rather than field by field.
+    fakeWatchers = [makeWatcher()];
+    insertedEvents.length = 0;
+    fetchedItems = [
+      {
+        externalId: "ext-big",
+        eventType: "new_calendar_event",
+        summary: `Calendar event: ${"T".repeat(50_000)}`,
+        payload: {
+          location: "L".repeat(50_000),
+          description: "D".repeat(50_000),
+          organizer: "boss@example.com",
+        },
+        timestamp: Date.now(),
+      },
+    ];
+
+    await runWatchersOnce(() => {});
+
+    expect(insertedEvents).toHaveLength(1);
+    const stored = JSON.parse(insertedEvents[0].payloadJson);
+    expect(stored.location.length).toBe(WATCHER_PAYLOAD_TEXT_MAX_CHARS);
+    expect(stored.description.length).toBe(WATCHER_PAYLOAD_TEXT_MAX_CHARS);
+    // Short fields are untouched, and the summary is bounded too.
+    expect(stored.organizer).toBe("boss@example.com");
+    expect(insertedEvents[0].summary.length).toBeLessThanOrEqual(
+      WATCHER_PAYLOAD_TEXT_MAX_CHARS,
+    );
   });
 
   test("the preamble tells the model about the boundary without carrying payload text", async () => {

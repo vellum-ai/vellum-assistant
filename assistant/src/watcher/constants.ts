@@ -46,3 +46,20 @@ export const WATCHER_EVENT_PAYLOAD_MAX_CHARS = 4_000;
  * `description` (see `eventToItem`), so this is the only bound on it.
  */
 export const WATCHER_PAYLOAD_TEXT_MAX_CHARS = 5_000;
+
+/**
+ * Bounds on payload *shape*, applied alongside the text cap above.
+ *
+ * A payload with no long string in it can still be unbounded: a thousand short
+ * fields, a long array of attendees, or a deeply nested object all serialize
+ * large. Providers return whatever the upstream API sends, so the shape is as
+ * attacker-influenced as the text, and capping only string length would leave
+ * the obvious flood open.
+ *
+ * The values are far above any real payload. The largest first-party payload is
+ * the calendar one at 10 fields, and a 100-person meeting is an unusually large
+ * attendee list.
+ */
+export const WATCHER_PAYLOAD_FIELD_COUNT_MAX = 100;
+export const WATCHER_PAYLOAD_KEY_MAX_CHARS = 100;
+export const WATCHER_PAYLOAD_NESTING_MAX_DEPTH = 6;

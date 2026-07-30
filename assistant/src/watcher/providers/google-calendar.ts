@@ -9,8 +9,6 @@
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
 import { getLogger } from "../../util/logger.js";
-import { truncate } from "../../util/truncate.js";
-import { WATCHER_PAYLOAD_TEXT_MAX_CHARS } from "../constants.js";
 import type {
   FetchResult,
   WatcherItem,
@@ -176,18 +174,14 @@ function eventToItem(event: CalendarEvent, eventType: string): WatcherItem {
       start,
       end,
       location: event.location ?? "",
-      // Capped but not fenced. The engine fences the whole rendered event block
-      // in one `<external_content>` envelope before it reaches the model, so a
-      // per-field wrapper here would only nest an escaped fence inside that one.
-      // The cap still belongs here: the engine's render caps run after this
-      // payload has been serialized into `watcher_events.payload_json`, and
-      // Google's events.list reference documents no ceiling on `description`
-      // (it is free-form HTML, and events synced in from ICS or another
-      // calendar system are not held to the compose UI's limits either).
-      description: truncate(
-        event.description ?? "",
-        WATCHER_PAYLOAD_TEXT_MAX_CHARS,
-      ),
+      // Neither capped nor fenced here. The engine bounds every string in this
+      // payload before storing it (`capPayloadForStorage`) and fences the whole
+      // rendered event block in one `<external_content>` envelope before the
+      // model sees it, so both jobs are done once for every provider rather
+      // than per field here. Google's events.list reference documents no
+      // ceiling on `description`, and `location` has none either, so the
+      // engine's pass is the only bound on both.
+      description: event.description ?? "",
       status: event.status ?? "confirmed",
       organizer: event.organizer?.email ?? "",
       attendees:

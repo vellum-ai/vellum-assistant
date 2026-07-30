@@ -21,7 +21,9 @@ import {
   WATCHER_EVENT_PAYLOAD_MAX_CHARS,
   WATCHER_EVENT_SUMMARY_MAX_CHARS,
   WATCHER_JOB_TIMEOUT_MS,
+  WATCHER_PAYLOAD_TEXT_MAX_CHARS,
 } from "./constants.js";
+import { capPayloadForRender, capPayloadForStorage } from "./payload-bounds.js";
 import { getWatcherProvider } from "./provider-registry.js";
 import {
   recordWatcherInventoryIfDue,
@@ -181,7 +183,9 @@ function renderFencedEvents(
         `Event ${i + 1} (id: ${capUntrustedField(e.id, EVENT_ID_MAX_CHARS)}):`,
         `  Type: ${capUntrustedField(e.eventType, EVENT_TYPE_MAX_CHARS)}`,
         `  Summary: ${capUntrustedField(e.summary ?? "", WATCHER_EVENT_SUMMARY_MAX_CHARS)}`,
-        `  Data: ${capUntrustedField(e.payloadJson ?? "", WATCHER_EVENT_PAYLOAD_MAX_CHARS)}`,
+        // Field-aware, so one oversized field cannot crowd the rest of the
+        // event out of the budget. See `capPayloadForRender`.
+        `  Data: ${capPayloadForRender(e.payloadJson ?? "", WATCHER_EVENT_PAYLOAD_MAX_CHARS)}`,
       ].join("\n"),
     )
     .join("\n\n");
@@ -281,20 +285,28 @@ export async function runWatchersOnce(
         watcher.id,
       );
 
-      // Store new events with dedup
+      // Store new events with dedup. Every payload is bounded here, before it
+      // is serialized, so no provider can write an unbounded row and no
+      // provider has to remember to cap its own fields. The route responses
+      // that hand `payloadJson` back verbatim (`watcher_list`,
+      // `watcher_digest`) are bounded by the same pass.
       let newEvents = 0;
       const newPayloads: Array<Record<string, unknown>> = [];
       for (const item of result.items) {
+        const payload = capPayloadForStorage(item.payload) as Record<
+          string,
+          unknown
+        >;
         const inserted = insertWatcherEvent({
           watcherId: watcher.id,
           externalId: item.externalId,
           eventType: item.eventType,
-          summary: item.summary,
-          payloadJson: JSON.stringify(item.payload),
+          summary: truncate(item.summary, WATCHER_PAYLOAD_TEXT_MAX_CHARS),
+          payloadJson: JSON.stringify(payload),
         });
         if (inserted) {
           newEvents++;
-          newPayloads.push(item.payload);
+          newPayloads.push(payload);
         }
       }
 
