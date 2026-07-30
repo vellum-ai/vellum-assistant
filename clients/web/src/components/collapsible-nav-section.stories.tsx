@@ -32,16 +32,31 @@ interface NavSectionStoryArgs {
 
 const meta: Meta<NavSectionStoryArgs> = {
   title: "Components/CollapsibleNavSection",
+  globals: {
+    viewport: { value: "sbDesktop", isRotated: false },
+  },
   parameters: {
     layout: "padded",
-    /* NOTE: section headers and rows carry `max-md:` variants for the mobile
-       drawer - 16px type, 46px rows instead of 14px/30px. Those key off the
-       *viewport*, and the Docs canvas iframe runs ~300px narrower than the
-       browser window, so on a window under roughly 1070px these stories render
-       the mobile drawer's metrics while still showing the `rail` variant - a
-       combination the app never ships. Pinning a viewport needs
-       `@storybook/addon-viewport`, which isn't installed; tracked in LUM-2921.
-       Until then, read these at a wide window. */
+    viewport: {
+      options: {
+        sbDesktop: {
+          name: "Desktop",
+          styles: { width: "1280px", height: "760px" },
+          type: "desktop",
+        },
+      },
+    },
+    /* Section headers and rows carry `max-md:` variants for the mobile drawer
+       (16px type, 46px rows instead of 14px/30px). Those key off the
+       *viewport*, so at a narrow browser window these stories would render the
+       mobile drawer's metrics while still showing the `rail` variant, a
+       combination the app never ships. The pinned viewport above holds the
+       Canvas at desktop width regardless of window size.
+
+       It does not reach the Docs canvas: every story on a docs page shares one
+       iframe, so no per-story viewport applies there, and that iframe runs
+       roughly 300px narrower than the window. Read these in Canvas, or widen
+       the window past ~1070px for Docs. Tracked in LUM-2921. */
   },
   argTypes: {
     label: { control: "text" },

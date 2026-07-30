@@ -176,9 +176,11 @@ function RoomScene({
     <div
       ref={ref}
       data-theme="dark"
+      /* No backdrop of its own: `VoiceRoomAmbientBackground` paints the room's
+         void gradient across `inset-0`, so anything set here would only ever
+         be a guess at one of its stops. */
       className="relative flex items-center justify-center overflow-hidden rounded-lg"
       style={{
-        background: "#05060b",
         minHeight,
         ["--avatar-accent" as string]: SAMPLE_ACCENT,
       }}
@@ -453,7 +455,7 @@ export const States: Story = {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {VISUALS.map((visual) => (
         <div key={visual} className="flex flex-col gap-2">
-          <span className="text-[13px] font-medium text-white/60">
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
             {visual}
           </span>
           <ColorLookScene
@@ -477,7 +479,7 @@ export const Colors: Story = {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {COLOR_IDS.map((colorId) => (
         <div key={colorId} className="flex flex-col gap-2">
-          <span className="text-[13px] font-medium text-white/60">
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
             {colorId}
           </span>
           <ColorLookScene {...args} colorId={colorId} minHeight={300} />
@@ -502,7 +504,7 @@ export const RespondingSketches: Story = {
       {(["rings", "halo", "waveform", "pulse"] as const).map(
         (respondingStyle) => (
           <div key={respondingStyle} className="flex flex-col gap-2">
-            <span className="text-[13px] font-medium text-white/60">
+            <span className="text-body-small-default text-[var(--content-tertiary)]">
               {respondingStyle}
             </span>
             <ColorLookScene
@@ -574,7 +576,7 @@ export const VoidLookStates: VoidStory = {
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {VISUALS.map((visual) => (
         <div key={visual} className="flex flex-col gap-2">
-          <span className="text-[13px] font-medium text-white/60">
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
             {visual}
           </span>
           {/* Tall enough that the lower zone's caption clears the avatar in a
