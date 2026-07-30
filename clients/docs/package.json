@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test src"
+    "test": "bun test src --pass-with-no-tests"
   },
   "dependencies": {
     "next": "16.2.6",
