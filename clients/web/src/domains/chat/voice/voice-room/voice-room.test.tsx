@@ -414,9 +414,9 @@ describe("VoiceRoom — visibility", () => {
   });
 
   test("renders nothing in an Electron pop-out even when the composer owns the session", () => {
-    // The `fixed inset-0` room would cover the pop-out's standalone pill, so
-    // pop-outs never show it — the standalone pill is their only session
-    // surface. The owning composer's voice bar still renders underneath.
+    // The room fills whichever box it is mounted in, and in a pop-out that box
+    // is the whole window — it would cover the standalone pill, so pop-outs
+    // never show it. The owning composer's voice bar still renders underneath.
     startOwnedSession("listening");
     mockSearch = "?popout=1";
     render(<VoiceRoom />);
@@ -431,6 +431,58 @@ describe("VoiceRoom — visibility", () => {
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
     expect(useLiveVoiceStore.getState().state).toBe("listening");
+  });
+});
+
+// Placement is the whole point of the two variants: desktop insets the room
+// into the content area so the title bar and sidenav stay visible AND usable,
+// mobile keeps the full-viewport takeover. The modality flag has to follow the
+// placement — a non-modal room that claimed `aria-modal` would tell assistive
+// tech the chrome beside it is inert when it is in fact the way out.
+describe("VoiceRoom — placement variants", () => {
+  test("content: inset panel, non-modal", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="content" />);
+
+    const room = roomDialog();
+    expect(room).not.toBeNull();
+    expect(room?.className).toContain("absolute inset-0");
+    expect(room?.className).not.toContain("fixed");
+    // Rounded corners are what make it read as a panel set inside the chrome.
+    expect(room?.className).toContain("rounded-xl");
+    expect(room?.getAttribute("aria-modal")).toBeNull();
+  });
+
+  test("fullscreen: full-viewport takeover, modal", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="fullscreen" />);
+
+    const room = roomDialog();
+    expect(room?.className).toContain("fixed inset-0");
+    expect(room?.className).not.toContain("rounded-xl");
+    expect(room?.getAttribute("aria-modal")).toBe("true");
+  });
+
+  test("defaults to fullscreen", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(roomDialog()?.className).toContain("fixed inset-0");
+  });
+
+  test("both variants keep Escape-to-minimize — the content room is dismissible too", () => {
+    // The content variant is non-modal, but Escape is still the platform
+    // "leave the overlay" key; it must not degrade into ending the call.
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="content" />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 });
 

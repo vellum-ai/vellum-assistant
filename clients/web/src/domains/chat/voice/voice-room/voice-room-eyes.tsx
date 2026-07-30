@@ -39,9 +39,13 @@
  * question.
  *
  * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe (no
- * entrance, no parallax; the blink is a discrete squish, kept). Sized against
- * the window — the room is a `fixed inset-0` overlay, so the window IS its
- * box — unless a `viewport` override is passed (Storybook renders in a box).
+ * entrance, no parallax; the blink is a discrete squish, kept).
+ *
+ * Everything here is sized against the box it is given, not the window. The
+ * room is an inset panel on desktop (see `voice-room.tsx`), so "the screen" the
+ * avatar grows to BE is the panel; the room measures itself and passes that
+ * box, and Storybook passes its frame. `useViewportSize` remains only as the
+ * fallback for callers that render at full-viewport scale.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -281,7 +285,11 @@ function windowSize(): { w: number; h: number } {
   return { w: window.innerWidth, h: window.innerHeight };
 }
 
-/** The window box, kept live on resize — the room is a full-viewport overlay. */
+/**
+ * The window box, kept live on resize — the fallback for callers that render at
+ * full-viewport scale. The room itself measures its own panel and passes it in
+ * as `viewport`; see `use-room-box.ts`.
+ */
 function useViewportSize(): { w: number; h: number } {
   const [size, setSize] = useState(windowSize);
   useEffect(() => {
@@ -332,20 +340,23 @@ export function VoiceRoomColorLook({
   showStateCaption?: boolean;
   /** How prominent that caption is while audio flows. See {@link VoiceCaptionEmphasis}. */
   captionEmphasis?: VoiceCaptionEmphasis;
-  /** Viewport point the entrance grows from (the tapped control). Null → the
-   *  fixed screen-center origin. */
+  /** Point the entrance grows from (the tapped control), in ROOM-LOCAL space —
+   *  the caller converts from the viewport point it captured. Null → the fixed
+   *  room-center origin. */
   entryOrigin?: { x: number; y: number } | null;
   /** Which wave band to draw. See {@link VoiceWaveEngine}. */
   waveEngine?: VoiceWaveEngine;
-  /** Override the room box (Storybook renders in a box, not the full window). */
+  /** The room box to lay out against. The room measures its own panel and
+   *  passes it; omitted, this falls back to the window. */
   viewport?: { w: number; h: number };
 }) {
   const reduce = useReducedMotion();
   const measured = useViewportSize();
   const { w, h } = viewport ?? measured;
 
-  // Where the entrance grows from: the tapped control's viewport point, or the
-  // fixed picker-height screen center when none was captured (or in Storybook).
+  // Where the entrance grows from: the tapped control's point in room-local
+  // space, or the fixed picker-height room center when none was captured (or in
+  // Storybook).
   const origin = entryOrigin ?? {
     x: w / 2,
     y: (ENTER_FROM_CENTER_VH / 100) * h,
@@ -375,7 +386,11 @@ export function VoiceRoomColorLook({
   // user tapped. The body's rest center is the screen center (w/2, h/2), so it
   // starts offset by (origin − center) and slides to 0.
   const bodyGeometry = useMemo(() => {
-    if (!look.body) {
+    // A degenerate box (a not-yet-laid-out panel, a test renderer that reports
+    // no extent) would make `startScale` divide by zero and hand Motion an
+    // `Infinity` scale. Skip the body grow rather than animate garbage — the
+    // color fill still covers the room.
+    if (!look.body || w <= 0 || h <= 0) {
       return null;
     }
     const coverSize = 1.25 * Math.max(w, h);
@@ -952,9 +967,10 @@ function VoiceRespondingTreatment({
 
 /**
  * The `rings` responding treatment as a self-contained layer: the concentric
- * rings radiating outward from screen center on the TTS-output amplitude, sized
- * against the live window (pass `viewport` to size against a box instead —
- * Storybook). Exported for the void look, which renders it behind the centered
+ * rings radiating outward from the room's center on the TTS-output amplitude.
+ * Pass `viewport` to size against the room's own box (the room passes its
+ * measured panel; Storybook its frame); omitted, it falls back to the live
+ * window. Exported for the void look, which renders it behind the centered
  * avatar so a custom avatar emits the same rings the eyes do in the color look.
  */
 export function VoiceRespondingRings({
@@ -963,7 +979,7 @@ export function VoiceRespondingRings({
 }: {
   /** TTS (output) amplitude source (0–1) — drives the rings' presence. */
   getAmplitude?: () => number;
-  /** Override the room box (Storybook renders in a box, not the full window). */
+  /** The room box to size against; omitted, falls back to the window. */
   viewport?: { w: number; h: number };
 }) {
   const measured = useViewportSize();
@@ -1028,7 +1044,7 @@ export function VoiceRoomEyes({
   /** The room box the eyes are framed in (the caller's live viewport size). */
   viewport: { w: number; h: number };
   placement?: VoiceEyePlacement;
-  /** Viewport point the eyes grow from on entrance. Defaults to screen center. */
+  /** Room-local point the eyes grow from on entrance. Defaults to room center. */
   entranceOrigin?: { x: number; y: number };
   /**
    * Audio gesture the eyes express — `listening` widens them with the mic,

@@ -837,12 +837,16 @@ export function ChatLayout({
     />
   );
 
-  // Blur + freeze the chat body under the voice room, a full-viewport
-  // takeover. The room is an opaque overlay, so this mainly matters for the
-  // fade transition and to stop stray interaction with the covered chat.
-  const mainRoomClass = voiceRoomVisible
-    ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
-    : "";
+  // Blur + freeze the chat body under the MOBILE voice room, which is a
+  // full-viewport takeover mounted outside `<main>`. The room is an opaque
+  // overlay, so this mainly matters for the fade transition and to stop stray
+  // interaction with the covered chat. Desktop is deliberately excluded: its
+  // room is an inset panel mounted INSIDE `<main>`, so blurring `<main>` would
+  // blur the room along with the chat behind it.
+  const mainRoomClass =
+    voiceRoomVisible && isMobile
+      ? "pointer-events-none blur-sm opacity-40 transition-[filter,opacity]"
+      : "";
 
   return (
     <>
@@ -1001,6 +1005,12 @@ export function ChatLayout({
             className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
           >
             <Outlet />
+            {/* Live-voice room, desktop: an inset panel scoped to the content
+                area, so the title bar above and the sidenav beside it stay
+                visible and interactive. Self-gates on
+                `useIsVoiceRoomVisible()`; the composer's voice bar and
+                transcript render underneath, hidden by it. */}
+            <VoiceRoom variant="content" />
           </main>
         </div>
       )}
@@ -1011,11 +1021,12 @@ export function ChatLayout({
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
-      {/* Live-voice room — a full-viewport takeover mounted at layout scope,
-          next to the other full-viewport overlays. Self-gates on
-          `useIsVoiceRoomVisible()` (which excludes pop-outs); the composer's
-          voice bar and transcript render underneath, hidden by it. */}
-      <VoiceRoom />
+      {/* Live-voice room, mobile: still a full-viewport takeover, so it mounts
+          at layout scope next to the other full-viewport overlays rather than
+          inside `<main>` (JARVIS-1383 turns this into a bottom sheet). The
+          desktop room is the inset panel mounted inside `<main>` above; the two
+          mounts are mutually exclusive, so the room never double-mounts. */}
+      {isMobile ? <VoiceRoom variant="fullscreen" /> : null}
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}

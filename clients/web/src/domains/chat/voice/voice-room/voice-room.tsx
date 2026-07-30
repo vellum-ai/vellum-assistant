@@ -17,9 +17,23 @@
  *   void with the state-driven avatar at its center and the listening waves —
  *   what this look should become is an open design question.
  *
- * The room is a full-app takeover on every platform — `fixed inset-0`, modal,
- * covering the header and sidebar, with safe-area padding for notched iOS
- * shells. It is not exit-only: minimizing (the − control or Escape) dismisses
+ * Two placement variants (see `chat-layout.tsx` for the mounts):
+ *
+ * - `"content"` (desktop) — `absolute inset-0` inside the layout's `<main>`,
+ *   an inset panel that leaves the title bar and left sidenav visible AND
+ *   interactive, so the user can keep navigating; navigating away hands the
+ *   session off to the title-bar pill. Deliberately not `aria-modal`: the
+ *   surrounding chrome stays usable.
+ * - `"fullscreen"` (mobile) — `fixed inset-0` over the whole viewport, modal,
+ *   with safe-area padding for notched iOS shells.
+ *
+ * The look is laid out against the ROOM's box, not the window's — see
+ * {@link useRoomBox}. As a panel those are different rectangles, so the color
+ * look's field, its giant eyes, and the responding rings are all sized to the
+ * panel, and the entry origin (published in viewport space by the composer) is
+ * converted to room-local space before the entrance grows from it.
+ *
+ * The room is not exit-only: minimizing (the − control or Escape) dismisses
  * the room while the session keeps running — the composer's voice bar / the
  * title-bar pill become the session surfaces — and ending the session (the ✕
  * control) tears the whole call down.
@@ -66,6 +80,7 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
+import { toRoomLocal, useRoomBox } from "./use-room-box";
 import { resolveWaveAccentHex } from "./wave-accent";
 
 import {
@@ -106,12 +121,20 @@ const SESSION_CONTROL_CLASS =
 const SESSION_CONTROL_NEUTRAL_CLASS =
   "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
 
-export function VoiceRoom() {
+/** Placement variant — see the module docstring. */
+export type VoiceRoomVariant = "fullscreen" | "content";
+
+export function VoiceRoom({
+  variant = "fullscreen",
+}: {
+  /** Placement variant. Defaults to the fullscreen (mobile) mount. */
+  variant?: VoiceRoomVariant;
+}) {
   const visible = useIsVoiceRoomVisible();
 
   return (
     <AnimatePresence>
-      {visible ? <VoiceRoomOverlay key="voice-room" /> : null}
+      {visible ? <VoiceRoomOverlay key="voice-room" variant={variant} /> : null}
     </AnimatePresence>
   );
 }
@@ -121,7 +144,7 @@ export function VoiceRoom() {
  * only exist while the room is actually visible and are torn down cleanly on
  * exit.
  */
-function VoiceRoomOverlay() {
+function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const state = useLiveVoiceStore.use.state();
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
@@ -146,6 +169,13 @@ function VoiceRoomOverlay() {
   // the room's whole lifetime (both are session-constant).
   const [assistantId] = useState(liveAssistantId);
   const [entryOrigin] = useState(liveEntryOrigin);
+
+  // The room's own rectangle. Everything in the look lays out against this, not
+  // the window — as an inset panel they differ (see the module docstring).
+  const { ref: roomRef, box } = useRoomBox();
+  // The entry origin is a viewport point; the look lays out in room-local
+  // space. Fullscreen's offset is zero, which makes this a no-op there.
+  const localEntryOrigin = toRoomLocal(entryOrigin, box);
 
   const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
   // The label + sr-only announcement must follow the same audio-aware mapping as
@@ -211,25 +241,43 @@ function VoiceRoomOverlay() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const fullscreen = variant === "fullscreen";
+
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
+      ref={roomRef}
+      className={cn(
+        "z-50 flex items-center justify-center overflow-hidden",
+        // Both variants sit at z-50 — the highest tier used inside the chat
+        // layout. The content variant rounds its corners so it reads as a panel
+        // set inside the surrounding chrome; `overflow-hidden` above is what
+        // clips the full-bleed color/wave layers to that radius.
+        fullscreen ? "fixed inset-0" : "absolute inset-0 rounded-xl",
+      )}
       // Theme tokens (the connect label, the ambient transcript) follow the
       // look: dark over the void and the dark avatar colors, light over the
       // light one (yellow).
       data-theme={tone?.isLight ? "light" : "dark"}
       role="dialog"
-      aria-modal
+      // Only the fullscreen room is modal. The content variant deliberately
+      // leaves the header and sidenav usable, so claiming the rest of the app
+      // is inert would be a lie to assistive tech.
+      aria-modal={fullscreen || undefined}
       aria-label="Voice session"
-      // The overlay covers `ChatLayoutHeader`, so it loses the header's
+      // Fullscreen covers `ChatLayoutHeader`, so it loses the header's
       // safe-area protection — pad the centered avatar inside the
       // notch/home-indicator per docs/CAPACITOR.md. The background layers are
-      // `absolute inset-0` and stay full-bleed behind the padding.
+      // `absolute inset-0` and stay full-bleed behind the padding. The content
+      // variant sits inside the layout, which already handles its own insets.
       style={{
-        paddingTop: SAFE_AREA_TOP,
-        paddingBottom: SAFE_AREA_BOTTOM,
-        paddingLeft: SAFE_AREA_LEFT,
-        paddingRight: SAFE_AREA_RIGHT,
+        ...(fullscreen
+          ? {
+              paddingTop: SAFE_AREA_TOP,
+              paddingBottom: SAFE_AREA_BOTTOM,
+              paddingLeft: SAFE_AREA_LEFT,
+              paddingRight: SAFE_AREA_RIGHT,
+            }
+          : null),
         ...toneVars,
         ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
       }}
@@ -251,18 +299,25 @@ function VoiceRoomOverlay() {
           color + eyes. Both draw the waves only while `listening`, from live mic
           amplitude. */}
       {look ? (
-        <VoiceRoomColorLook
-          look={look}
-          visual={visual}
-          getAmplitude={getLiveVoiceInputAmplitude}
-          getResponseAmplitude={getLiveVoiceOutputAmplitude}
-          // While assistant captions are on, the transcript's lower zone already
-          // narrates the turn from the caption's own baseline, so the caption
-          // stands down rather than doubling it. The user-only caption pref
-          // leaves it up (a user pill alone doesn't name the assistant's state).
-          showStateCaption={!showAssistantTranscript}
-          entryOrigin={entryOrigin}
-        />
+        // Held back until the box is measured — one pre-paint commit, so the
+        // entrance still plays from the room's first painted frame, but it
+        // grows inside a real rectangle rather than a zero-sized one.
+        box ? (
+          <VoiceRoomColorLook
+            look={look}
+            visual={visual}
+            getAmplitude={getLiveVoiceInputAmplitude}
+            getResponseAmplitude={getLiveVoiceOutputAmplitude}
+            // While assistant captions are on, the transcript's lower zone
+            // already narrates the turn from the caption's own baseline, so the
+            // caption stands down rather than doubling it. The user-only caption
+            // pref leaves it up (a user pill alone doesn't name the assistant's
+            // state).
+            showStateCaption={!showAssistantTranscript}
+            entryOrigin={localEntryOrigin}
+            viewport={box}
+          />
+        ) : null
       ) : (
         <>
           <VoiceRoomAmbientBackground />
@@ -280,8 +335,11 @@ function VoiceRoomOverlay() {
               behind the eyes, here behind the centered avatar (both centered, so
               they emanate from the centerpiece the same way). Rendered before the
               avatar so it paints them behind it; rides the TTS-output amplitude. */}
-          {visual === "responding" ? (
-            <VoiceRespondingRings getAmplitude={getLiveVoiceOutputAmplitude} />
+          {visual === "responding" && box ? (
+            <VoiceRespondingRings
+              getAmplitude={getLiveVoiceOutputAmplitude}
+              viewport={box}
+            />
           ) : null}
           {/* Same state caption + gating as the color look (stands down while
               the assistant transcript is on), in the same shared lower zone —
