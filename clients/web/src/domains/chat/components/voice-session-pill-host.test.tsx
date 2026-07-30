@@ -49,9 +49,9 @@ mock.module("react-router", () => ({
   useNavigate: () => navigateFn,
 }));
 
-// No `use-active-conversation` mock: the pill is textless, so the host
-// resolves no owning row. Only `conversationId` matters, and only to decide
-// whether the waves navigate.
+// No `use-active-conversation` mock: the pill names the session's state, not
+// its thread, so the host resolves no owning row. Only `conversationId`
+// matters, and only to decide whether the state word navigates.
 
 let mockMainView: MainView = "chat";
 mock.module("@/stores/viewer-store", () => ({
@@ -351,6 +351,47 @@ describe("VoiceSessionPillHost — standalone variant (headerless pop-outs)", ()
   });
 });
 
+describe("VoiceSessionPillHost: row variant (above the phone header)", () => {
+  test("lays the band out in flow so it pushes the page down", () => {
+    startSession("listening");
+    const { container } = render(<VoiceSessionPillHost variant="row" />);
+    // The band itself is the host's root here: nothing wraps it in a `fixed`
+    // or `absolute` box, which is what keeps it taking its own space in the
+    // layout column rather than covering the header under it.
+    expect(container.firstChild).toBe(pill());
+    expect((pill() as HTMLElement).className).toContain("w-full");
+  });
+
+  test("the failure chip gets the header's inset instead of running edge to edge", () => {
+    // The chip carries its own pill-shaped fill, so full-bleed placement would
+    // leave it floating against the page edge.
+    startSession("listening");
+    mockPathname = routes.home;
+    useLiveVoiceStore.getState().fail("boom");
+    const { container } = render(<VoiceSessionPillHost variant="row" />);
+    expect((container.firstChild as HTMLElement).className).toContain("px-4");
+    expect(screen.queryByRole("alert")).not.toBeNull();
+  });
+
+  test("renders nothing when no session is active", () => {
+    const { container } = render(<VoiceSessionPillHost variant="row" />);
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("VoiceSessionPillHost: paint", () => {
+  test("paints the surface once the session assistant's avatar has settled", () => {
+    // The mocked avatar has no character colour, which is exactly when the
+    // room falls back to its deep ambient surface, so the pill follows it
+    // there rather than staying on the app's own lift surface.
+    startSession("listening");
+    render(<VoiceSessionPillHost />);
+    const style = (pill() as HTMLElement).getAttribute("style") ?? "";
+    expect(style).toContain("--room-fg");
+    expect((pill() as HTMLElement).getAttribute("data-theme")).toBe("dark");
+  });
+});
+
 describe("VoiceSessionPillHost — state announcement", () => {
   test("passes the session state through as the pill's announced label", () => {
     startSession("thinking");
@@ -358,7 +399,7 @@ describe("VoiceSessionPillHost — state announcement", () => {
     expect(screen.getByText("Thinking…")).toBeTruthy();
   });
 
-  test("renders no thread title — the pill is textless", () => {
+  test("renders no thread title: the pill says the state, not the thread", () => {
     // The host fetches no owning row, so no thread name can reach the header.
     startSession("listening");
     render(<VoiceSessionPillHost />);

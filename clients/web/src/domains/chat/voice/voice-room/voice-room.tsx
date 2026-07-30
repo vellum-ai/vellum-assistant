@@ -28,7 +28,9 @@
  *   thread header, the mobile counterpart of the inset panel. Radix portals it
  *   out of the layout and positions it `fixed`, so it is told where the header
  *   ends ({@link useChatHeaderBottom}) rather than inheriting that edge from
- *   the DOM. Modal, because Radix makes it so.
+ *   the DOM. Non-modal, so the header it rests below stays lit and usable,
+ *   which takes suppressing several of Radix's modal reflexes: see
+ *   {@link VoiceRoomSheet}.
  * - `"fullscreen"`: `fixed inset-0` over the whole viewport, modal, with
  *   safe-area padding for notched iOS shells. No longer mounted by the chat
  *   layout; kept as the variant a surface with no chrome to sit under would
@@ -40,10 +42,10 @@
  * panel, and the entry origin (published in viewport space by the composer) is
  * converted to room-local space before the entrance grows from it.
  *
- * The room is not exit-only: minimizing (the − control or Escape) dismisses
- * the room while the session keeps running — the composer's voice bar / the
- * title-bar pill become the session surfaces — and ending the session (the ✕
- * control) tears the whole call down.
+ * The room is not exit-only. Minimizing (the "show transcript" control or
+ * Escape) dismisses the room while the session keeps running, handing the
+ * session to the composer's voice bar or the title-bar pill; ending the
+ * session (the ✕ control) tears the whole call down.
  *
  * Visibility is a pure function of {@link useIsVoiceRoomVisible} — active
  * session, owned by the on-screen composer, main window, not minimized. Any
@@ -53,23 +55,21 @@
  * never a dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
- * push-to-talk control. Bottom-center carries the session controls in the
- * call-app idiom: a mic mute toggle (always) and, while the assistant speaks
- * hands-free, a turn-scoped ■ stop. Exit is first-class: the persistent
- * ✕ control ends the session, always rendered even while the avatar/assistant
- * data is loading or failed. Escape maps to the lesser dismissal — it
- * minimizes the room, same as the − control, leaving the call live. The key
- * handler attaches only while the room is mounted.
+ * push-to-talk control. One centred row near the bottom carries the three
+ * things a caller does mid-call, left to right: mute the mic so it stops
+ * hearing you, mute the assistant so you stop hearing it, and show the
+ * transcript, which minimizes the room to reveal the conversation with the call
+ * still running. All three are persistent toggles, so the row never changes
+ * shape mid-call. Exit is first-class and kept away from that row: the
+ * persistent ✕ sits alone top-right, always rendered even while the
+ * avatar/assistant data is loading or failed. Escape maps to the same lesser
+ * dismissal as show transcript, leaving the call live. The key handler
+ * attaches only while the room is mounted.
  */
 
-import {
-  useEffect,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Mic, MicOff, Minus, Square, X } from "lucide-react";
+import { Captions, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
 import { BottomSheet, Tooltip, cn } from "@vellumai/design-library";
 
@@ -80,7 +80,7 @@ import {
   liveVoiceSurfaceLabel,
   minimizeVoiceRoom,
   setLiveVoiceMuted,
-  stopLiveVoiceResponse,
+  setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
@@ -105,7 +105,6 @@ import {
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
-import { VoiceRoomSettingsMenu } from "./voice-room-settings-menu";
 import { VoiceAvatar } from "./voice-avatar";
 import { VoiceMeshWaves } from "./voice-mesh-waves";
 import { AVATAR_ENTER_SPRING } from "./voice-motion";
@@ -121,6 +120,12 @@ import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 const AVATAR_SIZE = 220;
 
 /**
+ * Gap between a corner control and the room's edges. One constant so the
+ * top-right exit and the bottom control row sit on the same rhythm.
+ */
+const CORNER_GAP = "1.25rem";
+
+/**
  * Shared treatment for the room's top icon controls, toned to the active look
  * via the `--room-*` vars set on the root (white-on-dark for the void look,
  * tone-derived over an avatar color).
@@ -128,7 +133,7 @@ const AVATAR_SIZE = 220;
 const ROOM_CONTROL_CLASS =
   "flex size-12 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 
-/** Bottom-row circular session controls (mute / ■ stop), same toning. */
+/** The centred row's circular session controls, same toning. */
 const SESSION_CONTROL_CLASS =
   "flex size-12 items-center justify-center rounded-full border transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 const SESSION_CONTROL_NEUTRAL_CLASS =
@@ -196,9 +201,7 @@ function VoiceRoomSheet({
         className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
-        style={
-          { "--voice-sheet-top": `${headerBottom}px` } as CSSProperties
-        }
+        style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
         aria-label="Voice session"
         // The room narrates itself through its own live region; a description
         // element would be a second, redundant announcement.
@@ -223,10 +226,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const liveAssistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
-  // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
-  // the whole session); room sessions are hands-free except on the
-  // version-skew fallback against an older daemon.
-  const handsFree = useLiveVoiceStore.use.handsFree();
+  // Muting the assistant needs no hands-free gate: it silences the output
+  // rather than interrupting a turn, so there is no manual-session case where
+  // it would end the whole call.
+  const outputMuted = useLiveVoiceStore.use.outputMuted();
   // Viewport point the entrance grows from (the tapped voice button); null →
   // the color look falls back to its screen-center origin.
   const liveEntryOrigin = useLiveVoiceStore.use.entryOrigin();
@@ -265,8 +268,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   );
 
   // The state caption (e.g. "Listening…") shows only while the assistant
-  // transcript is hidden; the captions toggle itself lives in the room's
-  // settings gear ({@link VoiceRoomSettingsMenu}).
+  // transcript is hidden. Nothing in the room toggles that any more: the
+  // preference is the Settings page's, read here.
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
 
@@ -470,33 +473,29 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ) : null}
       </AnimatePresence>
 
-      {/* Room controls — captions toggle, minimize, and the persistent exit.
-          Rendered above all room chrome; ✕ is never gated behind avatar
-          readiness, so ending works even mid-load / on failure. */}
+      {/* Top-right: the exit, alone. ✕ is never gated behind avatar readiness,
+          so ending works even mid-load / on failure.
+          Nothing else shares the corner. Minimize moved into the centred row
+          below as "show transcript", named for what the user wants rather than
+          for what the window does, and the in-session settings gear was deleted
+          with it: a corner of small controls competed with the room's own cast
+          for attention. Voice and listening language are Settings' now. */}
       <div
-        // Absolute position is relative to the padding box, so the overlay's
-        // safe-area padding does not shift this — inset it from the notch /
-        // Dynamic Island directly, clamped to the desktop 1.25rem gap.
+        // An equal gap from both edges, so the control reads as sitting in the
+        // corner rather than floating near it.
+        //
+        // Only the fullscreen variant reaches the notch / Dynamic Island and
+        // has to clear it. The panel and the sheet both start below the app's
+        // own chrome, so clamping their top to the notch inset would push the
+        // control a further ~59px down on a notched phone while the right stays
+        // at the base gap: visibly lopsided, and measured against an edge the
+        // room does not have.
         style={{
-          top: `max(1.25rem, ${SAFE_AREA_TOP})`,
-          right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
+          top: fullscreen ? `max(${CORNER_GAP}, ${SAFE_AREA_TOP})` : CORNER_GAP,
+          right: `max(${CORNER_GAP}, ${SAFE_AREA_RIGHT})`,
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <VoiceRoomSettingsMenu
-          triggerClassName={ROOM_CONTROL_CLASS}
-          assistantId={assistantId}
-        />
-        <Tooltip content="Minimize — session keeps going">
-          <button
-            type="button"
-            onClick={minimizeVoiceRoom}
-            aria-label="Minimize voice room"
-            className={ROOM_CONTROL_CLASS}
-          >
-            <Minus className="size-5" />
-          </button>
-        </Tooltip>
         <Tooltip content="End voice session">
           <button
             type="button"
@@ -567,46 +566,29 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ) : null}
       </AnimatePresence>
 
-      {/* Bottom-right session controls, the call-app idiom: the mic mute
-          toggle always (an open mic demands an always-reachable mute), and —
-          while the assistant speaks in a hands-free session — a ■ that stops
-          the response without ending the session (web barge-in by just
-          talking is not reliable yet, so this is the room's only interrupt).
-          Anchored bottom-right (the mic sits in the corner, the transient stop
-          to its left) with an equal corner gap on both edges, matching the
-          top-right cluster's 1.25rem inset. */}
+      {/* The session controls: one centred row near the bottom, reading
+          left to right as the three things a caller does mid-call.
+
+          - mute the mic, so the assistant stops hearing you,
+          - mute the assistant, so you stop hearing it. Its reply keeps running
+            underneath and the transcript keeps filling, so unmuting drops you
+            back in wherever it has reached,
+          - show the transcript, which minimizes the room to reveal the
+            conversation underneath. The session keeps running on the
+            composer's voice bar; this is the same move the old − made, named
+            for what the user wants rather than what the window does.
+
+          All three are persistent toggles, so the row never changes shape
+          mid-call and a control never moves out from under a reaching finger.
+          The two mutes are deliberately a symmetric pair: one per direction of
+          the conversation, reading left to right as you and then it. */}
       <div
-        className="absolute z-10 flex items-center gap-3"
-        style={{
-          bottom: `max(1.25rem, ${SAFE_AREA_BOTTOM})`,
-          right: `max(1.25rem, ${SAFE_AREA_RIGHT})`,
-        }}
+        data-testid="voice-room-controls"
+        className="absolute inset-x-0 z-10 flex items-center justify-center gap-4"
+        // The bottom edge IS the screen's on the sheet and fullscreen, so the
+        // home-indicator inset is real here in a way the top inset was not.
+        style={{ bottom: `max(${CORNER_GAP}, ${SAFE_AREA_BOTTOM})` }}
       >
-        <AnimatePresence>
-          {handsFree && state === "speaking" ? (
-            <motion.div
-              key="stop-response"
-              initial={reduce ? false : { opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: reduce ? 0 : 0.2 }}
-            >
-              <Tooltip content="Stop assistant response">
-                <button
-                  type="button"
-                  onClick={stopLiveVoiceResponse}
-                  aria-label="Stop assistant response"
-                  className={cn(
-                    SESSION_CONTROL_CLASS,
-                    SESSION_CONTROL_NEUTRAL_CLASS,
-                  )}
-                >
-                  <Square className="size-4" fill="currentColor" />
-                </button>
-              </Tooltip>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
         <Tooltip content={muted ? "Unmute microphone" : "Mute microphone"}>
           <button
             type="button"
@@ -623,6 +605,40 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             )}
           >
             {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+          </button>
+        </Tooltip>
+
+        <Tooltip content={outputMuted ? "Unmute assistant" : "Mute assistant"}>
+          <button
+            type="button"
+            onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
+            aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+            aria-pressed={outputMuted}
+            className={cn(
+              SESSION_CONTROL_CLASS,
+              outputMuted
+                ? tone?.isLight
+                  ? "border-red-700/50 bg-red-600/15 text-red-800 hover:bg-red-600/25"
+                  : "border-red-400/50 bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                : SESSION_CONTROL_NEUTRAL_CLASS,
+            )}
+          >
+            {outputMuted ? (
+              <VolumeX className="size-5" />
+            ) : (
+              <Volume2 className="size-5" />
+            )}
+          </button>
+        </Tooltip>
+
+        <Tooltip content="Show transcript (session keeps going)">
+          <button
+            type="button"
+            onClick={minimizeVoiceRoom}
+            aria-label="Show transcript"
+            className={cn(SESSION_CONTROL_CLASS, SESSION_CONTROL_NEUTRAL_CLASS)}
+          >
+            <Captions className="size-5" />
           </button>
         </Tooltip>
       </div>

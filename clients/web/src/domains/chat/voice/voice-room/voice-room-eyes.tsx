@@ -191,9 +191,18 @@ const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
  *  eyes from this vertical center — onboarding's picker geometry. */
 const ENTER_FROM_SIZE = 200;
 const ENTER_FROM_CENTER_VH = 40;
-/** The room's own dark base, under the color fade (matches the ambient look's
- *  deep surface so the first frames read the same for both looks). */
-const DARK_SURFACE = "#17191C";
+/**
+ * The room's own dark base, under the color fade (matches the ambient look's
+ * deep surface so the first frames read the same for both looks).
+ *
+ * Exported as the surface any voice surface paints when the assistant has no
+ * character color to borrow, which is what `resolveVoiceRoomLook` returning
+ * null means: custom-image and "none" avatars. The minimized composer bar
+ * shares it so a colorless assistant minimizes into the same deep surface the
+ * room shows it on.
+ */
+export const VOICE_SURFACE_DARK = "#17191C";
+const DARK_SURFACE = VOICE_SURFACE_DARK;
 
 export interface VoiceRoomEyeArt {
   paths: { svgPath: string; color: string }[];
@@ -651,8 +660,13 @@ const CAPTION_EMPHASIS: Record<
  *   stopped responding to amplitude at all. It stays closer to linear.
  *
  * Both still reach zero in silence, so the floor is empty between turns.
+ *
+ * Exported because every painted voice surface inks its band this way, not just
+ * the room: the fill is the avatar color, so a band tinted with the avatar
+ * accent is the fill's own hue and paints nothing visible on it. The minimized
+ * composer block borrows both entries for the same reason the room has them.
  */
-const BAND_VOICE = {
+export const BAND_VOICE = {
   listening: { color: "#FFFFFF", peakOpacity: 0.4, opacityKnee: 3 },
   responding: { color: "#000000", peakOpacity: 0.45, opacityKnee: 1.3 },
 } as const;
@@ -779,11 +793,7 @@ function VoiceThinkingIndicator({
  * listening band at whatever placement the room is already using.
  */
 export type VoiceRespondingStyle =
-  | "waves"
-  | "rings"
-  | "halo"
-  | "waveform"
-  | "pulse";
+  "waves" | "rings" | "halo" | "waveform" | "pulse";
 
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding

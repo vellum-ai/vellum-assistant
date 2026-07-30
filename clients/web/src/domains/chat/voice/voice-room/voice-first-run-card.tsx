@@ -32,10 +32,9 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * One-time welcome card shown the first time a user enters voice mode, before
  * the live session starts.
  *
- * Deliberately NOT a settings quiz: captions are toggled in-session from the
- * voice room, the assistant's voice from the room's settings gear (where it
- * hot-applies on the next reply, so the user picks while actually hearing it),
- * and the full preferences live in Settings → Voice — front-loading choices
+ * Deliberately NOT a settings quiz: the preferences live in Settings → Voice
+ * (the assistant's voice hot-applies from there on the next reply, so a user
+ * can pick while actually hearing it), and front-loading choices
  * before the user has ever experienced voice mode is the wrong moment. The card
  * just sets expectations and starts.
  *
