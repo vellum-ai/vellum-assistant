@@ -2292,6 +2292,7 @@ async function main() {
             config,
             "slack",
             normalized.event.message.conversationExternalId,
+            normalized.event.actor.actorExternalId,
             async (text) => {
               await fetchImpl("https://slack.com/api/chat.postMessage", {
                 method: "POST",

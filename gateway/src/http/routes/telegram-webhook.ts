@@ -538,6 +538,7 @@ export function createTelegramWebhookHandler(
           config,
           normalized.sourceChannel,
           normalized.message.conversationExternalId,
+          normalized.actor.actorExternalId,
           async (text) => {
             await sendTelegramReply(
               config,

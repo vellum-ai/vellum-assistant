@@ -14,11 +14,16 @@
  * member_blocked / member_revoked hard-deny.
  */
 
-import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
+import {
+  makeResolutionFailedVerdict,
+  type TrustClass,
+  type TrustVerdict,
+} from "@vellumai/gateway-client";
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import { guardianIntegrityState } from "../auth/guardian-integrity.js";
 import { getGatewayDb } from "../db/connection.js";
+import { getLogger } from "../logger.js";
 import {
   contacts as gwContacts,
   contactChannels as gwContactChannels,
@@ -26,9 +31,35 @@ import {
 import { hasInterceptableSession } from "../db/session-store.js";
 import { canonicalSenderIdFor } from "../verification/identity.js";
 
+const log = getLogger("trust-verdict-resolver");
+
 export interface ResolveTrustVerdictInput {
   channelType: string;
   actorExternalId?: string;
+}
+
+/**
+ * {@link resolveTrustVerdict} with the canonical failure sentinel applied —
+ * the single place that turns a resolver throw into a verdict.
+ *
+ * Every caller needs the same fallback: stamp a `resolutionFailed` sentinel
+ * (carrying the canonical sender id) so a consumer can tell a resolver
+ * failure from a real `unknown` stranger. Resolution never throws here;
+ * what each caller DOES with `resolutionFailed` is theirs to decide —
+ * message ingress forwards it (the runtime is the deny decider), the
+ * channel-command seam denies on it (the gateway is).
+ */
+export async function resolveTrustVerdictOrSentinel(
+  input: ResolveTrustVerdictInput,
+): Promise<TrustVerdict> {
+  try {
+    return await resolveTrustVerdict(input);
+  } catch (err) {
+    log.warn({ err }, "trust verdict resolution failed; stamping sentinel");
+    return makeResolutionFailedVerdict(
+      canonicalSenderIdFor(input.channelType, input.actorExternalId),
+    );
+  }
 }
 
 /**
@@ -231,8 +262,9 @@ export async function resolveTrustVerdict(
   // — an omitted stamp just falls back to those reads, so a store failure
   // must not convert an otherwise-good verdict into a resolver failure.
   try {
-    verdict.hasInterceptableVerificationSession =
-      hasInterceptableSession(input.channelType);
+    verdict.hasInterceptableVerificationSession = hasInterceptableSession(
+      input.channelType,
+    );
   } catch {
     // Stamp omitted; consumer falls back to IPC reads.
   }

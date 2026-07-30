@@ -1,5 +1,4 @@
 import {
-  makeResolutionFailedVerdict,
   makeUnauthenticatedSenderVerdict,
   type SourceMetadata,
   type TrustVerdict,
@@ -8,11 +7,8 @@ import type { GatewayConfig } from "../config.js";
 import { ContactStore } from "../db/contact-store.js";
 import { getLogger } from "../logger.js";
 import { resolveAdmissionPolicy } from "../risk/admission-policy-cache.js";
-import { resolveTrustVerdict } from "../risk/trust-verdict-resolver.js";
-import {
-  canonicalizeInboundIdentity,
-  canonicalSenderIdFor,
-} from "../verification/identity.js";
+import { resolveTrustVerdictOrSentinel } from "../risk/trust-verdict-resolver.js";
+import { canonicalizeInboundIdentity } from "../verification/identity.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
 import {
@@ -174,20 +170,14 @@ export async function handleInbound(
   // runtime to consume. Runs after the verification intercept (messages it
   // consumes never pay resolution cost) and before the invite intercept,
   // which gates on the resolved class.
-  let trustVerdict: TrustVerdict | undefined;
-  try {
-    trustVerdict = await resolveTrustVerdict({
+  // Producer fails soft — resolution never breaks ingress. The shared helper
+  // stamps a sentinel so the consumer can tell a resolver failure from a real
+  // stranger.
+  let trustVerdict: TrustVerdict | undefined =
+    await resolveTrustVerdictOrSentinel({
       channelType: event.sourceChannel,
       actorExternalId: event.actor.actorExternalId,
     });
-  } catch (err) {
-    // Producer fails soft — resolution never breaks ingress. Stamp a sentinel
-    // so the consumer can tell a resolver failure from a real stranger.
-    log.warn({ err }, "trust verdict resolution failed; stamping sentinel");
-    trustVerdict = makeResolutionFailedVerdict(
-      canonicalSenderIdFor(event.sourceChannel, event.actor.actorExternalId),
-    );
-  }
 
   // ── Sender-authentication downgrade ──
   // Trust is keyed on the actor's channel address, which some channels (email)

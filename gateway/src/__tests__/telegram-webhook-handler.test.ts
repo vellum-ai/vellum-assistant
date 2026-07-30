@@ -7,7 +7,16 @@ import {
   initAdmissionPolicyCache,
   resetAdmissionPolicyCache,
 } from "../risk/admission-policy-cache.js";
-import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
+import {
+  initGatewayDb,
+  resetGatewayDb,
+  getGatewayDb,
+} from "../db/connection.js";
+import { AdmissionPolicyStore } from "../db/admission-policy-store.js";
+import {
+  contacts as gwContacts,
+  contactChannels as gwContactChannels,
+} from "../db/schema.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -106,12 +115,65 @@ let fetchCalls: {
   headers?: Record<string, string>;
 }[];
 
+/** Telegram `from.id` used by {@link makeTelegramPayload}. */
+const ACTOR_ID = "67890";
+
+/**
+ * Seed a gateway contact channel for the payload actor so the channel-command
+ * authorization seam classifies them above the admission floor. Telegram ids
+ * canonicalize to themselves, so `address` is the raw `from.id`.
+ */
+function seedActorContact(opts: { role?: string; status?: string } = {}): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(gwContacts)
+    .values({
+      id: "contact-1",
+      displayName: "Test User",
+      role: opts.role ?? "contact",
+      principalId: opts.role === "guardian" ? "principal-1" : null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  getGatewayDb()
+    .insert(gwContactChannels)
+    .values({
+      id: "channel-1",
+      contactId: "contact-1",
+      type: "telegram",
+      address: ACTOR_ID,
+      externalChatId: null,
+      status: opts.status ?? "active",
+      policy: "allow",
+      verifiedAt: now,
+      verifiedVia: "challenge",
+      interactionCount: 0,
+      createdAt: now,
+    })
+    .run();
+}
+
+/** Persist an admission policy floor for telegram and refresh the cache. */
+function setTelegramPolicy(policy: Parameters<AdmissionPolicyStore["set"]>[1]) {
+  new AdmissionPolicyStore().set("telegram", policy);
+  resetAdmissionPolicyCache();
+  initAdmissionPolicyCache();
+}
+
 beforeEach(async () => {
   // P3 admission policy cache is required by `handleInbound`; init fresh
   // per test so the cache state mirrors the freshly-reset gateway DB.
   resetGatewayDb();
   resetAdmissionPolicyCache();
   await initGatewayDb();
+  // initGatewayDb reconnects to the same on-disk DB; clear leftover ACL rows
+  // (channels first — FK cascade from contacts) so trust resolution is
+  // deterministic across sibling suites.
+  getGatewayDb().delete(gwContactChannels).run();
+  getGatewayDb().delete(gwContacts).run();
+  const policyStore = new AdmissionPolicyStore();
+  for (const row of policyStore.list()) policyStore.remove(row.channelType);
   initAdmissionPolicyCache();
   fetchCalls = [];
 });
@@ -387,6 +449,7 @@ describe("telegram webhook handler: /new rejection", () => {
 
   test("/new on an unrouted chat resets instead of sending a rejection notice", async () => {
     const config = makeConfig();
+    seedActorContact();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -412,6 +475,8 @@ describe("telegram webhook handler: /new rejection", () => {
         { type: "conversation_id", key: "12345", assistantId: "assistant-a" },
       ],
     });
+    // Clears the default `trusted_contacts` floor as an active contact.
+    seedActorContact();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -442,6 +507,134 @@ describe("telegram webhook handler: /new rejection", () => {
       );
     });
     expect(confirmCall).toBeDefined();
+  });
+});
+
+describe("telegram webhook handler: /new admission", () => {
+  const ROUTED = {
+    routingEntries: [
+      {
+        type: "conversation_id" as const,
+        key: "12345",
+        assistantId: "assistant-a",
+      },
+    ],
+  };
+
+  /** Assert no reset happened and nothing was said back to the chat. */
+  function expectSilentlyDenied() {
+    expect(
+      fetchCalls.find((c) => c.url.includes("/channels/conversation")),
+    ).toBeUndefined();
+    expect(
+      fetchCalls.find((c) => c.url.includes("/sendMessage")),
+    ).toBeUndefined();
+  }
+
+  test("stranger's /new is denied under the default floor — no reset, no reply", async () => {
+    // No contact row → trust class `unknown` (rank 1) < `trusted_contacts`
+    // (floor 3). This is the LUM-2945 bug: any actor who could reach the bot
+    // used to be able to drop the bound conversation's continuity.
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    const res = await handler(
+      makeWebhookRequest(makeTelegramPayload("/new", 5001)),
+    );
+
+    expect(res.status).toBe(200);
+    expectSilentlyDenied();
+  });
+
+  test("`no_one` denies /new even for the guardian (kill switch is off for everyone)", async () => {
+    seedActorContact({ role: "guardian" });
+    setTelegramPolicy("no_one");
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    const res = await handler(
+      makeWebhookRequest(makeTelegramPayload("/new", 5002)),
+    );
+
+    expect(res.status).toBe(200);
+    expectSilentlyDenied();
+  });
+
+  test("blocked member's /new is denied even under the `strangers` floor", async () => {
+    // Rank alone would clear a floor of 1; the raw-status hard-deny is what
+    // keeps an explicit governance action winning.
+    seedActorContact({ status: "blocked" });
+    setTelegramPolicy("strangers");
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    const res = await handler(
+      makeWebhookRequest(makeTelegramPayload("/new", 5003)),
+    );
+
+    expect(res.status).toBe(200);
+    expectSilentlyDenied();
+  });
+
+  test("contact below a `guardian_only` floor is denied; the guardian is admitted", async () => {
+    seedActorContact();
+    setTelegramPolicy("guardian_only");
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    await handler(makeWebhookRequest(makeTelegramPayload("/new", 5004)));
+    expectSilentlyDenied();
+
+    // Same floor, guardian actor → admitted.
+    getGatewayDb().delete(gwContactChannels).run();
+    getGatewayDb().delete(gwContacts).run();
+    seedActorContact({ role: "guardian" });
+    fetchCalls = [];
+
+    const res = await handler(
+      makeWebhookRequest(makeTelegramPayload("/new", 5005)),
+    );
+
+    expect(res.status).toBe(200);
+    const resetCall = fetchCalls.find((c) =>
+      c.url.includes("/channels/conversation"),
+    );
+    expect(resetCall).toBeDefined();
+    expect(resetCall!.method).toBe("DELETE");
+  });
+
+  test("stranger's /new is denied under `strangers` too — floor met, but rank is the only gate", async () => {
+    // A `strangers` floor (1) admits rank-1 `unknown`: the seam is an
+    // admission check, not a blanket guardian gate, so a channel the
+    // guardian opened to strangers still accepts /new from one.
+    setTelegramPolicy("strangers");
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    const res = await handler(
+      makeWebhookRequest(makeTelegramPayload("/new", 5006)),
+    );
+
+    expect(res.status).toBe(200);
+    const resetCall = fetchCalls.find((c) =>
+      c.url.includes("/channels/conversation"),
+    );
+    expect(resetCall).toBeDefined();
   });
 });
 

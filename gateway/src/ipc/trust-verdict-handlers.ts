@@ -9,14 +9,10 @@
  * shared verdict schema — the verdict is also stamped on every text relay.
  */
 
-import {
-  makeResolutionFailedVerdict,
-  ResolveInboundTrustRequestSchema,
-} from "@vellumai/gateway-client";
+import { ResolveInboundTrustRequestSchema } from "@vellumai/gateway-client";
 
 import { resolveAdmissionPolicy } from "../risk/admission-policy-cache.js";
-import { resolveTrustVerdict } from "../risk/trust-verdict-resolver.js";
-import { canonicalSenderIdFor } from "../verification/identity.js";
+import { resolveTrustVerdictOrSentinel } from "../risk/trust-verdict-resolver.js";
 import type { IpcRoute } from "./server.js";
 
 export const trustVerdictRoutes: IpcRoute[] = [
@@ -27,11 +23,7 @@ export const trustVerdictRoutes: IpcRoute[] = [
       const input = ResolveInboundTrustRequestSchema.parse(params);
       // Sentinel lets the daemon distinguish a resolver failure from a real
       // stranger.
-      const verdict = await resolveTrustVerdict(input).catch(() =>
-        makeResolutionFailedVerdict(
-          canonicalSenderIdFor(input.channelType, input.actorExternalId),
-        ),
-      );
+      const verdict = await resolveTrustVerdictOrSentinel(input);
       // A thrown admission read propagates and fails the whole IPC call: the
       // daemon must deny fail-closed rather than admit on a fabricated null
       // ("no enforcement") policy.

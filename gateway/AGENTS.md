@@ -109,6 +109,8 @@ The `slack/` module is the worked example of this shape.
 
 The gateway owns per-channel `AdmissionPolicy` storage (`gateway/src/db/admission-policy-store.ts`, HTTP in `gateway/src/http/routes/channel-admission-policy.ts`) and attaches the floor to every forwarded inbound via `sourceMetadata.admissionPolicy`. The runtime (`assistant/src/runtime/routes/inbound-stages/admission-policy.ts`) emits `admitted: true | false` based on `TRUST_CLASS_RANK[trustClass] >= ADMISSION_FLOOR[policy]`.
 
+The rank-vs-floor decision itself is **one implementation**, `enforceAdmissionPolicy` in `packages/gateway-client/src/admission-enforcement.ts` (with `TRUST_CLASS_RANK` beside it). Both enforcement sites call it: the runtime stage re-exports it, and the gateway's channel-command seam (below) invokes it directly. Do not re-derive `rank >= floor`, the blocked/revoked hard-deny, or the rank table anywhere else — a second copy is how the two sides drift.
+
 A default row per enforced channel is **seeded at startup** (`seedAdmissionPolicyDefaults` in `gateway/src/db/seed-admission-policy.ts`) — `trusted_contacts` for every channel except `vellum` (`guardian_only`). Per-channel defaults live only in that seed; the store/cache fall back to `ADMISSION_POLICY_DEFAULT` (`trusted_contacts`) only if a row is somehow absent.
 
 **5 policies, ranked floors** (seed default `trusted_contacts`):
@@ -142,9 +144,36 @@ Both the flat (`/v1/channel-admission-policy/...`) and assistant-scoped (`/v1/as
 
 - **Gateway kill switch** — `handle-inbound.ts` enforces the `no_one` floor before forwarding. Zero contact-table lookups, zero daemon I/O, true kill.
 - **Runtime floor** — every other policy flows through the gateway unchanged; the runtime evaluates rank-vs-floor inside `admission-policy.ts`. This keeps the canonical gateway classifier (`gateway/src/risk/trust-verdict-resolver.ts`) as the single source of `TrustClass` truth (no fork): the runtime consumes the stamped verdict; the daemon's `actor-trust-resolver.ts` is only a residual sync guardian-or-unknown view for the vellum reset-drift path.
+- **Gateway-terminal channel commands** — `/new` (and the planned `/stop` / `/fork` / `/rename`) reset or mutate channel state at the gateway and never reach the runtime, so the runtime floor cannot cover them. They authorize through `authorizeChannelCommand` (`gateway/src/webhook-pipeline.ts`) — see _Channel Command Authorization_ below.
 - **Gateway vs runtime reciprocity** — the gateway section in `gateway/CLAUDE.md` records _which channels the gateway enforces_; the assistant section records _how the runtime classifies_. Either side getting out of sync is a bug, not an over-defended boundary.
 
-**Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling to match.
+### Channel Command Authorization (gateway-terminal commands)
+
+A channel command that the gateway handles itself — today `/new`, next the `/stop` / `/fork` / `/rename` family — never reaches `handleInbound`, so it gets neither the kill switch nor the runtime floor. Every such command **MUST** authorize through `authorizeChannelCommand(sourceChannel, actorExternalId, logger)` in `gateway/src/webhook-pipeline.ts`.
+
+The seam is deliberately channel-agnostic: it takes a `ChannelId` and an actor id, and Telegram, WhatsApp, and the Slack socket path all call the same function. **Never** add an admission or trust check inside a provider webhook route — a channel-local authorization path is invisible to admission policy, `resolveCapabilities`, and Trust Rules, and is the exact shape rejected in review before (a Telegram-layer guardian gate that called the canonical classifier but bypassed admission).
+
+What it composes — the same primitives message ingress uses, no re-implementation:
+
+- `resolveAdmissionPolicy` for the channel's floor,
+- `resolveTrustVerdictOrSentinel` (the canonical classifier plus the shared failure sentinel) for the actor's `TrustClass`,
+- the shared `enforceAdmissionPolicy` for the decision.
+
+`resolveTrustVerdictOrSentinel` (`gateway/src/risk/trust-verdict-resolver.ts`) is the one place a resolver throw becomes a `resolutionFailed` verdict — used by message ingress, the `resolve_inbound_trust` IPC route, and this seam. Callers decide what to do with `resolutionFailed`: ingress forwards it (the runtime is the deny decider), this seam denies on it (the gateway is). Do not re-hand-roll the `catch → makeResolutionFailedVerdict` pattern.
+
+It answers **admission only**. Capabilities stay resolved in the runtime (`assistant/src/runtime/capabilities.ts`) — the gateway classifies the actor and never computes what an admitted actor may do.
+
+Three deliberate divergences from message ingress, each because the command is gateway-terminal and the gateway is therefore the decider (message ingress can defer to the runtime; a command has no such backstop):
+
+- **`no_one` is checked before trust resolution.** The kill switch denies everyone including the guardian, without depending on the resolver.
+- **Fails closed.** A could-not-vouch verdict, a throwing resolver, or an unreadable policy denies (`authorization_unavailable`). Message ingress fails soft because the runtime makes the deny decision there. The seam never rejects — the Slack path calls it fire-and-forget, where a rejection would become an unhandled rejection instead of a deny.
+- **The `channel-trust-floors` flag does not disable it.** When `resolveAdmissionPolicy` returns null (flag off), the seam applies `ADMISSION_POLICY_DEFAULT` rather than skipping the gate. The trust gate on commands is a security invariant, not part of the flag-gated configurable-floors feature.
+
+Deny UX: policy denials are **silent** (no reset, no reply) — a channel the guardian turned off must not answer, and an actor below the floor should not learn the command exists. Only the transient `authorization_unavailable` gets an error reply.
+
+Tests: `gateway/src/__tests__/channel-command-authorization.test.ts` (seam, incl. channel-agnosticism and fail-closed) and the `/new admission` block in `telegram-webhook-handler.test.ts` (end-to-end through a webhook).
+
+**Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts` + `gateway/src/__tests__/channel-command-authorization.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling (`packages/gateway-client/src/admission-enforcement.ts`) to match.
 
 **Adding a new exempt channel**: update `ADMISSION_POLICY_EXEMPT_CHANNELS` in `packages/gateway-client/src/admission-policy-contract.ts` AND `EXEMPT_CHANNEL_TYPES` in `gateway/src/db/admission-policy-store.ts`. The gateway route (403), GET-list omission, runtime short-circuit, and seed-skip all read from these — symmetric enforcement is required so a stray runtime call (test harness, internal IPC) can't bypass the floor.
 

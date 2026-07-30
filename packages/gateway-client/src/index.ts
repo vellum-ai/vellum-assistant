@@ -87,6 +87,20 @@ export {
   TrustVerdictSchema,
 } from "./trust-verdict-contract.js";
 
+// Admission enforcement (shared gateway ↔ daemon) — the single
+// rank-vs-floor decision, evaluated by the runtime admission stage and the
+// gateway's channel-command authorization seam
+export {
+  enforceAdmissionPolicy,
+  TRUST_CLASS_RANK,
+} from "./admission-enforcement.js";
+
+export type {
+  AdmissionDenyReason,
+  AdmissionPolicyInput,
+  AdmissionPolicyResult,
+} from "./admission-enforcement.js";
+
 export type {
   ResolveInboundTrustRequest,
   ResolveInboundTrustResponse,
