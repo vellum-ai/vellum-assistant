@@ -269,6 +269,11 @@ describe("field validation", () => {
     [{ ...slackChannel, teamId: "C0123ABCD" }],
     [{ ...slackChannel, channelId: "T0123ABCD" }],
     [{ ...slackThread, threadTs: "not-a-ts" }],
+    // The gateway's block-actions reply routing falls back to a Slack
+    // envelope id (a UUID) when no thread_ts exists. A handle only ever
+    // carries a real thread_ts, so envelope-id-shaped values must fail here
+    // instead of becoming durable identity.
+    [{ ...slackThread, threadTs: "8a17bf85-6a58-4b60-8c81-63d8b5ab8c73" }],
     [{ ...telegramChat, chatId: "12ab34" }],
     [{ ...telegramMessageThread, subconversation: { kind: "message_thread", id: "-42" } }],
     [{ ...discordChannel, guildId: "123456789012345678901" }],
