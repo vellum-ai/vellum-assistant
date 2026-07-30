@@ -67,9 +67,10 @@ production SSO.
 
 The `NativeBiometric` plugin implements the same Capacitor contract as iOS.
 It protects server-keyed session tokens with Android Keystore AES-GCM keys and
-requires an enrolled strong biometric to store, retrieve, or delete a token.
-Enrollment changes invalidate the key, remove the unusable ciphertext, and
-allow the web runtime to offer biometric setup again.
+requires an enrolled strong biometric to store or retrieve a token. Deletion
+removes the ciphertext and key immediately so sign-out cannot retain recovery
+material. Enrollment changes invalidate the key, remove the unusable
+ciphertext, and allow the web runtime to offer biometric setup again.
 
 Stored preferences contain only an encrypted payload and IV. The app disables
 Android backups, and token values are never written to logs or crash metadata.

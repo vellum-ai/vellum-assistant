@@ -63,6 +63,7 @@ public class BiometricTokenStoreTest {
 
         store.store(SERVER, "session-token-123", store.prepareEncryption(SERVER));
         store.delete(SERVER);
+        store.delete(SERVER);
 
         assertFalse(store.hasToken(SERVER));
         assertEquals(0, keys.size());

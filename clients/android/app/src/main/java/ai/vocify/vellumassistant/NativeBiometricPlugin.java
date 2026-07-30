@@ -88,7 +88,10 @@ public class NativeBiometricPlugin extends Plugin {
         }
 
         try {
-            if (!requireStore(call) || !tokenStore.hasToken(server)) {
+            if (!requireStore(call)) {
+                return;
+            }
+            if (!tokenStore.hasToken(server)) {
                 call.reject("No stored token found", TOKEN_NOT_FOUND);
                 return;
             }
@@ -117,26 +120,15 @@ public class NativeBiometricPlugin extends Plugin {
             return;
         }
 
-        try {
-            if (!requireStore(call)) {
-                return;
-            }
-            if (!tokenStore.hasToken(server)) {
-                call.resolve();
-                return;
-            }
-        } catch (GeneralSecurityException e) {
-            rejectStorageFailure(call, e);
+        if (!requireStore(call)) {
             return;
         }
-
-        authenticate(
-            call,
-            "Disable biometric sign-in",
-            call.getString("reason", "Confirm your identity to remove biometric sign-in"),
-            null,
-            ignored -> tokenStore.delete(server)
-        );
+        try {
+            tokenStore.delete(server);
+            call.resolve();
+        } catch (GeneralSecurityException e) {
+            rejectStorageFailure(call, e);
+        }
     }
 
     @Override
