@@ -169,6 +169,16 @@ describe("buildExcerpt", () => {
     expect(excerpt.startsWith("…")).toBe(true);
   });
 
+  test("whole-query matches also respect tokenizer boundaries", () => {
+    const filler = "party planning notes ".repeat(10);
+    const excerpt = buildExcerpt(
+      JSON.stringify([{ type: "text", text: `${filler}art supplies list` }]),
+      "art",
+    );
+
+    expect(excerpt).toContain("art supplies");
+  });
+
   test("ignores token substrings inside larger words when centering", () => {
     const filler = "party planning notes ".repeat(10);
     const excerpt = buildExcerpt(
