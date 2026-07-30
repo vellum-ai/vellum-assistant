@@ -213,11 +213,15 @@ export function ConversationActivityPill({
           {label}
         </Button>
       </Popover.Trigger>
+      {/* `align="end"`, unlike the Assets pill's centred panel: Activity sits
+          further right in the cluster, so a centred 320px panel resolves flush
+          against the window edge. Anchoring the panel's trailing edge to the
+          trigger matches the notification bell, its neighbour on that side. */}
       <Popover.Content
         side="bottom"
-        align="center"
+        align="end"
         sideOffset={8}
-        className="w-80 p-0"
+        className="w-80 max-w-[calc(100vw-2rem)] p-0"
       >
         <div className="max-h-[280px] overflow-y-auto">{panel}</div>
       </Popover.Content>
