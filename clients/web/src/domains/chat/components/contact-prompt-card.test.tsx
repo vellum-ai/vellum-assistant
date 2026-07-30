@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 
-// No jest-dom matchers registered in test-setup.ts — assert against raw DOM
+// No jest-dom matchers registered in test-setup.ts, so assert against raw DOM
 // properties instead of toHaveValue()/toBeDisabled().
 
 function noop() {}
