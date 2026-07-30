@@ -165,15 +165,17 @@ describe("subscribeNativeKeyboardHeight", () => {
     expect(removeHide).toHaveBeenCalledTimes(1);
   });
 
-  test("reports a registration failure under its own error context", async () => {
+  test("reports a missing plugin once, not once per listener", async () => {
     const err = new Error("plugin missing");
+    addListener.mockImplementationOnce(() => Promise.reject(err));
     addListener.mockImplementationOnce(() => Promise.reject(err));
 
     const unsubscribe = subscribeNativeKeyboardHeight(() => {});
     await flushMicrotasks();
 
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(captureErrorMock).toHaveBeenCalledWith(err, {
-      context: "native_keyboard_will_show",
+      context: "native_keyboard_height",
       level: "warning",
     });
     unsubscribe();

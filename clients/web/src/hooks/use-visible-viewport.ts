@@ -69,6 +69,11 @@ let lastIsPortrait: boolean = isPortrait();
 // layout with the keyboard until the measurement can take over.
 let anticipatedKeyboardHeight = 0;
 
+// `visualViewport.height` at the moment of that announcement. The deferred
+// frame resize is the event anticipation waits for, and the viewport moving off
+// this height is what that event looks like from here.
+let anticipationViewportHeight = 0;
+
 // State updaters of the mounted `useVisibleViewport` consumers. One native
 // subscription feeds all of them, so the listener count stays flat as the shell
 // and the mobile overlays each mount their own copy of the hook, and a repeated
@@ -78,32 +83,23 @@ const viewportUpdaters = new Set<() => void>();
 let unsubscribeNativeKeyboard: (() => void) | null = null;
 
 /**
- * Record the keyboard height the native shell is about to animate to.
- *
- * `0` clears anticipation, which is what a keyboard dismissal reports: the
- * native hide resize is near-instant, so the derived measurement drives the
- * restore on its own. Anything that is not a positive, finite number clears it
- * too: a `NaN` stored here fails every later comparison, so it would both
- * strand anticipation for the rest of the session and reach layout as
- * `"NaNpx"`.
- */
-export function setAnticipatedKeyboardHeight(keyboardHeight: number): void {
-  anticipatedKeyboardHeight =
-    Number.isFinite(keyboardHeight) && keyboardHeight > 0 ? keyboardHeight : 0;
-}
-
-/**
  * Register a mounted consumer's state updater, returning its deregistration.
  * The first registration opens the native keyboard subscription; the last
  * deregistration closes it and drops any anticipation it left behind, which
  * with `RootLayout` mounting the hook for the app's lifetime is teardown.
+ *
+ * A dismissal announces `0`, which clears anticipation: the native hide resize
+ * is near-instant, so the derived measurement drives the restore on its own.
+ * The announced height arrives already coerced to a finite, non-negative number
+ * by `readKeyboardHeight` at the bridge boundary.
  */
 function addViewportUpdater(update: () => void): () => void {
   viewportUpdaters.add(update);
   if (!unsubscribeNativeKeyboard) {
     unsubscribeNativeKeyboard = subscribeNativeKeyboardHeight(
       (keyboardHeight) => {
-        setAnticipatedKeyboardHeight(keyboardHeight);
+        anticipatedKeyboardHeight = keyboardHeight;
+        anticipationViewportHeight = window.visualViewport?.height ?? 0;
         for (const notify of viewportUpdaters) {
           notify();
         }
@@ -120,18 +116,6 @@ function addViewportUpdater(update: () => void): () => void {
     unsubscribeNativeKeyboard = null;
     anticipatedKeyboardHeight = 0;
   };
-}
-
-/**
- * Reset the anticipation state (the pending height and the consumer registry
- * that owns the native subscription) so unit tests don't leak module state into
- * each other.
- */
-export function __resetKeyboardAnticipationForTests(): void {
-  anticipatedKeyboardHeight = 0;
-  viewportUpdaters.clear();
-  unsubscribeNativeKeyboard?.();
-  unsubscribeNativeKeyboard = null;
 }
 
 /**
@@ -174,13 +158,18 @@ export function readVisibleViewport(): VisibleViewport | null {
   const offsetTop = isZoomed ? 0 : vv.offsetTop;
   const offsetLeft = isZoomed ? 0 : vv.offsetLeft;
 
-  // Any real shrink means the deferred native frame resize has landed, so the
-  // measurement is authoritative from here on. It can land shorter than the
-  // announced height (in iPad Stage Manager the plugin measures the keyboard's
-  // overlap in screen coordinates while the frame shrinks against window
-  // bounds), so waiting for it to reach that height would strand anticipation
-  // for the whole keyboard session.
-  if (anticipatedKeyboardHeight > 0 && derivedKeyboardHeight > 0) {
+  // The viewport moving off the height it had when the keyboard was announced
+  // is the deferred native frame resize landing, and the measurement is
+  // authoritative from there. Judging that by the derived height instead reads
+  // it wrong both ways: a viewport already sitting a fraction of a pixel below
+  // `referenceInnerHeight` looks landed before anything moved, and a resize
+  // that lands shorter than announced (in iPad Stage Manager the plugin
+  // measures the keyboard's overlap in screen coordinates while the frame
+  // shrinks against window bounds) never looks landed at all.
+  if (
+    anticipatedKeyboardHeight > 0 &&
+    vv.height !== anticipationViewportHeight
+  ) {
     anticipatedKeyboardHeight = 0;
   }
 

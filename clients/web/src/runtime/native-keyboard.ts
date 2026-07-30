@@ -55,6 +55,9 @@ function readKeyboardHeight(reported: unknown): number {
  *
  * Off the native iOS shell there is no keyboard to hear from, so the gate
  * returns a no-op unsubscribe and the plugin is never imported.
+ *
+ * Show and hide are one source, so they share a single subscription: one plugin
+ * import, and one warning if this shell has no keyboard plugin to give.
  */
 export function subscribeNativeKeyboardHeight(
   onHeightChange: (keyboardHeight: number) => void,
@@ -63,27 +66,20 @@ export function subscribeNativeKeyboardHeight(
     return () => {};
   }
 
-  const unsubscribeShow = subscribeCapacitorListener(
-    "native_keyboard_will_show",
-    async () => {
-      const { Keyboard } = await import("@capacitor/keyboard");
-      return Keyboard.addListener("keyboardWillShow", (info) => {
+  return subscribeCapacitorListener("native_keyboard_height", async () => {
+    const { Keyboard } = await import("@capacitor/keyboard");
+    const [show, hide] = await Promise.all([
+      Keyboard.addListener("keyboardWillShow", (info) => {
         onHeightChange(readKeyboardHeight(info.keyboardHeight));
-      });
-    },
-  );
-  const unsubscribeHide = subscribeCapacitorListener(
-    "native_keyboard_will_hide",
-    async () => {
-      const { Keyboard } = await import("@capacitor/keyboard");
-      return Keyboard.addListener("keyboardWillHide", () => {
+      }),
+      Keyboard.addListener("keyboardWillHide", () => {
         onHeightChange(0);
-      });
-    },
-  );
-
-  return () => {
-    unsubscribeShow();
-    unsubscribeHide();
-  };
+      }),
+    ]);
+    return {
+      remove: async () => {
+        await Promise.all([show.remove(), hide.remove()]);
+      },
+    };
+  });
 }
