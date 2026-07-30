@@ -31,6 +31,16 @@ import { routes as urlRegistry } from "../src/lib/routes";
 import snapshot from "./platform-route-snapshot.json";
 
 const CONCURRENCY = 8;
+const REQUEST_TIMEOUT_MS = 15_000;
+
+// Bound every request so a target that accepts connections but never
+// responds fails the run instead of hanging the worker pool.
+function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
 
 const baseUrl = (process.argv[2] ?? "").replace(/\/+$/, "");
 if (!baseUrl) {
@@ -100,7 +110,7 @@ function verifyRouteTree(): void {
 }
 
 async function verifyHtml(route: string): Promise<void> {
-  const res = await fetch(`${baseUrl}${route}`, { redirect: "manual" });
+  const res = await fetchWithTimeout(`${baseUrl}${route}`, { redirect: "manual" });
 
   if (REDIRECT_STUB_ROUTES.has(route)) {
     check(
@@ -112,7 +122,7 @@ async function verifyHtml(route: string): Promise<void> {
       location.startsWith("/docs") || location.startsWith(`${SITE_URL}/docs`),
       `${route}: redirect target ${location} is not a docs path`,
     );
-    const followed = await fetch(`${baseUrl}${route}`);
+    const followed = await fetchWithTimeout(`${baseUrl}${route}`);
     check(
       followed.status === 200,
       `${route}: followed redirect returned ${followed.status}`,
@@ -138,13 +148,13 @@ async function verifyMarkdown(route: string): Promise<void> {
     return;
   }
 
-  const mirror = await fetch(`${baseUrl}${mdPath}`);
+  const mirror = await fetchWithTimeout(`${baseUrl}${mdPath}`);
   check(mirror.status === 200, `${mdPath}: expected 200, got ${mirror.status}`);
   check(isMarkdownResponse(mirror), `${mdPath}: content-type is not markdown`);
   const mirrorBody = await mirror.text();
   check(mirrorBody.trim().length > 0, `${mdPath}: empty markdown body`);
 
-  const negotiated = await fetch(`${baseUrl}${route}`, {
+  const negotiated = await fetchWithTimeout(`${baseUrl}${route}`, {
     headers: { Accept: "text/markdown" },
   });
   check(
@@ -163,7 +173,7 @@ async function verifyMarkdown(route: string): Promise<void> {
 }
 
 async function verifyLlmsTxt(): Promise<void> {
-  const res = await fetch(`${baseUrl}/docs/llms.txt`);
+  const res = await fetchWithTimeout(`${baseUrl}/docs/llms.txt`);
   check(res.status === 200, `/docs/llms.txt: expected 200, got ${res.status}`);
   const body = await res.text();
   check(
@@ -173,7 +183,7 @@ async function verifyLlmsTxt(): Promise<void> {
 }
 
 async function verifySitemap(): Promise<void> {
-  const res = await fetch(`${baseUrl}/docs/sitemap.xml`);
+  const res = await fetchWithTimeout(`${baseUrl}/docs/sitemap.xml`);
   check(
     res.status === 200,
     `/docs/sitemap.xml: expected 200, got ${res.status}`,
@@ -198,7 +208,7 @@ async function verifySitemap(): Promise<void> {
 }
 
 async function verifySearch(): Promise<void> {
-  const res = await fetch(`${baseUrl}/docs/api/search?q=skill`);
+  const res = await fetchWithTimeout(`${baseUrl}/docs/api/search?q=skill`);
   check(
     res.status === 200,
     `/docs/api/search?q=skill: expected 200, got ${res.status}`,
@@ -215,7 +225,7 @@ async function verifySearch(): Promise<void> {
 
 async function verifyLegalPaths(): Promise<void> {
   for (const path of Object.values(urlRegistry.docs.legal)) {
-    const res = await fetch(`${baseUrl}${path}`);
+    const res = await fetchWithTimeout(`${baseUrl}${path}`);
     check(res.status === 200, `${path}: expected 200, got ${res.status}`);
   }
 }

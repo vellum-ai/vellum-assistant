@@ -1,8 +1,8 @@
 # @vellumai/docs
 
 Public docs site for the Vellum assistant: an SSR Next.js app serving
-https://www.vellum.ai/docs. Ported from the platform web app in Phase 1 of the
-docs-site migration; production ingress routes only `/docs/*` here.
+https://www.vellum.ai/docs. Production ingress routes only `/docs/*` to this
+app, so every public URL and asset lives under the `/docs` prefix.
 
 ## Development
 
