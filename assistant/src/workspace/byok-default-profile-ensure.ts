@@ -58,15 +58,40 @@ const log = getLogger("byok-default-profile-ensure");
 // stub or copy was removed.
 
 /**
- * A hatch stub is a thin managed entry carrying only the workspace-owned
- * overlay fields and the hatch-written `"<Label> (Managed)"` label. A
- * managed-source entry with any other key (a platform overlay body) is not a
- * stub and is left alone; a thin managed entry with any other label carries
- * user overlay state (a rename of the stub, or label/status carried off a
- * retired copy by this pass) and likewise stays.
+ * The exact stub shape BYOK hatches wrote on each default key: thin (only
+ * the workspace-owned overlay fields), `source: "managed"`,
+ * `status: "disabled"`, and the frozen per-key label. Deletion requires the
+ * full shape — a thin managed entry differing in any of these fields (a
+ * re-enabled stub, a guard-side edit on the bare key, or label/status
+ * carried off a retired copy by this pass) is indistinguishable from user
+ * overlay state and stays. A managed-source entry with any other key (a
+ * platform overlay body) is not a stub and is likewise left alone.
  */
 const STUB_ONLY_KEYS = new Set(["source", "status", "label"]);
-const HATCH_STUB_LABEL_SUFFIX = " (Managed)";
+const HATCH_STUB_LABELS: Record<DefaultProfileKey, string> = {
+  balanced: "Balanced (Managed)",
+  "quality-optimized": "Quality (Managed)",
+  "cost-optimized": "Speed (Managed)",
+};
+
+function isHatchStub(
+  key: DefaultProfileKey,
+  entry: Record<string, unknown>,
+): boolean {
+  return (
+    entry.source === "managed" &&
+    Object.keys(entry).every((k) => STUB_ONLY_KEYS.has(k)) &&
+    entry.status === "disabled" &&
+    entry.label === HATCH_STUB_LABELS[key]
+  );
+}
+
+/**
+ * Hatch label suffix on the `custom-*` copies written between #29755
+ * (2026-05-05) and #30232 (2026-05-10); a copy carrying
+ * `"<template label> (Custom Provider)"` was never renamed.
+ */
+const ERA_COPY_LABEL_SUFFIX = " (Custom Provider)";
 
 /**
  * Comparison ignores `label` and `status` (user overlay state, preserved via
@@ -173,20 +198,11 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
   // Deleting a hatch stub makes the default key resolve active from the
   // default provider's catalog column (and drops the stub's suffixed label).
-  // User-source shadows, managed entries with body keys, and thin managed
-  // entries carrying a non-hatch label are left alone.
+  // Only the exact frozen hatch shape is provably hatch-written; anything
+  // else (including a stub the user re-enabled through the guard) stays.
   for (const key of DEFAULT_PROFILE_KEYS) {
     const entry = readObject(profiles[key]);
-    if (entry === null || entry.source !== "managed") {
-      continue;
-    }
-    if (!Object.keys(entry).every((k) => STUB_ONLY_KEYS.has(k))) {
-      continue;
-    }
-    if (
-      typeof entry.label !== "string" ||
-      !entry.label.endsWith(HATCH_STUB_LABEL_SUFFIX)
-    ) {
+    if (entry === null || !isHatchStub(key, entry)) {
       continue;
     }
     delete profiles[key];
@@ -214,7 +230,14 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
     const overlay = userOverlayState(entry, key);
     delete profiles[name];
     if (overlay !== null && readObject(profiles[key]) === null) {
-      profiles[key] = { source: "managed", ...overlay };
+      const stub: Record<string, unknown> = { source: "managed", ...overlay };
+      // A carried label that reproduces the exact hatch-stub shape would be
+      // deleted by the stub arm on the next boot; the disable is the half
+      // worth keeping, so only the colliding label is dropped.
+      if (isHatchStub(key, stub)) {
+        delete stub.label;
+      }
+      profiles[key] = stub;
     }
     retired.set(name, key);
     changed = true;
@@ -266,21 +289,52 @@ function isKnownUneditedBody(
   ) {
     return false;
   }
-  const body = comparableBody(withCompletionBaked(entry, completionBase));
+  // Completion skips managed-source bodies, so a copy from the era whose
+  // templates wrote `source: "managed"` (#29755 to #29768, 2026-05-05) is
+  // compared as if user-source to keep both sides normalized identically.
+  const body = comparableBody(
+    withCompletionBaked(
+      entry.source === "managed" ? { ...entry, source: "user" } : entry,
+      completionBase,
+    ),
+  );
   const known = comparableBody(
     withCompletionBaked(materialized, completionBase),
   );
-  if (isDeepStrictEqual(body, known)) {
-    return true;
-  }
-  // 096-reduce-quality-profile-effort: hatch seeding produced effort "max"
-  // on this copy until the migration rewrote it to "high". The migration
-  // applied that rewrite regardless of who set the value, so an
-  // effort-"max" variant of the known body counts as equally unedited.
-  return (
-    key === "quality-optimized" &&
-    isDeepStrictEqual(body, { ...known, effort: "max" })
+  return hatchBodyVariants(known, key).some((variant) =>
+    isDeepStrictEqual(body, variant),
   );
+}
+
+/**
+ * Every shape hatch seeding and the profile migrations verifiably left on
+ * disk for an untouched copy, derived from the current reference body:
+ *
+ * - effort "max" on the quality copy: hatch seeding wrote it until
+ *   096-reduce-quality-profile-effort rewrote "max" to "high" in place,
+ *   regardless of who set the value, so a "max" body (a config restored
+ *   from a pre-096 backup) is equally unedited.
+ * - absent `provider_connection`: hatches before #30232 (2026-05-10) never
+ *   stamped one, and migration 133 drops the conventional
+ *   `<provider>-personal` stamp from every entry (dispatch auto-resolves
+ *   the same row from `provider`). A body carrying any other connection
+ *   value is a user edit and never matches.
+ *
+ * The third hatch-written deviation, `source: "managed"` from the earliest
+ * templates, is handled by the caller's source normalization.
+ */
+function hatchBodyVariants(
+  known: Record<string, unknown>,
+  key: DefaultProfileKey,
+): Record<string, unknown>[] {
+  let variants = [known];
+  if (key === "quality-optimized") {
+    variants = variants.flatMap((v) => [v, { ...v, effort: "max" }]);
+  }
+  return variants.flatMap((v) => {
+    const { provider_connection: _pc, ...bare } = v;
+    return [v, bare];
+  });
 }
 
 /**
@@ -303,9 +357,10 @@ function withCompletionBaked(
 
 /**
  * Label/status the user set on an otherwise-unedited copy. The hatch wrote
- * the template label and never wrote `status`, so a differing label or any
- * `status` key is user state; it survives conversion as the thin managed
- * overlay on the bare key (the `WORKSPACE_OWNED_DEFAULT_FIELDS` overlay in
+ * the template label (suffixed with `ERA_COPY_LABEL_SUFFIX` in the earliest
+ * era) and never wrote `status`, so any other label or any `status` key is
+ * user state; it survives conversion as the thin managed overlay on the
+ * bare key (the `WORKSPACE_OWNED_DEFAULT_FIELDS` overlay in
  * default-profile-catalog.ts). A carried `status: "disabled"` keeps the
  * profile LISTING honest (the picker shows the default disabled) while
  * dispatch is unaffected: the resolver overrides persisted disabled stubs on
@@ -318,7 +373,11 @@ function userOverlayState(
 ): Record<string, unknown> | null {
   const overlay: Record<string, unknown> = {};
   const templateLabel = USER_PROFILE_TEMPLATES[`custom-${key}`]?.label;
-  if ("label" in entry && entry.label !== templateLabel) {
+  const hatchWroteLabel =
+    entry.label === templateLabel ||
+    (templateLabel !== undefined &&
+      entry.label === templateLabel + ERA_COPY_LABEL_SUFFIX);
+  if ("label" in entry && !hatchWroteLabel) {
     overlay.label = entry.label;
   }
   if ("status" in entry) {
