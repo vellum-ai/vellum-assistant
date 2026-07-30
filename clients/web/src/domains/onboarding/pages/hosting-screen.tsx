@@ -141,17 +141,16 @@ export function HostingScreen() {
           className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
-          Where do you want your assistant to live?
+          Choose where you want your assistant to live.{" "}
+          <a
+            href={docsUrl(routes.docs.hostingOptions)}
+            target="_blank"
+            rel="noreferrer"
+            className="underline transition-colors hover:text-[var(--content-default)]"
+          >
+            Need help deciding?
+          </a>
         </p>
-        <a
-          href={docsUrl(routes.docs.hostingOptions)}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-default)]"
-          style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
-        >
-          Need help choosing?
-        </a>
 
         {loginError && (
           <p className="mt-4 text-body-small-default text-[var(--system-negative-strong)]">
