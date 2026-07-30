@@ -660,8 +660,13 @@ const CAPTION_EMPHASIS: Record<
  *   stopped responding to amplitude at all. It stays closer to linear.
  *
  * Both still reach zero in silence, so the floor is empty between turns.
+ *
+ * Exported because every painted voice surface inks its band this way, not just
+ * the room: the fill is the avatar color, so a band tinted with the avatar
+ * accent is the fill's own hue and paints nothing visible on it. The minimized
+ * composer block borrows both entries for the same reason the room has them.
  */
-const BAND_VOICE = {
+export const BAND_VOICE = {
   listening: { color: "#FFFFFF", peakOpacity: 0.4, opacityKnee: 3 },
   responding: { color: "#000000", peakOpacity: 0.45, opacityKnee: 1.3 },
 } as const;
@@ -788,11 +793,7 @@ function VoiceThinkingIndicator({
  * listening band at whatever placement the room is already using.
  */
 export type VoiceRespondingStyle =
-  | "waves"
-  | "rings"
-  | "halo"
-  | "waveform"
-  | "pulse";
+  "waves" | "rings" | "halo" | "waveform" | "pulse";
 
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding

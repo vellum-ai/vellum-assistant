@@ -38,10 +38,13 @@ afterEach(() => {
   cleanup();
 });
 
+const INPUT_LEVEL = 0.5;
+const OUTPUT_LEVEL = 0.25;
+
 function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
   const handlers = {
     onToggleMute: mock(() => {}),
-    onStop: mock(() => {}),
+    onToggleOutputMute: mock(() => {}),
     onEnd: mock(() => {}),
     onNavigate: mock(() => {}),
   };
@@ -49,8 +52,10 @@ function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
     <VoiceSessionPill
       primaryLabel="Working on App…"
       state="listening"
-      getAmplitude={() => 0.5}
+      getAmplitude={() => INPUT_LEVEL}
+      getOutputAmplitude={() => OUTPUT_LEVEL}
       muted={false}
+      outputMuted={false}
       {...handlers}
       {...overrides}
     />,
@@ -59,8 +64,6 @@ function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
 }
 
 const root = () => screen.getByRole("group", { name: "Voice session" });
-const stopButton = () =>
-  screen.queryByRole("button", { name: "Stop assistant response" });
 const endButton = () =>
   screen.getByRole("button", { name: "End voice session" });
 const navButton = () =>
@@ -139,35 +142,43 @@ describe("VoiceSessionPill: layouts", () => {
   });
 });
 
-describe("VoiceSessionPill: stop control", () => {
-  test("hidden outside the speaking state", () => {
+describe("VoiceSessionPill: assistant mute", () => {
+  test("offers the mute in every state and fires it", () => {
+    // Persistent, like the room's: the pair of mutes never changes shape
+    // mid-turn, so neither moves out from under a reaching finger.
     for (const state of [
       "connecting",
       "listening",
-      "transcribing",
       "thinking",
-      "ending",
+      "speaking",
     ] as LiveVoiceSessionState[]) {
-      renderPill({ state });
-      expect(stopButton()).toBeNull();
+      const { onToggleOutputMute } = renderPill({ state });
+      fireEvent.click(screen.getByRole("button", { name: "Mute assistant" }));
+      expect(onToggleOutputMute).toHaveBeenCalledTimes(1);
       cleanup();
     }
   });
 
-  test("shown while speaking and fires onStop", () => {
-    const { onStop, onNavigate } = renderPill({ state: "speaking" });
-    fireEvent.click(stopButton()!);
-    expect(onStop).toHaveBeenCalledTimes(1);
-    expect(onNavigate).not.toHaveBeenCalled();
+  test("muted: offers unmute and reflects the pressed state", () => {
+    renderPill({ state: "speaking", outputMuted: true });
+    const toggle = screen.getByRole("button", { name: "Unmute assistant" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
   });
 
-  test("hidden even while speaking when onStop is not provided", () => {
-    // The host omits onStop for manual (version-skew fallback) sessions,
-    // where stopping a response would end the whole session; the ✕ stays
-    // the only destructive control there.
-    renderPill({ state: "speaking", onStop: undefined });
-    expect(stopButton()).toBeNull();
-    expect(endButton()).toBeTruthy();
+  test("offers no transient stop in any state", () => {
+    // Muting the assistant replaced it: a control that appeared and vanished
+    // with the reply changed the surface's shape twice a turn.
+    for (const state of [
+      "listening",
+      "thinking",
+      "speaking",
+    ] as LiveVoiceSessionState[]) {
+      renderPill({ state });
+      expect(
+        screen.queryByRole("button", { name: "Stop assistant response" }),
+      ).toBeNull();
+      cleanup();
+    }
   });
 });
 
@@ -190,7 +201,9 @@ describe("VoiceSessionPill: no manual send", () => {
     }
   });
 
-  test("resting surface is exactly mute + state word + end", () => {
+  test("the surface holds the room's control set, and nothing else", () => {
+    // The two mutes (one per direction of the conversation) with the state
+    // word between them, which is also the way back to the thread.
     renderPill({ state: "listening" });
     const names = screen
       .getAllByRole("button")
@@ -198,6 +211,7 @@ describe("VoiceSessionPill: no manual send", () => {
     expect(names).toEqual([
       "Mute microphone",
       "Go to voice session thread",
+      "Mute assistant",
       "End voice session",
     ]);
   });
@@ -238,10 +252,10 @@ describe("VoiceSessionPill: end control", () => {
 
 describe("VoiceSessionPill: navigation", () => {
   test("the state word carries the tap and fires onNavigate only", () => {
-    const { onNavigate, onStop, onEnd } = renderPill();
+    const { onNavigate, onToggleOutputMute, onEnd } = renderPill();
     fireEvent.click(navButton()!);
     expect(onNavigate).toHaveBeenCalledTimes(1);
-    expect(onStop).not.toHaveBeenCalled();
+    expect(onToggleOutputMute).not.toHaveBeenCalled();
     expect(onEnd).not.toHaveBeenCalled();
   });
 

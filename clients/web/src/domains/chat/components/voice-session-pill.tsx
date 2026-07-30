@@ -44,7 +44,7 @@
  * children.
  */
 
-import { Mic, MicOff, Square, TriangleAlert, X } from "lucide-react";
+import { Mic, MicOff, TriangleAlert, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button, Tag, cn } from "@vellumai/design-library";
 
@@ -53,6 +53,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { VOICE_WAVE_EDGE_FADE_CLASS } from "@/domains/chat/voice/voice-room/voice-listening-waves";
+import { BAND_VOICE } from "@/domains/chat/voice/voice-room/voice-room-eyes";
 import {
   MESH_INLINE_TUNING,
   VoiceMeshWaves,
@@ -89,18 +90,24 @@ export interface VoiceSessionPillProps {
   state: LiveVoiceSessionState;
   /** Polled by the band at ~30 Hz; must not force parent re-renders. */
   getAmplitude: () => number;
+  /**
+   * Assistant-playback level, same polling contract. The band rides this while
+   * the assistant speaks, so the surface keeps moving through the half of the
+   * turn the mic is silent for, exactly as the room's two bands do.
+   */
+  getOutputAmplitude: () => number;
   /** Whether the mic is muted. Drives the mic toggle beside the band. */
   muted: boolean;
   /** Toggle the mic mute without ending the session. */
   onToggleMute: () => void;
+  /** Whether the assistant's audio is muted. Drives the right-side toggle. */
+  outputMuted: boolean;
   /**
-   * Stop the in-flight assistant response without ending the session. The
-   * ■ control occupies the stop slot only while `speaking`, and is hidden
-   * when absent — the host wires it only for hands-free sessions, where the
-   * interrupt is turn-scoped; a manual session's interrupt ends the whole
-   * session, so there the ✕ (`onEnd`) is the only stop.
+   * Mute (or unmute) the assistant without ending the session or stopping the
+   * reply. The turn keeps running and the transcript keeps filling, so
+   * unmuting drops the user back in wherever it has reached.
    */
-  onStop?: () => void;
+  onToggleOutputMute: () => void;
   /** End the voice session. */
   onEnd: () => void;
   /**
@@ -109,12 +116,6 @@ export interface VoiceSessionPillProps {
    * word inert rather than a dead button.
    */
   onNavigate?: () => void;
-  /**
-   * Accent hex matching the avatar the voice room renders (see
-   * `resolveWaveAccentHex`), so the band keeps the room's tint.
-   * Null/omitted falls back to the app-wide accent, then aurora.
-   */
-  waveAccentHex?: string | null;
   /**
    * The room's fill and its foreground tones. Null until the session
    * assistant's avatar resolves, which is when the surface holds the app's own
@@ -132,18 +133,31 @@ export function VoiceSessionPill({
   primaryLabel,
   state,
   getAmplitude,
+  getOutputAmplitude,
   muted,
   onToggleMute,
-  onStop,
+  outputMuted,
+  onToggleOutputMute,
   onEnd,
   onNavigate,
-  waveAccentHex,
   paint = null,
   layout = "pill",
 }: VoiceSessionPillProps) {
   const isRow = layout === "row";
   const label = muted ? "Muted" : primaryLabel;
   const iconClass = isRow ? "size-4" : "size-3.5";
+
+  // Which voice the band draws, in the room's own terms: the user lifts a pale
+  // sheet off the floor, the assistant answers in a darker one, and in silence
+  // the floor is empty. The ink cannot be the avatar accent, which is what the
+  // surface is painted with: a band in the fill's own hue paints nothing.
+  //
+  // The reply wins the surface while it plays. The mic stays open through it
+  // for barge-in (`isLiveVoiceMicLive` spans listening to speaking), so keying
+  // off the mic alone would draw the user's voice over the assistant's.
+  const replying = state === "speaking";
+  const micLive = isLiveVoiceMicLive(state) && !muted;
+  const ink = replying ? BAND_VOICE.responding : BAND_VOICE.listening;
 
   // The band fills the whole surface rather than sitting in a column of its
   // own, so the color and the motion read as one thing. Behind the controls and
@@ -156,19 +170,18 @@ export function VoiceSessionPill({
         VOICE_WAVE_EDGE_FADE_CLASS,
       )}
     >
-      {/* The accent goes through `color`, not the CSS var: the mesh reads the
-          var once at mount and again only on resize, so a pill mounted before
-          the avatar query settles would hold the fallback indigo for the whole
-          session. `color` is a dependency of the draw effect, so the band
-          repaints the moment the accent arrives. */}
       <VoiceMeshWaves
         getAmplitude={
-          isLiveVoiceMicLive(state) && !muted ? getAmplitude : SILENT_AMPLITUDE
+          replying
+            ? getOutputAmplitude
+            : micLive
+              ? getAmplitude
+              : SILENT_AMPLITUDE
         }
-        palette="accent"
-        color={waveAccentHex ?? undefined}
+        color={ink.color}
+        peakOpacity={ink.peakOpacity}
         placement="inline"
-        tuning={MESH_INLINE_TUNING}
+        tuning={{ ...MESH_INLINE_TUNING, opacityKnee: ink.opacityKnee }}
       />
     </div>
   );
@@ -248,19 +261,29 @@ export function VoiceSessionPill({
       )}
 
       <div className="relative flex shrink-0 items-center gap-1">
-        {/* Stop slot: ■ interrupts a reply in progress, and is present only
-            while one is playing. Nothing occupies the slot otherwise. */}
-        {onStop && state === "speaking" ? (
-          <Button
-            variant="ghost"
-            iconOnly={<Square className={iconClass} fill="currentColor" />}
-            expandOnMobile={isRow}
-            aria-label="Stop assistant response"
-            tooltip="Stop assistant response"
-            onClick={onStop}
-            className={cn("relative", VOICE_SURFACE_CONTROL_CLASS)}
-          />
-        ) : null}
+        {/* Mute the assistant, the room's own pairing for the mic mute: one
+            control per direction of the conversation, both persistent, so
+            neither moves out from under a reaching finger mid-turn. */}
+        <Button
+          variant="ghost"
+          iconOnly={
+            outputMuted ? (
+              <VolumeX className={iconClass} />
+            ) : (
+              <Volume2 className={iconClass} />
+            )
+          }
+          expandOnMobile={isRow}
+          aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          aria-pressed={outputMuted}
+          tooltip={outputMuted ? "Unmute assistant" : "Mute assistant"}
+          onClick={onToggleOutputMute}
+          className={cn(
+            "relative",
+            VOICE_SURFACE_CONTROL_CLASS,
+            outputMuted && "[--vbtn-fg:var(--system-negative-strong)]",
+          )}
+        />
         <Button
           variant="ghost"
           iconOnly={<X className={iconClass} strokeWidth={2.5} />}

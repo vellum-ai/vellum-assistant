@@ -85,9 +85,10 @@ import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
+  getLiveVoiceOutputAmplitude,
   isLiveVoiceSessionActive,
   setLiveVoiceMuted,
-  stopLiveVoiceResponse,
+  setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useOwningComposerSurfaceVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
@@ -134,10 +135,7 @@ export function VoiceSessionPillHost({
   const sessionAssistantId = useLiveVoiceStore.use.assistantId();
   const sessionConversationId = useLiveVoiceStore.use.conversationId();
   const muted = useLiveVoiceStore.use.muted();
-  // Turn-scoped ■ stop is hands-free-only: a manual (version-skew fallback)
-  // session's interrupt ends the whole session, contradicting the control's
-  // "without ending the session" contract — there the ✕ is the only stop.
-  const handsFree = useLiveVoiceStore.use.handsFree();
+  const outputMuted = useLiveVoiceStore.use.outputMuted();
 
   const navigate = useNavigate();
 
@@ -155,13 +153,11 @@ export function VoiceSessionPillHost({
   //   chip must stay up there even for the owning conversation.
   const { visible, showFailure } = useVoiceSessionPillPresence();
 
-  // The room's fill for the pill to paint itself in, plus the accent its mesh
-  // band tints itself with. Both come from the session assistant's avatar, so the
-  // pill and the room are the same surface at two sizes. Fetch-gated to a
-  // visible pill; the query is shared with every other avatar consumer.
-  const { paint, waveAccentHex } = useVoiceSurfacePaint(
-    visible ? sessionAssistantId : null,
-  );
+  // The room's fill for the pill to paint itself in, from the session
+  // assistant's avatar, so the pill and the room are the same surface at two
+  // sizes. Fetch-gated to a visible pill; the query is shared with every other
+  // avatar consumer.
+  const paint = useVoiceSurfacePaint(visible ? sessionAssistantId : null);
 
   const handleNavigate = useCallback(() => {
     if (sessionConversationId) {
@@ -186,12 +182,13 @@ export function VoiceSessionPillHost({
         primaryLabel={muted ? "Muted" : LIVE_VOICE_STATE_LABELS[state]}
         state={state}
         getAmplitude={getLiveVoiceInputAmplitude}
+        getOutputAmplitude={getLiveVoiceOutputAmplitude}
         muted={muted}
         onToggleMute={() => setLiveVoiceMuted(!muted)}
-        onStop={handsFree ? stopLiveVoiceResponse : undefined}
+        outputMuted={outputMuted}
+        onToggleOutputMute={() => setLiveVoiceOutputMuted(!outputMuted)}
         onEnd={endLiveVoiceSession}
         onNavigate={sessionConversationId ? handleNavigate : undefined}
-        waveAccentHex={waveAccentHex}
         paint={paint}
         layout={variant === "row" ? "row" : "pill"}
       />
