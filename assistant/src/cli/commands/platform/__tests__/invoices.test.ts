@@ -1,6 +1,11 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import { Command } from "commander";
+import {
+  buildPlatformProgram,
+  captureStdout,
+  runPlatform,
+  setupPlatformIpcMock,
+} from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -32,64 +37,10 @@ const invoiceB = {
   invoice_pdf: null,
 };
 
-// ---------------------------------------------------------------------------
-// Mock state
-// ---------------------------------------------------------------------------
+const ipc = setupPlatformIpcMock();
 
-let mockCalls: Array<[string, Record<string, unknown>]> = [];
-let mockResponse: unknown = {
-  ok: true,
-  result: { invoices: [invoiceA, invoiceB], has_more: false },
-};
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
-mock.module("../../../../ipc/cli-client.js", () => ({
-  cliIpcCall: async (method: string, params: Record<string, unknown>) => {
-    mockCalls.push([method, params]);
-    return mockResponse;
-  },
-  exitFromIpcResult: (_r: unknown, _cmd: unknown) => {
-    throw new Error("exitFromIpcResult called");
-  },
-}));
-
-const { registerPlatformCommand } = await import("../index.js");
-
-function buildProgram(): Command {
-  const program = new Command();
-  program.exitOverride();
-  registerPlatformCommand(program);
-  return program;
-}
-
-function captureStdout(fn: () => Promise<void>): Promise<string[]> {
-  const chunks: string[] = [];
-  const origWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = ((chunk: unknown) => {
-    chunks.push(typeof chunk === "string" ? chunk : String(chunk));
-    return true;
-  }) as typeof process.stdout.write;
-  return fn()
-    .then(() => chunks)
-    .finally(() => {
-      process.stdout.write = origWrite;
-    });
-}
-
-async function runInvoices(args: string[]): Promise<string[]> {
-  return captureStdout(async () => {
-    const program = buildProgram();
-    await program.parseAsync([
-      "node",
-      "assistant",
-      "platform",
-      "invoices",
-      ...args,
-    ]);
-  });
+function runInvoices(args: string[]): Promise<string[]> {
+  return runPlatform(["invoices", ...args]);
 }
 
 // ---------------------------------------------------------------------------
@@ -98,19 +49,18 @@ async function runInvoices(args: string[]): Promise<string[]> {
 
 describe("assistant platform invoices list", () => {
   beforeEach(() => {
-    mockCalls = [];
-    mockResponse = {
+    ipc.calls = [];
+    ipc.response = {
       ok: true,
       result: { invoices: [invoiceA, invoiceB], has_more: false },
     };
-    process.exitCode = 0;
   });
 
   test("calls platform_invoices_list and emits the page as JSON with --json", async () => {
     const out = await runInvoices(["list", "--json"]);
 
-    expect(mockCalls[0][0]).toBe("platform_invoices_list");
-    expect(mockCalls[0][1]).toEqual({});
+    expect(ipc.calls[0][0]).toBe("platform_invoices_list");
+    expect(ipc.calls[0][1]).toEqual({});
 
     const parsed = JSON.parse(out.join(""));
     expect(parsed.invoices).toHaveLength(2);
@@ -121,8 +71,8 @@ describe("assistant platform invoices list", () => {
   test("forwards --starting-after as the starting_after query param", async () => {
     await runInvoices(["list", "--starting-after", "in_a", "--json"]);
 
-    expect(mockCalls[0][0]).toBe("platform_invoices_list");
-    expect(mockCalls[0][1]).toEqual({
+    expect(ipc.calls[0][0]).toBe("platform_invoices_list");
+    expect(ipc.calls[0][1]).toEqual({
       queryParams: { starting_after: "in_a" },
     });
   });
@@ -143,7 +93,7 @@ describe("assistant platform invoices list", () => {
   });
 
   test("plain text mode reports an empty page", async () => {
-    mockResponse = { ok: true, result: { invoices: [], has_more: false } };
+    ipc.response = { ok: true, result: { invoices: [], has_more: false } };
 
     const out = await runInvoices(["list"]);
 
@@ -151,7 +101,7 @@ describe("assistant platform invoices list", () => {
   });
 
   test("plain text mode ends with a paging hint when has_more is true", async () => {
-    mockResponse = {
+    ipc.response = {
       ok: true,
       result: { invoices: [invoiceA, invoiceB], has_more: true },
     };
@@ -172,16 +122,15 @@ describe("assistant platform invoices list", () => {
 
 describe("assistant platform invoices get", () => {
   beforeEach(() => {
-    mockCalls = [];
-    mockResponse = { ok: true, result: invoiceA };
-    process.exitCode = 0;
+    ipc.calls = [];
+    ipc.response = { ok: true, result: invoiceA };
   });
 
   test("calls platform_invoices_get with the id path param and emits JSON with --json", async () => {
     const out = await runInvoices(["get", "in_123", "--json"]);
 
-    expect(mockCalls[0][0]).toBe("platform_invoices_get");
-    expect(mockCalls[0][1]).toEqual({ pathParams: { id: "in_123" } });
+    expect(ipc.calls[0][0]).toBe("platform_invoices_get");
+    expect(ipc.calls[0][1]).toEqual({ pathParams: { id: "in_123" } });
 
     const parsed = JSON.parse(out.join(""));
     expect(parsed.id).toBe("in_a");
@@ -199,7 +148,7 @@ describe("assistant platform invoices get", () => {
   });
 
   test("plain text mode scales zero-decimal currencies without dividing by 100", async () => {
-    mockResponse = {
+    ipc.response = {
       ok: true,
       result: { ...invoiceA, currency: "jpy", amount_due: 1200 },
     };
@@ -210,7 +159,7 @@ describe("assistant platform invoices get", () => {
   });
 
   test("plain text mode uses three decimals for three-decimal currencies", async () => {
-    mockResponse = {
+    ipc.response = {
       ok: true,
       result: { ...invoiceA, currency: "bhd", amount_due: 12345 },
     };
@@ -221,7 +170,7 @@ describe("assistant platform invoices get", () => {
   });
 
   test("plain text mode keeps Stripe's two-decimal scaling for ISK despite ISO zero-decimal metadata", async () => {
-    mockResponse = {
+    ipc.response = {
       ok: true,
       result: { ...invoiceA, currency: "isk", amount_due: 500 },
     };
@@ -232,7 +181,7 @@ describe("assistant platform invoices get", () => {
   });
 
   test("plain text mode falls back to raw minor units for invalid currency codes", async () => {
-    mockResponse = {
+    ipc.response = {
       ok: true,
       result: { ...invoiceA, currency: "zz", amount_due: 1234 },
     };
@@ -245,19 +194,18 @@ describe("assistant platform invoices get", () => {
 
 describe("assistant platform invoices error handling", () => {
   beforeEach(() => {
-    mockCalls = [];
-    mockResponse = {
+    ipc.calls = [];
+    ipc.response = {
       ok: false,
       error: "Platform credentials not available",
       statusCode: 422,
     };
-    process.exitCode = 0;
   });
 
   test("list exits via exitFromIpcResult on IPC failure without writing output", async () => {
     let thrown: unknown;
     const out = await captureStdout(async () => {
-      const program = buildProgram();
+      const program = await buildPlatformProgram();
       try {
         await program.parseAsync([
           "node",
@@ -278,7 +226,7 @@ describe("assistant platform invoices error handling", () => {
   test("get exits via exitFromIpcResult on IPC failure without writing output", async () => {
     let thrown: unknown;
     const out = await captureStdout(async () => {
-      const program = buildProgram();
+      const program = await buildPlatformProgram();
       try {
         await program.parseAsync([
           "node",
@@ -301,7 +249,7 @@ describe("assistant platform invoices error handling", () => {
 describe("assistant platform invoices --help", () => {
   test("group help renders both subcommands", async () => {
     const out = await captureStdout(async () => {
-      const program = buildProgram();
+      const program = await buildPlatformProgram();
       try {
         await program.parseAsync([
           "node",
@@ -323,7 +271,7 @@ describe("assistant platform invoices --help", () => {
 
   test("list help renders the --starting-after option", async () => {
     const out = await captureStdout(async () => {
-      const program = buildProgram();
+      const program = await buildPlatformProgram();
       try {
         await program.parseAsync([
           "node",
