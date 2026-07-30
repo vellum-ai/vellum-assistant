@@ -2,23 +2,16 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
-import { DocsSearch } from "@/app/docs/_components/docs-search";
-import { DocsThemePicker } from "@/app/docs/_components/docs-theme-picker";
-import { DocsGithubLink } from "@/app/docs/_components/docs-github-link";
 import { useDocsNav } from "@/app/docs/_components/docs-nav-context";
+import { NavPanelShell } from "@/app/docs/_components/nav-panel-shell";
 import type { ApiRelease } from "@/lib/releases-server";
-import { groupApiReleasesByMonth, releaseAnchor } from "@/lib/releases-server";
-
-function getCurrentMonth() {
-  const now = new Date();
-  return now.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
+import {
+  groupApiReleasesByMonth,
+  monthLabel,
+  releaseAnchor,
+} from "@/lib/releases-server";
 
 interface ReleasesNavProps {
   releases: ApiRelease[];
@@ -32,10 +25,10 @@ interface ReleasesNavProps {
 export function ReleasesNav({ releases }: ReleasesNavProps) {
   const groups = groupApiReleasesByMonth(releases);
   const [activeId, setActiveId] = useState<string>("");
-  const { visible, animating, close } = useDocsNav();
+  const { close } = useDocsNav();
 
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(() => {
-    const currentMonth = getCurrentMonth();
+    const currentMonth = monthLabel(new Date());
     const hasCurrentMonth = groups.some((g) => g.month === currentMonth);
     const initial = hasCurrentMonth ? currentMonth : groups[0]?.month;
     return initial ? new Set([initial]) : new Set();
@@ -99,14 +92,8 @@ export function ReleasesNav({ releases }: ReleasesNavProps) {
     return () => observer.disconnect();
   }, [groups, releaseToMonth]);
 
-  const navContent = (
-    <div className="flex h-full flex-col">
-      {/* Search only renders here on mobile; desktop has it in the header.
-          The header instance owns the global Cmd/Ctrl+K shortcut, so this
-          duplicate must not register it too. */}
-      <div className="shrink-0 px-4 pt-4 pb-3 md:hidden">
-        <DocsSearch registerShortcut={false} />
-      </div>
+  return (
+    <NavPanelShell>
       <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 md:pt-8">
         <div className="mb-5">
           <Link
@@ -170,49 +157,6 @@ export function ReleasesNav({ releases }: ReleasesNavProps) {
           })}
         </ul>
       </div>
-    </div>
-  );
-
-  return (
-    <>
-      {/* Mobile drawer */}
-      {visible && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className={`docs-nav-overlay absolute inset-0 transition-opacity duration-250 ${
-              animating ? "opacity-100" : "opacity-0"
-            }`}
-            onClick={close}
-          />
-          <div
-            className={`docs-nav-panel absolute inset-y-0 left-0 w-72 overflow-y-auto border-r shadow-xl transition-transform duration-250 ease-out flex flex-col ${
-              animating ? "translate-x-0" : "-translate-x-full"
-            }`}
-          >
-            <button
-              type="button"
-              onClick={close}
-              className="docs-nav-close absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg"
-              aria-label="Close navigation"
-            >
-              <X size={18} />
-            </button>
-            <div className="flex-1 overflow-y-auto">{navContent}</div>
-            <div
-              className="docs-nav-mobile-footer flex items-center justify-between border-t px-4 py-3"
-              style={{ borderColor: "var(--docs-border)" }}
-            >
-              <DocsThemePicker />
-              <DocsGithubLink />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Desktop sidebar */}
-      <nav className="docs-nav-panel hidden border-r md:sticky md:top-[101px] md:block md:h-[calc(100vh-101px)] md:w-64 md:shrink-0 md:self-start md:overflow-y-auto md:pb-8">
-        {navContent}
-      </nav>
-    </>
+    </NavPanelShell>
   );
 }

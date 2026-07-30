@@ -1,7 +1,11 @@
 import { ReleaseMarkdown } from "@/app/docs/_components/release-markdown";
 import { WWW_DOMAIN } from "@/lib/domains";
 import type { ApiRelease } from "@/lib/releases-server";
-import { groupApiReleasesByMonth, releaseAnchor } from "@/lib/releases-server";
+import {
+  groupApiReleasesByMonth,
+  monthLabel,
+  releaseAnchor,
+} from "@/lib/releases-server";
 import { routes } from "@/lib/routes";
 
 function monthAnchor(releasedAt: string) {
@@ -22,15 +26,6 @@ function formatFullDate(releasedAt: string) {
   });
 }
 
-function getMonthYear(releasedAt: string) {
-  const d = new Date(releasedAt);
-  return d.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 interface ReleasesContentProps {
   releases: ApiRelease[];
 }
@@ -39,7 +34,7 @@ export function ReleasesContent({ releases }: ReleasesContentProps) {
   const groups = groupApiReleasesByMonth(releases);
   const firstRelease = groups[0]?.releases[0];
   const pageTitle = firstRelease
-    ? getMonthYear(firstRelease.released_at)
+    ? monthLabel(new Date(firstRelease.released_at))
     : "Releases";
 
   return (
