@@ -256,7 +256,7 @@ export function SchedulingContent() {
             </p>
             <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
               <li>
-                <strong>Provider</strong> &mdash; the external service to
+                <strong>Provider</strong>: the external service to
                 poll (Gmail, Outlook, GitHub, Google Calendar, Outlook
                 Calendar, or Linear)
               </li>
@@ -421,7 +421,7 @@ export function SchedulingContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Execute</strong> (default) &mdash; sends the
+              <strong>Execute</strong> (default): sends the
               schedule&apos;s message to a background assistant
               conversation. The assistant processes it autonomously as if
               you had sent it. Use this for tasks that need the assistant
@@ -429,13 +429,13 @@ export function SchedulingContent() {
               me a digest.&rdquo;
             </li>
             <li>
-              <strong>Notify</strong> &mdash; sends a notification to you
+              <strong>Notify</strong>: sends a notification to you
               via the notification pipeline. No assistant processing
               occurs. Use this for simple reminders: &ldquo;remind me to
               take medicine at 9am.&rdquo;
             </li>
             <li>
-              <strong>Script</strong> &mdash; runs a shell command on a
+              <strong>Script</strong>: runs a shell command on a
               cadence with no LLM in the loop. Stdout, stderr, and exit
               code are captured into the run record. Use this for cheap,
               deterministic background jobs (rotating logs, syncing a
@@ -443,7 +443,7 @@ export function SchedulingContent() {
               assistant reasoning.
             </li>
             <li>
-              <strong>Wake</strong> &mdash; resumes an existing
+              <strong>Wake</strong>: resumes an existing
               conversation with a hint message instead of spawning a new
               one. Useful when you want a long-running thread to pick
               itself back up later (&ldquo;wake this up tomorrow morning

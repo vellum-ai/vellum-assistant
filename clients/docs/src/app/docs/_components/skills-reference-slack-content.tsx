@@ -82,7 +82,7 @@ export function SkillsReferenceSlackContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;React with &#x1F44D; to Sarah&apos;s message&rdquo;
+                    &ldquo;React with &#x1F44D; to Alice&apos;s message&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Adds emoji reaction

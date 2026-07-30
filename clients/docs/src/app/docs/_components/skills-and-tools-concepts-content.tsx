@@ -191,7 +191,7 @@ export function SkillsAndToolsConceptsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>SKILL.md</strong> &mdash; instructions that teach the
+              <strong>SKILL.md</strong>: instructions that teach the
               assistant when and how to use the skill
             </li>
           </ul>
@@ -200,12 +200,12 @@ export function SkillsAndToolsConceptsContent() {
           </p>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>TOOLS.json</strong> &mdash; a manifest defining what tools
+              <strong>TOOLS.json</strong>: a manifest defining what tools
               the skill provides, their inputs, risk levels, and execution
               targets
             </li>
             <li>
-              <strong>tools/</strong> &mdash; the implementation code behind
+              <strong>tools/</strong>: the implementation code behind
               each tool
             </li>
           </ul>
@@ -252,7 +252,7 @@ export function SkillsAndToolsConceptsContent() {
                 <tr>
                   <td className="px-4 py-3 font-medium text-zinc-800">Computer use</td>
                   <td className="px-4 py-3 text-zinc-600">Computer Use, Screen Watch</td>
-                  <td className="px-4 py-3 text-zinc-600">Control your Mac directly &mdash; click, type, navigate between apps. Watch your screen with OCR at intervals.</td>
+                  <td className="px-4 py-3 text-zinc-600">Control your Mac directly: click, type, navigate between apps. Watch your screen with OCR at intervals.</td>
                 </tr>
                 <tr>
                   <td className="px-4 py-3 font-medium text-zinc-800">Monitoring</td>
@@ -281,9 +281,9 @@ export function SkillsAndToolsConceptsContent() {
           <p className="mb-4 text-zinc-600">
             Skills aren&apos;t all active at once. Your assistant sees a catalog
             of available skills (names, descriptions, and activation hints) in
-            every conversation. When it determines a skill is relevant &mdash;
-            because you asked about email, or said &quot;browse this
-            page&quot; &mdash; it calls <code>skill_load</code> to activate it.
+            every conversation. When it determines a skill is relevant
+            (because you asked about email, or said &quot;browse this
+            page&quot;), it calls <code>skill_load</code> to activate it.
           </p>
           <p className="mb-4 text-zinc-600">
             Once a skill is loaded:
@@ -312,9 +312,9 @@ export function SkillsAndToolsConceptsContent() {
           </p>
           <p className="mb-4 text-zinc-600">
             <strong>Build your own.</strong> Describe what you want and your
-            assistant will scaffold a full skill &mdash; SKILL.md with
+            assistant will scaffold a full skill (SKILL.md with
             instructions, TOOLS.json with tool definitions, and TypeScript
-            executors &mdash; then save it to your <code>skills/</code>{" "}
+            executors), then save it to your <code>skills/</code>{" "}
             directory. The skill is immediately available.
           </p>
           <blockquote className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-zinc-700">
@@ -338,7 +338,7 @@ export function SkillsAndToolsConceptsContent() {
           <p className="mb-0 text-zinc-600">
             Whether custom or community-installed, skills live in your{" "}
             <code>skills/</code> directory. You can inspect, modify, or delete
-            any of them &mdash; a skill is just a folder with a few files.
+            any of them: a skill is just a folder with a few files.
           </p>
         </section>
 
@@ -353,18 +353,18 @@ export function SkillsAndToolsConceptsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
             <li>
-              <strong>TTS provider</strong> &mdash; which text-to-speech
+              <strong>TTS provider</strong>: which text-to-speech
               service to use (ElevenLabs, Fish Audio)
             </li>
             <li>
-              <strong>Voice ID</strong> &mdash; the specific voice model
+              <strong>Voice ID</strong>: the specific voice model
             </li>
             <li>
-              <strong>Activation key</strong> &mdash; the push-to-talk key
+              <strong>Activation key</strong>: the push-to-talk key
               for voice input on desktop
             </li>
             <li>
-              <strong>Conversation timeout</strong> &mdash; how long a
+              <strong>Conversation timeout</strong>: how long a
               voice conversation stays open after silence
             </li>
           </ul>

@@ -56,7 +56,7 @@ export function MemoryAndContextContent() {
 
           <div id="workspace-files-the-baseline" className="mb-10">
             <SectionHeading id="workspace-files-the-baseline" level={3}>
-              1. Workspace files &mdash; the baseline
+              1. Workspace files: the baseline
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
               A handful of plain-text files at the root of your workspace
@@ -64,29 +64,29 @@ export function MemoryAndContextContent() {
             </p>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
               <li>
-                <strong>essentials.md</strong> &mdash; facts that would be
+                <strong>essentials.md</strong>: facts that would be
                 embarrassing to forget: your name, your co-founder&apos;s
                 name, that you&apos;re allergic to penicillin. The most
                 expensive things to forget live here.
               </li>
               <li>
-                <strong>threads.md</strong> &mdash; your assistant&apos;s
+                <strong>threads.md</strong>: your assistant&apos;s
                 open loops: active commitments, follow-ups in progress,
                 things waiting on a response
               </li>
               <li>
-                <strong>recent.md</strong> &mdash; what happened today and
+                <strong>recent.md</strong>: what happened today and
                 yesterday. Fades out naturally as the consolidation job runs.
               </li>
               <li>
-                <strong>buffer.md</strong> &mdash; every fact your assistant
+                <strong>buffer.md</strong>: every fact your assistant
                 decides to remember lands here first, raw and unfiled, until
                 the consolidation pass decides what to do with it
               </li>
             </ul>
             <p className="mb-0 text-zinc-600">
               These four files are loaded into every conversation. They&apos;re
-              the foundation &mdash; the context that makes it feel like it
+              the foundation: the context that makes it feel like it
               knows you before you&apos;ve said a word. You can edit them
               directly at any time.
             </p>
@@ -94,7 +94,7 @@ export function MemoryAndContextContent() {
 
           <div id="knowledge-base-the-curated-layer" className="mb-10">
             <SectionHeading id="knowledge-base-the-curated-layer" level={3}>
-              2. Knowledge base &mdash; the curated layer
+              2. Knowledge base: the curated layer
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
               The knowledge base, or PKB, lives in <code>pkb/</code> at the
@@ -116,7 +116,7 @@ export function MemoryAndContextContent() {
 
           <div id="long-term-memory">
             <SectionHeading id="long-term-memory" level={3}>
-              3. Long-term memory &mdash; the auto-extracted layer
+              3. Long-term memory: the auto-extracted layer
             </SectionHeading>
             <p className="mb-0 text-zinc-600">
               Beyond workspace files and the knowledge base, your assistant
@@ -209,7 +209,7 @@ export function MemoryAndContextContent() {
                     Connected narratives that span multiple events
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
-                    &ldquo;The arc of building Becky over the past month&rdquo;
+                    &ldquo;The arc of building Bob over the past month&rdquo;
                   </td>
                 </tr>
                 <tr>
@@ -228,7 +228,7 @@ export function MemoryAndContextContent() {
           <p className="mb-0 text-zinc-600">
             There&apos;s also a system-managed kind called <strong>Skill</strong>{" "}
             that records what your assistant has learned about how to do
-            things. You won&apos;t edit those directly &mdash; they&apos;re
+            things. You won&apos;t edit those directly: they&apos;re
             surfaced on the Skills tab instead. See <a href="#procedural-memory-as-skills" className="underline">procedural memory as skills</a>{" "}
             for how they get written.
           </p>
@@ -258,7 +258,7 @@ export function MemoryAndContextContent() {
             &ldquo;got it&rdquo;) are filtered out before extraction even
             runs. The system errs on the side of remembering too little
             rather than too much, and a fingerprint check prevents the same
-            fact from being saved twice &mdash; instead, repeats reinforce
+            fact from being saved twice. Instead, repeats reinforce
             the existing memory.
           </p>
           <p className="mb-4 text-zinc-600">
@@ -280,8 +280,8 @@ export function MemoryAndContextContent() {
             walks through the buffer, decides what gets filed into a concept
             page, what gets promoted to{" "}
             <code>essentials.md</code>, what gets merged with existing
-            entries, and what gets discarded. There are no hard-coded rules
-            &mdash; your assistant uses its own judgement, the same
+            entries, and what gets discarded. There are no hard-coded rules:
+            your assistant uses its own judgement, the same
             compression a brain does during sleep.
           </p>
         </section>
@@ -292,8 +292,8 @@ export function MemoryAndContextContent() {
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
             When the assistant extracts a new fact that contradicts an older
-            one &mdash; you told it you preferred coffee last month but
-            mentioned you&apos;ve switched to tea &mdash; the new memory can
+            one (you told it you preferred coffee last month but
+            mentioned you&apos;ve switched to tea), the new memory can
             supersede the old one. If the correction is explicit
             (&ldquo;Actually, I prefer tea now&rdquo;), it&apos;s treated as
             high salience and fast-tracked straight into{" "}
@@ -376,29 +376,29 @@ export function MemoryAndContextContent() {
           </p>
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Working memory files</strong> &mdash; essentials.md,
+              <strong>Working memory files</strong>: essentials.md,
               threads.md, recent.md, and buffer.md, loaded at the start of
               every conversation
             </li>
             <li>
-              <strong>Knowledge base entries</strong> &mdash; relevant notes
+              <strong>Knowledge base entries</strong>: relevant notes
               from <code>pkb/</code>, pulled in when they apply to what
               you&apos;re asking
             </li>
             <li>
-              <strong>Conversation history</strong> &mdash; everything said
+              <strong>Conversation history</strong>: everything said
               so far in this session (summarized if it gets long)
             </li>
             <li>
-              <strong>Memory recall</strong> &mdash; a search of long-term
+              <strong>Memory recall</strong>: a search of long-term
               memory for anything relevant to your message
             </li>
             <li>
-              <strong>Active skill instructions</strong> &mdash; if a skill
+              <strong>Active skill instructions</strong>: if a skill
               is loaded, its instructions are included
             </li>
             <li>
-              <strong>Your message</strong> &mdash; what you just said,
+              <strong>Your message</strong>: what you just said,
               including any attached images
             </li>
           </ol>
@@ -420,50 +420,50 @@ export function MemoryAndContextContent() {
           </p>
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Your message is embedded</strong> &mdash; converted
+              <strong>Your message is embedded</strong>: converted
               into both a dense vector (capturing meaning) and a sparse
               vector (capturing keywords)
             </li>
             <li>
-              <strong>Both vectors search the memory store</strong> &mdash;
+              <strong>Both vectors search the memory store</strong>:
               BM25 (keyword matching) finds exact matches, dense embeddings
               find semantic matches. A PCA step corrects for embedding
               anisotropy so results aren&apos;t skewed by high-frequency
               directions in the embedding space.
             </li>
             <li>
-              <strong>Spreading activation</strong> &mdash; the top matches
+              <strong>Spreading activation</strong>: the top matches
               kick off a graph traversal. Neighboring concept pages get a
-              relevance boost, so adjacent context arrives automatically
-              &mdash; a memory about a project also surfaces the people,
+              relevance boost, so adjacent context arrives automatically:
+              a memory about a project also surfaces the people,
               deadlines, and related events connected to it.
             </li>
             <li>
-              <strong>Summaries first</strong> &mdash; concept page summaries
+              <strong>Summaries first</strong>: concept page summaries
               load by default. Full page bodies are fetched only when the
               summary suggests they&apos;re relevant, keeping token usage
               proportional to what actually matters.
             </li>
             <li>
-              <strong>Scoring</strong> &mdash; each result gets a composite
+              <strong>Scoring</strong>: each result gets a composite
               score combining semantic relevance, recency (using a
               logarithmic decay so older memories aren&apos;t wiped out too
               fast), reinforcement count, and extraction confidence
             </li>
             <li>
-              <strong>Stability check</strong> &mdash; memories with low
+              <strong>Stability check</strong>: memories with low
               stability or past their natural lifetime get demoted, even if
               they scored well on relevance
             </li>
             <li>
-              <strong>Two-layer injection</strong> &mdash; relevant memories
+              <strong>Two-layer injection</strong>: relevant memories
               are formatted and inserted as structured context, split into
               an identity/preference layer (who you are) and a general
               context layer (everything else)
             </li>
           </ol>
           <p className="mb-0 text-zinc-600">
-            The budget for memory injection is dynamic &mdash; it expands or
+            The budget for memory injection is dynamic: it expands or
             contracts based on how much room is left in the context window
             after workspace files, conversation history, and skill
             instructions.
@@ -537,34 +537,34 @@ export function MemoryAndContextContent() {
             What happens when conversations get long
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            Every AI model has a context window &mdash; a limit on how much
+            Every AI model has a context window, a limit on how much
             text it can process at once. Your assistant manages this
             automatically:
           </p>
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Compaction</strong> &mdash; when the conversation
+              <strong>Compaction</strong>: when the conversation
               approaches 80% of the context limit, older messages are
               summarized into a compact form. The summary preserves goals,
               decisions, constraints, file paths, errors, and open questions
               while dropping filler and repetition.
             </li>
             <li>
-              If that&apos;s not enough &mdash; tool results are truncated
+              If that&apos;s not enough, tool results are truncated
               to their essentials.
             </li>
             <li>
-              If still tight &mdash; images and file contents are replaced
+              If still tight, images and file contents are replaced
               with text descriptions.
             </li>
             <li>
-              Last resort &mdash; memory injection is scaled back to recent
+              Last resort: memory injection is scaled back to recent
               items only.
             </li>
           </ol>
           <p className="mb-4 text-zinc-600">
             You won&apos;t notice this happening. The assistant keeps the
-            conversation going smoothly &mdash; it just works with a
+            conversation going smoothly: it just works with a
             summarized version of the earlier context rather than the full
             transcript.
           </p>
@@ -585,11 +585,11 @@ export function MemoryAndContextContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Can&apos;t leak out</strong> &mdash; they won&apos;t
+              <strong>Can&apos;t leak out</strong>: they won&apos;t
               surface in other conversations
             </li>
             <li>
-              <strong>Can read in</strong> &mdash; the private conversation
+              <strong>Can read in</strong>: the private conversation
               can still access your shared memory pool
             </li>
           </ul>
@@ -606,8 +606,8 @@ export function MemoryAndContextContent() {
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
             Not everyone who talks to your assistant can shape its memories.
-            Memory extraction only runs on messages from trusted actors
-            &mdash; that&apos;s you (the guardian). Messages from trusted
+            Memory extraction only runs on messages from trusted actors:
+            that&apos;s you (the guardian). Messages from trusted
             contacts or unknown parties are indexed for search within that
             conversation, but they can&apos;t create or modify your
             long-term memories.
@@ -639,7 +639,7 @@ export function MemoryAndContextContent() {
               Search across all memories, including inactive ones
             </li>
             <li>
-              Edit a memory, mark it inactive, or delete it &mdash; deleted
+              Edit a memory, mark it inactive, or delete it: deleted
               memories can be recovered
             </li>
             <li>
@@ -647,7 +647,7 @@ export function MemoryAndContextContent() {
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
-            You can also do this conversationally &mdash; ask what your
+            You can also do this conversationally: ask what your
             assistant remembers about a topic, correct it, or tell it to
             forget something specific.
           </p>

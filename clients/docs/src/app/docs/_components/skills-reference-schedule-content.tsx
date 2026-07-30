@@ -127,7 +127,7 @@ export function SkillsReferenceScheduleContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Persistent across conversations.</strong> Schedules persist across
-              conversations &mdash; set it once and it runs until you cancel it.
+              conversations: set it once and it runs until you cancel it.
             </li>
             <li>
               <strong>Simple reminders.</strong> For simple reminders, just say
@@ -139,7 +139,7 @@ export function SkillsReferenceScheduleContent() {
             </li>
             <li>
               <strong>Same permission rules.</strong> Scheduled actions run with the same permission
-              rules as interactive actions &mdash; your assistant won&apos;t do anything it
+              rules as interactive actions: your assistant won&apos;t do anything it
               couldn&apos;t do in a normal conversation.
             </li>
           </ul>

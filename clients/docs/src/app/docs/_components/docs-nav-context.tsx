@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 interface DocsNavContextValue {
@@ -26,6 +27,8 @@ export function DocsNavProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pathname = usePathname();
+  const previousPathnameRef = useRef(pathname);
 
   const open = useCallback(() => {
     if (timeoutRef.current) {
@@ -44,6 +47,16 @@ export function DocsNavProvider({ children }: { children: ReactNode }) {
     document.body.style.overflow = "";
     timeoutRef.current = setTimeout(() => setVisible(false), 250);
   }, []);
+
+  // Close the drawer on any route change, including navigations that do not
+  // pass through a nav link (e.g. selecting a search result).
+  useEffect(() => {
+    if (previousPathnameRef.current === pathname) {
+      return;
+    }
+    previousPathnameRef.current = pathname;
+    close();
+  }, [close, pathname]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -799,8 +799,8 @@ export function ExtensibilityHooksContent() {
             Every hook has the same shape: it receives a typed context and
             either mutates it in place and returns nothing, or returns a{" "}
             <strong>partial</strong> context. A returned partial is merged onto
-            the threaded context &mdash; only the keys it includes are
-            overwritten, every other field is preserved &mdash; so a hook can
+            the threaded context (only the keys it includes are
+            overwritten, every other field is preserved), so a hook can
             edit just the subset of fields it cares about without re-specifying
             the rest. The runtime threads the merged context to the next plugin
             and then to the Assistant.

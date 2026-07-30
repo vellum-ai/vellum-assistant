@@ -137,7 +137,7 @@ export function QuickStartContent() {
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Give it a name.</strong> &ldquo;Your name is
-              Becky.&rdquo; That name will stick.
+              Bob.&rdquo; That name will stick.
             </li>
             <li>
               <strong>Tell it about yourself.</strong> &ldquo;I&apos;m
@@ -172,7 +172,7 @@ export function QuickStartContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              &ldquo;Draft a follow-up email to Sarah about the launch
+              &ldquo;Draft a follow-up email to Alice about the launch
               meeting we had this morning.&rdquo;
             </li>
             <li>

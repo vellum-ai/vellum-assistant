@@ -137,7 +137,7 @@ export function SkillsReferenceStartTheDayContent() {
             </li>
             <li>Your location is used for weather (set in USER.md)</li>
             <li>
-Briefings get more personalized over time &mdash; your assistant learns your
+Briefings get more personalized over time: your assistant learns your
               interests, schedule patterns, and recurring tasks to weight news and priorities
               accordingly
             </li>

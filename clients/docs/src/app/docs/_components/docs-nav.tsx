@@ -635,9 +635,11 @@ export function DocsNav() {
 
   const navContent = (
     <div className="flex h-full flex-col">
-      {/* Search only renders here on mobile; desktop has it in the header. */}
+      {/* Search only renders here on mobile; desktop has it in the header.
+          The header instance owns the global Cmd/Ctrl+K shortcut, so this
+          duplicate must not register it too. */}
       <div className="shrink-0 px-4 pt-4 pb-3 md:hidden">
-        <DocsSearch />
+        <DocsSearch registerShortcut={false} />
       </div>
       <ul className="docs-nav-list list-none px-4 pb-4 pt-4 md:pt-8 m-0 flex-1 overflow-y-auto">
         {navItems}

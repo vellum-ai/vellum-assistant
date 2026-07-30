@@ -122,7 +122,7 @@ export function SkillsReferenceSkillManagementContent() {
             </li>
             <li>
               <strong>Fully automated.</strong> The assistant writes the code, tests it, and packages
-              it &mdash; you just describe what you want.
+              it: you just describe what you want.
             </li>
             <li>
               <strong>High-risk classification.</strong> Skill source file modifications always

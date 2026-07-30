@@ -209,8 +209,8 @@ export function HelpFaqContent() {
           </SectionHeading>
           <p className="mb-6 text-zinc-600">
             Only if you opt in. There are two optional toggles in Settings &gt; Privacy: usage
-            analytics (anonymized token counts and feature adoption &mdash; no message content) and
-            crash diagnostics (error reports via Sentry &mdash; no personal data). Both are off by
+            analytics (anonymized token counts and feature adoption, no message content) and
+            crash diagnostics (error reports via Sentry, no personal data). Both are off by
             default.
           </p>
 
@@ -269,7 +269,7 @@ export function HelpFaqContent() {
           <p className="mb-6 text-zinc-600">
             A lot. Gmail management, Google Calendar, Slack integration, web browsing, computer
             control, phone calls, image generation, coding, app building, document writing, task
-            management, screen watching, media processing, and more &mdash; about 30 built-in
+            management, screen watching, media processing, and more, about 30 built-in
             skills in total. You can also build custom skills to extend it further. See the{" "}
             <a href="/docs/skills-reference">Skills Reference</a> for details on each capability.
           </p>
@@ -279,7 +279,7 @@ export function HelpFaqContent() {
           </SectionHeading>
           <p className="mb-6 text-zinc-600">
             Files inside the workspace (<code>~/.vellum/workspace/</code>) are accessible without
-            prompts. Files outside the workspace &mdash; on your host machine &mdash; require your
+            prompts. Files outside the workspace (on your host machine) require your
             explicit permission each time. You see what file it wants to access, whether
             it&apos;s a read or write, and can choose to allow once, allow temporarily, or create
             a persistent rule. See{" "}
@@ -324,7 +324,7 @@ export function HelpFaqContent() {
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
             No. Your workspace and tools are local, but your assistant needs an internet connection
-            to think &mdash; it sends your messages to the AI model provider (Anthropic) to generate
+            to think: it sends your messages to the AI model provider (Anthropic) to generate
             responses. Without internet, it can&apos;t respond.
           </p>
         </section>

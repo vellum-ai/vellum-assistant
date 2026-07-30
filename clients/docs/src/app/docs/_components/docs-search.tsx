@@ -75,7 +75,15 @@ function renderHighlightedText(text: string, query: string): ReactNode {
   });
 }
 
-export function DocsSearch() {
+interface DocsSearchProps {
+  /**
+   * Whether this instance owns the global Cmd/Ctrl+K shortcut. Exactly one
+   * mounted instance should register it; duplicates open overlapping dialogs.
+   */
+  registerShortcut?: boolean;
+}
+
+export function DocsSearch({ registerShortcut = true }: DocsSearchProps) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -144,6 +152,10 @@ export function DocsSearch() {
   }, [closeSpotlight, pathname]);
 
   useEffect(() => {
+    if (!registerShortcut && !spotlightOpen) {
+      return;
+    }
+
     const handleShortcut = (event: globalThis.KeyboardEvent) => {
       const isShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
       if (!isShortcut) {
@@ -153,15 +165,17 @@ export function DocsSearch() {
         return;
       }
 
-      event.preventDefault();
-      openSpotlight();
+      if (registerShortcut) {
+        event.preventDefault();
+        openSpotlight();
+      }
     };
 
     window.addEventListener("keydown", handleShortcut);
     return () => {
       window.removeEventListener("keydown", handleShortcut);
     };
-  }, [closeSpotlight, openSpotlight, spotlightOpen]);
+  }, [closeSpotlight, openSpotlight, registerShortcut, spotlightOpen]);
 
   useEffect(() => {
     if (!spotlightMounted) {
