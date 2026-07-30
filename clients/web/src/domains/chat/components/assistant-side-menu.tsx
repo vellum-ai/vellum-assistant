@@ -396,7 +396,7 @@ export function AssistantSideMenu({
         variant={variant}
         width={width}
         onWidthChange={onWidthChange}
-        className="relative h-full"
+        className="relative h-full border-0"
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
