@@ -8,12 +8,11 @@ import { admitDiscordMessage, type AdmissionCandidate } from "./admit.js";
 import { readDiscordAllowedChannelIds } from "./allowed-channels.js";
 
 /**
- * These cases run the whole seam that was uncovered: a real `config.json` on
- * disk, through `ConfigFileCache`, into the set the admission gate receives,
- * to a verdict. The gate and the config reader were each unit-tested in
- * isolation and both were correct. The defect lived entirely in the join
- * between them, so a test that hands the gate a hand-built `Set` cannot see
- * it.
+ * These cases cover the full path from a real `config.json` on disk, through
+ * `ConfigFileCache`, into the set the admission gate receives, to a verdict.
+ * The gate and the config reader are each correct in isolation, so a test that
+ * hands the gate a hand-built `Set` cannot tell whether the stored value
+ * actually reaches it in the shape it expects. Only an on-disk config can.
  */
 
 const configPath = join(testWorkspaceDir, "config.json");
@@ -28,7 +27,7 @@ function writeConfig(data: Record<string, unknown>): void {
   writeFileSync(configPath, JSON.stringify(data));
 }
 
-/** The Jul 30 smoke-test message: a human mentioning the bot in the channel. */
+/** A message that would be admitted: a human mentioning the bot in-channel. */
 function candidate(over: Partial<AdmissionCandidate> = {}): AdmissionCandidate {
   return {
     channelId: CHANNEL,
@@ -50,7 +49,9 @@ function admitWithStoredConfig(over: Partial<AdmissionCandidate> = {}) {
 
 afterEach(() => {
   try {
-    if (existsSync(configPath)) unlinkSync(configPath);
+    if (existsSync(configPath)) {
+      unlinkSync(configPath);
+    }
   } catch {
     // best-effort
   }
@@ -58,9 +59,9 @@ afterEach(() => {
 
 describe("readDiscordAllowedChannelIds", () => {
   test("admits a mention when the allow-list is stored as a JSON array", () => {
-    // The regression. This is the exact shape in the live workspace config on
-    // Jul 30, and it read as an empty allow-list, so every message in the
-    // channel was denied while the log showed nothing at all.
+    // A JSON array is the natural way to author a list by hand, and the only
+    // safe way to author a snowflake, so it is the shape most likely to be on
+    // disk.
     writeConfig({ discord: { allowedChannelIds: [CHANNEL] } });
     expect(admitWithStoredConfig()).toEqual({ admitted: true });
   });
@@ -88,7 +89,8 @@ describe("readDiscordAllowedChannelIds", () => {
   });
 
   test("a channel outside the stored array is still denied", () => {
-    // The fix widens which shapes are readable, not which rooms are admitted.
+    // Accepting more shapes widens which values are readable, not which rooms
+    // are admitted.
     writeConfig({ discord: { allowedChannelIds: [OTHER_CHANNEL] } });
     expect(admitWithStoredConfig()).toEqual({
       admitted: false,

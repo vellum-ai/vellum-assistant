@@ -209,8 +209,8 @@ describe("ConfigFileCache: getRecord", () => {
 
 describe("ConfigFileCache: getStringArray", () => {
   test("reads a JSON array of strings", () => {
-    // The shape `getString` silently could not read, which is how a populated
-    // Discord allow-list reached the admission gate as an empty set.
+    // `getString` returns undefined for an array, so a list has to come
+    // through here or a populated setting reads as unset.
     writeConfig({ discord: { allowedChannelIds: ["111", "222"] } });
     const cache = new ConfigFileCache();
     expect(cache.getStringArray("discord", "allowedChannelIds")).toEqual([

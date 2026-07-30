@@ -22,9 +22,9 @@ const NEVER_PROMOTED: AdmissionDropReason[] = ["self_authored", "bot_authored"];
 
 describe("AdmissionDropLog", () => {
   test("channel_not_allowed warns, because it is the operator-actionable one", () => {
-    // The reason that fires on a misconfigured or unreadable allow-list. Every
-    // gateway stream runs at info, so before this it was written nowhere and a
-    // gate denying every message looked exactly like a gateway receiving none.
+    // Every gateway stream runs at info, so a drop that only logs at debug is
+    // written nowhere and a gate denying every message reads exactly like a
+    // gateway receiving none.
     const dropLog = new AdmissionDropLog();
     expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
   });
@@ -71,7 +71,7 @@ describe("AdmissionDropLog", () => {
 
   test("promotion stops at the cap and degrades to debug", () => {
     // Bounds memory against a guild with a large channel count. Past the cap
-    // the behavior is the old quiet, not unbounded growth.
+    // the reason falls quiet rather than growing without limit.
     const dropLog = new AdmissionDropLog();
     for (let i = 0; i < 512; i++) {
       expect(dropLog.levelFor("channel_not_allowed", `channel-${i}`)).toBe(
@@ -83,14 +83,35 @@ describe("AdmissionDropLog", () => {
     );
   });
 
-  test("never-promoted reasons do not consume tracking slots", () => {
-    // Otherwise the bot's own echo across many channels could exhaust the cap
+  test("never-promoted reasons consume no budget", () => {
+    // Otherwise the bot's own echo across many channels could exhaust a budget
     // and silence the one reason that matters.
     const dropLog = new AdmissionDropLog();
     for (let i = 0; i < 600; i++) {
       dropLog.levelFor("self_authored", `channel-${i}`);
     }
     expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
+  });
+
+  test("an unbounded reason cannot starve the operator-actionable one", () => {
+    // `not_a_guild_message` is keyed on a DM channel, which is unique per
+    // sender, so outsiders control its key space. A shared budget would let a
+    // stream of DMs exhaust it and permanently demote `channel_not_allowed`.
+    const dropLog = new AdmissionDropLog();
+    for (let i = 0; i < 5_000; i++) {
+      dropLog.levelFor("not_a_guild_message", `dm-channel-${i}`);
+    }
+    expect(dropLog.levelFor("channel_not_allowed", CHANNEL)).toBe("warn");
+  });
+
+  test("exhausting one reason's budget leaves the others intact", () => {
+    const dropLog = new AdmissionDropLog();
+    for (let i = 0; i < 600; i++) {
+      dropLog.levelFor("bot_not_mentioned", `channel-${i}`);
+    }
+    expect(dropLog.levelFor("bot_not_mentioned", "channel-999")).toBe("debug");
+    expect(dropLog.levelFor("channel_not_allowed", "channel-999")).toBe("warn");
+    expect(dropLog.levelFor("not_a_guild_message", "channel-999")).toBe("info");
   });
 
   test("instances do not share state", () => {

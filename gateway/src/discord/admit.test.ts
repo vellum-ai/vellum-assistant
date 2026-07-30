@@ -166,8 +166,3 @@ describe("admitDiscordMessage", () => {
     expect(verdict).toEqual({ admitted: false, reason: "channel_not_allowed" });
   });
 });
-
-// Allow-list parsing moved to `ConfigFileCache.getStringArray` (shape) and
-// `allowed-channels.ts` (the read). Its cases now live in
-// `config-file-cache.test.ts` and `allowed-channels.test.ts`, where they run
-// against a real config file rather than a hand-built string.

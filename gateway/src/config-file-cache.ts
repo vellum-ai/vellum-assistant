@@ -137,16 +137,16 @@ export class ConfigFileCache {
    * Read a list-valued setting as an array of strings, accepting either a JSON
    * array or a comma-separated string.
    *
-   * Both shapes have to work because the two ways a list gets authored produce
-   * different types. Hand-editing `config.json` naturally yields an array, and
+   * Both shapes are accepted because the ways a list gets authored produce
+   * different types. Hand-editing `config.json` yields an array, and
    * `assistant config set --json` is the only safe way to write a snowflake id
-   * (a bare integer above 2^53 is truncated on the way in, LUM-2939), while
-   * the plain string form is what a CSV setting already looks like.
+   * (a bare integer above 2^53 is truncated on the way in, LUM-2939), while a
+   * CSV setting is a plain string.
    *
-   * Reading a list through {@link getString} is what makes this necessary:
-   * that getter returns undefined for an array, so an array-shaped list
-   * collapses to nothing and a populated setting reads as unset. Route list
-   * settings through here rather than adding another string-shaped parse.
+   * This is the only getter that reads a list. {@link getString} returns
+   * undefined for an array, so an array-shaped list read through it collapses
+   * to nothing and a populated setting reads as unset. Route list settings
+   * here rather than adding another string-shaped parse.
    */
   getStringArray(
     section: string,

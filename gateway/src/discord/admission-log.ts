@@ -1,32 +1,26 @@
 /**
  * Log-level policy for admission-gate drops.
  *
- * Two failure modes pull in opposite directions here.
+ * Severity and volume are separate questions, and this module answers them
+ * separately.
  *
- * Logging every drop at `debug` is what shipped, and it hides the gate
- * completely: every gateway log stream is built at `level: "info"` (see
- * `logger.ts`), so a `debug` line is never written to any sink. A gate that
- * denies every message while emitting nothing is indistinguishable from a
- * gateway that receives nothing. That is how an empty allow-list read as "no
- * events ever arrived" during the Jul 30 smoke test, and it produced four
- * wrong root-cause hypotheses before anyone looked at the stored config.
+ * Severity splits by reason ({@link DROP_LOG_SEVERITY}). One denial means an
+ * operator misconfigured something, some mean a person aimed a message
+ * somewhere policy does not serve, and the rest are machine traffic the gate
+ * exists to swallow. Only the first kind is worth an operator's attention.
  *
- * Logging every drop at `info` is the opposite problem. The gate denies by
- * design, and a bot in a community guild sees every message in every channel
- * it can view. Promoting all of them floods the stream the gate exists to keep
- * quiet.
- *
- * The policy has two parts, because volume and signal are different questions.
- *
- * Severity splits by reason ({@link DROP_LOG_SEVERITY}). Not every denial is
- * worth the same attention: one of them means an operator misconfigured
- * something, some mean a person aimed a message somewhere policy does not
- * serve, and the rest are machine traffic the gate exists to swallow.
- *
- * Volume is bounded by promoting only the first drop for a given reason and
- * channel; repeats fall to `debug`. One denied message carries the whole
+ * Volume is capped by promoting only the first drop for a given reason and
+ * channel; repeats log at `debug`. One denied message carries the whole
  * diagnosis, since the reason names the check that failed and the channel
- * names where, so nothing is lost by staying quiet afterwards.
+ * names where, so later identical drops add nothing.
+ *
+ * Both matter because every gateway log stream is built at `level: "info"`
+ * (see `logger.ts`). A `debug` line reaches no sink, so a gate that denies
+ * every message while logging only at `debug` is indistinguishable from a
+ * gateway receiving nothing. A gate that promotes every denial is equally
+ * useless in the other direction: a bot in a community guild sees every
+ * message in every channel it can view, and promoting all of them floods the
+ * stream the gate exists to keep quiet.
  */
 
 import type { AdmissionDropReason } from "./admit.js";
@@ -38,20 +32,18 @@ export type AdmissionDropLogLevel = "warn" | "info" | "debug";
  * The level a reason logs at on its first occurrence for a channel.
  *
  * `channel_not_allowed` is the only operator-actionable denial. It fires when
- * a channel is missing from the allow-list, when the setting is stored in a
- * shape the reader cannot use, or when a snowflake is malformed. In every one
- * of those cases a human meant for the bot to work somewhere and it silently
- * does not, so it warns.
+ * a channel is missing from the allow-list, when the setting holds a shape the
+ * reader cannot use, or when a snowflake is malformed. In each case a human
+ * intends the bot to work somewhere and it silently does not, so it warns.
  *
  * `not_a_guild_message` and `bot_not_mentioned` are a person aiming a message
- * somewhere this client deliberately does not serve, either a DM or a channel
- * remark that does not address the bot. Neither is a fault, but both prove
- * events are flowing, which is exactly the evidence the smoke test lacked.
+ * somewhere this client does not serve, either a DM or a channel remark that
+ * does not address the bot. Neither is a fault, but both are evidence that
+ * events reach the client at all.
  *
  * `self_authored` and `bot_authored` never promote. They are the bot's own
- * echo and other machines' traffic, they scale with how chatty the room is,
- * and no operator ever needs to see one. They are also the two whose absence
- * costs nothing diagnostically: neither can be caused by a misconfiguration.
+ * echo and other machines' traffic, they scale with how chatty a room is, and
+ * no misconfiguration produces them, so a visible line would carry no signal.
  */
 const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
   channel_not_allowed: "warn",
@@ -62,24 +54,27 @@ const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
 };
 
 /**
- * Distinct reason-and-channel pairs tracked before promotion stops.
+ * Channels tracked per reason before that reason stops promoting.
  *
- * Bounds memory against a guild with a large or growing channel count. Past
- * the cap every drop logs at `debug`, which is the behavior this module
- * replaces, so exhausting it degrades to the old quiet rather than to
- * unbounded growth.
+ * The budget is per reason rather than shared because reasons differ in key
+ * cardinality. Guild-channel reasons are bounded by how many channels the bot
+ * can view, but `not_a_guild_message` is keyed on a DM channel, which is
+ * unique per sender and so unbounded by anyone outside the guild. A shared
+ * budget lets a stream of DMs exhaust it and silence `channel_not_allowed`,
+ * the one reason an operator needs. Separate budgets mean a flood of one
+ * reason can only ever silence itself.
  */
-const MAX_TRACKED_DROPS = 512;
+const MAX_TRACKED_CHANNELS_PER_REASON = 512;
 
 export class AdmissionDropLog {
-  private readonly seen = new Set<string>();
+  private readonly seen = new Map<AdmissionDropReason, Set<string>>();
 
   /**
    * The level this drop logs at.
    *
    * Calling this records the drop, so a promotable reason is promoted once per
-   * channel and every repeat afterwards is `debug`. Reasons that never promote
-   * consume no tracking slot.
+   * channel and every repeat is `debug`. Reasons that never promote consume no
+   * budget.
    */
   levelFor(
     reason: AdmissionDropReason,
@@ -89,11 +84,19 @@ export class AdmissionDropLog {
     if (severity === "debug") {
       return "debug";
     }
-    const key = `${reason}:${channelId}`;
-    if (this.seen.has(key) || this.seen.size >= MAX_TRACKED_DROPS) {
+
+    let channels = this.seen.get(reason);
+    if (!channels) {
+      channels = new Set();
+      this.seen.set(reason, channels);
+    }
+    if (
+      channels.has(channelId) ||
+      channels.size >= MAX_TRACKED_CHANNELS_PER_REASON
+    ) {
       return "debug";
     }
-    this.seen.add(key);
+    channels.add(channelId);
     return severity;
   }
 }

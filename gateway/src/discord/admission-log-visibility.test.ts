@@ -12,18 +12,16 @@ import {
 import "../__tests__/test-preload.js";
 
 /**
- * Asserts the admission-gate drop against a real gateway logger rather than a
- * spy, because the defect being pinned here is a level mismatch and a spy
- * would happily record a line that no configured stream ever writes.
- *
- * Every gateway stream is built at `level: "info"` (see `logger.ts`), so a
- * `debug` drop line reaches no sink at all. Reading the JSONL sidecar back off
- * disk is the only assertion that can tell "logged" from "logged somewhere it
+ * Asserts admission-gate drops against a real gateway logger rather than a
+ * spy. Every gateway stream is built at `level: "info"` (see `logger.ts`), so
+ * a `debug` line reaches no sink, and a spy would happily record a call that
+ * no configured stream ever writes. Reading the JSONL sidecar back off disk is
+ * the only assertion that distinguishes "logged" from "logged somewhere it
  * survives".
  *
- * This lives in its own file so `initLogger`, which sets module-global logger
- * state, does not redirect the rest of the Discord suite's output. The gateway
- * runner executes each test file in its own `bun test` invocation.
+ * `initLogger` sets module-global logger state, so this file keeps to itself:
+ * the gateway runner gives each test file its own `bun test` invocation, and
+ * `afterAll` restores the stdout-only logger in case it does not.
  */
 
 const CHANNEL = "1532468750740357331";
@@ -37,6 +35,9 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  // Restore the stdout-only logger so a sibling file sharing this process does
+  // not keep writing into a directory that is about to be removed.
+  initLogger({ dir: undefined, retentionDays: 0 });
   rmSync(logDir, { recursive: true, force: true });
 });
 
@@ -60,7 +61,9 @@ class FakeSocket implements GatewaySocketLike {
     type: "open" | "message" | "close" | "error",
     listener: (event: { data?: unknown; code?: number }) => void,
   ): void {
-    if (type === "message") this.listeners.push(listener);
+    if (type === "message") {
+      this.listeners.push(listener);
+    }
   }
 
   send(): void {}
@@ -137,11 +140,9 @@ function mentionIn(
 
 describe("admission drop visibility", () => {
   test("a channel_not_allowed drop is written at a level the streams keep", async () => {
-    // The Jul 30 smoke test in miniature: the bot is mentioned, the allow-list
-    // is empty, and before this change the resulting drop was logged at debug
-    // and therefore written nowhere. The log was indistinguishable from one
-    // where no event ever arrived, which is what sent the investigation after
-    // intents, the dispatcher table, and the handshake.
+    // The bot is mentioned and the allow-list is empty. A drop that reached no
+    // sink would make this log identical to one where no event ever arrived,
+    // which is the case an operator cannot diagnose.
     const ws = await connectedClient([]);
     ws.message(mentionIn(UNLISTED_CHANNEL, "msg-visible-1"));
 
