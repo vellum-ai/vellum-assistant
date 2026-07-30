@@ -114,7 +114,7 @@ export function ReleasesContent({ releases }: ReleasesContentProps) {
                     className="rounded-xl border border-zinc-200 p-5 md:p-6 scroll-mt-24"
                   >
                     <div className="mb-4 flex items-center justify-between gap-3">
-                      <h3 className="text-base font-bold text-zinc-900">
+                      <h3 className="text-base font-bold">
                         <a
                           href={`#${releaseAnchor(release)}`}
                           className="no-underline text-inherit hover:underline"

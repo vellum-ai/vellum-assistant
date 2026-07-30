@@ -30,9 +30,7 @@ export function hasRealNotes(release: ApiRelease): boolean {
     .split("\n")
     .filter(
       (line) =>
-        !/^\s*[*_#>\-\s]*(\*\*)?\s*(build|commit|built at)\s*:?(\*\*)?/i.test(
-          line,
-        ),
+        !/^\s*[*_#>\-\s]*(\*\*)?\s*(build|commit|built at)\s*:/i.test(line),
     )
     .join("\n")
     .trim();

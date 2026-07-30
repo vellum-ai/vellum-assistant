@@ -63,6 +63,15 @@ describe("hasRealNotes", () => {
       hasRealNotes(makeRelease({ description: "Adds dark mode support." })),
     ).toBe(true);
   });
+
+  test("keeps notes that begin with a metadata word but lack the colon", () => {
+    expect(
+      hasRealNotes(makeRelease({ description: "Build performance improved." })),
+    ).toBe(true);
+    expect(
+      hasRealNotes(makeRelease({ description: "Commit signing is enforced." })),
+    ).toBe(true);
+  });
 });
 
 describe("groupApiReleasesByMonth", () => {
