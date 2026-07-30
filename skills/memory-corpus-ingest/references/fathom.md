@@ -17,11 +17,16 @@ Discovery moves:
 
 ```bash
 # shape of the tree and the extension mix
-bun run {baseDir}/scripts/inventory.ts "$VELLUM_WORKSPACE_DIR/imports/fathom"
+bun run <skill-dir>/scripts/inventory.ts "$VELLUM_WORKSPACE_DIR/imports/fathom"
 
 # spot-check one of each file type before trusting any assumption
 find "$VELLUM_WORKSPACE_DIR/imports/fathom" -name '*.vtt' | head -3
 ```
+
+(`<skill-dir>` is the installed skill directory. The runnable form lives in
+SKILL.md Step 3, whose `{baseDir}` placeholder the skill loader substitutes at
+load time; substitution does not apply to reference files, so resolve the path
+yourself when running from here.)
 
 If the export contains large media files, keep them cold and skim from transcripts and summaries only; the map never needs the audio. If only recordings exist with no transcripts, stop and tell the user: transcription is a separate (and costly) step to decide on explicitly, not something to slip into a skim pass.
 

@@ -479,7 +479,7 @@ describe("getPageIndex", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseOriginDate — the shared origin_date parser
+// parseOriginDate: the shared origin_date parser
 // ---------------------------------------------------------------------------
 
 describe("parseOriginDate", () => {
