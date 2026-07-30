@@ -11,6 +11,9 @@
  *   - --dry-run and --overwrite pass through to the request body.
  *   - Invalid page results set exit code 1.
  *   - Malformed manifests are rejected client-side without any IPC call.
+ *   - Mid-run daemon failures keep the --json contract (error envelope with
+ *     the partial aggregate from committed batches), print partial counts in
+ *     text mode, and map the IPC status to the standard exit codes.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -83,7 +86,32 @@ mock.module("../../../../ipc/cli-client.js", () => ({
   exitFromIpcResult: (r: { statusCode?: number }) => {
     process.exitCode = r.statusCode === undefined ? 10 : 1;
   },
+  // Mirrors the real exit-code matrix (cli-client.ts): no statusCode = 10
+  // (transport), 5xx = 3, 4xx = 2, otherwise 1.
+  exitCodeFromIpcResult: (r: { statusCode?: number }) => {
+    if (r.statusCode === undefined) {
+      return 10;
+    }
+    if (r.statusCode >= 500) {
+      return 3;
+    }
+    if (r.statusCode >= 400) {
+      return 2;
+    }
+    return 1;
+  },
 }));
+
+// The CLI lazily imports the batch cap from the plugin's route module; mock
+// it so the test never loads daemon route internals (config loader, route
+// policy, ...). Only the constant is consumed at runtime - the
+// MemoryIngestResult import is type-only and erased.
+mock.module(
+  "../../../../plugins/defaults/memory/src/memory-ingest-routes.js",
+  () => ({
+    MAX_INGEST_PAGES_PER_CALL: 200,
+  }),
+);
 
 const capture = (...args: unknown[]) => {
   logOutput.push(args.map(String).join(" "));
@@ -268,6 +296,100 @@ describe("batching", () => {
       expect(summary.skipped).toBe(0);
       expect(summary.invalid).toBe(0);
       expect(summary.results).toHaveLength(250);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mid-run daemon failures: partial results + exit code
+// ---------------------------------------------------------------------------
+
+describe("mid-run daemon failure", () => {
+  /** Fail the second batch with a 409 after batch 1 committed 200 pages. */
+  function failSecondBatch(): void {
+    let call = 0;
+    ipcHandler = (method, params) => {
+      call += 1;
+      if (call >= 2) {
+        return {
+          ok: false,
+          error: "Ingest is locked: consolidation in progress",
+          statusCode: 409,
+        };
+      }
+      return defaultIpcHandler(method, params);
+    };
+  }
+
+  test("--json emits an error envelope with the partial aggregate from committed batches", async () => {
+    failSecondBatch();
+
+    await withTempDir(async (dir) => {
+      const manifest = writeManifest(dir, 250);
+
+      const { exitCode } = await runCommand([
+        "memory",
+        "ingest",
+        "--file",
+        manifest,
+        "--json",
+      ]);
+
+      // 409 maps to exit code 2 (daemon 4xx).
+      expect(exitCode).toBe(2);
+      expect(ipcCalls).toHaveLength(2);
+
+      const envelope = JSON.parse(logOutput.at(-1)!);
+      expect(envelope.ok).toBe(false);
+      expect(envelope.error).toContain("Ingest is locked");
+      expect(envelope.partial.written).toBe(200);
+      expect(envelope.partial.skipped).toBe(0);
+      expect(envelope.partial.invalid).toBe(0);
+      expect(envelope.partial.results).toHaveLength(200);
+    });
+  });
+
+  test("text mode prints the error and the partial written/skipped/invalid counts", async () => {
+    failSecondBatch();
+
+    await withTempDir(async (dir) => {
+      const manifest = writeManifest(dir, 250);
+
+      const { exitCode } = await runCommand([
+        "memory",
+        "ingest",
+        "--file",
+        manifest,
+      ]);
+
+      expect(exitCode).toBe(2);
+      const output = logOutput.join("\n");
+      expect(output).toContain("Ingest is locked");
+      expect(output).toContain("wrote 200 page(s)");
+      expect(output).toContain("skipped 0 existing");
+      expect(output).toContain("0 invalid");
+    });
+  });
+
+  test("a transport failure with no statusCode exits 10", async () => {
+    ipcHandler = () => ({ ok: false, error: "Daemon is not running" });
+
+    await withTempDir(async (dir) => {
+      const manifest = writeManifest(dir, 1);
+
+      const { exitCode } = await runCommand([
+        "memory",
+        "ingest",
+        "--file",
+        manifest,
+        "--json",
+      ]);
+
+      expect(exitCode).toBe(10);
+      const envelope = JSON.parse(logOutput.at(-1)!);
+      expect(envelope.ok).toBe(false);
+      expect(envelope.error).toContain("Daemon is not running");
+      expect(envelope.partial.written).toBe(0);
     });
   });
 });

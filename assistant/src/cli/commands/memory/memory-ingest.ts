@@ -12,7 +12,7 @@ import { join, relative, sep } from "node:path";
 
 import type { Command } from "commander";
 
-import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { cliIpcCall, exitCodeFromIpcResult } from "../../../ipc/cli-client.js";
 import type { MemoryIngestResult } from "../../../plugins/defaults/memory/src/memory-ingest-routes.js";
 import { readStdinSync } from "../../../util/read-stdin.js";
 import { subcommand } from "../../lib/cli-command-help.js";
@@ -26,9 +26,6 @@ import { log } from "../../logger.js";
  * "Request timed out" while the assistant keeps working.
  */
 const INGEST_IPC_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** Pages per `memory_ingest` call (the route caps a request at 200 pages). */
-const MAX_PAGES_PER_CALL = 200;
 
 interface IngestPage {
   slug: string;
@@ -169,6 +166,13 @@ export function registerMemoryIngestCommand(memory: Command): void {
       overwrite?: boolean;
       json?: boolean;
     }) => {
+      // Batch cap shared with the daemon route: the route rejects requests
+      // above this many pages, so the CLI chunks its input to match. Loaded
+      // lazily so the CLI module keeps daemon internals out of its static
+      // import graph (see src/cli/AGENTS.md).
+      const { MAX_INGEST_PAGES_PER_CALL } =
+        await import("../../../plugins/defaults/memory/src/memory-ingest-routes.js");
+
       let pages: IngestPage[];
       try {
         pages = assertUniqueSlugs(loadPages(opts));
@@ -199,7 +203,7 @@ export function registerMemoryIngestCommand(memory: Command): void {
         }
         return;
       }
-      for (const batch of chunk(pages, MAX_PAGES_PER_CALL)) {
+      for (const batch of chunk(pages, MAX_INGEST_PAGES_PER_CALL)) {
         const r = await cliIpcCall<MemoryIngestResult>(
           "memory_ingest",
           {
@@ -212,7 +216,24 @@ export function registerMemoryIngestCommand(memory: Command): void {
           { timeoutMs: INGEST_IPC_TIMEOUT_MS },
         );
         if (!r.ok) {
-          return exitFromIpcResult(r);
+          // A batch failed mid-run (e.g. 409 lock conflict, daemon down).
+          // Earlier batches have already committed, so report the partial
+          // aggregate instead of discarding it: a scripted migration needs
+          // to know exactly what landed before the failure.
+          const message = r.error ?? "Unknown error";
+          if (opts.json === true) {
+            log.info(
+              JSON.stringify({ ok: false, error: message, partial: aggregate }),
+            );
+          } else {
+            log.error(`Error: ${message}`);
+            log.error(
+              `Partial results before the failure: wrote ${aggregate.written} page(s); ` +
+                `skipped ${aggregate.skipped} existing; ${aggregate.invalid} invalid.`,
+            );
+          }
+          process.exitCode = exitCodeFromIpcResult(r);
+          return;
         }
         const payload = r.result!;
         aggregate.results.push(...payload.results);
