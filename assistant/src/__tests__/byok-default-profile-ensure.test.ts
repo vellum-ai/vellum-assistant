@@ -964,7 +964,7 @@ describe("ensureByokDefaultProfiles", () => {
   test("the pre-#39516 onboarding bare-provider connection stamp converts", () => {
     // Old web onboarding created the connection as `name: "anthropic"` and
     // stamped that onto the copy it authored, while daemon seeding wrote
-    // `anthropic-personal` on its copies — both are machinery-written.
+    // `anthropic-personal` on its copies; both are machinery-written.
     writeConfig({
       llm: {
         defaultProvider: { provider: "anthropic" },

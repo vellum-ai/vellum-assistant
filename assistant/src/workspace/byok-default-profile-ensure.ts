@@ -35,7 +35,7 @@ const log = getLogger("byok-default-profile-ensure");
 //
 // The pass runs regardless of the CURRENT default provider: an install that
 // hatched BYOK and later connected to platform (default provider `vellum`)
-// carries the same hatch residue and converts the same way — its default
+// carries the same hatch residue and converts the same way; its default
 // keys then resolve from the vellum column instead. That is why "unedited"
 // is judged against the provider recorded in each copy's own body, not the
 // current default: the copy was materialized once at hatch from the hatch
@@ -69,7 +69,7 @@ const log = getLogger("byok-default-profile-ensure");
  * The exact stub shapes BYOK hatching left on each default key: thin (only
  * the workspace-owned overlay fields), `source: "managed"`, the frozen
  * per-key label, and a `status` of `"disabled"` (seeded at hatch, #30367),
- * `"active"` (the hatch disable toggled back on through the UI — the only
+ * `"active"` (the hatch disable toggled back on through the UI, the only
  * writable field on a managed stub, and only meaningful while the
  * stub-vs-active split existed; post-conversion the bare key resolves
  * active anyway, so deleting it preserves the enable), or no `status` key
@@ -236,8 +236,8 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
   // Deleting a hatch stub makes the default key resolve active from the
   // default provider's catalog column (and drops the stub's suffixed label).
-  // Only the exact frozen hatch shapes — modulo the status toggle the guard
-  // exposes on managed stubs — are classified hatch-written; anything else
+  // Only the exact frozen hatch shapes (modulo the status toggle the guard
+  // exposes on managed stubs) are classified hatch-written; anything else
   // stays.
   for (const key of DEFAULT_PROFILE_KEYS) {
     const entry = readObject(profiles[key]);
@@ -370,7 +370,7 @@ function isKnownUneditedBody(
  * - `provider_connection` naming the bare provider: web onboarding before
  *   #39516 (2026-07-29) created the connection as `name: "<provider>"` and
  *   stamped that name onto the copy it authored, while daemon-side seeding
- *   independently wrote `<provider>-personal` — real workspaces carry both
+ *   independently wrote `<provider>-personal`; real workspaces carry both
  *   stamps side by side. Safe to accept: an api-key connection named
  *   exactly the provider resolves the same `credential/<provider>/api_key`
  *   slot as the conventional row, so retiring the copy cannot switch keys.
