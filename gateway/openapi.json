@@ -1233,6 +1233,10 @@
                     "type": "string",
                     "const": "merge"
                   },
+                  "confirmed": {
+                    "type": "boolean",
+                    "description": "Merge mode only. When false, signals the guardian cancelled the merge; relayed to the daemon so the pending CLI call unblocks immediately."
+                  },
                   "address": { "type": "string" },
                   "channelType": { "type": "string" },
                   "role": { "type": "string" },
