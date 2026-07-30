@@ -19,6 +19,7 @@ import {
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
+import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import {
   extractDomain,
   parseWebSearchResultText,
@@ -890,7 +891,7 @@ export function computeToolCallCardDataFromItems(
   let currentStepKind: "thinking" | "tool";
   if (trailingThinkingText !== null) {
     currentStepTitle = "Thinking";
-    currentStepInfo = trailingThinkingText;
+    currentStepInfo = thinkingPreview(trailingThinkingText);
     currentStepKind = "thinking";
   } else {
     currentStepTitle = deriveCurrentStepTitle(

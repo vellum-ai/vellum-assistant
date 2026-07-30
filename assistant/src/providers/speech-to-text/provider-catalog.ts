@@ -99,6 +99,16 @@ interface SttProviderEntry {
    */
   readonly supportsDiarization: boolean;
 
+  /**
+   * How the provider handles transcription language.
+   *
+   * - `"manual"`: the provider accepts an explicit language parameter and
+   *   defaults to English when omitted; a language picker is meaningful.
+   * - `"auto"`: the provider detects language natively and accepts no
+   *   language parameter; a picker would be a no-op, so clients must hide it.
+   */
+  readonly languageSelection: "manual" | "auto";
+
   /** Guide for obtaining API credentials from this provider. */
   readonly credentialsGuide?: SttCredentialsGuide;
 }
@@ -137,6 +147,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: true,
+      languageSelection: "manual",
       credentialsGuide: {
         description:
           "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
@@ -163,6 +174,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyMode: "batch-only",
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: false,
+      languageSelection: "auto",
       credentialsGuide: {
         description:
           "Visit Google AI Studio, sign in with your Google account, and create an API key.",
@@ -188,6 +200,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyMode: "batch-only",
       conversationStreamingMode: "incremental-batch",
       supportsDiarization: false,
+      languageSelection: "auto",
       credentialsGuide: {
         description:
           "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
@@ -213,6 +226,9 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyMode: "realtime-ws",
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: false,
+      // The relay dials Deepgram nova-3 server-side, which takes an explicit
+      // language parameter.
+      languageSelection: "manual",
     },
   ],
   [
@@ -232,6 +248,7 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyMode: "batch-only",
       conversationStreamingMode: "realtime-ws",
       supportsDiarization: true,
+      languageSelection: "manual",
       credentialsGuide: {
         description:
           "Sign in to the xAI console, navigate to API Keys, and create a new key.",

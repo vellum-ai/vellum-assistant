@@ -8,6 +8,7 @@ import {
   test,
 } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -16,6 +17,8 @@ import {
 } from "@testing-library/react";
 import { type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+
+import { __resetForTesting, publish } from "@/lib/event-bus";
 
 let isNativePlatformMock = false;
 let connectedMock = true;
@@ -77,6 +80,8 @@ let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
 }>;
+let setResumeGraceMs: (ms: number) => void;
+const DEFAULT_RESUME_GRACE_MS = 15_000;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -203,7 +208,9 @@ mock.module("@vellumai/design-library/components/button", () => ({
 }));
 
 beforeAll(async () => {
-  ({ StatusBanner } = await import("@/components/status-banner"));
+  const mod = await import("@/components/status-banner");
+  StatusBanner = mod.StatusBanner;
+  setResumeGraceMs = mod.__setResumeGraceMsForTesting;
 });
 
 beforeEach(() => {
@@ -239,10 +246,14 @@ beforeEach(() => {
   }));
   isLocalModeHostAvailableMock = true;
   isCliWakeableMock = true;
+  __resetForTesting();
+  setResumeGraceMs(DEFAULT_RESUME_GRACE_MS);
 });
 
 afterEach(() => {
   cleanup();
+  __resetForTesting();
+  setResumeGraceMs(DEFAULT_RESUME_GRACE_MS);
 });
 
 describe("StatusBanner", () => {
@@ -655,6 +666,96 @@ describe("StatusBanner", () => {
     expect(screen.queryByText("Assistant is restarting")).toBeNull();
   });
 
+  test("shows waking instead of unreachable within the resume grace window", async () => {
+    /**
+     * Returning to a backgrounded/tabbed-away client where the first status
+     * probe reads a transient `unreachable` must show the "waking" info
+     * treatment, not the "Assistant is unreachable" error banner.
+     */
+
+    // GIVEN a mounted banner with no operational status yet
+    const { rerender } = render(<StatusBanner />);
+
+    // AND the app resumes from the background (tab foreground / network back)
+    act(() => {
+      publish("app.resume", { signal: "visibility" });
+    });
+
+    // WHEN the first post-resume probe reads a transient unreachable
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the banner shows the waking info treatment, not the error banner
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is waking")).toBeTruthy();
+    });
+    expect(screen.queryByText("Assistant is unreachable")).toBeNull();
+    expect(screen.queryByText("Go to Doctor")).toBeNull();
+  });
+
+  test("surfaces the unreachable error after the resume grace window expires", async () => {
+    /**
+     * A genuinely unreachable assistant must still surface the real error
+     * banner with the Doctor action once the resume grace window elapses.
+     */
+
+    // GIVEN a very short resume grace window
+    setResumeGraceMs(20);
+
+    // AND a mounted banner that just resumed from the background
+    const { rerender } = render(<StatusBanner />);
+    act(() => {
+      publish("app.resume", { signal: "visibility" });
+    });
+
+    // WHEN the assistant persists in the unreachable state past the window
+    operationalStatusQueryMock = {
+      data: { state: "unreachable" },
+      isError: false,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the real unreachable error banner with the Doctor action surfaces
+    await waitFor(() => {
+      expect(screen.getByText("Assistant is unreachable")).toBeTruthy();
+    });
+    expect(screen.getByText("Go to Doctor")).toBeTruthy();
+    expect(screen.queryByText("Assistant is waking")).toBeNull();
+  });
+
+  test("holds back a transient status-query error within the resume grace window", async () => {
+    /**
+     * A status-query error immediately after resume is held back so a
+     * transient probe failure doesn't flash "Assistant status is unavailable",
+     * then surfaces once the grace window expires.
+     */
+
+    // GIVEN a short resume grace window and a mounted, resumed banner
+    setResumeGraceMs(20);
+    const { rerender } = render(<StatusBanner />);
+    act(() => {
+      publish("app.resume", { signal: "visibility" });
+    });
+
+    // WHEN the first post-resume probe errors
+    operationalStatusQueryMock = {
+      data: null,
+      isError: true,
+    };
+    rerender(<StatusBanner />);
+
+    // THEN the error banner is held back while the grace window is active
+    expect(screen.queryByText("Assistant status is unavailable")).toBeNull();
+
+    // AND it surfaces once the grace window expires
+    await waitFor(() => {
+      expect(screen.getByText("Assistant status is unavailable")).toBeTruthy();
+    });
+  });
+
   test("renders maintenance mode from lifecycle state when operational status is absent", () => {
     assistantStateMock = {
       kind: "active",
@@ -726,7 +827,8 @@ describe("StatusBanner", () => {
       expect(html).toContain('data-tone="neutral"');
       expect(html).toContain("bg-[var(--surface-active)]");
       expect(html).toContain("items-center");
-      expect(html).toContain("[&amp;_[data-slot=button]]:uppercase");
+      expect(html).toContain("[&amp;_[data-slot=button]]:text-body-small-default");
+      expect(html).not.toContain("[&amp;_[data-slot=button]]:uppercase");
       expect(html).not.toContain(
         "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
       );

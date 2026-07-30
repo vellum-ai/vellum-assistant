@@ -103,4 +103,27 @@ struct VoiceSessionAttributes: ActivityAttributes {
     }
 
     var assistantName: String
+
+    /// The assistant's avatar as encoded image data (PNG, or JPEG for
+    /// photographic uploads), or `nil` when there is none to show.
+    ///
+    /// An attribute rather than `ContentState` because it is fixed for the
+    /// activity's lifetime: it travels once, at `request`, and never through
+    /// an update. `ContentState` is re-sent on every phase change, and
+    /// ActivityKit rate-limits updates, so image bytes on that path would
+    /// exhaust the budget `use-live-activity-mirror.ts` protects.
+    ///
+    /// **The bytes travel because the extension cannot fetch them.** A Live
+    /// Activity renders from a snapshot with no async image loading, so a URL
+    /// would only ever draw a placeholder. That is also why this is not an App
+    /// Group: a shared container solves file *sharing*, and nothing here needs
+    /// a file.
+    ///
+    /// Kept small by `encodeAvatarForIsland`, which scales and re-encodes until
+    /// it fits a measured budget. The real ceiling is far below the 4KB Apple
+    /// documents for attributes plus content state: 3366 bytes threw
+    /// `attributesTooLarge` on an iPhone 17 Pro simulator while 1997 rendered.
+    /// Oversize does not degrade the avatar, it kills the whole activity, so
+    /// the web side sends nothing rather than sending too much.
+    var avatarImageData: Data?
 }

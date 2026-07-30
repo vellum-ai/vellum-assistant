@@ -41,12 +41,16 @@ import {
   type LiveVoiceState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
+import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import {
   endVoiceLiveActivity,
   startVoiceLiveActivity,
   updateVoiceLiveActivity,
   type VoiceLiveActivityContent,
+  type VoiceLiveActivityStart,
 } from "@/runtime/native-live-activity";
+import { encodeAvatarForIsland } from "@/utils/avatar-island-encode";
+import type { AvatarRender } from "@/utils/avatar-render";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 
@@ -86,6 +90,61 @@ function toActivityContent(
   };
 }
 
+/**
+ * The last avatar encoded for the island, keyed by the source it came from.
+ *
+ * Module scope, so a user who starts several sessions pays the canvas draw
+ * once. The key is the resolved {@link AvatarRender}, which is a stable object
+ * per avatar (republished only when the avatar itself changes), so identity
+ * comparison is enough and there is nothing to invalidate.
+ */
+let encodedAvatar: { source: AvatarRender | null; base64: string | null } | null =
+  null;
+
+/** The island avatar for the current assistant, encoding it on first use. */
+async function islandAvatarBase64(): Promise<string | undefined> {
+  const source = getIslandAvatarSource();
+  if (source === null) {
+    return undefined;
+  }
+  if (encodedAvatar?.source !== source) {
+    encodedAvatar = { source, base64: await encodeAvatarForIsland(source) };
+  }
+  return encodedAvatar.base64 ?? undefined;
+}
+
+/**
+ * Start the activity once the avatar is encoded.
+ *
+ * The encode is a canvas draw, so `start` is no longer synchronous with the
+ * store transition that triggered it, and the session can move underneath it.
+ * `currentStart` is therefore resolved *after* the await rather than captured
+ * before it, and answers both questions the delay creates:
+ *
+ * - **The session ended.** It returns `null`, so `end` is not overtaken by a
+ *   late `start` that would strand an island nothing is driving. That is the
+ *   one failure the plugin's single-activity handle cannot clean up until the
+ *   next launch.
+ * - **The phase moved on.** It returns the *latest* content, not the phase that
+ *   opened the window. Any `update` pushed while this was pending was dropped
+ *   natively, because there was no activity to update yet, so starting from the
+ *   captured payload would leave the island showing "Connecting…" until the
+ *   next phase change happened to repaint it.
+ */
+async function startWithAvatar(
+  currentStart: () => VoiceLiveActivityStart | null,
+): Promise<void> {
+  const avatarBase64 = await islandAvatarBase64();
+  const start = currentStart();
+  if (start === null) {
+    return;
+  }
+  await startVoiceLiveActivity({
+    ...start,
+    ...(avatarBase64 ? { avatarBase64 } : {}),
+  });
+}
+
 /** Whether two payloads would render the same island. */
 function sameContent(
   a: VoiceLiveActivityContent,
@@ -109,6 +168,11 @@ export function useLiveActivityMirror(): void {
      * no gain — `update`/`end` are native no-ops when nothing is running.
      */
     let pushed: VoiceLiveActivityContent | null = null;
+    /**
+     * Bumped on every start and every end, so an in-flight `startWithAvatar`
+     * can tell whether the session it was starting is still the current one.
+     */
+    let generation = 0;
 
     const sync = (session: LiveVoiceState): void => {
       const content = toActivityContent(session);
@@ -118,21 +182,33 @@ export function useLiveActivityMirror(): void {
           return;
         }
         pushed = null;
+        generation += 1;
         void endVoiceLiveActivity();
         return;
       }
 
       if (pushed === null) {
         pushed = content;
-        void startVoiceLiveActivity({
-          ...content,
-          // An `ActivityAttributes` field, not `ContentState`: fixed for the
-          // activity's lifetime, so it is read once here and never pushed
-          // again.
-          assistantName: assistantDisplayName(
-            useAssistantIdentityStore.getState().name,
-          ),
-        });
+        generation += 1;
+        const started = generation;
+        void startWithAvatar(() =>
+          // Read at start time, not capture time. `pushed` tracks the newest
+          // content, so a phase that landed during the avatar encode is what
+          // the island opens on; its own `update` was dropped natively for
+          // want of an activity to update.
+          generation === started && pushed !== null
+            ? {
+                ...pushed,
+                // An `ActivityAttributes` field, not `ContentState`: fixed for
+                // the activity's lifetime, so it is read once here and never
+                // pushed again. The avatar is added by `startWithAvatar` for
+                // the same reason.
+                assistantName: assistantDisplayName(
+                  useAssistantIdentityStore.getState().name,
+                ),
+              }
+            : null,
+        );
         return;
       }
 

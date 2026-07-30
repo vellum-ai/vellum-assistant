@@ -1,5 +1,5 @@
 import {
-  isLocalMode,
+  isLocalClient,
   getLocalGatewayUrl,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
@@ -60,7 +60,7 @@ export function isGatewayAuthEnabled(): boolean {
   if (isRemoteGatewayMode()) {
     return true;
   }
-  return isLocalMode() && getLocalGatewayUrl() != null;
+  return isLocalClient() && getLocalGatewayUrl() != null;
 }
 
 export function isGatewayAuthMode(): boolean {

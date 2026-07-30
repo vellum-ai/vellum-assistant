@@ -31,6 +31,20 @@ import { Fragment, useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
 /**
+ * Type treatment for the assistant half of the room's caption: the fluid size
+ * ramp and the line height its word reveal is tuned against. Lives here rather
+ * than at the call site so the room and its stories render the caption at one
+ * scale, and a story cannot document a size the app never shows. Mirrors the
+ * `NATIVE_IOS_BARE_ICON_BUTTON` pattern in `domains/chat/utils/`.
+ *
+ * Pair it with `VOICE_ROOM_TEXT_MEASURE` and left alignment: the reveal adds a
+ * word at a time, and centered text re-centers its last line on every arrival,
+ * so the words already on screen would shift sideways as speech streams in.
+ */
+export const VOICE_ASSISTANT_CAPTION_CLASS =
+  "break-words text-[clamp(17px,2.5vmin,26px)] leading-relaxed";
+
+/**
  * The exact word segmentation the component renders (whitespace runs collapse,
  * empty tokens drop). Exported so the spoken-word cursor maps audio progress
  * onto the same words the render uses.

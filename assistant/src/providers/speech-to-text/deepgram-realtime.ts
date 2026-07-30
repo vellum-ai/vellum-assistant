@@ -98,7 +98,15 @@ const FINALIZE_FALLBACK_MS = 2_000;
 export interface DeepgramRealtimeOptions {
   /** Deepgram model to use (default: "nova-2"). */
   model?: string;
-  /** BCP-47 language code (e.g. "en", "es"). Omitted by default (auto-detect). */
+  /**
+   * BCP-47 language code (e.g. "en", "es"), or "multi" for nova-3
+   * code-switching across English, Spanish, French, German, Hindi, Russian,
+   * Portuguese, Japanese, Italian, and Dutch.
+   *
+   * Omitted by default, which Deepgram decodes as English, NOT as
+   * auto-detection. Non-English audio sent without this comes back as
+   * English-sounding nonsense rather than an error.
+   */
   language?: string;
   /** Enable Deepgram smart formatting (punctuation, numerals, etc.). Default: true. */
   smartFormatting?: boolean;

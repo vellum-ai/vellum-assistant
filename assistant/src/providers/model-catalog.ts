@@ -50,6 +50,15 @@ export interface CatalogModel {
    * before dispatching. Implies `supportsThinking`.
    */
   adaptiveThinkingOnly?: boolean;
+  /**
+   * When true, the model predates adaptive thinking and rejects
+   * `thinking: { type: "adaptive" }` (Anthropic 400s such calls). It only
+   * supports the legacy `{ type: "enabled", budget_tokens }` form, which
+   * Vellum never sends. The daemon drops an enabled thinking config for these
+   * models before dispatching to the Anthropic wire. Mutually exclusive with
+   * `adaptiveThinkingOnly`.
+   */
+  adaptiveThinkingUnsupported?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
   /**
@@ -296,6 +305,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -312,6 +322,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -328,6 +339,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -404,17 +416,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 2.5,
-          outputPer1mTokens: 15.0,
-          cacheWritePer1mTokens: 3.125,
-          cacheReadPer1mTokens: 0.25,
+          inputPer1mTokens: 2.0,
+          outputPer1mTokens: 12.0,
+          cacheWritePer1mTokens: 2.5,
+          cacheReadPer1mTokens: 0.2,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 5,
-              outputPer1mTokens: 22.5,
-              cacheWritePer1mTokens: 6.25,
-              cacheReadPer1mTokens: 0.5,
+              inputPer1mTokens: 4,
+              outputPer1mTokens: 18,
+              cacheWritePer1mTokens: 5,
+              cacheReadPer1mTokens: 0.4,
             },
           ],
         },
@@ -432,17 +444,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 1.0,
-          outputPer1mTokens: 6.0,
-          cacheWritePer1mTokens: 1.25,
-          cacheReadPer1mTokens: 0.1,
+          inputPer1mTokens: 0.2,
+          outputPer1mTokens: 1.2,
+          cacheWritePer1mTokens: 0.25,
+          cacheReadPer1mTokens: 0.02,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 2,
-              outputPer1mTokens: 9,
-              cacheWritePer1mTokens: 2.5,
-              cacheReadPer1mTokens: 0.2,
+              inputPer1mTokens: 0.4,
+              outputPer1mTokens: 1.8,
+              cacheWritePer1mTokens: 0.5,
+              cacheReadPer1mTokens: 0.04,
             },
           ],
         },
@@ -1140,6 +1152,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1156,6 +1169,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1172,6 +1186,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1191,6 +1206,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
       // / 1.5x output / 2x cache-read+write for the whole request, per
       // OpenAI's model cards.
+      //
+      // Rates are OpenRouter's own card (https://openrouter.ai/api/v1/models),
+      // which discounts Terra and Luna below OpenAI's direct list price; Sol
+      // matches direct pricing.
       {
         id: "openai/gpt-5.6-sol",
         displayName: "GPT-5.6 Sol",
@@ -1260,17 +1279,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 2.5,
-          outputPer1mTokens: 15.0,
-          cacheWritePer1mTokens: 3.125,
-          cacheReadPer1mTokens: 0.25,
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 5,
-              outputPer1mTokens: 22.5,
-              cacheWritePer1mTokens: 6.25,
-              cacheReadPer1mTokens: 0.5,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
             },
           ],
         },
@@ -1288,17 +1307,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 2.5,
-          outputPer1mTokens: 15.0,
-          cacheWritePer1mTokens: 3.125,
-          cacheReadPer1mTokens: 0.25,
+          inputPer1mTokens: 1.0,
+          outputPer1mTokens: 6.0,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 5,
-              outputPer1mTokens: 22.5,
-              cacheWritePer1mTokens: 6.25,
-              cacheReadPer1mTokens: 0.5,
+              inputPer1mTokens: 2,
+              outputPer1mTokens: 9,
+              cacheWritePer1mTokens: 2.5,
+              cacheReadPer1mTokens: 0.2,
             },
           ],
         },
@@ -1316,17 +1335,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 1.0,
-          outputPer1mTokens: 6.0,
-          cacheWritePer1mTokens: 1.25,
-          cacheReadPer1mTokens: 0.1,
+          inputPer1mTokens: 0.1,
+          outputPer1mTokens: 0.6,
+          cacheWritePer1mTokens: 0.125,
+          cacheReadPer1mTokens: 0.01,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 2,
-              outputPer1mTokens: 9,
-              cacheWritePer1mTokens: 2.5,
-              cacheReadPer1mTokens: 0.2,
+              inputPer1mTokens: 0.2,
+              outputPer1mTokens: 0.9,
+              cacheWritePer1mTokens: 0.25,
+              cacheReadPer1mTokens: 0.02,
             },
           ],
         },
@@ -1344,17 +1363,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         supportsPromptCacheBreakpoints: true,
         pricing: {
-          inputPer1mTokens: 1.0,
-          outputPer1mTokens: 6.0,
-          cacheWritePer1mTokens: 1.25,
-          cacheReadPer1mTokens: 0.1,
+          inputPer1mTokens: 0.1,
+          outputPer1mTokens: 0.6,
+          cacheWritePer1mTokens: 0.125,
+          cacheReadPer1mTokens: 0.01,
           tiers: [
             {
               inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
-              inputPer1mTokens: 2,
-              outputPer1mTokens: 9,
-              cacheWritePer1mTokens: 2.5,
-              cacheReadPer1mTokens: 0.2,
+              inputPer1mTokens: 0.2,
+              outputPer1mTokens: 0.9,
+              cacheWritePer1mTokens: 0.25,
+              cacheReadPer1mTokens: 0.02,
             },
           ],
         },
@@ -1873,6 +1892,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
+        adaptiveThinkingUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -2171,6 +2191,16 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
 
+/** The `maxOutputTokens` declared for a (provider, model) catalog entry, if any. */
+export function catalogMaxOutputTokens(
+  provider: string,
+  modelId: string,
+): number | undefined {
+  return PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
+    (m) => m.id === modelId,
+  )?.maxOutputTokens;
+}
+
 /**
  * Model IDs (across all catalog providers) flagged
  * `supportsPromptCacheBreakpoints`. Consumed by the OpenAI Responses
@@ -2223,6 +2253,27 @@ export function getCatalogProviderForModel(
 export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
   return PROVIDER_CATALOG.some((p) =>
     p.models.some((m) => m.id === modelId && m.adaptiveThinkingOnly === true),
+  );
+}
+
+/**
+ * Whether the given model predates adaptive thinking and rejects
+ * `thinking: { type: "adaptive" }`, driven by the `adaptiveThinkingUnsupported`
+ * capability in the catalog. Matches the model ID across every provider (same
+ * pattern as {@link isAdaptiveThinkingOnlyModel}), and also matches the
+ * undated aliases Anthropic serves for dated catalog IDs (`claude-haiku-4-5`
+ * resolves the same model as `claude-haiku-4-5-20251001`), since profiles and
+ * the CLI accept either form.
+ */
+export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalized = stripDateSuffix(modelId);
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some(
+      (m) =>
+        m.adaptiveThinkingUnsupported === true &&
+        (m.id === modelId || stripDateSuffix(m.id) === normalized),
+    ),
   );
 }
 

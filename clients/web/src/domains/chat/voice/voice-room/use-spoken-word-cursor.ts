@@ -61,6 +61,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { getLiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { recordUpdate } from "@/lib/commit-pressure";
 
 /**
  * Ceiling on cursor advancement, in words per second of played audio.
@@ -186,6 +187,7 @@ export function useSpokenWordCursor(wordCount: number): number | null {
       }
       if (next !== cursorRef.current) {
         cursorRef.current = next;
+        recordUpdate("spoken-word-cursor");
         setIndex(next);
       }
       raf = requestAnimationFrame(tick);

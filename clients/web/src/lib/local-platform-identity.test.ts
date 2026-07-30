@@ -20,7 +20,7 @@ let activeAssistant = {
   organizationId: ORGANIZATION_ID,
   resources: { gatewayPort: 20101 },
 };
-let isLocalModeValue = true;
+let isLocalClientValue = true;
 let isPlatformDisabledValue = false;
 let isRemoteGatewayModeValue = false;
 let selfHostedIngressUrl: string | null = GATEWAY_URL;
@@ -57,7 +57,7 @@ mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => activeAssistant,
   isLocalAssistant: (assistant: { cloud?: string }) =>
     assistant?.cloud === "local",
-  isLocalMode: () => isLocalModeValue,
+  isLocalClient: () => isLocalClientValue,
   isPlatformDisabled: () => isPlatformDisabledValue,
   isRemoteGatewayMode: () => isRemoteGatewayModeValue,
   primeLocalGatewayConnectionWithRepair:
@@ -131,7 +131,7 @@ beforeEach(() => {
     organizationId: ORGANIZATION_ID,
     resources: { gatewayPort: 20101 },
   };
-  isLocalModeValue = true;
+  isLocalClientValue = true;
   isPlatformDisabledValue = false;
   isRemoteGatewayModeValue = false;
   selfHostedIngressUrl = GATEWAY_URL;

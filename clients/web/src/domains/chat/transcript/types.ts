@@ -62,6 +62,7 @@ export interface PendingContactRequestItem extends TranscriptItemBase {
   /** Channel type hint from the daemon (e.g. "phone", "email"). */
   channel?: string;
   placeholder?: string;
+  defaultValue?: string;
   label?: string;
   description?: string;
   role?: string;

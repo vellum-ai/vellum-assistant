@@ -6,7 +6,10 @@ import {
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
-import { A2A_AGENT_CARD_PATH } from "../http/routes/a2a-routes.js";
+import {
+  A2A_AGENT_CARD_PATH,
+  buildAgentCard,
+} from "../http/routes/a2a-routes.js";
 import { buildSchema } from "../schema.js";
 import { buildMarkedContactRoutes } from "./helpers/contact-route-table.js";
 
@@ -342,12 +345,47 @@ describe("route-schema sync guard", () => {
     expect(stale).toEqual([]);
   });
 
+  // The agent card is fetched by peers, so every interface URL it advertises
+  // is a promise that the gateway serves that path. Falling through to the
+  // runtime-proxy catch-all does not count: the daemon serves no A2A protocol
+  // route, so an unregistered path reaches the peer as a 404.
+  test("agent card advertises only interface URLs the gateway serves", () => {
+    const card = buildAgentCard("Alice");
+
+    expect(
+      unservedInterfacePaths(card.supported_interfaces, routePaths),
+    ).toEqual([]);
+  });
+
+  test("advertised-interface check flags a URL with no registered route", () => {
+    const unserved = unservedInterfacePaths(
+      [{ url: "https://assistant.example.com/a2a/message:send" }],
+      routePaths,
+    );
+
+    expect(unserved).toEqual(["/a2a/message:send"]);
+  });
+
   test("regex route normalization ignores negative lookaheads", () => {
     expect(
       regexToOpenApiPath(String.raw`\/v1\/contacts\/(?!invites$)([^/]+)`),
     ).toBe("/v1/contacts/{param1}");
   });
 });
+
+/**
+ * Returns the pathnames of the advertised A2A interfaces that no gateway route
+ * table entry serves.
+ */
+function unservedInterfacePaths(
+  supportedInterfaces: ReadonlyArray<{ url: string }>,
+  registeredPaths: string[],
+): string[] {
+  const registered = new Set(registeredPaths);
+  return supportedInterfaces
+    .map((iface) => new URL(iface.url).pathname)
+    .filter((path) => !registered.has(path));
+}
 
 /**
  * Returns the schema path string that matches a route path, or null if none.

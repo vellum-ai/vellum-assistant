@@ -85,11 +85,33 @@ mock.module("@/domains/chat/voice/voice-room/voice-avatar", () => ({
   ),
 }));
 
-// Stub the listening waves (rAF loop + SVG geometry) so the room-chrome tests
-// stay focused on wiring: we only assert the room mounts them in the right
-// phase, not how they animate.
-mock.module("@/domains/chat/voice/voice-room/voice-listening-waves", () => ({
-  VoiceListeningWaves: () => <div data-testid="listening-waves" />,
+// Stub the listening waves (rAF loop + per-frame SVG geometry) so the
+// room-chrome tests stay focused on wiring: we only assert the room mounts
+// them in the right phase, not how they animate.
+const waveStub = ({
+  placement,
+  color,
+}: {
+  placement?: string;
+  color?: string;
+}) => (
+  <div
+    data-testid="listening-waves"
+    data-placement={placement}
+    data-color={color}
+  />
+);
+// Both engines are stubbed: the room draws the mesh, but which engine is the
+// default is a design decision that has already changed once, and these tests
+// are about which band the room raises, not which component draws it.
+// `placement` and `color` are surfaced because together they are the room's
+// whole vocabulary for whose voice is on screen.
+mock.module("@/domains/chat/voice/voice-room/voice-mesh-waves", () => ({
+  VoiceMeshWaves: waveStub,
+  MESH_INLINE_TUNING: {},
+}));
+mock.module("@/domains/chat/voice/voice-room/voice-reactive-waves", () => ({
+  VoiceReactiveWaves: waveStub,
 }));
 
 // The room resolves its look (color-with-eyes vs the ambient void) and the
@@ -154,9 +176,27 @@ mock.module("@/domains/chat/surface-actions", () => ({
   handleSurfaceAction: handleSurfaceActionSpy,
 }));
 
+// The settings gear calls this hook at mount (hoisted above its picker so
+// the serialized write chain survives close/reopen), which would pull the
+// daemon React Query graph into every room render. Stubbed as unavailable;
+// its behavior is covered in voice-room-settings-menu.test.tsx.
+mock.module("@/components/speech/use-stt-language-selection", () => ({
+  useSttLanguageSelection: () => ({
+    available: false,
+    currentCode: "",
+    configuredProviderId: "vellum",
+    selectLanguage: () => {},
+    selecting: false,
+  }),
+}));
+
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } =
   await import("@/domains/chat/voice/voice-room/voice-room");
+// The caption is exercised directly as well as through the room: the room
+// hides it, so its emphasis contract is only observable component-side.
+const { VoiceStateCaption } =
+  await import("@/domains/chat/voice/voice-room/voice-room-eyes");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
 const { attachSurface } =
@@ -374,9 +414,9 @@ describe("VoiceRoom — visibility", () => {
   });
 
   test("renders nothing in an Electron pop-out even when the composer owns the session", () => {
-    // The `fixed inset-0` room would cover the pop-out's standalone pill, so
-    // pop-outs never show it — the standalone pill is their only session
-    // surface. The owning composer's voice bar still renders underneath.
+    // The room fills whichever box it is mounted in, and in a pop-out that box
+    // is the whole window, so it would cover the standalone pill and pop-outs
+    // never show it. The owning composer's voice bar still renders underneath.
     startOwnedSession("listening");
     mockSearch = "?popout=1";
     render(<VoiceRoom />);
@@ -391,6 +431,190 @@ describe("VoiceRoom — visibility", () => {
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
     expect(useLiveVoiceStore.getState().state).toBe("listening");
+  });
+});
+
+// Placement is the whole point of the two variants: desktop insets the room
+// into the content area so the title bar and sidenav stay visible AND usable,
+// mobile keeps the full-viewport takeover. The modality flag has to follow the
+// placement. A non-modal room that claimed `aria-modal` would tell assistive
+// tech the chrome beside it is inert when it is in fact the way out.
+describe("VoiceRoom: placement variants", () => {
+  test("content: inset panel, non-modal", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="content" />);
+
+    const room = roomDialog();
+    expect(room).not.toBeNull();
+    expect(room?.className).toContain("absolute inset-0");
+    expect(room?.className).not.toContain("fixed");
+    // Rounded corners are what make it read as a panel set inside the chrome.
+    expect(room?.className).toContain("rounded-xl");
+    expect(room?.getAttribute("aria-modal")).toBeNull();
+  });
+
+  test("fullscreen: full-viewport takeover, modal", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="fullscreen" />);
+
+    const room = roomDialog();
+    expect(room?.className).toContain("fixed inset-0");
+    expect(room?.className).not.toContain("rounded-xl");
+    expect(room?.getAttribute("aria-modal")).toBe("true");
+  });
+
+  test("defaults to fullscreen", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    expect(roomDialog()?.className).toContain("fixed inset-0");
+  });
+
+  test("both variants keep Escape-to-minimize, so the content room is dismissible too", () => {
+    // The content variant is non-modal, but Escape is still the platform
+    // "leave the overlay" key; it must not degrade into ending the call.
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="content" />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
+  });
+});
+
+// The mobile sheet rests below the thread header instead of covering it. Radix
+// portals it out of the layout, so unlike the desktop panel it cannot inherit
+// that edge from the DOM and is positioned against a measured header height.
+describe("VoiceRoom: mobile sheet", () => {
+  /**
+   * Stand in for the real header so the sheet has an edge to rest below.
+   * `top` defaults non-zero because that is the real case: `root-layout.tsx`
+   * pads the app shell above the header by the notch inset, and stacks the iOS
+   * keyboard offset on top of that.
+   */
+  function mountHeader({ top = 47, height = 96 } = {}) {
+    const header = document.createElement("div");
+    header.setAttribute("data-slot", "chat-layout-header");
+    header.getBoundingClientRect = () =>
+      ({ height, width: 390, top, left: 0, bottom: top + height }) as DOMRect;
+    document.body.appendChild(header);
+    return () => header.remove();
+  }
+
+  test("rests at the header's bottom edge, not its height", () => {
+    // The sheet is `fixed` against the viewport, so the offset has to be the
+    // header's bottom in viewport coordinates. Positioning by height alone
+    // puts it above the notch inset and overlaps the header it should sit
+    // under, and the gap widens when the iOS keyboard shifts the shell down.
+    const removeHeader = mountHeader({ top: 47, height: 96 });
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    expect(sheet.getAttribute("data-slot")).toBe("bottom-sheet-content");
+    expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+    removeHeader();
+  });
+
+  test("a header flush to the viewport top offsets by its height", () => {
+    const removeHeader = mountHeader({ top: 0, height: 96 });
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    expect(
+      screen
+        .getByRole("dialog", { name: "Voice session" })
+        .style.getPropertyValue("--voice-sheet-top"),
+    ).toBe("96px");
+    removeHeader();
+  });
+
+  test("the sheet is unpadded, so the room reaches its rounded corners", () => {
+    // The room is a surface, not sheet content: a color fill inset by the
+    // primitive's default `px-4 pt-4` would leave a frame of sheet background
+    // around it.
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    const { container } = render(<VoiceRoom variant="sheet" />);
+
+    const inner = document.querySelector(
+      '[data-slot="bottom-sheet-content-inner"]',
+    );
+    expect(inner).not.toBeNull();
+    expect(inner?.className).not.toContain("px-4");
+    expect(container).toBeTruthy();
+    removeHeader();
+  });
+
+  test("the room fills the sheet without declaring a second dialog", () => {
+    // Radix's content element is the dialog. A nested role + label inside it
+    // would announce the room twice.
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    removeHeader();
+  });
+
+  test("with no header present the sheet rests at the top edge", () => {
+    // Pop-outs render no header. They never show the room, but a zero offset
+    // is the right answer for a surface with nothing above it either way.
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("0px");
+  });
+
+  test("Escape minimizes, and does not end the session", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
+    removeHeader();
+  });
+
+  // The sheet rests below the thread header so that header stays usable. All
+  // three of Radix's modal reflexes would contradict that: the dim greys the
+  // header out, the focus trap makes it inert while still looking available,
+  // and dismiss-on-outside collapses the room the moment the user reaches for
+  // it.
+  test("is non-modal, so the header above it stays live", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    // Radix marks the page inert for modal dialogs only.
+    expect(document.body.getAttribute("aria-hidden")).toBeNull();
+    expect(sheet.getAttribute("data-state")).toBe("open");
+    removeHeader();
+  });
+
+  test("does not dim the page behind it", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    // Radix renders no overlay at all once `modal` is false, so there is
+    // nothing to grey out the thread header the sheet rests below.
+    expect(
+      document.querySelector('[data-slot="bottom-sheet-overlay"]'),
+    ).toBeNull();
+    removeHeader();
   });
 });
 
@@ -624,16 +848,42 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     expect(exitButton()).not.toBeNull();
   });
 
-  test("the color look shows no waveform outside listening", () => {
+  function renderCharacterAt(state: LiveVoiceSessionState) {
     mockAvatarData = {
       components: CHARACTER_COMPONENTS,
       traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
       customImageUrl: null,
     };
-    startOwnedSession("speaking");
+    startOwnedSession(state);
     render(<VoiceRoom />);
-    expect(eyes()).not.toBeNull();
-    expect(screen.queryByTestId("listening-waves")).toBeNull();
+    return screen.queryByTestId("listening-waves");
+  }
+
+  test("both voices raise their band from the floor", () => {
+    // An earlier pass split them by edge, which rearranged the room's whole
+    // composition twice a turn. Sharing the floor keeps the layout still.
+    expect(renderCharacterAt("listening")?.dataset.placement).toBe("bottom");
+    cleanup();
+    expect(renderCharacterAt("speaking")?.dataset.placement).toBe("bottom");
+  });
+
+  test("ink is what tells the two voices apart", () => {
+    // With position no longer carrying it, the color is the entire signal for
+    // whose voice is on screen — the pale sheet is the user, the dark one the
+    // assistant. If these ever match, the room stops distinguishing them.
+    const listening = renderCharacterAt("listening")?.dataset.color;
+    cleanup();
+    const speaking = renderCharacterAt("speaking")?.dataset.color;
+    expect(listening).toBe("#FFFFFF");
+    expect(speaking).toBe("#000000");
+    expect(listening).not.toBe(speaking);
+  });
+
+  test("the floor is empty between turns", () => {
+    // No band while thinking, and no transit sweep either: the listening band
+    // flattens and fades out as the voice stops, which is the hand-off.
+    expect(renderCharacterAt("thinking")).toBeNull();
+    expect(screen.queryByTestId("voice-thinking-band")).toBeNull();
   });
 
   test("a default character (no traits) gets first-component eyes", () => {
@@ -682,7 +932,7 @@ describe("VoiceRoom — state caption (shared across looks)", () => {
   }
 
   // The void look (custom-image / unresolved avatar) carries the centered
-  // avatar, not the eyes, but shares the same caption in the same beat.
+  // avatar, not the eyes, but shares the same caption beat.
   function renderVoidLook(state: LiveVoiceSessionState) {
     mockAvatarData = {
       components: CHARACTER_COMPONENTS,
@@ -693,37 +943,58 @@ describe("VoiceRoom — state caption (shared across looks)", () => {
     render(<VoiceRoom />);
   }
 
-  test("shows the state caption below the eyes by default (captions off)", () => {
+  // The room passes `captionEmphasis: "hidden"`, so nothing it can be told
+  // about transcripts will make a caption appear. The tests that used to
+  // exercise `showStateCaption` through the room have moved down to
+  // `VoiceStateCaption`, where the emphasis can be varied and the assertions
+  // still mean something — left here they would have passed unconditionally.
+  test("paints no caption by default — the bands carry the state", () => {
     renderCharacterLook("listening");
-    expect(caption()?.textContent).toBe("Listening");
-  });
-
-  test("stands the caption down when the assistant transcript is enabled", () => {
-    useVoicePrefsStore.setState({ showAssistantTranscript: true });
-    renderCharacterLook("speaking");
     expect(caption()).toBeNull();
   });
 
-  test("keeps the caption when only the user transcript is enabled", () => {
-    // The user transcript floats *above* the eyes, so it never fills the
-    // caption's lower space — enabling it alone must not blank the caption.
-    useVoicePrefsStore.setState({ showUserTranscript: true });
-    renderCharacterLook("listening");
-    expect(caption()?.textContent).toBe("Listening");
-  });
-
-  test("the void look shows the same caption below the custom avatar (parity)", () => {
+  test("paints no caption in the void look either", () => {
     renderVoidLook("speaking");
-    // Void look — the centered avatar, not the eyes — still names the beat.
     expect(screen.getByTestId("voice-avatar")).toBeTruthy();
     expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
-    expect(caption()?.textContent).toBe("Speaking");
+    expect(caption()).toBeNull();
+  });
+});
+
+describe("VoiceStateCaption — emphasis", () => {
+  const caption = () => screen.queryByTestId("voice-state-caption");
+
+  test("hidden paints nothing", () => {
+    render(<VoiceStateCaption visual="listening" emphasis="hidden" />);
+    expect(caption()).toBeNull();
   });
 
-  test("the void look stands its caption down for the assistant transcript too", () => {
-    useVoicePrefsStore.setState({ showAssistantTranscript: true });
-    renderVoidLook("speaking");
+  test("muted keeps the label, quietly", () => {
+    render(<VoiceStateCaption visual="listening" emphasis="muted" />);
+    expect(caption()?.textContent).toBe("Listening");
+    expect(caption()?.dataset.emphasis).toBe("muted");
+  });
+
+  test("full keeps the original weight", () => {
+    render(<VoiceStateCaption visual="responding" emphasis="full" />);
+    expect(caption()?.textContent).toBe("Speaking");
+    expect(caption()?.dataset.emphasis).toBe("full");
+  });
+
+  test("emphasis applies uniformly across phases", () => {
+    // `thinking` was once exempt, back when it had nothing but a dot triad and
+    // dropping its caption left a still, silent room. The transit band is what
+    // removed the need for that exception.
+    render(<VoiceStateCaption visual="thinking" emphasis="hidden" />);
     expect(caption()).toBeNull();
+  });
+
+  test("names no beat for the states that have no label", () => {
+    for (const visual of ["idle", "reconnecting"] as const) {
+      cleanup();
+      render(<VoiceStateCaption visual={visual} emphasis="full" />);
+      expect(caption()).toBeNull();
+    }
   });
 });
 

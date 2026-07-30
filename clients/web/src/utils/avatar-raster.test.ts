@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { coverCropSquare } from "@/hooks/use-electron-icon-sync";
+import { coverCropSquare } from "@/utils/avatar-raster";
 
-// Locks `object-cover` parity for the Dock/menu-bar icons: a non-square avatar
+// Locks `object-cover` parity for every rasterized avatar surface
+// (Dock/menu-bar icons, the iOS Live Activity): a non-square avatar
 // must be center-cropped to a square (not stretched), matching the in-app
 // `ChatAvatar`. Regressed when the rasterizer used a 4-arg `drawImage` that
 // stretched the source to fill the square canvas.

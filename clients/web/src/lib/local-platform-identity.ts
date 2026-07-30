@@ -5,7 +5,7 @@ import {
   getPlatformRuntimeUrl,
   getSelectedAssistant,
   isLocalAssistant,
-  isLocalMode,
+  isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
   primeLocalGatewayConnectionWithRepair,
@@ -106,7 +106,7 @@ export async function resolveLocalAssistantPlatformIdentity(
   options: ResolveLocalAssistantPlatformIdentityOptions = {},
 ): Promise<string> {
   if (
-    !isLocalMode() ||
+    !isLocalClient() ||
     isRemoteGatewayMode() ||
     isPlatformDisabled() ||
     isUuid(assistantId)
@@ -140,7 +140,7 @@ export function bootstrapLocalAssistantPlatformIdentity(
   assistantId?: string,
   options: BootstrapLocalAssistantPlatformIdentityOptions = {},
 ): void {
-  if (!isLocalMode() || isRemoteGatewayMode() || isPlatformDisabled()) {
+  if (!isLocalClient() || isRemoteGatewayMode() || isPlatformDisabled()) {
     return;
   }
 

@@ -119,6 +119,7 @@ export const gmailProvider: WatcherProvider = {
   id: "gmail",
   displayName: "Gmail",
   requiredCredentialService: "google",
+  untrustedContentSource: "email",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService, {

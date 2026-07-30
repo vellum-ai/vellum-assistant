@@ -10,8 +10,9 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
   with `--filter=@vellumai/<name>` when needed). Each keeps its own
   `package.json`, `tsconfig.json`, and lint config.
 - `clients/chrome-extension/` is the one standalone package, with its own
-  `bun.lock` and per-package `bun install`. `clients/ios/` is a Capacitor
-  shell built from `clients/web/` and has no package manifest of its own.
+  `bun.lock` and per-package `bun install`. Native shell directories
+  (`clients/ios/`, `clients/android/`) are Capacitor shells built from
+  `clients/web/` and have no package manifests of their own.
 - Exact version pinning is enforced repo-wide; see root `AGENTS.md` for the
   dependency, license, and tool-version rules.
 - All current client apps use bundlers (`clients/web/` via Vite,
