@@ -14,7 +14,6 @@ interface SearchableChunk extends DocsSearchChunk {
 interface RankedChunk {
   chunk: DocsSearchChunk;
   matchedTerms: string[];
-  lexicalScore: number;
   score: number;
 }
 
@@ -82,54 +81,6 @@ function clampLimit(limit: number | undefined): number {
   return Math.min(Math.max(Math.floor(limit), 1), 20);
 }
 
-function normalizeLexicalScores(candidates: RankedChunk[]): RankedChunk[] {
-  const maxLexical = Math.max(...candidates.map((candidate) => candidate.lexicalScore), 1);
-
-  return candidates.map((candidate) => ({
-    ...candidate,
-    score: candidate.lexicalScore / maxLexical,
-  }));
-}
-
-function lexicalSearch(params: {
-  query: string;
-  chunks: DocsSearchChunk[];
-  topK: number;
-}): RankedChunk[] {
-  const mini = getMiniSearch(params.chunks);
-  const chunkMap = getChunkMap(params.chunks);
-
-  const raw = mini.search(params.query, {
-    combineWith: "OR",
-    prefix: true,
-    fuzzy: (term) => (term.length >= 5 ? 0.2 : false),
-    boost: SEARCH_BOOSTS,
-  });
-
-  const ranked = raw
-    .slice(0, params.topK)
-    .map((result) => {
-      const chunk = chunkMap.get(String(result.id));
-      if (!chunk) {
-        return null;
-      }
-
-      return {
-        chunk,
-        matchedTerms: result.terms,
-        lexicalScore: result.score,
-        score: result.score,
-      } satisfies RankedChunk;
-    })
-    .filter((candidate): candidate is RankedChunk => candidate !== null);
-
-  if (ranked.length === 0) {
-    return [];
-  }
-
-  return normalizeLexicalScores(ranked).sort((a, b) => b.score - a.score);
-}
-
 function toResult(query: string, candidate: RankedChunk): DocsSearchResult {
   const snippetQuery = [...candidate.matchedTerms, query].join(" ").trim() || query;
 
@@ -157,12 +108,29 @@ export function searchDocsIndex(params: {
     return [];
   }
 
-  const lexicalTopK = Math.max(40, limit * 4);
-  const candidates = lexicalSearch({
-    query,
-    chunks: params.index.chunks,
-    topK: lexicalTopK,
+  const mini = getMiniSearch(params.index.chunks);
+  const chunkMap = getChunkMap(params.index.chunks);
+
+  const matches = mini.search(query, {
+    combineWith: "OR",
+    prefix: true,
+    fuzzy: (term) => (term.length >= 5 ? 0.2 : false),
+    boost: SEARCH_BOOSTS,
   });
 
-  return candidates.slice(0, limit).map((candidate) => toResult(query, candidate));
+  // Normalizes scores to 0..1 against the best match for the response shape.
+  const maxScore = Math.max(...matches.map((match) => match.score), 1);
+
+  return matches.slice(0, limit).flatMap((match) => {
+    const chunk = chunkMap.get(String(match.id));
+    if (!chunk) {
+      return [];
+    }
+
+    return toResult(query, {
+      chunk,
+      matchedTerms: match.terms,
+      score: match.score / maxScore,
+    });
+  });
 }

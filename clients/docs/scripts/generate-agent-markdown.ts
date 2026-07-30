@@ -16,7 +16,7 @@
  * Runs before `next build` and `next dev` (see the prebuild/predev scripts in
  * package.json) so the generated files ship with the deploy.
  */
-import { mkdir, opendir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -113,24 +113,6 @@ function outputPathForRoute(route: string): string {
   return join(OUTPUT_ROOT, `${route.replace(/^\//, "")}.md`);
 }
 
-async function removeGeneratedDocsLlmsFiles(dir: string): Promise<void> {
-  let entries;
-  try {
-    entries = await opendir(dir);
-  } catch {
-    return;
-  }
-
-  for await (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await removeGeneratedDocsLlmsFiles(path);
-    } else if (entry.isFile() && entry.name === "llms.txt") {
-      await rm(path, { force: true });
-    }
-  }
-}
-
 async function main() {
   // Redirect stubs permanently redirect their HTML route; mirroring them
   // would point agents at a page that only says "moved". llms.txt and the
@@ -140,7 +122,6 @@ async function main() {
   );
 
   await rm(OUTPUT_ROOT, { recursive: true, force: true });
-  await removeGeneratedDocsLlmsFiles(DOCS_PUBLIC_ROOT);
 
   let written = 0;
   let fallbacks = 0;
